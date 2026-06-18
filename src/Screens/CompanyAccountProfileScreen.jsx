@@ -20,6 +20,7 @@ const ResponsiveStyles = () => (
     @import url('https://fonts.googleapis.com/css2?family=Jersey+25&family=Jua&family=Kufam:wght@400;600;700&family=Monomaniac+One&display=swap');
     * { box-sizing: border-box; }
 
+    /* ── Profile header card ── */
     .cap-header-card {
       position: relative;
       z-index: 2;
@@ -34,22 +35,24 @@ const ResponsiveStyles = () => (
       min-width: 260px;
     }
     @media (max-width: 480px) {
-      .cap-header-card { padding: 48px 20px 14px; min-width: unset; width: 90%; }
+      .cap-header-card { padding: 48px 24px 14px; min-width: unset; width: 90%; }
     }
 
+    /* ── Menu body ── */
     .cap-body {
       flex: 1;
       overflow-y: auto;
-      padding: 16px 24px 28px;
+      padding: 0 24px 28px;
       background: #f0f0f0;
       display: flex;
       flex-direction: column;
       align-items: center;
     }
     @media (max-width: 480px) {
-      .cap-body { padding: 12px 12px 24px; }
+      .cap-body { padding: 0 12px 24px; }
     }
 
+    /* ── Menu box ── */
     .cap-menu-box {
       background: #590101;
       border-radius: 16px;
@@ -57,13 +60,12 @@ const ResponsiveStyles = () => (
       margin-bottom: 28px;
       width: 100%;
       box-sizing: border-box;
-      overflow-y: auto;
-      max-height: 260px;
     }
     @media (max-width: 480px) {
       .cap-menu-box { padding: 12px 12px; }
     }
 
+    /* ── Menu row ── */
     .cap-menu-row {
       display: flex;
       align-items: center;
@@ -80,6 +82,7 @@ const ResponsiveStyles = () => (
       .cap-menu-row { padding: 10px 12px; }
     }
 
+    /* ── Section header bar ── */
     .cap-section-header {
       background: linear-gradient(90deg, #590101 0%, #590101 100%);
       padding: 16px 28px;
@@ -93,6 +96,7 @@ const ResponsiveStyles = () => (
       .cap-section-header h2 { font-size: 1.3rem !important; }
     }
 
+    /* ── Personal info body ── */
     .cap-info-body {
       flex: 1;
       overflow-y: auto;
@@ -104,6 +108,7 @@ const ResponsiveStyles = () => (
       .cap-info-body { padding: 16px 14px; }
     }
 
+    /* ── Inner info card ── */
     .cap-info-card {
       background: #590101;
       border-radius: 16px;
@@ -113,6 +118,7 @@ const ResponsiveStyles = () => (
       .cap-info-card { padding: 12px 12px; }
     }
 
+    /* ── Reset / Privacy / Terms scroll body ── */
     .cap-sub-body {
       flex: 1;
       overflow-y: auto;
@@ -123,6 +129,7 @@ const ResponsiveStyles = () => (
       .cap-sub-body { padding: 16px 14px; }
     }
 
+    /* ── OTP row ── */
     .cap-otp-row {
       display: flex;
       gap: 10px;
@@ -131,6 +138,7 @@ const ResponsiveStyles = () => (
       flex-wrap: wrap;
     }
 
+    /* ── OTP digit inputs ── */
     .cap-otp-input {
       width: 52px;
       height: 60px;
@@ -147,16 +155,19 @@ const ResponsiveStyles = () => (
       .cap-otp-input { width: 38px; height: 48px; font-size: 1.4rem; border-radius: 8px; }
     }
 
+    /* ── Divider line ── */
     .cap-divider {
       width: 80%;
-      height: 1px;
+      height: 1.5px;
       background: #ccc;
-      margin: 16px 0;
+      margin: 16px auto;
+      border-radius: 2px;
     }
     @media (max-width: 480px) {
       .cap-divider { width: 92%; }
     }
 
+    /* ── Save row ── */
     .cap-save-row {
       display: flex;
       justify-content: flex-end;
@@ -593,13 +604,13 @@ const TermsScreen = ({ onBack }) => (
   </div>
 );
 
-// ── Personal Information Screen ───────────────────────────────────────────────
-
+// ── Save Modals ───────────────────────────────────────────────────────────────
 const SaveSuccessModal = ({ onClose }) => (
   <div style={{
     position: "fixed", inset: 0, zIndex: 9999,
     background: "rgba(0,0,0,0.45)",
     display: "flex", alignItems: "center", justifyContent: "center",
+    padding: "16px",
   }}>
     <div style={{
       background: "white", borderRadius: "20px",
@@ -639,6 +650,7 @@ const SaveErrorModal = ({ message, onClose }) => (
     position: "fixed", inset: 0, zIndex: 9999,
     background: "rgba(0,0,0,0.45)",
     display: "flex", alignItems: "center", justifyContent: "center",
+    padding: "16px",
   }}>
     <div style={{
       background: "white", borderRadius: "20px",
@@ -675,6 +687,7 @@ const SaveErrorModal = ({ message, onClose }) => (
   </div>
 );
 
+// ── Personal Information Screen ───────────────────────────────────────────────
 const PersonalInfoScreen = ({ onBack, user }) => {
   const [editing, setEditing]             = useState(false);
   const [loading, setLoading]             = useState(true);
@@ -691,10 +704,9 @@ const PersonalInfoScreen = ({ onBack, user }) => {
   const [email, setEmail]   = useState("");
   const [errors, setErrors] = useState({});
   const [showSuccess, setShowSuccess] = useState(false);
-  const [showError, setShowError]   = useState(false);
-  const [errorMsg, setErrorMsg]     = useState("");
+  const [showError, setShowError]     = useState(false);
+  const [errorMsg, setErrorMsg]       = useState("");
 
-  // Load company data from Firestore
   useEffect(() => {
     const uid = user?.uid || getAuth().currentUser?.uid;
     if (!uid) { setLoading(false); return; }
@@ -733,29 +745,13 @@ const PersonalInfoScreen = ({ onBack, user }) => {
     const uid = user?.uid || getAuth().currentUser?.uid;
     if (!uid) { alert("Error: Not logged in."); return; }
     try {
-      // 1. Update company profile
       await updateDoc(doc(db, "companies", uid), {
-        companyName,
-        industry: industries,
-        courseSelections,
-        location,
-        email,
+        companyName, industry: industries, courseSelections, location, email,
       });
-
-      // 2. Update companyName in all ojt_posts by this company
       const postsSnap = await getDocs(query(collection(db, "ojt_posts"), where("companyId", "==", uid)));
-      console.log("Posts found:", postsSnap.docs.length, "uid:", uid, "new name:", companyName);
-      await Promise.all(postsSnap.docs.map(d =>
-        updateDoc(d.ref, { companyName, name: companyName })
-      ));
-
-      // 3. Update participantNames in all conversations
+      await Promise.all(postsSnap.docs.map(d => updateDoc(d.ref, { companyName, name: companyName })));
       const convsSnap = await getDocs(query(collection(db, "conversations"), where("participants", "array-contains", uid)));
-      console.log("Convs found:", convsSnap.docs.length);
-      await Promise.all(convsSnap.docs.map(d =>
-        updateDoc(d.ref, { [`participantNames.${uid}`]: companyName })
-      ));
-
+      await Promise.all(convsSnap.docs.map(d => updateDoc(d.ref, { [`participantNames.${uid}`]: companyName })));
       setEditing(false);
       setErrors({});
       setShowSuccess(true);
@@ -884,13 +880,13 @@ const PersonalInfoScreen = ({ onBack, user }) => {
   );
 };
 
-// ── Main Company Account Profile Screen ───────────────────────────────────────
-
+// ── Logout Modal ──────────────────────────────────────────────────────────────
 const LogoutModal = ({ onConfirm, onCancel }) => (
   <div style={{
     position: "fixed", inset: 0, zIndex: 9999,
     background: "rgba(0,0,0,0.45)",
     display: "flex", alignItems: "center", justifyContent: "center",
+    padding: "16px",
   }}>
     <div style={{
       background: "white", borderRadius: "20px",
@@ -898,7 +894,6 @@ const LogoutModal = ({ onConfirm, onCancel }) => (
       display: "flex", flexDirection: "column", alignItems: "center",
       gap: "12px", boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
     }}>
-      {/* Icon */}
       <div style={{
         width: "64px", height: "64px", borderRadius: "50%",
         background: "#fde8e8", display: "flex",
@@ -911,14 +906,10 @@ const LogoutModal = ({ onConfirm, onCancel }) => (
           <line x1="21" y1="12" x2="9" y2="12"/>
         </svg>
       </div>
-      <p style={{
-        fontFamily: "'Kufam', sans-serif", fontWeight: 700,
-        fontSize: "1.15rem", color: "#1a1a1a", margin: 0, textAlign: "center",
-      }}>Log Out</p>
-      <p style={{
-        fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem",
-        color: "#666", margin: 0, textAlign: "center", lineHeight: 1.5,
-      }}>Are you sure you want to log out of your account?</p>
+      <p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "1.15rem", color: "#1a1a1a", margin: 0, textAlign: "center" }}>Log Out</p>
+      <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem", color: "#666", margin: 0, textAlign: "center", lineHeight: 1.5 }}>
+        Are you sure you want to log out of your account?
+      </p>
       <div style={{ display: "flex", gap: "12px", width: "100%", marginTop: "8px" }}>
         <button onClick={onCancel} style={{
           flex: 1, padding: "12px", borderRadius: "30px",
@@ -938,8 +929,9 @@ const LogoutModal = ({ onConfirm, onCancel }) => (
   </div>
 );
 
+// ── Main Company Account Profile Screen ───────────────────────────────────────
 const CompanyAccountProfileScreen = ({ user, onLogout }) => {
-  const [view, setView] = useState("main");
+  const [view, setView]             = useState("main");
   const [showLogout, setShowLogout] = useState(false);
   const [profileName, setProfileName] = useState("");
 
@@ -955,22 +947,22 @@ const CompanyAccountProfileScreen = ({ user, onLogout }) => {
     return () => unsub();
   }, [user?.uid]);
 
-  if (view === "personalInfo") return <><ResponsiveStyles /><PersonalInfoScreen onBack={() => setView("main")} user={user} /></>;
-  if (view === "privacy")      return <><ResponsiveStyles /><PrivacySecurityScreen onBack={() => setView("main")} /></>;
-  if (view === "terms")        return <><ResponsiveStyles /><TermsScreen onBack={() => setView("main")} /></>;
-
   const handleLogoutConfirm = async () => {
     await signOut(getAuth());
     if (onLogout) onLogout();
   };
 
+  if (view === "personalInfo") return <><ResponsiveStyles /><PersonalInfoScreen onBack={() => setView("main")} user={user} /></>;
+  if (view === "privacy")      return <><ResponsiveStyles /><PrivacySecurityScreen onBack={() => setView("main")} /></>;
+  if (view === "terms")        return <><ResponsiveStyles /><TermsScreen onBack={() => setView("main")} /></>;
+
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "#f0f0f0" }}>
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "#f5f5f5" }}>
       {showLogout && <LogoutModal onConfirm={handleLogoutConfirm} onCancel={() => setShowLogout(false)} />}
       <ResponsiveStyles />
       <GlobalStyles />
 
-      {/* Red header + overlapping white card */}
+      {/* Red banner + overlapping profile card */}
       <div style={{ position: "relative", flexShrink: 0, zIndex: 1, display: "flex", justifyContent: "center" }}>
         <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: "80px", background: "#590101", borderBottomLeftRadius: "30px", borderBottomRightRadius: "30px", zIndex: 1 }} />
         <div className="cap-header-card">
@@ -983,9 +975,10 @@ const CompanyAccountProfileScreen = ({ user, onLogout }) => {
         </div>
       </div>
 
+      <div className="cap-divider" />
+
       {/* Scrollable body */}
       <div className="cap-body">
-        <div className="cap-divider" />
         <div className="cap-menu-box">
           <MenuRow iconSrc={personalInfoIcon} label="Personal Information" onClick={() => setView("personalInfo")} />
           <MenuRow iconSrc={privacyIcon}      label="Privacy & Security"   onClick={() => setView("privacy")} />

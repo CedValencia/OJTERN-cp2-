@@ -71,9 +71,10 @@ const ResponsiveStyles = () => (
       display: flex;
       align-items: center;
       gap: 8px;
-      padding: 10px 20px;
+      padding: 8px 20px;
+      background: #f5f5f5;
       flex-wrap: wrap;
-      border-bottom: 1px solid #d0d0d0;
+      border-bottom: 1px solid #e0e0e0;
       flex-shrink: 0;
     }
     @media (max-width: 560px) {
@@ -84,19 +85,28 @@ const ResponsiveStyles = () => (
     .ca-list-area {
       flex: 1;
       overflow-y: auto;
-      padding: 20px;
+      padding: 14px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
     }
     @media (max-width: 560px) {
-      .ca-list-area { padding: 12px; }
+      .ca-list-area { padding: 10px 12px; }
     }
 
-    /* ── Applicant row subtitle: keep on one line ── */
+    /* ── Applicant row subtitle ── */
     .ca-row-subtitle {
       display: flex;
       align-items: center;
       gap: 6px;
       margin-top: 2px;
       overflow: hidden;
+    }
+
+    /* Hide program on very small screens */
+    .ca-row-program { display: inline; }
+    @media (max-width: 400px) {
+      .ca-row-program { display: none; }
     }
 
     /* ── Personal Details Modal ── */
@@ -233,8 +243,48 @@ const ResponsiveStyles = () => (
       .ca-sidebar { display: none; }
     }
 
-    /* Sidebar nav item label: hide on narrow sidebar */
+    /* Sidebar nav item label */
     .ca-nav-label { display: inline; }
+
+    /* ── Applicants container card ── */
+    .ca-card {
+      background: #e0e0e0;
+      border-radius: 14px;
+      padding: 16px 20px;
+    }
+    @media (max-width: 560px) {
+      .ca-card { padding: 12px 14px; }
+    }
+
+    /* ── Applicants card heading ── */
+    .ca-card-heading {
+      font-family: 'Jersey 25', sans-serif;
+      font-size: clamp(1.1rem, 4vw, 1.8rem);
+      font-weight: 400;
+      color: #1a1a1a;
+      margin-bottom: 12px;
+    }
+
+    /* ── Applicant row: hide program text on very small screens ── */
+    .ca-row-inner {
+      background: #dadada;
+      border-radius: 50px;
+      padding: 8px 14px 8px 8px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      transition: background 0.15s;
+      cursor: pointer;
+    }
+
+    /* ── Footer count text ── */
+    .ca-count-text {
+      text-align: center;
+      font-family: 'Kufam', sans-serif;
+      font-size: 0.82rem;
+      color: #aaa;
+      padding: 16px 0 4px;
+    }
   `}</style>
 );
 
@@ -512,7 +562,6 @@ const PersonalDetailsModal = ({ applicant, onClose, onStatusChange, onMessage })
 };
 
 // ── Filter Panel ──────────────────────────────────────────────────────────────
-// Sex, College, and Location containers are kept — choices come from backend
 const FilterPanel = ({
   filters, setFilters,
   selectedRegion, setSelectedRegion,
@@ -804,15 +853,24 @@ const CompanyApplicantsScreen = ({ embedded = false, onNavigateToMessages }) => 
   const contentArea = (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
 
-      {/* Top bar */}
+      {/* ── Top bar ── */}
       <div className="ca-topbar">
+        {/* Search */}
         <div style={{ display: "flex", alignItems: "center", gap: "8px", background: "white", borderRadius: "24px", padding: "7px 16px" }}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="black" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="black" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
           <div style={{ width: "1px", height: "16px", background: "rgba(0,0,0,0.2)" }} />
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search Application"
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search Application"
             className="ca-search-input"
-            style={{ border: "none", background: "transparent", outline: "none", color: "black", fontFamily: "'Jersey 25', sans-serif", fontSize: "1.05rem" }} />
-          {search && <button onClick={() => setSearch("")} style={{ background: "none", border: "none", color: "#999", cursor: "pointer", fontSize: "1rem", padding: 0 }}>✕</button>}
+            style={{ border: "none", background: "transparent", outline: "none", color: "black", fontFamily: "'Jersey 25', sans-serif", fontSize: "1.05rem" }}
+          />
+          {search && (
+            <button onClick={() => setSearch("")} style={{ background: "none", border: "none", color: "#999", cursor: "pointer", fontSize: "1rem", padding: 0, lineHeight: 1 }}>✕</button>
+          )}
         </div>
 
         {/* Filter button */}
@@ -841,10 +899,10 @@ const CompanyApplicantsScreen = ({ embedded = false, onNavigateToMessages }) => 
         </div>
       </div>
 
-      {/* Active filter badges */}
+      {/* ── Active filter badges ── */}
       {hasFilter && (
         <div className="ca-filter-badges">
-          <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.74rem", color: "#666" }}>Filters:</span>
+          <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.78rem", color: "#888" }}>Filters:</span>
           {[
             { key: "sex",            val: filters.sex,            clear: () => setFilters(p => ({ ...p, sex: "" })) },
             { key: "college",        val: filters.college,        clear: () => setFilters(p => ({ ...p, college: "", program: "", specialization: "" })) },
@@ -860,51 +918,66 @@ const CompanyApplicantsScreen = ({ embedded = false, onNavigateToMessages }) => 
               <span onClick={f.clear} style={{ cursor: "pointer", fontWeight: "bold" }}>×</span>
             </span>
           ))}
-          <span onClick={() => {
-            setFilters({ sex: "", college: "", program: "", specialization: "" });
-            setSelectedRegion(""); setSelectedProvince(""); setSelectedCity(""); setSelectedBarangay("");
-          }} style={{ fontSize: "0.74rem", color: red, cursor: "pointer", fontFamily: "'Kufam', sans-serif", textDecoration: "underline" }}>
+          <span
+            onClick={() => {
+              setFilters({ sex: "", college: "", program: "", specialization: "" });
+              setSelectedRegion(""); setSelectedProvince(""); setSelectedCity(""); setSelectedBarangay("");
+            }}
+            style={{ fontSize: "0.74rem", color: red, cursor: "pointer", fontFamily: "'Kufam', sans-serif", textDecoration: "underline" }}
+          >
             Clear all
           </span>
         </div>
       )}
 
-      {/* Applicant list */}
+      {/* ── Applicant list ── */}
       <div className="ca-list-area">
-        <div style={{ background: "#e0e0e0", borderRadius: "14px", padding: "16px 20px", minHeight: "70vh" }}>
-          <h2 style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(1.3rem, 4vw, 1.8rem)", fontWeight: "400", color: "#1a1a1a", marginBottom: "12px" }}>Applicants</h2>
+        <div className="ca-card">
+          <h2 className="ca-card-heading">Applicants</h2>
           <hr style={{ border: "none", borderTop: "2px solid #c0c0c0", marginBottom: "14px" }} />
+
           <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
             {filtered.map(applicant => {
               const fullName = `${applicant.firstName}${applicant.middleInitial ? " " + applicant.middleInitial : ""} ${applicant.lastName}`;
               const sc = STATUS_COLORS[applicant.status] || { bg: "#888", color: "white" };
               return (
-                <div key={applicant.id} className="applicant-row"
+                <div
+                  key={applicant.id}
+                  className="applicant-row ca-row-inner"
                   onClick={() => setViewingApplicant(applicant)}
-                  style={{ background: "#dadada", borderRadius: "50px", padding: "8px 14px 8px 8px", display: "flex", alignItems: "center", gap: "14px", transition: "background 0.15s", cursor: "pointer" }}>
+                >
                   <StudentAvatar size={42} />
                   <div style={{ width: "1px", height: "32px", background: "rgba(0,0,0,0.12)", flexShrink: 0 }} />
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 600, fontSize: "0.92rem", color: "#222", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{fullName}</p>
-                    {/* Single-line subtitle — status badge + program (truncated) */}
+                    <p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 600, fontSize: "0.92rem", color: "#222", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {fullName}
+                    </p>
                     <div className="ca-row-subtitle">
-                      <span style={{ fontFamily: "'Jua', sans-serif", fontSize: "0.68rem", background: sc.bg, color: sc.color, borderRadius: "10px", padding: "1px 8px", fontWeight: "500", whiteSpace: "nowrap", flexShrink: 0 }}>{applicant.status}</span>
-                      <span style={{ color: "#ccc", fontSize: "0.7rem", flexShrink: 0 }}>•</span>
-                      <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.71rem", color: "#777", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{applicant.program}</span>
+                      <span style={{ fontFamily: "'Jua', sans-serif", fontSize: "0.68rem", background: sc.bg, color: sc.color, borderRadius: "10px", padding: "1px 8px", fontWeight: "500", whiteSpace: "nowrap", flexShrink: 0 }}>
+                        {applicant.status}
+                      </span>
+                      <span className="ca-row-program" style={{ color: "#ccc", fontSize: "0.7rem", flexShrink: 0 }}>•</span>
+                      <span className="ca-row-program" style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.71rem", color: "#777", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
+                        {applicant.program}
+                      </span>
                     </div>
                   </div>
                   <img src={viewIcon} alt="view" style={{ width: "35px", height: "35px", objectFit: "contain", flexShrink: 0 }} />
                 </div>
               );
             })}
+
             {filtered.length === 0 && (
-              <div style={{ textAlign: "center", padding: "30px", color: "#aaa", fontFamily: "'Kufam', sans-serif" }}>
-                No applicants yet.
+              <div style={{ textAlign: "center", padding: "60px", color: "#aaa", fontFamily: "'Kufam', sans-serif", fontSize: "0.95rem" }}>
+                {applicants.length === 0 ? "No applicants yet." : "No applicants match your search or filters."}
               </div>
             )}
           </div>
+
           {filtered.length > 0 && (
-            <p style={{ textAlign: "center", fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", color: "#aaa", paddingTop: "20px" }}>No more recent applications!</p>
+            <p className="ca-count-text">
+              Showing {filtered.length} of {applicants.length} applicant{applicants.length !== 1 ? "s" : ""}
+            </p>
           )}
         </div>
       </div>
@@ -948,11 +1021,15 @@ const CompanyApplicantsScreen = ({ embedded = false, onNavigateToMessages }) => 
         </div>
 
         <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
+
           {/* Sidebar — hidden on mobile via CSS */}
           <div className="ca-sidebar">
             {navItems.map((item) => (
-              <div key={item.key} onClick={() => setActiveNav(item.label)}
-                style={{ display: "flex", alignItems: "center", gap: "14px", padding: "16px 20px", cursor: "pointer", borderBottom: "1px solid #ccc", transition: "background 0.15s", background: activeNav === item.label ? "rgba(139,0,0,0.10)" : "transparent" }}>
+              <div
+                key={item.key}
+                onClick={() => setActiveNav(item.label)}
+                style={{ display: "flex", alignItems: "center", gap: "14px", padding: "16px 20px", cursor: "pointer", borderBottom: "1px solid #ccc", transition: "background 0.15s", background: activeNav === item.label ? "rgba(139,0,0,0.10)" : "transparent" }}
+              >
                 <img src={item.icon} alt={item.label} style={{ width: "30px", height: "30px", objectFit: "contain", flexShrink: 0, opacity: activeNav === item.label ? 1 : 0.35 }} />
                 <span className="ca-nav-label" style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.3rem", opacity: activeNav === item.label ? 1 : 0.35 }}>{item.label}</span>
               </div>

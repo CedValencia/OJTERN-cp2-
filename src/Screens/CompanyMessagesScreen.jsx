@@ -232,7 +232,7 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onR
     if (!input.trim() && !attachment) return;
     const now = new Date();
     const timeStr = now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true }).toLowerCase().replace(" ", "");
-    onSend(contact.convId, { id: Date.now(), sender: "me", text: input.trim(), time: timeStr, edited: false, unsent: false, attachment: attachment || null });
+    onSend(contact.id, { id: Date.now(), sender: "me", text: input.trim(), time: timeStr, edited: false, unsent: false, attachment: attachment || null });
     setInput(""); setAttachment(null);
   };
 
@@ -244,9 +244,9 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onR
   };
   const cancelLongPress = () => { if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; } };
   const startEdit       = (msg)   => { if (!msg.text) return; setEditingId(msg.id); setEditText(msg.text); setPopupMsgId(null); };
-  const saveEdit        = (msgId) => { if (!editText.trim()) return; onSend(contact.convId, { __edit: true, id: msgId, text: editText.trim() }); setEditingId(null); setEditText(""); };
-  const handleUnsent    = (msgId) => { onSend(contact.convId, { __unsent: true, id: msgId }); setPopupMsgId(null); };
-  const handleDeleteConversation = () => { onDeleteConversation(contact.convId); setShowInfo(false); };
+  const saveEdit        = (msgId) => { if (!editText.trim()) return; onSend(contact.id, { __edit: true, id: msgId, text: editText.trim() }); setEditingId(null); setEditText(""); };
+  const handleUnsent    = (msgId) => { onSend(contact.id, { __unsent: true, id: msgId }); setPopupMsgId(null); };
+  const handleDeleteConversation = () => { onDeleteConversation(contact.id); setShowInfo(false); };
 
   const avatarSize     = isMobile ? 30 : 36;
   const bubbleMaxWidth = isMobile ? "75%" : "60%";
@@ -413,7 +413,6 @@ const ChatListView = ({ contacts, messages, onOpen, readConvIds }) => {
 
   const activeContacts = contacts.filter(c => c.convId && (contacts.length > 0));
 
-
   const sorted = [...activeContacts].sort((a, b) => {
     const aTs = a.lastMessage?.ts?.seconds
       ? a.lastMessage.ts.seconds * 1000
@@ -489,16 +488,11 @@ const ChatListView = ({ contacts, messages, onOpen, readConvIds }) => {
 // ── Main CompanyMessagesScreen ────────────────────────────────────────────────
 const CompanyMessagesScreen = ({
   user,               // { uid, name/companyName, role: "company" }
+  onReportSubmit,
   openContact,        // { id: uid, name, role } — navigate directly to this chat
   onContactOpened,
-  embedded = false,
 }) => {
   const myName = user?.companyName || user?.name || "Company";
-
-  console.log("=== CompanyMessages DEBUG ===");
-  console.log("user object:", user);
-  console.log("myName:", myName);
-  console.log("myUid:", user?.uid);
 
   const {
     contacts, messages, loading,
@@ -532,7 +526,7 @@ const CompanyMessagesScreen = ({
   }, [openContact]);
 
   const handleSend = async (convId, msgOrAction) => {
-    if (msgOrAction.__edit)   await editMessage(convId, msgOrAction.id, msgOrAction.text);
+    if (msgOrAction.__edit)        await editMessage(convId, msgOrAction.id, msgOrAction.text);
     else if (msgOrAction.__unsent) await unsendMessage(convId, msgOrAction.id);
     else await sendMessage(convId, { text: msgOrAction.text, attachment: msgOrAction.attachment });
   };
@@ -542,7 +536,8 @@ const CompanyMessagesScreen = ({
     setActiveContact(null);
   };
 
-  // Map convId-keyed messages to contactId-keyed for UI
+  const handleReport = (report) => { if (onReportSubmit) onReportSubmit(report); };
+
   const uiMessages = {};
   contacts.forEach(c => { uiMessages[c.id] = messages[c.convId] || []; });
 
@@ -552,16 +547,20 @@ const CompanyMessagesScreen = ({
     </div>
   );
 
-  const content = activeContact ? (
-    <ChatView
-      contact={activeContact}
-      messages={uiMessages[activeContact.id] || []}
-      onSend={(_, msg) => handleSend(activeContact.convId, msg)}
-      onBack={() => setActiveContact(null)}
-      onDeleteConversation={() => handleDeleteConversation(activeContact.convId)}
-      onReport={() => {}}
-    />
-  ) : (
+  if (activeContact) {
+    return (
+      <ChatView
+        contact={activeContact}
+        messages={uiMessages[activeContact.id] || []}
+        onSend={(_, msg) => handleSend(activeContact.convId, msg)}
+        onBack={() => setActiveContact(null)}
+        onDeleteConversation={() => handleDeleteConversation(activeContact.convId)}
+        onReport={handleReport}
+      />
+    );
+  }
+
+  return (
     <ChatListView
       contacts={contacts}
       messages={uiMessages}
@@ -571,26 +570,9 @@ const CompanyMessagesScreen = ({
         const contact = { ...c, convId };
         openConversation(convId);
         setReadConvIds(prev => new Set([...prev, contact.convId]));
-      setActiveContact(contact);
+        setActiveContact(contact);
       }}
     />
-  );
-
-  if (embedded) return content;
-
-  return (
-    <>
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Jersey+25&family=Jua&family=Kufam:wght@400;600;700&family=Monomaniac+One&display=swap');
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        ::-webkit-scrollbar { width: 4px; }
-        ::-webkit-scrollbar-thumb { background: #8B0000; border-radius: 4px; }
-        ::-webkit-scrollbar-track { background: #f0f0f0; }
-      `}</style>
-      <div style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column" }}>
-        {content}
-      </div>
-    </>
   );
 };
 
