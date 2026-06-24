@@ -37,7 +37,7 @@ const ResponsiveStyles = () => (
       padding: 0 28px 16px;
     }
     @media (max-width: 480px) {
-      .post-modal-body { padding: 0 16px 12px; }
+      .post-modal-body { padding: 0 14px 12px; }
     }
 
     /* Modal header padding */
@@ -45,7 +45,7 @@ const ResponsiveStyles = () => (
       padding: 20px 28px 12px;
     }
     @media (max-width: 480px) {
-      .post-modal-header { padding: 14px 16px 10px; }
+      .post-modal-header { padding: 14px 14px 10px; }
     }
 
     /* Modal footer padding */
@@ -53,7 +53,7 @@ const ResponsiveStyles = () => (
       padding: 14px 28px;
     }
     @media (max-width: 480px) {
-      .post-modal-footer { padding: 12px 16px; }
+      .post-modal-footer { padding: 12px 14px; }
     }
 
     /* Description + map row: side-by-side on desktop, stacked on mobile */
@@ -77,11 +77,15 @@ const ResponsiveStyles = () => (
       .post-map-box { width: 100%; height: 80px; margin-top: 0; }
     }
 
-    /* Working hours + slot row */
+    /* Working hours + slot row: side-by-side, but slot drops below on very small screens */
     .post-hours-slot-row {
       display: flex;
       align-items: flex-start;
       gap: 12px;
+    }
+    @media (max-width: 400px) {
+      .post-hours-slot-row { flex-direction: column; }
+      .post-slot-col { flex-direction: row; align-items: center; gap: 10px; }
     }
 
     /* Contact info: label + input row */
@@ -110,13 +114,26 @@ const ResponsiveStyles = () => (
       margin-bottom: 16px;
     }
 
-    /* Post button font size */
+    /* Post button */
     .post-btn {
       padding: 10px 24px;
       font-size: 1.3rem;
     }
     @media (max-width: 480px) {
       .post-btn { padding: 8px 16px; font-size: 1rem; }
+    }
+
+    /* Modal overlay scroll on small screens */
+    .post-modal-overlay {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.45);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 1000;
+      padding: 12px;
+      overflow-y: auto;
+    }
+    @media (max-width: 480px) {
+      .post-modal-overlay { align-items: flex-start; padding: 8px; }
     }
   `}</style>
 );
@@ -138,9 +155,7 @@ const GlobalFonts = () => {
       .ojt-textarea::-webkit-scrollbar-thumb { background: ${darkRed}; border-radius: 10px; }
       input[type=number]::-webkit-inner-spin-button,
       input[type=number]::-webkit-outer-spin-button {
-        opacity: 1;
-        background: ${darkRed};
-        cursor: pointer;
+        opacity: 1; background: ${darkRed}; cursor: pointer;
       }
       input[type=number] { accent-color: ${darkRed}; }
     `;
@@ -213,7 +228,7 @@ const pillSelectReadonly = {
 const FieldLabel = ({ children }) => (
   <p style={{
     fontFamily: "'Jersey 25', sans-serif",
-    fontSize: "1.3rem",
+    fontSize: "clamp(1.05rem, 3vw, 1.3rem)",
     color: black,
     marginBottom: "5px",
     letterSpacing: "0.03em",
@@ -224,7 +239,7 @@ const FieldLabel = ({ children }) => (
 // ── Inline sub-label ──────────────────────────────────────────────────────────
 const inlineLabelStyle = {
   fontFamily: "'Jua', sans-serif",
-  fontSize: "1rem",
+  fontSize: "clamp(0.85rem, 2.5vw, 1rem)",
   color: red,
   whiteSpace: "nowrap",
 };
@@ -259,12 +274,12 @@ const PillSelect = ({ value, onChange, options, placeholder, disabled, hasError 
 
 // ── Multi-College Program Picker ──────────────────────────────────────────────
 const COLLEGE_PROGRAM_DATA = {
-  "College of Computer Studies":          { programs: ["BSIT"] },
-  "College of Business and Accountancy":  { programs: ["BSBA (Major in Marketing Management)", "BSA"] },
-  "College of Education":                 { programs: ["BSED (Major in English)", "BSED (Major in Mathematics)", "BEED (Generalist)"] },
-  "College of Criminal Justice Education":{ programs: ["BS Crim"] },
-  "College of Hospitality Management":    { programs: ["BSTM", "BSHM"] },
-  "College of Liberal Arts":              { programs: ["BA Pol Sci"] },
+  "College of Computer Studies":           { programs: ["BSIT"] },
+  "College of Business and Accountancy":   { programs: ["BSBA (Major in Marketing Management)", "BSA"] },
+  "College of Education":                  { programs: ["BSED (Major in English)", "BSED (Major in Mathematics)", "BEED (Generalist)"] },
+  "College of Criminal Justice Education": { programs: ["BS Crim"] },
+  "College of Hospitality Management":     { programs: ["BSTM", "BSHM"] },
+  "College of Liberal Arts":               { programs: ["BA Pol Sci"] },
 };
 
 const MultiCollegeProgramPicker = ({ selections, onChange, readOnly, errors }) => {
@@ -285,9 +300,8 @@ const MultiCollegeProgramPicker = ({ selections, onChange, readOnly, errors }) =
   return (
     <div>
       {selections.map((entry, idx) => {
-        const programs       = COLLEGE_PROGRAM_DATA[entry.college]?.programs || [];
+        const programs = COLLEGE_PROGRAM_DATA[entry.college]?.programs || [];
         const err = errors?.[idx];
-
         return (
           <div key={idx} style={{ background: "#ececec", borderRadius: "14px", padding: "10px 12px", marginBottom: "8px" }}>
             <div style={{ display: "flex", gap: "6px", alignItems: "center", marginBottom: entry.college ? "6px" : "0" }}>
@@ -296,11 +310,12 @@ const MultiCollegeProgramPicker = ({ selections, onChange, readOnly, errors }) =
                 {err?.college && <FieldError msg="College is required." />}
               </div>
               {!readOnly && selections.length > 1 && (
-                <button type="button" onClick={() => removeEntry(idx)} style={{ width: "28px", height: "28px", borderRadius: "50%", background: darkRed, border: "none", color: "white", fontFamily: "'Jua', sans-serif", fontSize: "0.85rem", cursor: "pointer", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
+                <button type="button" onClick={() => removeEntry(idx)}
+                  style={{ width: "28px", height: "28px", borderRadius: "50%", background: darkRed, border: "none", color: "white", fontFamily: "'Jua', sans-serif", fontSize: "0.85rem", cursor: "pointer", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
               )}
             </div>
             {entry.college && (
-              <div style={{ marginBottom: "0" }}>
+              <div>
                 <PillSelect value={entry.program} onChange={v => updateEntry(idx, "program", v)} options={programs} placeholder="Select Program" disabled={readOnly} hasError={err?.program} />
                 {err?.program && <FieldError msg="Program is required." />}
               </div>
@@ -326,8 +341,8 @@ const WorkingHoursInput = ({ value, onChange, readOnly, hasError }) => {
     let v = e.target.value;
     const parenIdx = v.indexOf("(");
     if (parenIdx === -1) { onChange(v); return; }
-    const dayPart = v.slice(0, parenIdx);
-    let timePart = v.slice(parenIdx + 1).replace(/\)/g, "");
+    const dayPart  = v.slice(0, parenIdx);
+    let timePart   = v.slice(parenIdx + 1).replace(/\)/g, "");
     timePart = timePart.replace(/[^0-9apm:\-\s]/gi, "");
     onChange(dayPart + "(" + timePart + (timePart.length > 0 ? ")" : ""));
   };
@@ -335,7 +350,9 @@ const WorkingHoursInput = ({ value, onChange, readOnly, hasError }) => {
     if (value && value.includes("(") && !value.includes(")")) onChange(value + ")");
   };
   return (
-    <input className="ojt-field" type="text" disabled={readOnly} placeholder="Monday - Friday (8:00am - 5:00pm)" value={value} onChange={handleChange} onBlur={handleBlur}
+    <input className="ojt-field" type="text" disabled={readOnly}
+      placeholder="Monday - Friday (8:00am - 5:00pm)"
+      value={value} onChange={handleChange} onBlur={handleBlur}
       style={{ ...(readOnly ? pillInputReadonly : pillInputStyle), border: hasError ? "1.5px solid #c00" : "none" }} />
   );
 };
@@ -354,7 +371,9 @@ const PhoneInput = ({ value, onChange, readOnly, hasError }) => {
     onChange(fmt);
   };
   return (
-    <input className="ojt-field" type="text" disabled={readOnly} placeholder="+63 000-000-0000" value={value} onChange={handleChange}
+    <input className="ojt-field" type="text" disabled={readOnly}
+      placeholder="+63 000-000-0000"
+      value={value} onChange={handleChange}
       style={{ ...(readOnly ? pillInputReadonly : pillInputStyle), border: hasError ? "1.5px solid #c00" : "none" }} />
   );
 };
@@ -362,7 +381,9 @@ const PhoneInput = ({ value, onChange, readOnly, hasError }) => {
 // ── Gmail Email Input ─────────────────────────────────────────────────────────
 const GmailInput = ({ value, onChange, readOnly, error, onBlur }) => (
   <div style={{ width: "100%" }}>
-    <input className="ojt-field" type="email" disabled={readOnly} placeholder="example@gmail.com" value={value} onChange={e => onChange(e.target.value)} onBlur={onBlur}
+    <input className="ojt-field" type="email" disabled={readOnly}
+      placeholder="example@gmail.com"
+      value={value} onChange={e => onChange(e.target.value)} onBlur={onBlur}
       style={{ ...(readOnly ? pillInputReadonly : pillInputStyle), border: error ? "1.5px solid #cc0000" : "none" }} />
     <FieldError msg={error} />
   </div>
@@ -384,8 +405,8 @@ const PostFormModal = ({ post, mode, onClose, onSave, user }) => {
     contactEmail:     post?.contactEmail || "",
   });
 
-  const [errors, setErrors]                     = useState({});
-  const [courseErrors, setCourseErrors]         = useState([]);
+  const [errors, setErrors]                         = useState({});
+  const [courseErrors, setCourseErrors]             = useState([]);
   const [workingHoursErrors, setWorkingHoursErrors] = useState([]);
   const readOnly = !isEditing;
 
@@ -441,12 +462,12 @@ const PostFormModal = ({ post, mode, onClose, onSave, user }) => {
   };
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: "16px" }}>
+    <div className="post-modal-overlay">
       <div className="post-modal-inner" style={{ background: "#d8d8d8", borderRadius: "20px", maxHeight: "90vh", overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: "0 8px 40px rgba(0,0,0,0.3)" }}>
 
         {/* Header */}
-        <div className="post-modal-header" style={{ background: "#d8d8d8" }}>
-          <h2 style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(1.3rem, 4vw, 1.8rem)", fontWeight: "400", margin: 0, color: darkRed }}>
+        <div className="post-modal-header" style={{ background: "#d8d8d8", flexShrink: 0 }}>
+          <h2 style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(1.2rem, 4vw, 1.8rem)", fontWeight: "400", margin: 0, color: darkRed }}>
             {post?.companyName || post?.company || user?.companyName || "New Post"}
           </h2>
         </div>
@@ -521,7 +542,7 @@ const PostFormModal = ({ post, mode, onClose, onSave, user }) => {
             </div>
 
             {/* Slot */}
-            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", flexShrink: 0 }}>
+            <div className="post-slot-col" style={{ display: "flex", flexDirection: "column", alignItems: "center", flexShrink: 0 }}>
               <FieldLabel>Slot:</FieldLabel>
               <input className="ojt-field" type="number" disabled={readOnly} min={1} value={form.slot}
                 onChange={e => { set("slot", Math.max(1, parseInt(e.target.value) || 1)); setErrors(p => ({ ...p, slot: "" })); }}
@@ -560,7 +581,7 @@ const PostFormModal = ({ post, mode, onClose, onSave, user }) => {
           <FieldError msg={errors.benefits} />
 
           {/* College / Program / Major */}
-          <FieldLabel>College / Program / Major:</FieldLabel>
+          <FieldLabel>College / Program / Major required:</FieldLabel>
           <MultiCollegeProgramPicker
             selections={form.courseSelections}
             onChange={v => { set("courseSelections", v); setCourseErrors([]); }}
@@ -578,7 +599,7 @@ const PostFormModal = ({ post, mode, onClose, onSave, user }) => {
         </div>
 
         {/* Footer */}
-        <div className="post-modal-footer" style={{ background: "#b0b0b0", display: "flex", justifyContent: "flex-end", gap: "10px", borderBottomLeftRadius: "20px", borderBottomRightRadius: "20px" }}>
+        <div className="post-modal-footer" style={{ background: "#b0b0b0", display: "flex", justifyContent: "flex-end", gap: "10px", borderBottomLeftRadius: "20px", borderBottomRightRadius: "20px", flexShrink: 0 }}>
           <button onClick={onClose} style={{ padding: "10px 28px", borderRadius: "24px", background: "#555", color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(0.9rem, 2.5vw, 1.1rem)", cursor: "pointer" }}>Close</button>
           {mode === "view" && !isEditing && (
             <button onClick={() => setIsEditing(true)} style={{ padding: "10px 28px", borderRadius: "24px", background: darkRed, color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(0.9rem, 2.5vw, 1.1rem)", cursor: "pointer" }}>Edit</button>
@@ -607,12 +628,16 @@ const ThreeDotMenu = ({ isDisabled, onView, onToggleDisable, onDelete }) => {
   const [open, setOpen] = useState(false);
   return (
     <div style={{ position: "relative" }}>
-      <button onClick={e => { e.stopPropagation(); setOpen(!open); }} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "1.2rem", color: "#555", padding: "4px 8px", lineHeight: 1 }}>⋮</button>
+      <button onClick={e => { e.stopPropagation(); setOpen(!open); }}
+        style={{ background: "none", border: "none", cursor: "pointer", fontSize: "1.2rem", color: "#555", padding: "4px 8px", lineHeight: 1 }}>⋮</button>
       {open && (
-        <div style={{ position: "absolute", right: 0, top: "100%", background: "white", border: "1px solid #ddd", borderRadius: "10px", boxShadow: "0 4px 16px rgba(0,0,0,0.15)", zIndex: 100, minWidth: "120px", overflow: "hidden" }} onClick={e => e.stopPropagation()}>
-          <button onClick={() => { setOpen(false); onView(); }} style={menuItemStyle}>View</button>
-          <button onClick={() => { setOpen(false); onToggleDisable(); }} style={menuItemStyle}>{isDisabled ? "Enable" : "Disable"}</button>
-          <button onClick={() => { setOpen(false); onDelete(); }} style={{ ...menuItemStyle, color: red, fontWeight: "700" }}>Delete</button>
+        <div
+          style={{ position: "absolute", right: 0, top: "100%", background: "white", border: "1px solid #ddd", borderRadius: "10px", boxShadow: "0 4px 16px rgba(0,0,0,0.15)", zIndex: 100, minWidth: "120px", overflow: "hidden" }}
+          onClick={e => e.stopPropagation()}
+        >
+          <button onClick={() => { setOpen(false); onView(); }}             style={menuItemStyle}>View</button>
+          <button onClick={() => { setOpen(false); onToggleDisable(); }}    style={menuItemStyle}>{isDisabled ? "Enable" : "Disable"}</button>
+          <button onClick={() => { setOpen(false); onDelete(); }}           style={{ ...menuItemStyle, color: red, fontWeight: "700" }}>Delete</button>
         </div>
       )}
     </div>
@@ -630,7 +655,6 @@ const PostOJTContent = ({ user }) => {
   const openView   = (post) => setModal({ mode: "view", post });
   const closeModal = () => setModal(null);
 
-  // Fetch latest company profile from Firestore
   useEffect(() => {
     if (!user?.uid) return;
     const unsub = onSnapshot(doc(db, "companies", user.uid), (snap) => {
@@ -684,8 +708,11 @@ const PostOJTContent = ({ user }) => {
   return (
     <div className="post-screen-padding" style={{ overflowY: "auto", flex: 1 }}>
       <div style={{ background: "#e0e0e0", borderRadius: "16px", padding: "18px 20px", minHeight: "80vh" }}>
+
         <div className="post-header-row">
-          <h2 style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(1.4rem, 4vw, 2rem)", fontWeight: "400", margin: 0, color: "#1a1a1a" }}>Recent Post</h2>
+          <h2 style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(1.4rem, 4vw, 2rem)", fontWeight: "400", margin: 0, color: "#1a1a1a" }}>
+            Recent Post
+          </h2>
           <button
             className="post-btn"
             onClick={openCreate}
@@ -694,6 +721,7 @@ const PostOJTContent = ({ user }) => {
             Post <span>+</span>
           </button>
         </div>
+
         <hr style={{ border: "none", borderTop: "2px solid #aaa", marginBottom: "16px" }} />
 
         {posts.length > 0 ? (
@@ -702,18 +730,37 @@ const PostOJTContent = ({ user }) => {
               <div
                 key={post.id}
                 onClick={() => !post.disabled && openView(post)}
-                style={{ background: post.disabled ? "#b8b8b8" : "white", borderRadius: "14px", padding: "14px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", cursor: post.disabled ? "default" : "pointer", boxShadow: post.disabled ? "none" : "0 2px 8px rgba(0,0,0,0.08)", opacity: post.disabled ? 0.75 : 1, border: post.disabled ? "none" : "1.5px solid #e8e8e8", minWidth: 0 }}
+                style={{
+                  background: post.disabled ? "#b8b8b8" : "white",
+                  borderRadius: "14px", padding: "14px 16px",
+                  display: "flex", justifyContent: "space-between", alignItems: "center",
+                  cursor: post.disabled ? "default" : "pointer",
+                  boxShadow: post.disabled ? "none" : "0 2px 8px rgba(0,0,0,0.08)",
+                  opacity: post.disabled ? 0.75 : 1,
+                  border: post.disabled ? "none" : "1.5px solid #e8e8e8",
+                  minWidth: 0,
+                }}
               >
                 <div style={{ minWidth: 0 }}>
-                  <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(0.95rem, 2.5vw, 1.1rem)", margin: "0 0 4px", color: post.disabled ? "#666" : "#1a1a1a", fontWeight: "400", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  <p style={{
+                    fontFamily: "'Jersey 25', sans-serif",
+                    fontSize: "clamp(0.9rem, 2.5vw, 1.1rem)",
+                    margin: "0 0 4px", color: post.disabled ? "#666" : "#1a1a1a",
+                    fontWeight: "400", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                  }}>
                     {post.companyName || post.company || "Unnamed Company"}
                   </p>
                   <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.78rem", margin: 0, color: "#888" }}>
-                    {post.industry || post.subtitle || (post.courseSelections?.[0] ? `${post.courseSelections[0].college}` : "OJT Post")}
+                    {post.industry || post.subtitle || (post.courseSelections?.[0] ? post.courseSelections[0].college : "OJT Post")}
                   </p>
                 </div>
                 <div onClick={e => e.stopPropagation()} style={{ flexShrink: 0 }}>
-                  <ThreeDotMenu isDisabled={post.disabled} onView={() => openView(post)} onToggleDisable={() => toggleDisable(post.id)} onDelete={() => deletePost(post.id)} />
+                  <ThreeDotMenu
+                    isDisabled={post.disabled}
+                    onView={() => openView(post)}
+                    onToggleDisable={() => toggleDisable(post.id)}
+                    onDelete={() => deletePost(post.id)}
+                  />
                 </div>
               </div>
             ))}
@@ -724,13 +771,22 @@ const PostOJTContent = ({ user }) => {
           </div>
         )}
       </div>
-      {modal && <PostFormModal post={modal.post} mode={modal.mode} onClose={closeModal} onSave={handleSave} user={user} />}
+
+      {modal && (
+        <PostFormModal
+          post={modal.post}
+          mode={modal.mode}
+          onClose={closeModal}
+          onSave={handleSave}
+          user={user}
+        />
+      )}
     </div>
   );
 };
 
 // ── Main Screen ───────────────────────────────────────────────────────────────
-const CompanyPostOJTScreen = ({ embedded = false, user }) => (
+const CompanyCreatePostScreen = ({ embedded = false, user }) => (
   <>
     <GlobalFonts />
     <ResponsiveStyles />
@@ -745,4 +801,4 @@ const CompanyPostOJTScreen = ({ embedded = false, user }) => (
   </>
 );
 
-export default CompanyPostOJTScreen;
+export default CompanyCreatePostScreen;

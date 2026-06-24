@@ -525,7 +525,7 @@ const CompanyCard = ({ company, onViewProfile }) => {
 };
 
 // ── Main Screen ────────────────────────────────────────────────────────────────
-const CoordinatorViewCompanyScreen = ({ onReportSubmit, onNavigateToReports, onMessageNow, initialCompanyId, onClearInitialCompany }) => {
+const CoordinatorViewCompanyScreen = ({ onReportSubmit, onNavigateToReports, onMessageNow, initialCompanyId, onClearInitialCompany, onVisitCompany }) => {
   const { isMobile } = useBreakpoint();
   const { posts: companies, loading } = useOjtPosts();
 
@@ -550,7 +550,7 @@ const CoordinatorViewCompanyScreen = ({ onReportSubmit, onNavigateToReports, onM
   useEffect(() => {
     if (initialCompanyId && companies.length > 0) {
       const company = companies.find(c => c.id === initialCompanyId);
-      if (company) { setSelectedCompany(company); setView("profile"); }
+      if (company) { setSelectedCompany(company); setView("profile"); onVisitCompany?.({ id: company.id, name: company.companyName || company.name }); }
       if (onClearInitialCompany) onClearInitialCompany();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -675,7 +675,7 @@ const CoordinatorViewCompanyScreen = ({ onReportSubmit, onNavigateToReports, onM
               <CompanyCard
                 key={c.id}
                 company={c}
-                onViewProfile={(company) => { setSelectedCompany(company); setView("profile"); }}
+                onViewProfile={(company) => { setSelectedCompany(company); setView("profile"); onVisitCompany?.({ id: company.id, name: company.companyName || company.name }); }}
               />
             ))}
           </div>

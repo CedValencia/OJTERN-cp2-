@@ -29,6 +29,17 @@ import aboutIcon            from "../icons/about.png";
 const red     = "#8B0000";
 const darkRed = "#590101";
 
+// ── Time ago helper ────────────────────────────────────────────────────────────
+const timeAgo = (ts) => {
+  if (!ts) return "";
+  const diff = Math.floor((Date.now() - ts) / 1000);
+  if (diff < 60)    return "Just now";
+  if (diff < 3600)  return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  if (diff < 604800) return `${Math.floor(diff / 86400)}d ago`;
+  return new Date(ts).toLocaleDateString([], { month: "short", day: "numeric" });
+};
+
 // ── Responsive breakpoint hook ─────────────────────────────────────────────────
 const useBreakpoint = () => {
   const [bp, setBp] = useState({ isMobile: false, isTablet: false, isDesktop: true });
@@ -216,7 +227,7 @@ const SidebarNav = ({ activeNav, onNavigate }) => (
 );
 
 // ── Company row ────────────────────────────────────────────────────────────────
-const CompanyRow = ({ company, onView, mr = "0" }) => (
+const CompanyRow = ({ company, onView, mr = "0", showTime = false }) => (
   <div
     className="company-row"
     onClick={() => onView(company.id)}
@@ -228,14 +239,22 @@ const CompanyRow = ({ company, onView, mr = "0" }) => (
   >
     <div style={{ display: "flex", alignItems: "center", gap: "8px", minWidth: 0 }}>
       <CompanyAvatar />
-      <span style={{
-        fontFamily: "'Kufam', sans-serif",
-        fontSize: "clamp(0.75rem, 2vw, 0.82rem)",
-        color: "#333",
-        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-      }}>
-        {company.name}
-      </span>
+      <div style={{ minWidth: 0 }}>
+        <span style={{
+          fontFamily: "'Kufam', sans-serif",
+          fontSize: "clamp(0.75rem, 2vw, 0.82rem)",
+          color: "#333",
+          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+          display: "block",
+        }}>
+          {company.name}
+        </span>
+        {showTime && company.visitedAt && (
+          <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.68rem", color: "#8B0000", fontWeight: 600 }}>
+            {timeAgo(company.visitedAt)}
+          </span>
+        )}
+      </div>
     </div>
     <div
       onClick={(e) => { e.stopPropagation(); onView(company.id); }}
@@ -294,9 +313,8 @@ const StatCard = ({ label, value, bg = "rgba(0,0,0,0.15)", onView }) => (
 );
 
 // ── Dashboard Content ──────────────────────────────────────────────────────────
-const DashboardContent = ({ onNavigate, onViewCompany, onViewRegistered, coordinatorUid }) => {
+const DashboardContent = ({ onNavigate, onViewCompany, onViewRegistered, coordinatorUid, recentVisited = [] }) => {
   const [recentRegistered, setRecentRegistered] = React.useState([]);
-  const [recentVisited,    setRecentVisited]    = React.useState([]);
   const [totalStudents,    setTotalStudents]    = React.useState(null);
   const [deployedStudents, setDeployedStudents] = React.useState(null);
 
@@ -387,7 +405,7 @@ const DashboardContent = ({ onNavigate, onViewCompany, onViewRegistered, coordin
         <div style={{ padding: "10px 12px", display: "flex", flexDirection: "column", gap: "6px", maxHeight: "260px", overflowY: "auto" }}>
           {recentVisited.length > 0 ? (
             recentVisited.map((company, i) => (
-              <CompanyRow key={i} company={company} onView={onViewCompany} />
+              <CompanyRow key={i} company={company} onView={onViewCompany} showTime />
             ))
           ) : (
             <EmptyListPlaceholder label="No recently visited companies" />
@@ -403,7 +421,14 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
   const { isMobile, isTablet, isDesktop } = useBreakpoint();
   const showDrawer = isMobile || isTablet;
 
-  const [drawerOpen, setDrawerOpen]                             = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [recentVisited, setRecentVisited] = useState(() => {
+    if (!user?.uid) return [];
+    try {
+      const stored = localStorage.getItem(`recentVisited_coord_${user.uid}`);
+      return stored ? JSON.parse(stored) : [];
+    } catch { return []; }
+  });
   const [activeNav, setActiveNav]                               = useState("dashboard");
   const [reports, setReports]                                   = useState([]);
   const [viewingReport, setViewingReport]                       = useState(null);
@@ -439,9 +464,23 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
   // Close drawer when resizing to desktop
   useEffect(() => { if (isDesktop) setDrawerOpen(false); }, [isDesktop]);
 
+  useEffect(() => {
+    if (!user?.uid) return;
+    try { localStorage.setItem(`recentVisited_coord_${user.uid}`, JSON.stringify(recentVisited)); } catch {}
+  }, [recentVisited, user?.uid]);
+
   const navigate = (key) => { setActiveNav(key); setDrawerOpen(false); };
 
   const handleReportSubmit = (report) => setReports(prev => [report, ...prev]);
+
+  const trackVisit = (id, name) => {
+    if (!id) return;
+    setRecentVisited(prev => {
+      const filtered = prev.filter(c => c.id !== id);
+      return [{ id, name: name || id, visitedAt: Date.now() }, ...filtered].slice(0, 5);
+    });
+  };
+
 
   const handleMessageNow = (company) => {
     setMessageTarget({ id: company.companyId || company.id, name: company.companyName || company.name });
@@ -471,6 +510,7 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
         onNavigate={navigate}
         onViewCompany={handleViewCompany}
         onViewRegistered={handleViewRegistered}
+        recentVisited={recentVisited}
       />
     );
 
@@ -486,6 +526,7 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
           setPlacementTargetCompanyId(null);
         }}
         coordinator={user}
+        onVisitCompany={({ id, name }) => trackVisit(id, name)}
       />
     );
 

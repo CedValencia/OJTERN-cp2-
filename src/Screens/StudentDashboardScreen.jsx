@@ -23,6 +23,17 @@ import aboutIcon          from "../icons/about.png";
 const red     = "#8B0000";
 const darkRed = "#590101";
 
+// ── Time ago helper ────────────────────────────────────────────────────────────
+const timeAgo = (ts) => {
+  if (!ts) return "";
+  const diff = Math.floor((Date.now() - ts) / 1000);
+  if (diff < 60)    return "Just now";
+  if (diff < 3600)  return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  if (diff < 604800) return `${Math.floor(diff / 86400)}d ago`;
+  return new Date(ts).toLocaleDateString([], { month: "short", day: "numeric" });
+};
+
 // ── Responsive breakpoint hook ─────────────────────────────────────────────────
 const useBreakpoint = () => {
   const [bp, setBp] = useState({ isMobile: false, isTablet: false, isDesktop: true });
@@ -234,8 +245,8 @@ const SidebarNavList = ({ activeNav, onNavigate }) => (
 );
 
 // ── Dashboard Content ──────────────────────────────────────────────────────────
-const DashboardContent = ({ onNavigate, onViewCompany, recentVisited, recentApplications }) => {
-  const { posts: allPosts } = useOjtPosts();
+const DashboardContent = ({ onNavigate, onViewCompany, recentVisited = [], recentApplications = [] }) => {
+  const { posts: allPosts = [] } = useOjtPosts();
   const recommendedCompanies = allPosts.slice(0, 5);
 
   return (
@@ -308,7 +319,7 @@ const DashboardContent = ({ onNavigate, onViewCompany, recentVisited, recentAppl
                       <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "clamp(0.75rem, 2vw, 0.82rem)", color: "#333", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>
                         {company.companyName || company.name}
                       </span>
-                      {company.visitedAt && <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.68rem", color: "#999" }}>{new Date(company.visitedAt).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>}
+                      {company.visitedAt && <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.68rem", color: "#8B0000", fontWeight: 600 }}>{timeAgo(company.visitedAt)}</span>}
                     </div>
                   </div>
                   <ArrowBtn />
@@ -342,7 +353,7 @@ const DashboardContent = ({ onNavigate, onViewCompany, recentVisited, recentAppl
                     <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "clamp(0.75rem, 2vw, 0.82rem)", color: "#333", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>
                       {a.companyName || a.name}
                     </span>
-                    {a.appliedAt && <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.68rem", color: "#999" }}>{new Date(a.appliedAt.seconds ? a.appliedAt.seconds * 1000 : a.appliedAt).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>}
+                    {a.createdAt && <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.68rem", color: "#999" }}>{new Date(a.createdAt.seconds ? a.createdAt.seconds * 1000 : a.createdAt).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>}
                   </div>
                 </div>
                 <StatusBadge status={a.status} />
@@ -365,7 +376,13 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
 
   const [drawerOpen, setDrawerOpen]             = useState(false);
   const [activeNav, setActiveNav]               = useState("dashboard");
-  const [recentVisited, setRecentVisited]       = useState([]);
+  const [recentVisited, setRecentVisited] = useState(() => {
+    if (!user?.uid) return [];
+    try {
+      const stored = localStorage.getItem(`recentVisited_${user.uid}`);
+      return stored ? JSON.parse(stored) : [];
+    } catch { return []; }
+  });
   const [recentApplications, setRecentApplications] = useState([]);
 
   // Fetch recent applications from Firestore
@@ -373,13 +390,15 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
     if (!user?.uid) return;
     const q = query(
       collection(db, "applications"),
-      where("studentId", "==", user.uid),
-      orderBy("appliedAt", "desc"),
-      limit(5)
+      where("studentId", "==", user.uid)
     );
     const unsub = onSnapshot(q, snap => {
-      setRecentApplications(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    }, () => {});
+      const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      docs.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+      setRecentApplications(docs.slice(0, 5));
+    }, (err) => {
+      console.error("Failed to load recent applications:", err);
+    });
     return () => unsub();
   }, [user?.uid]);
   const [initialCompanyId, setInitialCompanyId] = useState(null);
@@ -415,12 +434,19 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
 
   useEffect(() => { if (isDesktop) setDrawerOpen(false); }, [isDesktop]);
 
+  useEffect(() => {
+    if (!user?.uid) return;
+    try { localStorage.setItem(`recentVisited_${user.uid}`, JSON.stringify(recentVisited)); } catch {}
+  }, [recentVisited, user?.uid]);
+
   const navigate = (key) => { setActiveNav(key); setDrawerOpen(false); };
 
   const renderContent = () => {
     if (activeNav === "dashboard") return (
       <DashboardContent
         onNavigate={navigate}
+        recentVisited={recentVisited}
+        recentApplications={recentApplications}
         onViewCompany={(id, company) => {
           setInitialCompanyId(id);
           if (company) {
@@ -447,11 +473,17 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
           setApplyCompany({ name: company.name });
           navigate("application");
         }}
+        onVisitCompany={({ id, name }) => {
+          setRecentVisited(prev => {
+            const filtered = prev.filter(c => c.id !== id);
+            return [{ id, name, companyName: name, visitedAt: Date.now() }, ...filtered].slice(0, 5);
+          });
+        }}
       />
     );
 
     if (activeNav === "application") return (
-      <StudentApplicationScreen initialCompany={applyCompany} onModalClose={() => setApplyCompany(null)} />
+      <StudentApplicationScreen initialCompany={applyCompany} onModalClose={() => setApplyCompany(null)} user={user} />
     );
 
     if (activeNav === "messages") return (
