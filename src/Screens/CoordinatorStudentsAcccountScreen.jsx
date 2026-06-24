@@ -893,7 +893,7 @@ const mapStudentDoc = (docSnap) => {
 // ── Main Screen ────────────────────────────────────────────────────────────────
 // Props:
 //   coordinatorUid — logged-in coordinator's Firebase UID
-const CoordinatorStudentsListScreen = ({ coordinatorUid }) => {
+const CoordinatorStudentsAcccountScreen = ({ coordinatorUid }) => {
   const [students, setStudents]                 = useState([]);
   const [loading, setLoading]                   = useState(true);
   const [selected, setSelected]                 = useState(new Set());
@@ -1145,4 +1145,4 @@ const CoordinatorStudentsListScreen = ({ coordinatorUid }) => {
   );
 };
 
-export default CoordinatorStudentsListScreen;
+export default CoordinatorStudentsAcccountScreen;

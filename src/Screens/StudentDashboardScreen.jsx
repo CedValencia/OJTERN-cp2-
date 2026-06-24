@@ -246,8 +246,12 @@ const SidebarNavList = ({ activeNav, onNavigate }) => (
 
 // ── Dashboard Content ──────────────────────────────────────────────────────────
 const DashboardContent = ({ onNavigate, onViewCompany, recentVisited = [], recentApplications = [] }) => {
-  const { posts: allPosts = [] } = useOjtPosts();
-  const recommendedCompanies = allPosts.slice(0, 5);
+
+const { posts: allPosts = [] } = useOjtPosts();
+
+const { posts: allPosts } = useOjtPosts();
+    
+const recommendedCompanies = allPosts.slice(0, 5);
 
   return (
     <div style={{ padding: "clamp(16px, 4vw, 32px)", overflowY: "auto", flex: 1 }}>
@@ -441,25 +445,26 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
 
   const navigate = (key) => { setActiveNav(key); setDrawerOpen(false); };
 
-  const renderContent = () => {
-    if (activeNav === "dashboard") return (
-      <DashboardContent
-        onNavigate={navigate}
-        recentVisited={recentVisited}
-        recentApplications={recentApplications}
-        onViewCompany={(id, company) => {
-          setInitialCompanyId(id);
-          if (company) {
-            setRecentVisited(prev => {
-              const filtered = prev.filter(c => c.id !== id);
-              return [{ ...company, visitedAt: Date.now() }, ...filtered].slice(0, 5);
-            });
-          }
-          navigate("findcompany");
-        }}
-      />
-    );
-
+ const renderContent = () => {
+    if (activeNav === "dashboard") {
+      return (
+        <DashboardContent
+          onNavigate={navigate}
+          recentVisited={recentVisited}
+          recentApplications={recentApplications}
+          onViewCompany={(id, company) => {
+            setInitialCompanyId(id);
+            if (company) {
+              setRecentVisited(prev => {
+                const filtered = prev.filter(c => c.id !== id);
+                return [{ ...company, visitedAt: Date.now() }, ...filtered].slice(0, 5);
+              });
+            }
+            navigate("findcompany");
+          }}
+        />
+      );
+    }
     if (activeNav === "findcompany") return (
       <StudentFindCompanyScreen
         initialCompanyId={initialCompanyId}

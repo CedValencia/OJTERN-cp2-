@@ -3,8 +3,8 @@ import { changePassword } from "./AuthService";
 import { collection, query, where, orderBy, limit, onSnapshot } from "firebase/firestore";
 import { db } from "./firebase";
 
-import CoordinatorStudentsListScreen      from "./CoordinatorStudentsListScreen";
-import CoordinatorStudentPlacementsScreen from "./CoordinatorStudentPlacementsScreen";
+import CoordinatorStudentsAcccountScreen      from "./CoordinatorStudentsAcccountScreen";
+import CoordinatorStudentListScreen from "./CoordinatorStudentListScreen";
 import CoordinatorCompanyListScreen       from "./CoordinatorCompanyListScreen";
 import CoordinatorMessagesScreen          from "./CoordinatorMessagesScreen";
 import CoordinatorAccountProfileScreen    from "./CoordinatorAccountProfileScreen";
@@ -172,8 +172,8 @@ const FontImport = () => (
 const navItems = [
   { key: "dashboard",         label: "Dashboard",          icon: dashboardIcon },
   { key: "viewcompany",       label: "View Company",       icon: viewCompanyIcon },
-  { key: "studentslist",      label: "Students Account",      icon: studentListIcon },
-  { key: "studentplacements", label: "Student List", icon: studentPlacementIcon },
+  { key: "studentsaccount",      label: "Students Account",      icon: studentListIcon },
+  { key: "studentlist", label: "Student List", icon: studentPlacementIcon },
   { key: "companylist",       label: "Company List",       icon: companyListIcon },
   { key: "reportcompany",     label: "Report Company",     icon: reportCompanyIcon },
   { key: "messages",          label: "Messages",           icon: messagesIcon },
@@ -373,13 +373,13 @@ const DashboardContent = ({ onNavigate, onViewCompany, onViewRegistered, coordin
               label="Total Students"
               value={totalStudents}
               bg="rgba(0,0,0,0.15)"
-              onView={() => onNavigate("studentplacements")}
+              onView={() => onNavigate("studentlist")}
             />
             <StatCard
               label="Deployed Students"
               value={deployedStudents}
               bg="rgba(89,1,1,0.35)"
-              onView={() => onNavigate("studentplacements")}
+              onView={() => onNavigate("studentlist")}
             />
           </div>
         </div>
@@ -530,10 +530,10 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
       />
     );
 
-    if (activeNav === "studentslist") return <CoordinatorStudentsListScreen coordinatorUid={user?.uid} />;
+    if (activeNav === "studentsaccount") return <CoordinatorStudentsAcccountScreen coordinatorUid={user?.uid} />;
 
-    if (activeNav === "studentplacements") return (
-      <CoordinatorStudentPlacementsScreen
+    if (activeNav === "studentlist") return (
+      <CoordinatorStudentListScreen
         onNavigateToCompany={(companyId) => {
           setPlacementTargetCompanyId(companyId);
           navigate("viewcompany");

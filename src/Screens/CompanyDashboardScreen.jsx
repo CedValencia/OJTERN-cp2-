@@ -441,8 +441,7 @@ const CompanyDashboardScreen = ({ user, onLogout }) => {
         return (
           <CompanyMessageScreen
             user={user}
-            openContact={pendingContact}
-            onContactOpened={() => setPendingContact(null)}
+            openContact={() => setPendingContact(null)}
           />
         );
       case "accountprofile":
@@ -450,7 +449,7 @@ const CompanyDashboardScreen = ({ user, onLogout }) => {
       case "about":
         return <AboutScreen />;
       default:
-        return null;
+        return <DashboardContent onNavigate={navigate} applications={applications} posts={posts} />;
     }
   };
 

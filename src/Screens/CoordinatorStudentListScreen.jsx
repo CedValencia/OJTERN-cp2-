@@ -381,7 +381,7 @@ const FilterPanel = ({ filters, setFilters, filterRef }) => {
   );
 };
 
-const CoordinatorStudentPlacementsScreen = ({ onNavigateToCompany }) => {
+const CoordinatorStudentListScreen = ({ onNavigateToCompany }) => {
   const [search, setSearch]                 = useState("");
   const [viewingStudent, setViewingStudent] = useState(null);
   const [showFilter, setShowFilter]         = useState(false);
@@ -559,4 +559,4 @@ const CoordinatorStudentPlacementsScreen = ({ onNavigateToCompany }) => {
   );
 };
 
-export default CoordinatorStudentPlacementsScreen;
+export default CoordinatorStudentListScreen;
