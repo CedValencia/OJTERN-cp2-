@@ -177,7 +177,7 @@ const ResponsiveStyles = () => (
 //   onGoSignIn           — navigate to SignIn
 //   onSubmitSuccess      — called after successful Firebase registration
 //   step1Data            — form data from Step 1 { companyName, industry,
-//                          courseSelections, location, email, password }
+//                          location, email, password }
 const SignUpStep2Screen = ({ onBack, onGoSignIn, onSubmitSuccess, step1Data }) => {
   const [agreed, setAgreed]         = useState(false);
   const [dragging, setDragging]     = useState(false);

@@ -32,12 +32,13 @@ import { auth, db } from "./firebase";
  * 1. Creates a Firebase Auth user.
  * 2. Writes the company profile to Firestore with status "pending".
  *
- * @param {object} step1Data  — { email, password, companyName, industry, courseSelections, location }
+ * @param {object} step1Data  — { email, password, companyName, industry, location }
  * @param {string[]} verificationDocs — array of Cloudinary secure_url strings
  * @returns {Promise<string>} the new user's UID
  */
 export const registerCompany = async (step1Data, verificationDocs) => {
-  const { email, password, companyName, industry, courseSelections, location } = step1Data;
+  const { email: rawEmail, password, companyName, industry, location } = step1Data;
+  const email = rawEmail.trim().toLowerCase(); // normalize so Auth + Firestore always match
 
   // 1. Firebase Auth
   const { user } = await createUserWithEmailAndPassword(auth, email, password);
@@ -48,7 +49,6 @@ export const registerCompany = async (step1Data, verificationDocs) => {
     email,
     companyName,
     industry,
-    courseSelections, // [{ college, program, specialization }]
     location,         // { fullAddress, region, province, city, barangay, street, lat, lng }
     verificationDocs, // Cloudinary URLs
     role:             "company",
@@ -108,7 +108,7 @@ export const signIn = async (role, emailOrStudentId, password) => {
   // Firebase Auth sign-in
   let userCredential;
   try {
-    userCredential = await signInWithEmailAndPassword(auth, loginEmail.trim(), password);
+    userCredential = await signInWithEmailAndPassword(auth, loginEmail.trim().toLowerCase(), password);
   } catch (err) {
     if (
       err.code === "auth/user-not-found"    ||

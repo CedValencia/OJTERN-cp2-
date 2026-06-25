@@ -389,8 +389,14 @@ const StatusDropdown = ({ status, onChange, open, setOpen }) => {
 
 const AttachedFileChip = ({ file }) => {
   const isPng = /\.png$/i.test(file.name || "");
+  // Inject Cloudinary's fl_attachment flag so the browser downloads the file
+  // instead of trying to render it inline (which can also trigger 401s on
+  // accounts that restrict inline PDF delivery).
+  const downloadUrl = file.url
+    ? file.url.replace("/upload/", `/upload/fl_attachment:${encodeURIComponent(file.name || "file")}/`)
+    : file.url;
   return (
-    <a href={file.url} target="_blank" rel="noopener noreferrer" title={`Open ${file.name}`}
+    <a href={downloadUrl} download={file.name} title={`Download ${file.name}`}
       style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", gap: "4px", cursor: "pointer", textDecoration: "none" }}>
       <div style={{ position: "relative", width: "72px", height: "82px" }}>
         <img src={pdfIcon} alt={isPng ? "PNG" : "PDF"} style={{ position: "absolute", top: 0, left: 0, width: "72px", height: "82px", objectFit: "contain", zIndex: 1 }} />

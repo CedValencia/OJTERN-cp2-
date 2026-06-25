@@ -248,8 +248,6 @@ const SidebarNavList = ({ activeNav, onNavigate }) => (
 const DashboardContent = ({ onNavigate, onViewCompany, recentVisited = [], recentApplications = [] }) => {
 
 const { posts: allPosts = [] } = useOjtPosts();
-
-const { posts: allPosts } = useOjtPosts();
     
 const recommendedCompanies = allPosts.slice(0, 5);
 
