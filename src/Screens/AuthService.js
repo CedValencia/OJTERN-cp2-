@@ -1,12 +1,15 @@
 // AuthService.js — reusable Firebase Auth + Firestore operations
 // Import `auth` and `db` from firebase.js so everything uses the same app instance
 
+import { initializeApp, getApp, deleteApp } from "firebase/app";
+
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   signOut,
   sendPasswordResetEmail,
   updatePassword,
+  getAuth,
 } from "firebase/auth";
 
 import {
@@ -146,6 +149,10 @@ export const signIn = async (role, emailOrStudentId, password) => {
   if (userData.status === "rejected") {
     await signOut(auth);
     throw new Error("Your account registration was rejected. Please contact the administrator.");
+  }
+  if (userData.status === "transferred") {
+    await signOut(auth);
+    throw new Error("This account has been transferred and no longer has access. Please contact your administrator.");
   }
 
   return { user, userData };
@@ -327,4 +334,129 @@ export const changePassword = async (newPassword, collectionName, uid) => {
   if (!user) throw new Error("No user is currently signed in.");
   await updatePassword(user, newPassword);
   await updateDoc(doc(db, collectionName, uid), { passwordChanged: true });
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ISOLATED ACCOUNT CREATION — create a Firebase Auth user WITHOUT switching
+// the current session to that new user (the normal client SDK behavior signs
+// you in as whoever you just created, which we don't want here since a
+// coordinator stays logged in as themselves while adding/transferring).
+// ─────────────────────────────────────────────────────────────────────────────
+const createAuthUserIsolated = async (email, password) => {
+  const tempApp = initializeApp(getApp().options, `temp-${Date.now()}`);
+  const tempAuth = getAuth(tempApp);
+  try {
+    const { user } = await createUserWithEmailAndPassword(tempAuth, email, password);
+    return user.uid;
+  } finally {
+    await deleteApp(tempApp);
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// COORDINATOR — Add Account (a second coordinator who shares the same
+// department / assigned industries, so both can manage the same companies)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Creates a new coordinator account that shares the inviting coordinator's
+ * department selections and assigned industries.
+ *
+ * @param {object} accountData — { name, sex, contact, email, address, password, deptSelections? }
+ * @param {string} inviterUid — the currently logged-in coordinator's UID
+ * @returns {Promise<string>} the new coordinator's UID
+ */
+export const createCoordinatorAccount = async (accountData, inviterUid) => {
+  const { name, sex, contact, email, address, password, deptSelections } = accountData;
+  const normalizedEmail = email.trim().toLowerCase();
+
+  // Check for an existing account with this email first
+  const dupSnap = await getDocs(query(collection(db, "coordinators"), where("email", "==", normalizedEmail)));
+  if (!dupSnap.empty) throw new Error("An account with that email already exists.");
+
+  // Pull the inviter's current scope so the new coordinator shares it
+  const inviterSnap = await getDoc(doc(db, "coordinators", inviterUid));
+  const inviterData = inviterSnap.exists() ? inviterSnap.data() : {};
+
+  const newUid = await createAuthUserIsolated(normalizedEmail, password);
+
+  await setDoc(doc(db, "coordinators", newUid), {
+    uid: newUid,
+    name: name.trim(),
+    sex,
+    contact,
+    email: normalizedEmail,
+    address,
+    deptSelections: deptSelections?.length ? deptSelections : (inviterData.deptSelections || []),
+    assignedIndustries: inviterData.assignedIndustries || [],
+    role: "coordinator",
+    status: "active",
+    passwordChanged: false,  // still force them to set their own password on first login
+    profileComplete: false,
+    addedBy: inviterUid,
+    createdAt: serverTimestamp(),
+  });
+
+  return newUid;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// COORDINATOR — Transfer Account (hand off to a replacement coordinator;
+// the current account permanently loses access once transferred)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Transfers a coordinator's department/industry scope to a brand-new
+ * coordinator account, then revokes the current account's access.
+ *
+ * @param {string} currentUid       — the coordinator initiating the transfer
+ * @param {string} currentEmail     — used to re-confirm identity before transferring
+ * @param {string} currentPassword  — used to re-confirm identity before transferring
+ * @param {object} newAccountData   — { name, email, password }
+ * @returns {Promise<string>} the new coordinator's UID
+ */
+export const transferCoordinatorAccount = async (currentUid, currentEmail, currentPassword, newAccountData) => {
+  // 1. Re-confirm the current coordinator's identity before doing anything irreversible
+  await signInWithEmailAndPassword(auth, currentEmail.trim().toLowerCase(), currentPassword);
+
+  // 2. Load the current coordinator's scope to carry over
+  const currentSnap = await getDoc(doc(db, "coordinators", currentUid));
+  if (!currentSnap.exists()) throw new Error("Current coordinator profile not found.");
+  const currentData = currentSnap.data();
+
+  // 3. Create the replacement coordinator's Auth account (isolated, doesn't affect current session)
+  const { name, email, password } = newAccountData;
+  const normalizedEmail = email.trim().toLowerCase();
+
+  const dupSnap = await getDocs(query(collection(db, "coordinators"), where("email", "==", normalizedEmail)));
+  if (!dupSnap.empty) throw new Error("An account with that email already exists.");
+
+  const newUid = await createAuthUserIsolated(normalizedEmail, password);
+
+  // 4. Write the new coordinator's profile, inheriting department/industry scope
+  await setDoc(doc(db, "coordinators", newUid), {
+    uid: newUid,
+    name: name.trim(),
+    email: normalizedEmail,
+    sex: "",
+    contact: "",
+    address: "",
+    deptSelections: currentData.deptSelections || [],
+    assignedIndustries: currentData.assignedIndustries || [],
+    role: "coordinator",
+    status: "active",
+    passwordChanged: false,
+    profileComplete: false,
+    transferredFrom: currentUid,
+    createdAt: serverTimestamp(),
+  });
+
+  // 5. Revoke the current account's access — this is what actually blocks future sign-ins
+  await updateDoc(doc(db, "coordinators", currentUid), {
+    status: "transferred",
+    transferredTo: newUid,
+    transferredAt: serverTimestamp(),
+  });
+
+  return newUid;
 };

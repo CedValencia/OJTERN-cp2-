@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { changePassword } from "./AuthService";
-import { collection, query, where, orderBy, limit, onSnapshot } from "firebase/firestore";
+import { collection, query, where, orderBy, limit, onSnapshot, doc, updateDoc } from "firebase/firestore";
 import { db } from "./firebase";
+import { PersonalInfoScreen } from "./CoordinatorAccountProfileScreen";
 
 import CoordinatorStudentsAcccountScreen      from "./CoordinatorStudentsAcccountScreen";
 import CoordinatorStudentListScreen from "./CoordinatorStudentListScreen";
@@ -436,7 +437,11 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
   const [placementTargetCompanyId, setPlacementTargetCompanyId] = useState(null);
   const [dashboardCompanyId, setDashboardCompanyId]             = useState(null);
   const [dashboardTarget, setDashboardTarget]                   = useState(null);
+  // ── First-login forced flow: 1) reset password, 2) edit personal info ────
+  const [passwordDone, setPasswordDone]                         = useState(!!user?.passwordChanged);
+  const [profileDone,  setProfileDone]                          = useState(!!user?.profileComplete);
   const [showChangePass, setShowChangePass]                     = useState(!user?.passwordChanged);
+  const [showEditInfo, setShowEditInfo]                         = useState(!!user?.passwordChanged && !user?.profileComplete);
   const [newPass, setNewPass]                                   = useState("");
   const [confirmPass, setConfirmPass]                           = useState("");
   const [passError, setPassError]                               = useState("");
@@ -452,7 +457,10 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
     setPassLoading(true);
     try {
       await changePassword(newPass, "coordinators", user?.uid);
+      setPasswordDone(true);
       setShowChangePass(false);
+      // ── Right after resetting password, force the personal-info edit step ──
+      if (!profileDone) setShowEditInfo(true);
     } catch (err) {
       setPassError(err.message || "Failed to change password.");
     } finally {
@@ -653,6 +661,26 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
 
       {viewingReport && (
         <ReportDetailModal report={viewingReport} onClose={() => setViewingReport(null)} />
+      )}
+
+      {/* ── Forced first-login flow: reset password, then complete profile ── */}
+      <ChangePasswordModal
+        show={showChangePass}
+        newPass={newPass} setNewPass={setNewPass}
+        confirmPass={confirmPass} setConfirmPass={setConfirmPass}
+        passError={passError} setPassError={setPassError}
+        passLoading={passLoading} handleChangePassword={handleChangePassword}
+        showNew={showNew} setShowNew={setShowNew}
+        showConfirm={showConfirm} setShowConfirm={setShowConfirm}
+      />
+      {showEditInfo && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 9999, background: "#590101", display: "flex", flexDirection: "column" }}>
+          <PersonalInfoScreen
+            user={user}
+            mandatory
+            onSaved={() => { setProfileDone(true); setShowEditInfo(false); }}
+          />
+        </div>
       )}
     </>
   );

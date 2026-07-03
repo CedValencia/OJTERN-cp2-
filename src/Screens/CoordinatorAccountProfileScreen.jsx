@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect } from "react";
-import { doc, onSnapshot } from "firebase/firestore";
+import { doc, onSnapshot, updateDoc } from "firebase/firestore";
 import { getAuth, signOut } from "firebase/auth";
 import { db } from "./firebase";
+import { createCoordinatorAccount, transferCoordinatorAccount } from "./AuthService";
 
 import AccountProfile from "../icons/accountprofile.png";
 import viewIcon from "../icons/view.png";
@@ -102,6 +103,7 @@ const ResponsiveStyles = () => (
     /* ── Personal info body ── */
     .cap-info-body {
       flex: 1;
+      min-height: 0;
       overflow-y: auto;
       overflow-x: hidden;
       padding: 24px 32px;
@@ -223,7 +225,14 @@ const ResponsiveStyles = () => (
 
 // ── Department / Program data ─────────────────────────────────────────────────
 // TODO: Populate from backend or config
-const DEPARTMENT_PROGRAM_DATA = {};
+const DEPARTMENT_PROGRAM_DATA = {
+  "College of Computer Studies":           { programs: ["BSIT"] },
+  "College of Business and Accountancy":   { programs: ["BSBA (Major in Marketing Management)", "BSA"] },
+  "College of Education":                  { programs: ["BSED (Major in English)", "BSED (Major in Mathematics)", "BEED (Generalist)"] },
+  "College of Criminal Justice Education": { programs: ["BS Crim"] },
+  "College of Hospitality Management":     { programs: ["BSTM", "BSHM"] },
+  "College of Liberal Arts":               { programs: ["BA Pol Sci"] },
+};
 
 const DEPARTMENTS = Object.keys(DEPARTMENT_PROGRAM_DATA);
 
@@ -424,7 +433,7 @@ const MenuRow = ({ iconSrc, label, onClick }) => (
 );
 
 // ── Add Account Modal ─────────────────────────────────────────────────────────
-const AddAccountModal = ({ onClose }) => {
+const AddAccountModal = ({ onClose, currentUid }) => {
   const [name, setName]                     = useState("");
   const [deptSelections, setDeptSelections] = useState([{ department: "", program: "", specialization: "" }]);
   const [sex, setSex]                       = useState("");
@@ -435,6 +444,8 @@ const AddAccountModal = ({ onClose }) => {
   const [confirm, setConfirm]               = useState("");
   const [errors, setErrors]                 = useState({});
   const [deptErrors, setDeptErrors]         = useState([]);
+  const [submitting, setSubmitting]         = useState(false);
+  const [submitError, setSubmitError]       = useState("");
 
   const validate = () => {
     const e = {};
@@ -462,10 +473,19 @@ const AddAccountModal = ({ onClose }) => {
     return Object.keys(e).length === 0 && !hasDeptError;
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!validate()) return;
-    alert(`Account for ${name} has been added successfully.`);
-    onClose();
+    setSubmitError("");
+    setSubmitting(true);
+    try {
+      await createCoordinatorAccount({ name, sex, contact, email, address, password, deptSelections }, currentUid);
+      alert(`Account for ${name} has been added successfully. They can now log in and will be prompted to set up their own password.`);
+      onClose();
+    } catch (err) {
+      setSubmitError(err.message || "Failed to add account.");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -528,10 +548,17 @@ const AddAccountModal = ({ onClose }) => {
               {errors.confirm && <p style={{ color: "red", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif" }}>{errors.confirm}</p>}
             </div>
           </div>
+          {submitError && (
+            <p style={{ color: "red", fontSize: "0.8rem", fontFamily: "'Kufam', sans-serif", textAlign: "center", marginTop: "12px" }}>
+              ⚠️ {submitError}
+            </p>
+          )}
         </div>
         <div className="cap-modal-footer">
           <button onClick={onClose} style={{ padding: "10px 28px", borderRadius: "20px", background: "white", color: darkRed, border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.9rem", cursor: "pointer" }}>Cancel</button>
-          <button onClick={handleSubmit} style={{ padding: "10px 28px", borderRadius: "20px", background: "rgba(255,255,255,0.25)", color: "white", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.9rem", cursor: "pointer" }}>Add Account</button>
+          <button onClick={handleSubmit} disabled={submitting} style={{ padding: "10px 28px", borderRadius: "20px", background: "rgba(255,255,255,0.25)", color: "white", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.9rem", cursor: submitting ? "not-allowed" : "pointer", opacity: submitting ? 0.7 : 1 }}>
+            {submitting ? "Adding…" : "Add Account"}
+          </button>
         </div>
       </div>
     </div>
@@ -539,53 +566,83 @@ const AddAccountModal = ({ onClose }) => {
 };
 
 // ── Transfer Account Modal ────────────────────────────────────────────────────
-const TransferAccountModal = ({ onClose }) => {
-  const [email, setEmail]             = useState("");
+const TransferAccountModal = ({ onClose, currentUid, currentEmail }) => {
   const [currentPass, setCurrentPass] = useState("");
+  const [name, setName]               = useState("");
+  const [email, setEmail]             = useState("");
   const [newPass, setNewPass]         = useState("");
   const [confirmPass, setConfirmPass] = useState("");
   const [errors, setErrors]           = useState({});
+  const [submitting, setSubmitting]   = useState(false);
+  const [submitError, setSubmitError] = useState("");
 
   const validate = () => {
     const e = {};
+    if (!currentPass) e.currentPass = "Your current password is required to confirm this transfer.";
+    if (!name.trim()) e.name = "New coordinator's name is required.";
     if (!email.endsWith("@gmail.com")) e.email = "Must be a valid @gmail.com email.";
-    if (!currentPass) e.currentPass = "Current password is required.";
     if (newPass.length < 8) e.newPass = "Minimum 8 characters.";
     if (newPass !== confirmPass) e.confirmPass = "Passwords do not match.";
     setErrors(e);
     return Object.keys(e).length === 0;
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!validate()) return;
-    alert("Account transfer initiated. The current user will lose access.");
-    onClose();
+    setSubmitError("");
+    setSubmitting(true);
+    try {
+      await transferCoordinatorAccount(currentUid, currentEmail, currentPass, { name, email, password: newPass });
+      alert(`Account successfully transferred to ${name}. You will no longer have access to this account.`);
+      onClose();
+    } catch (err) {
+      setSubmitError(err.message || "Failed to transfer account.");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: "16px" }}>
       <div className="cap-modal-inner">
         <div className="cap-modal-body">
-          <WarningBanner text="Transfer to another OJT Coordinator account. This action cannot be undone." />
+          <WarningBanner text="Transfer to another OJT Coordinator account. This action cannot be undone — you will lose access to this account once transferred." />
           <hr style={{ borderColor: "#eee", marginBottom: "16px" }} />
-          <label style={labelStyle}>Enter Valid Email:</label>
-          <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="example@gmail.com" style={{ ...fieldStyle, marginBottom: "4px" }} />
-          {errors.email && <p style={{ color: "red", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif", marginBottom: "8px" }}>{errors.email}</p>}
-          <hr style={{ borderColor: "#eee", margin: "16px 0" }} />
-          <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.3rem", color: red, marginBottom: "12px" }}>SET PASSWORD:</p>
-          <label style={labelStyle}>Current Password:</label>
+
+          <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.3rem", color: red, marginBottom: "12px" }}>CONFIRM YOUR IDENTITY:</p>
+          <label style={labelStyle}>Your Current Password:</label>
           <PasswordInput value={currentPass} onChange={e => setCurrentPass(e.target.value)} />
           {errors.currentPass && <p style={{ color: "red", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif", marginBottom: "6px" }}>{errors.currentPass}</p>}
-          <label style={labelStyle}>New Password:</label>
+
+          <hr style={{ borderColor: "#eee", margin: "16px 0" }} />
+
+          <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.3rem", color: red, marginBottom: "12px" }}>NEW COORDINATOR'S DETAILS:</p>
+          <label style={labelStyle}>Full Name:</label>
+          <input value={name} onChange={e => setName(e.target.value)} placeholder="Full Name" style={{ ...fieldStyle, marginBottom: "2px" }} />
+          {errors.name && <p style={{ color: "red", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif", marginBottom: "6px" }}>{errors.name}</p>}
+
+          <label style={labelStyle}>Email Address:</label>
+          <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="example@gmail.com" style={{ ...fieldStyle, marginBottom: "4px" }} />
+          {errors.email && <p style={{ color: "red", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif", marginBottom: "8px" }}>{errors.email}</p>}
+
+          <label style={labelStyle}>Set Their Password:</label>
           <PasswordInput value={newPass} onChange={e => setNewPass(e.target.value)} />
           {errors.newPass && <p style={{ color: "red", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif", marginBottom: "6px" }}>{errors.newPass}</p>}
-          <label style={labelStyle}>Confirm New Password:</label>
+          <label style={labelStyle}>Confirm Password:</label>
           <PasswordInput value={confirmPass} onChange={e => setConfirmPass(e.target.value)} />
           {errors.confirmPass && <p style={{ color: "red", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif", marginBottom: "6px" }}>{errors.confirmPass}</p>}
+
+          {submitError && (
+            <p style={{ color: "red", fontSize: "0.8rem", fontFamily: "'Kufam', sans-serif", textAlign: "center", marginTop: "12px" }}>
+              ⚠️ {submitError}
+            </p>
+          )}
         </div>
         <div className="cap-modal-footer">
           <button onClick={onClose} style={{ padding: "10px 28px", borderRadius: "20px", background: "white", color: darkRed, border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.9rem", cursor: "pointer" }}>Cancel</button>
-          <button onClick={handleSubmit} style={{ padding: "10px 28px", borderRadius: "20px", background: "rgba(255,255,255,0.25)", color: "white", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.9rem", cursor: "pointer" }}>Transfer Account</button>
+          <button onClick={handleSubmit} disabled={submitting} style={{ padding: "10px 28px", borderRadius: "20px", background: "rgba(255,255,255,0.25)", color: "white", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.9rem", cursor: submitting ? "not-allowed" : "pointer", opacity: submitting ? 0.7 : 1 }}>
+            {submitting ? "Transferring…" : "Transfer Account"}
+          </button>
         </div>
       </div>
     </div>
@@ -607,81 +664,39 @@ const formatPhone = (raw) => {
   return fmt;
 };
 
-// TODO: Populate from backend or config
-const COORD_PROVINCES = [];
-
-const CoordLocationPicker = ({ location, onChange, editable = true }) => {
-  const { province, city, barangay, street } = location;
-  const provinceData = COORD_PROVINCES.find(p => p.name === province);
-  const cityData     = provinceData?.cities.find(c => c.name === city);
-
-  const handleProvince  = (val) => onChange({ province: val, city: "", barangay: "", street: "" });
-  const handleCity      = (val) => onChange({ province, city: val, barangay: "", street: "" });
-  const handleBarangay  = (val) => onChange({ province, city, barangay: val, street });
-  const handleStreet    = (val) => onChange({ province, city, barangay, street: val });
-
-  const dropStyle = {
-    ...fieldStyle,
-    appearance: "none",
-    WebkitAppearance: "none",
-    paddingRight: "28px",
-    cursor: editable ? "pointer" : "default",
-    marginBottom: "6px",
-  };
-
-  const Arrow = () => (
-    <span style={{ position: "absolute", right: "14px", top: "38%", transform: "translateY(-50%)", color: "white", pointerEvents: "none", fontSize: "0.7rem" }}>▼</span>
-  );
-
-  return (
-    <div>
-      <div style={{ position: "relative" }}>
-        <select disabled={!editable} value={province} onChange={e => handleProvince(e.target.value)} style={dropStyle}>
-          <option value="">Select Province:</option>
-          {COORD_PROVINCES.map(p => <option key={p.name} value={p.name}>{p.name}</option>)}
-        </select>
-        {editable && <Arrow />}
-      </div>
-      {province && (
-        <div style={{ position: "relative" }}>
-          <select disabled={!editable} value={city} onChange={e => handleCity(e.target.value)} style={dropStyle}>
-            <option value="">Select City / Municipality:</option>
-            {provinceData?.cities.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
-          </select>
-          {editable && <Arrow />}
-        </div>
-      )}
-      {city && (
-        <div style={{ position: "relative" }}>
-          <select disabled={!editable} value={barangay} onChange={e => handleBarangay(e.target.value)} style={dropStyle}>
-            <option value="">Select Barangay:</option>
-            {cityData?.barangays.map(b => <option key={b} value={b}>{b}</option>)}
-          </select>
-          {editable && <Arrow />}
-        </div>
-      )}
-      {city && (
-        <input type="text" disabled={!editable} placeholder="Street / Building (optional):" value={street}
-          onChange={e => handleStreet(e.target.value)} style={{ ...fieldStyle, marginBottom: "6px" }} />
-      )}
-    </div>
-  );
-};
-
 // ── Personal Info Screen ──────────────────────────────────────────────────────
-const PersonalInfoScreen = ({ onBack }) => {
-  const [editing, setEditing]           = useState(false);
-  // TODO: Populate from backend / auth context
-  const [name, setName]                 = useState("");
-  const [deptSelections, setDeptSelections] = useState([
-    { department: "", program: "", specialization: "" }
-  ]);
-  const [sex, setSex]         = useState("");
-  const [contact, setContact] = useState("");
-  const [email, setEmail]     = useState("");
-  const [location, setLocation] = useState({ province: "", city: "", barangay: "", street: "" });
+const PersonalInfoScreen = ({ user, onBack, onSaved, mandatory = false }) => {
+  const [editing, setEditing]           = useState(!!mandatory);
+  const [name, setName]                 = useState(user?.name || "");
+  const [deptSelections, setDeptSelections] = useState(
+    user?.deptSelections?.length ? user.deptSelections : [{ department: "", program: "", specialization: "" }]
+  );
+  const [sex, setSex]         = useState(user?.sex || "");
+  const [contact, setContact] = useState(user?.contact || "");
+  const [email, setEmail]     = useState(user?.email || "");
+  const [address, setAddress] = useState(user?.address || "");
   const [errors, setErrors]     = useState({});
   const [deptErrors, setDeptErrors] = useState([]);
+  const [saving, setSaving]     = useState(false);
+  const [saveError, setSaveError] = useState("");
+
+  // ── Always reflect the latest Firestore data, not a stale `user` prop ────
+  // (Fixes fields resetting to blank when re-opening Edit after a save.)
+  useEffect(() => {
+    const uid = user?.uid;
+    if (!uid) return;
+    const unsub = onSnapshot(doc(db, "coordinators", uid), (snap) => {
+      if (!snap.exists()) return;
+      const d = snap.data();
+      setName(d.name || "");
+      setDeptSelections(d.deptSelections?.length ? d.deptSelections : [{ department: "", program: "", specialization: "" }]);
+      setSex(d.sex || "");
+      setContact(d.contact || "");
+      setEmail(d.email || "");
+      setAddress(d.address || "");
+    });
+    return unsub;
+  }, [user?.uid]);
 
   const validatePhone = (val) => {
     if (!val || val.trim() === "+63" || val.trim() === "+63 ") return "Phone number is required.";
@@ -703,7 +718,7 @@ const PersonalInfoScreen = ({ onBack }) => {
     if (phoneErr) e.contact = phoneErr;
     const emailErr = validateEmail(email);
     if (emailErr) e.email = emailErr;
-    if (!location.province) e.location = "Please select a province.";
+    if (!address.trim()) e.address = "Address is required.";
 
     const newDeptErrors = deptSelections.map(entry => {
       const err = {};
@@ -721,11 +736,25 @@ const PersonalInfoScreen = ({ onBack }) => {
     return Object.keys(e).length === 0 && !hasDeptError;
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!validate()) return;
-    setEditing(false);
-    setErrors({});
-    setDeptErrors([]);
+    const uid = user?.uid;
+    if (!uid) { setSaveError("Missing account reference. Please re-login and try again."); return; }
+    setSaving(true);
+    setSaveError("");
+    try {
+      const payload = { name, deptSelections, sex, contact, email, address };
+      if (mandatory) payload.profileComplete = true;
+      await updateDoc(doc(db, "coordinators", uid), payload);
+      setEditing(false);
+      setErrors({});
+      setDeptErrors([]);
+      onSaved?.(payload);
+    } catch (err) {
+      setSaveError(err.message || "Failed to save your information.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleContactChange = (raw) => {
@@ -751,8 +780,8 @@ const PersonalInfoScreen = ({ onBack }) => {
   const deptViewLabel = (entry) => [entry.department, entry.program, entry.specialization].filter(Boolean).join(" — ");
 
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-      <SectionHeaderBar iconSrc={personalInfoIcon} title="Personal Information" onBack={onBack} />
+    <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <SectionHeaderBar iconSrc={personalInfoIcon} title="Personal Information" onBack={mandatory ? undefined : onBack} />
       <div className="cap-info-body">
         <div className="cap-info-card">
           {/* Edit button */}
@@ -843,25 +872,49 @@ const PersonalInfoScreen = ({ onBack }) => {
               Address:{" "}
               {!editing && (
                 <span style={{ fontWeight: 400, fontSize: "0.82rem" }}>
-                  {[location.street, location.barangay, location.city, location.province].filter(Boolean).join(", ") || "—"}
+                  {address || "—"}
                 </span>
               )}
             </span>
             {editing && (
               <>
-                <CoordLocationPicker location={location} onChange={setLocation} editable={true} />
-                {errors.location && <p style={{ color: "#ffcccc", fontSize: "0.72rem", fontFamily: "'Kufam', sans-serif", margin: "2px 0 0" }}>{errors.location}</p>}
+                <input type="text" value={address}
+                  onChange={e => { setAddress(e.target.value); setErrors(p => ({ ...p, address: "" })); }}
+                  placeholder="Province, City, Barangay, Street"
+                  style={{
+                    background: "transparent", border: "none",
+                    borderBottom: errors.address ? "1.5px solid #ffaaaa" : "1px solid white",
+                    color: "white", fontFamily: "'Kufam', sans-serif", fontSize: "0.88rem",
+                    outline: "none", width: "100%", boxSizing: "border-box", padding: "4px 0",
+                  }} />
+                {errors.address && <p style={{ color: "#ffcccc", fontSize: "0.72rem", fontFamily: "'Kufam', sans-serif", margin: "2px 0 0" }}>{errors.address}</p>}
               </>
             )}
           </div>
 
+          {mandatory && (
+            <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.8rem", color: "#ffe0e0", textAlign: "center", margin: "4px 0 10px" }}>
+              Please complete your personal information to continue.
+            </p>
+          )}
+
+          {saveError && (
+            <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.78rem", color: "#ffcccc", textAlign: "center", margin: "4px 0 10px" }}>
+              ⚠️ {saveError}
+            </p>
+          )}
+
           {/* Cancel / Save */}
           {editing && (
             <div className="cap-save-row">
-              <button onClick={() => { setEditing(false); setErrors({}); setDeptErrors([]); }}
-                style={{ padding: "6px 18px", borderRadius: "14px", background: "rgba(255,255,255,0.15)", color: "white", border: "1px solid white", fontFamily: "'Kufam', sans-serif", fontSize: "0.78rem", cursor: "pointer" }}>Cancel</button>
-              <button onClick={handleSave}
-                style={{ padding: "6px 18px", borderRadius: "14px", background: "white", color: darkRed, border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.78rem", cursor: "pointer" }}>Save Changes</button>
+              {!mandatory && (
+                <button onClick={() => { setEditing(false); setErrors({}); setDeptErrors([]); }}
+                  style={{ padding: "6px 18px", borderRadius: "14px", background: "rgba(255,255,255,0.15)", color: "white", border: "1px solid white", fontFamily: "'Kufam', sans-serif", fontSize: "0.78rem", cursor: "pointer" }}>Cancel</button>
+              )}
+              <button onClick={handleSave} disabled={saving}
+                style={{ padding: "6px 18px", borderRadius: "14px", background: "white", color: darkRed, border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.78rem", cursor: saving ? "not-allowed" : "pointer", opacity: saving ? 0.7 : 1 }}>
+                {saving ? "Saving…" : "Save Changes"}
+              </button>
             </div>
           )}
         </div>
@@ -984,7 +1037,7 @@ const ResetPasswordScreen = ({ onBack }) => {
 };
 
 // ── Privacy & Security Screen ─────────────────────────────────────────────────
-const PrivacySecurityScreen = ({ onBack }) => {
+const PrivacySecurityScreen = ({ onBack, user }) => {
   const [subView, setSubView]               = useState(null);
   const [showTransfer, setShowTransfer]     = useState(false);
   const [showAddAccount, setShowAddAccount] = useState(false);
@@ -1001,8 +1054,8 @@ const PrivacySecurityScreen = ({ onBack }) => {
           <MenuRow iconSrc={addAccountIcon} label="Add Account"      onClick={() => setShowAddAccount(true)} />
         </div>
       </div>
-      {showTransfer   && <TransferAccountModal onClose={() => setShowTransfer(false)} />}
-      {showAddAccount && <AddAccountModal      onClose={() => setShowAddAccount(false)} />}
+      {showTransfer   && <TransferAccountModal onClose={() => setShowTransfer(false)} currentUid={user?.uid} currentEmail={user?.email} />}
+      {showAddAccount && <AddAccountModal      onClose={() => setShowAddAccount(false)} currentUid={user?.uid} />}
     </div>
   );
 };
@@ -1099,8 +1152,8 @@ const CoordinatorAccountProfileScreen = ({ user, onLogout }) => {
     if (onLogout) onLogout();
   };
 
-  if (view === "personalInfo") return <><ResponsiveStyles /><PersonalInfoScreen onBack={() => setView("main")} /></>;
-  if (view === "privacy")      return <><ResponsiveStyles /><PrivacySecurityScreen onBack={() => setView("main")} /></>;
+  if (view === "personalInfo") return <><ResponsiveStyles /><PersonalInfoScreen user={user} onBack={() => setView("main")} /></>;
+  if (view === "privacy")      return <><ResponsiveStyles /><PrivacySecurityScreen onBack={() => setView("main")} user={user} /></>;
   if (view === "terms")        return <><ResponsiveStyles /><TermsScreen onBack={() => setView("main")} /></>;
 
   return (
@@ -1140,11 +1193,12 @@ const CoordinatorAccountProfileScreen = ({ user, onLogout }) => {
           Log Out
         </button>
 
-        {showTransfer   && <TransferAccountModal onClose={() => setShowTransfer(false)} />}
-        {showAddAccount && <AddAccountModal      onClose={() => setShowAddAccount(false)} />}
+        {showTransfer   && <TransferAccountModal onClose={() => setShowTransfer(false)} currentUid={user?.uid} currentEmail={user?.email} />}
+        {showAddAccount && <AddAccountModal      onClose={() => setShowAddAccount(false)} currentUid={user?.uid} />}
       </div>
     </div>
   );
 };
 
 export default CoordinatorAccountProfileScreen;
+export { PersonalInfoScreen };
