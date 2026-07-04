@@ -743,7 +743,21 @@ const PersonalInfoScreen = ({ user, onBack, onSaved, mandatory = false }) => {
     setSaving(true);
     setSaveError("");
     try {
-      const payload = { name, deptSelections, sex, contact, email, address };
+      // Sanitize deptSelections — replace any undefined/null with empty string
+      const cleanDeptSelections = deptSelections.map(entry => ({
+        department:     entry.department     || "",
+        program:        entry.program        || "",
+        specialization: entry.specialization || "",
+      }));
+
+      const payload = {
+        name:           name          || "",
+        deptSelections: cleanDeptSelections,
+        sex:            sex           || "",
+        contact:        contact       || "",
+        email:          email         || "",
+        address:        address       || "",
+      };
       if (mandatory) payload.profileComplete = true;
       await updateDoc(doc(db, "coordinators", uid), payload);
       setEditing(false);

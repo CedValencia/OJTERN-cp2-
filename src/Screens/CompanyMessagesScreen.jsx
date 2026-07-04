@@ -509,7 +509,7 @@ const CompanyMessagesScreen = ({
   }, [activeContact, openConversation]);
 
   useEffect(() => {
-    if (!openContact || !user?.uid) return;
+    if (!openContact || !user?.uid || !openContact.id) return;
     (async () => {
       const convId = await ensureConversation(
         openContact.id,
@@ -567,6 +567,7 @@ const CompanyMessagesScreen = ({
       readConvIds={readConvIds}
       onOpen={async (c) => {
         const convId = await ensureConversation(c.id, c.name, c.role || "student");
+        if (!convId) return;
         const contact = { ...c, convId };
         openConversation(convId);
         setReadConvIds(prev => new Set([...prev, contact.convId]));

@@ -169,6 +169,12 @@ export const useChat = (myUid, myName, myRole) => {
 
   // ── Ensure a conversation exists, return convId ─────────────────────────
   const ensureConversation = useCallback(async (otherUid, otherName, otherRole) => {
+    // Guard — never write a conversation doc if either UID is missing
+    if (!myUid || !otherUid) {
+      console.error("ensureConversation: missing uid", { myUid, otherUid });
+      throw new Error("Cannot start conversation: missing user ID.");
+    }
+
     const convId  = makeConvId(myUid, otherUid);
     const convRef = doc(db, "conversations", convId);
     const snap    = await getDoc(convRef);
