@@ -57,7 +57,7 @@ const SUFFIX_OPTIONS = ["Jr.", "Sr.", "II", "III", "IV", "V", "VI", "VII", "VIII
 
 const EXCEL_COLUMNS = [
   "Student ID", "Last Name", "Middle Initial", "First Name", "Department", "Program",
-  "Major", "Year & Section", "Sex", "Age", "Email Address"
+  "Major", "Year & Section", "Sex", "Age", "Email Address", "Default Password"
 ];
 
 const NAME_REGEX = /^[A-Za-zÑñ][A-Za-zÑñ\s\-]*$/;
@@ -338,7 +338,8 @@ const validators = {
 const exportToXLSX = (students) => {
   const rows = [EXCEL_COLUMNS];
   students.forEach(s => {
-    rows.push([s.studentId, s.lastName, s.middleInitial, s.firstName, s.college, s.program, s.major || s.specialization || "", s.yearSection, s.sex, s.age, s.email]);
+    const defaultPassword = generateStudentPassword(s.firstName, s.lastName, s.studentId, s.college);
+    rows.push([s.studentId, s.lastName, s.middleInitial, s.firstName, s.college, s.program, s.major || s.specialization || "", s.yearSection, s.sex, s.age, s.email, defaultPassword]);
   });
   const ws = XLSX.utils.aoa_to_sheet(rows);
   const wb = XLSX.utils.book_new();
