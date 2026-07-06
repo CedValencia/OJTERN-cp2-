@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { collection, onSnapshot, query, where, orderBy, limit } from "firebase/firestore";
 import { db } from "./firebase";
-import { changePassword } from "./AuthService";
+import { changePassword, logOut } from "./AuthService";
 
 import StudentFindCompanyScreen, { useOjtPosts } from "./StudentFindCompanyScreen";
 import StudentApplicationScreen from "./StudentApplicationScreen";
@@ -422,7 +422,9 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
     setPassLoading(true);
     try {
       await changePassword(newPass, "students", user?.uid);
-      setShowChangePass(false);
+      // Sign out after reset — user must log in again with new password
+      await logOut();
+      onLogout?.();
     } catch (err) {
       setPassError(err.message || "Failed to change password.");
     } finally {

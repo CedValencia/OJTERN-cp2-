@@ -6,11 +6,23 @@ import { db } from "./firebase";
 const red     = "#8B0000";
 const darkRed = "#590101";
 
-// TODO: Populate from backend — list of regions > provinces > cities > barangays
+// ── Location data (unused — replaced by free-text city search in FilterPanel) ─
 const REGIONS = [];
 
-// TODO: Populate from backend or config — list of industry categories
-const INDUSTRIES = [];
+// ── Industry categories — must match exactly what companies select on sign-up ─
+const INDUSTRIES = [
+  "Agriculture",
+  "Computer and Technology",
+  "Education",
+  "Finance and Economics",
+  "Health Care",
+  "Hospitality",
+  "Manufacturing",
+  "Media and News",
+  "Pharmaceutical",
+  "Telecommunications",
+  "Transportation",
+];
 
 // Kept for legacy import compatibility — use useOjtPosts hook instead
 export const ALL_COMPANIES = [];
@@ -284,10 +296,24 @@ const CompanyProfile = ({ company, onBack, onReport, onMessageNow }) => {
             </div>
             <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "clamp(0.8rem, 2vw, 0.88rem)", color: "#444", lineHeight: 1.7 }}>{company.description}</p>
           </div>
-          <div className="coord-map-box" style={{ borderRadius: "14px", overflow: "hidden", background: "#d0d8e0", minHeight: "130px", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: "6px" }}>
-            <svg width="30" height="36" viewBox="0 0 24 30" fill={red}><path d="M12 0C7.58 0 4 3.58 4 8c0 5.25 8 16 8 16s8-10.75 8-16c0-4.42-3.58-8-8-8zm0 11c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3z"/></svg>
-            <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.7rem", color: "#555", textAlign: "center", padding: "0 8px" }}>{fullLocation}</span>
-            <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.65rem", color: "#888" }}>(Map coming soon)</span>
+          <div className="coord-map-box" style={{ borderRadius: "14px", overflow: "hidden", background: "#d0d8e0", minHeight: "130px" }}>
+            {company.location?.lat && company.location?.lng ? (
+              <iframe
+                title="Company Location"
+                width="100%"
+                height="100%"
+                style={{ border: 0, minHeight: "130px", display: "block" }}
+                loading="lazy"
+                allowFullScreen
+                src={`https://maps.google.com/maps?q=${company.location.lat},${company.location.lng}&z=15&output=embed`}
+              />
+            ) : (
+              <div style={{ width: "100%", height: "100%", minHeight: "130px", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "6px" }}>
+                <svg width="30" height="36" viewBox="0 0 24 30" fill={red}><path d="M12 0C7.58 0 4 3.58 4 8c0 5.25 8 16 8 16s8-10.75 8-16c0-4.42-3.58-8-8-8zm0 11c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3z"/></svg>
+                <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.7rem", color: "#555", textAlign: "center", padding: "0 8px" }}>{fullLocation}</span>
+                <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.65rem", color: "#888" }}>No location data</span>
+              </div>
+            )}
           </div>
         </div>
 
@@ -360,22 +386,10 @@ const BackLink = ({ label, onClick }) => (
 );
 
 // ── Filter Panel ───────────────────────────────────────────────────────────────
-const FilterPanel = ({ selectedIndustries, setSelectedIndustries, selectedRegion, setSelectedRegion, selectedProvince, setSelectedProvince, selectedCity, setSelectedCity, selectedBarangay, setSelectedBarangay }) => {
-  const regionData   = REGIONS.find(r => r.name === selectedRegion);
-  const provinceData = regionData?.provinces.find(p => p.name === selectedProvince);
-  const cityData     = provinceData?.cities.find(c => c.name === selectedCity);
-
+const FilterPanel = ({ selectedIndustries, setSelectedIndustries, citySearch, setCitySearch }) => {
   const toggleIndustry = (ind) => setSelectedIndustries(prev => prev.includes(ind) ? prev.filter(i => i !== ind) : [...prev, ind]);
 
-  const clearAll = () => {
-    setSelectedIndustries([]);
-    setSelectedRegion("");
-    setSelectedProvince("");
-    setSelectedCity("");
-    setSelectedBarangay("");
-  };
-
-  const locationLevel = !selectedRegion ? "region" : !selectedProvince ? "province" : !selectedCity ? "city" : "barangay";
+  const clearAll = () => { setSelectedIndustries([]); setCitySearch(""); };
 
   return (
     <div style={{ position: "absolute", top: "48px", right: 0, width: "240px", background: "white", border: `1.5px solid ${red}`, borderRadius: "10px", boxShadow: "0 6px 24px rgba(0,0,0,0.18)", zIndex: 100, overflow: "hidden", fontFamily: "'Kufam', sans-serif" }}>
@@ -384,85 +398,24 @@ const FilterPanel = ({ selectedIndustries, setSelectedIndustries, selectedRegion
           <p style={{ fontSize: "0.78rem", fontWeight: "bold", color: darkRed }}>Industry:</p>
           <button onClick={clearAll} style={{ background: "none", border: "none", fontSize: "0.7rem", color: red, cursor: "pointer", fontFamily: "'Kufam', sans-serif", padding: 0, textDecoration: "underline" }}>Clear all</button>
         </div>
-        <div style={{ maxHeight: "110px", overflowY: "auto", display: "flex", flexWrap: "wrap", gap: "5px" }}>
-          {INDUSTRIES.length > 0 ? (
-            INDUSTRIES.map(ind => (
-              <span key={ind} onClick={() => toggleIndustry(ind)} style={{ padding: "3px 9px", borderRadius: "20px", fontSize: "0.72rem", cursor: "pointer", userSelect: "none", background: selectedIndustries.includes(ind) ? red : "#f0e0e0", color: selectedIndustries.includes(ind) ? "white" : darkRed, border: `1px solid ${red}`, transition: "all 0.15s" }}>{ind}</span>
-            ))
-          ) : (
-            <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.72rem", color: "#bbb", fontStyle: "italic" }}>No industries available</span>
-          )}
+        <div style={{ maxHeight: "130px", overflowY: "auto", display: "flex", flexWrap: "wrap", gap: "5px" }}>
+          {INDUSTRIES.map(ind => (
+            <span key={ind} onClick={() => toggleIndustry(ind)} style={{ padding: "3px 9px", borderRadius: "20px", fontSize: "0.72rem", cursor: "pointer", userSelect: "none", background: selectedIndustries.includes(ind) ? red : "#f0e0e0", color: selectedIndustries.includes(ind) ? "white" : darkRed, border: `1px solid ${red}`, transition: "all 0.15s" }}>{ind}</span>
+          ))}
         </div>
       </div>
 
       <hr style={{ border: "none", borderTop: "1px solid #eee", margin: "6px 0" }} />
 
       <div style={{ padding: "4px 12px 10px" }}>
-        <p style={{ fontSize: "0.78rem", fontWeight: "bold", color: darkRed, marginBottom: "6px" }}>
-          Location:
-          {locationLevel !== "region" && (
-            <span style={{ fontWeight: "normal", color: "#888", marginLeft: "6px", fontSize: "0.68rem" }}>
-              {[selectedRegion, selectedProvince, selectedCity].filter(Boolean).join(" › ")}
-            </span>
-          )}
-        </p>
-
-        {locationLevel === "region" && (
-          <div style={{ maxHeight: "160px", overflowY: "auto", display: "flex", flexDirection: "column", gap: "3px" }}>
-            {REGIONS.length > 0 ? (
-              REGIONS.map(r => (
-                <div key={r.name} onClick={() => { setSelectedRegion(r.name); setSelectedProvince(""); setSelectedCity(""); setSelectedBarangay(""); }}
-                  style={{ padding: "4px 8px", borderRadius: "6px", fontSize: "0.72rem", cursor: "pointer", background: "#f7f0f0", color: darkRed, border: "1px solid #e0c0c0" }}
-                  onMouseEnter={e => e.currentTarget.style.background = "#f0d0d0"}
-                  onMouseLeave={e => e.currentTarget.style.background = "#f7f0f0"}
-                >{r.name}</div>
-              ))
-            ) : (
-              <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.72rem", color: "#bbb", fontStyle: "italic" }}>No regions available</span>
-            )}
-          </div>
-        )}
-
-        {locationLevel === "province" && (
-          <div>
-            <BackLink label={selectedRegion} onClick={() => { setSelectedRegion(""); setSelectedProvince(""); setSelectedCity(""); setSelectedBarangay(""); }} />
-            <div style={{ maxHeight: "150px", overflowY: "auto", display: "flex", flexDirection: "column", gap: "3px" }}>
-              {regionData?.provinces.map(p => (
-                <div key={p.name} onClick={() => { setSelectedProvince(p.name); setSelectedCity(""); setSelectedBarangay(""); }}
-                  style={{ padding: "4px 8px", borderRadius: "6px", fontSize: "0.72rem", cursor: "pointer", background: "#f7f0f0", color: darkRed, border: "1px solid #e0c0c0" }}
-                  onMouseEnter={e => e.currentTarget.style.background = "#f0d0d0"}
-                  onMouseLeave={e => e.currentTarget.style.background = "#f7f0f0"}
-                >{p.name}</div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {locationLevel === "city" && (
-          <div>
-            <BackLink label={selectedProvince} onClick={() => { setSelectedProvince(""); setSelectedCity(""); setSelectedBarangay(""); }} />
-            <div style={{ maxHeight: "150px", overflowY: "auto", display: "flex", flexWrap: "wrap", gap: "5px" }}>
-              {provinceData?.cities.map(c => (
-                <span key={c.name} onClick={() => { setSelectedCity(c.name); setSelectedBarangay(""); }}
-                  style={{ padding: "3px 9px", borderRadius: "20px", fontSize: "0.71rem", cursor: "pointer", userSelect: "none", background: "#f0e0e0", color: darkRed, border: `1px solid ${red}`, transition: "all 0.15s" }}
-                >{c.name}</span>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {locationLevel === "barangay" && (
-          <div>
-            <BackLink label={selectedCity} onClick={() => { setSelectedCity(""); setSelectedBarangay(""); }} />
-            <div style={{ maxHeight: "150px", overflowY: "auto", display: "flex", flexWrap: "wrap", gap: "5px" }}>
-              {cityData?.barangays.map(b => (
-                <span key={b} onClick={() => setSelectedBarangay(prev => prev === b ? "" : b)}
-                  style={{ padding: "3px 9px", borderRadius: "20px", fontSize: "0.71rem", cursor: "pointer", userSelect: "none", background: selectedBarangay === b ? red : "#f0e0e0", color: selectedBarangay === b ? "white" : darkRed, border: `1px solid ${red}`, transition: "all 0.15s" }}
-                >{b}</span>
-              ))}
-            </div>
-          </div>
-        )}
+        <p style={{ fontSize: "0.78rem", fontWeight: "bold", color: darkRed, marginBottom: "6px" }}>Location (City):</p>
+        <input
+          type="text"
+          value={citySearch}
+          onChange={e => setCitySearch(e.target.value)}
+          placeholder="e.g. Angeles, Tarlac..."
+          style={{ width: "100%", padding: "6px 10px", borderRadius: "8px", border: `1px solid ${red}`, fontSize: "0.76rem", fontFamily: "'Kufam', sans-serif", outline: "none", boxSizing: "border-box", color: darkRed }}
+        />
       </div>
     </div>
   );
@@ -535,10 +488,7 @@ const CoordinatorViewCompanyScreen = ({ onReportSubmit, onNavigateToReports, onM
   const [search, setSearch]                   = useState("");
   const [showFilter, setShowFilter]           = useState(false);
   const [selectedIndustries, setSelectedIndustries] = useState([]);
-  const [selectedRegion,   setSelectedRegion]   = useState("");
-  const [selectedProvince, setSelectedProvince] = useState("");
-  const [selectedCity,     setSelectedCity]     = useState("");
-  const [selectedBarangay, setSelectedBarangay] = useState("");
+  const [citySearch,          setCitySearch]          = useState("");
   const filterRef = useRef(null);
 
   useEffect(() => {
@@ -556,7 +506,7 @@ const CoordinatorViewCompanyScreen = ({ onReportSubmit, onNavigateToReports, onM
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialCompanyId, companies]);
 
-  const hasFilter = selectedIndustries.length > 0 || selectedRegion || selectedProvince || selectedCity || selectedBarangay;
+  const hasFilter = selectedIndustries.length > 0 || citySearch.trim();
 
   const filtered = companies.filter(c => {
     const name = (c.company || c.name || "").toLowerCase();
@@ -564,19 +514,13 @@ const CoordinatorViewCompanyScreen = ({ onReportSubmit, onNavigateToReports, onM
     const loc = (c.location?.city || c.location || "").toLowerCase();
     const matchSearch   = name.includes(search.toLowerCase()) || industry.includes(search.toLowerCase()) || loc.includes(search.toLowerCase());
     const matchIndustry = selectedIndustries.length === 0 || selectedIndustries.includes(c.industry);
-    const matchRegion   = !selectedRegion   || c.region   === selectedRegion;
-    const matchProvince = !selectedProvince || c.province === selectedProvince;
-    const matchCity     = !selectedCity     || (c.location?.city || c.location) === selectedCity;
-    const matchBarangay = !selectedBarangay || c.barangay === selectedBarangay;
-    return matchSearch && matchIndustry && matchRegion && matchProvince && matchCity && matchBarangay;
+    const matchCity     = !citySearch.trim() || (c.location?.city || c.location?.fullAddress || c.location || "").toLowerCase().includes(citySearch.trim().toLowerCase());
+    return matchSearch && matchIndustry && matchCity;
   });
 
-  const activeBadgeLabel = () => {
-    const parts = [selectedRegion, selectedProvince, selectedCity, selectedBarangay].filter(Boolean);
-    return parts.length ? parts.join(" › ") : null;
-  };
+  const activeBadgeLabel = () => citySearch.trim() ? `City: ${citySearch.trim()}` : null;
 
-  const clearAllFilters = () => { setSelectedIndustries([]); setSelectedRegion(""); setSelectedProvince(""); setSelectedCity(""); setSelectedBarangay(""); };
+  const clearAllFilters = () => { setSelectedIndustries([]); setCitySearch(""); };
 
   const handleReportSubmit = (report) => {
     if (onReportSubmit) onReportSubmit(report);
@@ -631,10 +575,7 @@ const CoordinatorViewCompanyScreen = ({ onReportSubmit, onNavigateToReports, onM
               {showFilter && (
                 <FilterPanel
                   selectedIndustries={selectedIndustries} setSelectedIndustries={setSelectedIndustries}
-                  selectedRegion={selectedRegion}     setSelectedRegion={setSelectedRegion}
-                  selectedProvince={selectedProvince} setSelectedProvince={setSelectedProvince}
-                  selectedCity={selectedCity}         setSelectedCity={setSelectedCity}
-                  selectedBarangay={selectedBarangay} setSelectedBarangay={setSelectedBarangay}
+                  citySearch={citySearch} setCitySearch={setCitySearch}
                 />
               )}
             </div>
@@ -653,7 +594,7 @@ const CoordinatorViewCompanyScreen = ({ onReportSubmit, onNavigateToReports, onM
             {activeBadgeLabel() && (
               <span style={{ background: "#f0e0e0", color: darkRed, border: `1px solid ${red}`, borderRadius: "20px", padding: "2px 10px", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif", display: "flex", alignItems: "center", gap: "5px" }}>
                 {activeBadgeLabel()}
-                <span onClick={() => { setSelectedRegion(""); setSelectedProvince(""); setSelectedCity(""); setSelectedBarangay(""); }} style={{ cursor: "pointer", fontWeight: "bold" }}>×</span>
+                <span onClick={() => setCitySearch("")} style={{ cursor: "pointer", fontWeight: "bold" }}>×</span>
               </span>
             )}
             <span onClick={clearAllFilters} style={{ fontSize: "0.74rem", color: red, cursor: "pointer", fontFamily: "'Kufam', sans-serif", textDecoration: "underline" }}>Clear all</span>

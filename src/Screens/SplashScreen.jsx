@@ -1,4 +1,7 @@
 import React, { useEffect, useState } from "react";
+import { onAuthStateChanged } from "firebase/auth";
+import { doc, getDoc } from "firebase/firestore";
+import { auth, db } from "./firebase";
 
 import SignInScreen               from "./SignInScreen";
 import ForgotPasswordScreen       from "./ForgotPasswordScreen";
@@ -46,17 +49,38 @@ const FontImport = () => (
 );
 
 const SplashScreen = () => {
-  const [animate, setAnimate]     = useState(false);
-  const [showRight, setShowRight] = useState(false);
-  const [view, setView]           = useState("signin");
-  const isMobile                  = useIsMobile();
-
-  // ── FIX 2: Store Step 1 data here so it survives navigation ──────────────
-  const [step1Data, setStep1Data] = useState(null);
-  const [resetEmail, setResetEmail] = useState("");
-
-  // ── FIX 1: Store signed-in user data so coordinator dashboard gets it ─────
+  const [animate, setAnimate]         = useState(false);
+  const [showRight, setShowRight]     = useState(false);
+  const [view, setView]               = useState("signin");
+  const isMobile                      = useIsMobile();
+  const [step1Data, setStep1Data]     = useState(null);
+  const [resetEmail, setResetEmail]   = useState("");
   const [currentUser, setCurrentUser] = useState(null);
+  // true while we check if a Firebase session already exists (prevents flash of sign-in)
+  const [authChecking, setAuthChecking] = useState(true);
+
+  // ── Restore session after page refresh ────────────────────────────────────
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (firebaseUser) {
+        // User is still authenticated — fetch their Firestore profile
+        const collections = ["coordinators", "students", "companies"];
+        let userData = null;
+        for (const col of collections) {
+          const snap = await getDoc(doc(db, col, firebaseUser.uid));
+          if (snap.exists()) { userData = snap.data(); break; }
+        }
+        if (userData && userData.status === "active") {
+          setCurrentUser(userData);
+          if (userData.role === "coordinator") setView("coordinator_dashboard");
+          else if (userData.role === "student")  setView("student_dashboard");
+          else if (userData.role === "company")  setView("company_dashboard");
+        }
+      }
+      setAuthChecking(false);
+    });
+    return unsub;
+  }, []);
 
   useEffect(() => {
     const t1 = setTimeout(() => setAnimate(true),  2000);
@@ -65,6 +89,13 @@ const SplashScreen = () => {
   }, []);
 
   // ── Full-screen dashboard views ────────────────────────────────────────────
+  if (authChecking) return (
+    <div style={{ width: "100vw", height: "100vh", background: "linear-gradient(180deg, #A32424 0%, #320000 100%)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+      <img src={logo} alt="OJTern Logo" style={{ width: "120px", height: "120px", objectFit: "contain", marginBottom: "-10px" }} />
+      <div style={{ fontFamily: "'Monomaniac One', sans-serif", fontSize: "3.5rem", color: "white", letterSpacing: "0.03em" }}>OJTern</div>
+    </div>
+  );
+
   if (view === "coordinator_dashboard") return <CoordinatorDashboardScreen user={currentUser} onLogout={() => { setCurrentUser(null); setView("signin"); }} />;
   if (view === "company_dashboard")     return <CompanyDashboardScreen user={currentUser} onLogout={() => { setCurrentUser(null); setView("signin"); }} />;
   if (view === "student_dashboard")     return <StudentDashboardScreen user={currentUser} onLogout={() => { setCurrentUser(null); setView("signin"); }} />;

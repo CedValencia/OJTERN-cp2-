@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { changePassword } from "./AuthService";
+import { changePassword, logOut } from "./AuthService";
 import { collection, query, where, orderBy, limit, onSnapshot, doc, updateDoc } from "firebase/firestore";
 import { db } from "./firebase";
 import { PersonalInfoScreen } from "./CoordinatorAccountProfileScreen";
@@ -172,7 +172,7 @@ const FontImport = () => (
 // ── Nav items ──────────────────────────────────────────────────────────────────
 const navItems = [
   { key: "dashboard",         label: "Dashboard",          icon: dashboardIcon },
-  { key: "viewcompany",       label: "View Company",       icon: viewCompanyIcon },
+  { key: "viewcompany",       label: "Find Company",      icon: viewCompanyIcon },
   { key: "studentsaccount",      label: "Students Account",      icon: studentListIcon },
   { key: "studentlist", label: "Student List", icon: studentPlacementIcon },
   { key: "companylist",       label: "Company List",       icon: companyListIcon },
@@ -437,11 +437,12 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
   const [placementTargetCompanyId, setPlacementTargetCompanyId] = useState(null);
   const [dashboardCompanyId, setDashboardCompanyId]             = useState(null);
   const [dashboardTarget, setDashboardTarget]                   = useState(null);
-  // ── First-login forced flow: 1) reset password, 2) edit personal info ────
-  const [passwordDone, setPasswordDone]                         = useState(!!user?.passwordChanged);
-  const [profileDone,  setProfileDone]                          = useState(!!user?.profileComplete);
-  const [showChangePass, setShowChangePass]                     = useState(!user?.passwordChanged);
-  const [showEditInfo, setShowEditInfo]                         = useState(!!user?.passwordChanged && !user?.profileComplete);
+  // ── First-login forced flow ────────────────────────────────────────────────
+  // Step 1 (reset password): shown if passwordChanged is false
+  // Step 2 (edit personal info): shown if passwordChanged is true but profileComplete is false
+  // After step 1, user is signed out and must log in again → step 2 shows on next login
+  const [showChangePass, setShowChangePass] = useState(!user?.passwordChanged);
+  const [showEditInfo,   setShowEditInfo]   = useState(!!user?.passwordChanged && !user?.profileComplete);
   const [newPass, setNewPass]                                   = useState("");
   const [confirmPass, setConfirmPass]                           = useState("");
   const [passError, setPassError]                               = useState("");
@@ -457,10 +458,10 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
     setPassLoading(true);
     try {
       await changePassword(newPass, "coordinators", user?.uid);
-      setPasswordDone(true);
-      setShowChangePass(false);
-      // ── Right after resetting password, force the personal-info edit step ──
-      if (!profileDone) setShowEditInfo(true);
+      // Sign out after reset — coordinator must log in again with new password.
+      // On next login, passwordChanged: true + !profileComplete → Personal Info screen appears.
+      await logOut();
+      onLogout?.();
     } catch (err) {
       setPassError(err.message || "Failed to change password.");
     } finally {
@@ -678,7 +679,7 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
           <PersonalInfoScreen
             user={user}
             mandatory
-            onSaved={() => { setProfileDone(true); setShowEditInfo(false); }}
+            onSaved={() => setShowEditInfo(false)}
           />
         </div>
       )}

@@ -1,8 +1,7 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
-import { getAuth } from "firebase/auth";
+import { getAuth, browserLocalPersistence, setPersistence } from "firebase/auth";
 import { getStorage } from "firebase/storage";
-
 
 const firebaseConfig = {
     apiKey: "AIzaSyBzTJYm8Au3s-w5y2Vt5vOFwYTTI3WiMJo",
@@ -14,9 +13,12 @@ const firebaseConfig = {
 };
 
 const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
- 
+
 export const auth = getAuth(app);
 export const db   = getFirestore(app);
 export const storage = getStorage(app);
- 
+
+// Explicitly persist auth session in localStorage so refresh doesn't log out
+setPersistence(auth, browserLocalPersistence).catch(() => {});
+
 export default app;
