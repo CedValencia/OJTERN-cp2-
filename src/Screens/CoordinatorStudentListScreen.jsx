@@ -1,8 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import { collection, onSnapshot, query, orderBy, where, getDocs } from "firebase/firestore";
 import { db } from "./firebase";
-import { generateStudentPassword } from "./AuthService";
-import * as XLSX from "xlsx";
 import viewIcon from "../icons/view.png";
 import userIcon from "../icons/user.png";
 
@@ -383,21 +381,6 @@ const FilterPanel = ({ filters, setFilters, filterRef }) => {
   );
 };
 
-// ── Export: Name, Student ID, Default Password only ──────────────────────────
-const exportStudentCredentials = (students) => {
-  const rows = [["Full Name", "Student ID", "Default Password"]];
-  students.forEach(s => {
-    const fullName = `${s.firstName} ${s.middleInitial ? s.middleInitial + " " : ""}${s.lastName}`.trim();
-    const defaultPassword = generateStudentPassword(s.firstName, s.lastName, s.studentId, s.college);
-    rows.push([fullName, s.studentId, defaultPassword]);
-  });
-  const ws = XLSX.utils.aoa_to_sheet(rows);
-  ws["!cols"] = [{ wch: 30 }, { wch: 16 }, { wch: 24 }];
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "Student Credentials");
-  XLSX.writeFile(wb, "student_credentials.xlsx");
-};
-
 const CoordinatorStudentListScreen = ({ onNavigateToCompany }) => {
   const [search, setSearch]                 = useState("");
   const [viewingStudent, setViewingStudent] = useState(null);
@@ -488,19 +471,6 @@ const CoordinatorStudentListScreen = ({ onNavigateToCompany }) => {
               </div>
               {showFilter && <FilterPanel filters={filters} setFilters={setFilters} filterRef={filterRef} />}
             </div>
-
-            {/* Export button */}
-            <button
-              onClick={() => exportStudentCredentials(filtered)}
-              title="Export student credentials"
-              style={{ width: "36px", height: "36px", background: "white", borderRadius: "8px", border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#555" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                <polyline points="7 10 12 15 17 10"/>
-                <line x1="12" y1="15" x2="12" y2="3"/>
-              </svg>
-            </button>
           </div>
         </div>
 

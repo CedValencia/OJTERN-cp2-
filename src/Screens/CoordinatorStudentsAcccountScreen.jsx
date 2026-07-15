@@ -56,8 +56,7 @@ const SEX_OPTIONS = ["Male", "Female", "Prefer not to say"];
 const SUFFIX_OPTIONS = ["Jr.", "Sr.", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"];
 
 const EXCEL_COLUMNS = [
-  "Student ID", "Last Name", "Middle Initial", "First Name", "Department", "Program",
-  "Major", "Year & Section", "Sex", "Age", "Email Address", "Default Password"
+  "Student ID", "Full Name", "Default Password"
 ];
 
 const NAME_REGEX = /^[A-Za-zÑñ][A-Za-zÑñ\s\-]*$/;
@@ -338,13 +337,15 @@ const validators = {
 const exportToXLSX = (students) => {
   const rows = [EXCEL_COLUMNS];
   students.forEach(s => {
+    const fullName = `${s.firstName} ${s.middleInitial ? s.middleInitial + " " : ""}${s.lastName}`.trim();
     const defaultPassword = generateStudentPassword(s.firstName, s.lastName, s.studentId, s.college);
-    rows.push([s.studentId, s.lastName, s.middleInitial, s.firstName, s.college, s.program, s.major || s.specialization || "", s.yearSection, s.sex, s.age, s.email, defaultPassword]);
+    rows.push([s.studentId, fullName, defaultPassword]);
   });
   const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws["!cols"] = [{ wch: 16 }, { wch: 30 }, { wch: 24 }];
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "Students");
-  XLSX.writeFile(wb, "students_export_list.xlsx");
+  XLSX.utils.book_append_sheet(wb, ws, "Student Credentials");
+  XLSX.writeFile(wb, "student_credentials.xlsx");
 };
 
 const downloadTemplateXLSX = () => {
@@ -995,10 +996,8 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid }) => {
   const handleExport = () => {
     if (students.length === 0) { alert("No students to export."); return; }
     exportToXLSX(students.map(s => ({
-      studentId: s.studentId, lastName: s.lastName, middleInitial: s.middleInitial,
-      firstName: s.firstName, college: s.college, program: s.program,
-      specialization: "", yearSection: s.yearSection,
-      sex: s.sex, age: s.age, email: s.email,
+      studentId: s.studentId, firstName: s.firstName,
+      middleInitial: s.middleInitial, lastName: s.lastName, college: s.college,
     })));
   };
 
