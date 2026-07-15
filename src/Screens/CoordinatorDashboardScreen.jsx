@@ -430,9 +430,19 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
       return stored ? JSON.parse(stored) : [];
     } catch { return []; }
   });
-  const [activeNav, setActiveNav]                               = useState("dashboard");
+  const [activeNav, setActiveNav] = useState(() => sessionStorage.getItem("ojtern_coord_nav") || "dashboard");
+
   const [reports, setReports]                                   = useState([]);
   const [viewingReport, setViewingReport]                       = useState(null);
+
+  // ── Load reports from Firestore in real-time ───────────────────────────────
+  useEffect(() => {
+    const q = query(collection(db, "reports"), orderBy("createdAt", "desc"));
+    const unsub = onSnapshot(q, (snap) => {
+      setReports(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+    return unsub;
+  }, []);
   const [messageTarget, setMessageTarget]                       = useState(null);
   const [placementTargetCompanyId, setPlacementTargetCompanyId] = useState(null);
   const [dashboardCompanyId, setDashboardCompanyId]             = useState(null);
@@ -480,7 +490,12 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
 
   const navigate = (key) => { setActiveNav(key); setDrawerOpen(false); };
 
-  const handleReportSubmit = (report) => setReports(prev => [report, ...prev]);
+  // Always keep sessionStorage in sync with activeNav — more reliable than saving only in navigate()
+  useEffect(() => {
+    sessionStorage.setItem("ojtern_coord_nav", activeNav);
+  }, [activeNav]);
+
+  const handleReportSubmit = () => {}; // Firestore onSnapshot auto-updates the reports list
 
   const trackVisit = (id, name) => {
     if (!id) return;

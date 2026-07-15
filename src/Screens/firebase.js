@@ -1,6 +1,6 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
-import { getAuth, browserLocalPersistence, setPersistence } from "firebase/auth";
+import { getAuth, browserSessionPersistence, setPersistence } from "firebase/auth";
 import { getStorage } from "firebase/storage";
 
 const firebaseConfig = {
@@ -18,7 +18,8 @@ export const auth = getAuth(app);
 export const db   = getFirestore(app);
 export const storage = getStorage(app);
 
-// Explicitly persist auth session in localStorage so refresh doesn't log out
-setPersistence(auth, browserLocalPersistence).catch(() => {});
+// Session persistence: survives F5 refresh within the same tab,
+// but clears when tab/browser is closed → npm start = sign-in always shown
+setPersistence(auth, browserSessionPersistence).catch(() => {});
 
 export default app;

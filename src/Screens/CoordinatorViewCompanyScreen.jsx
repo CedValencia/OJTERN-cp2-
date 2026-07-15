@@ -1,7 +1,60 @@
 import React, { useState, useRef, useEffect } from "react";
 import reportIcon from "../icons/report.png";
-import { collection, onSnapshot, query, where } from "firebase/firestore";
+import { collection, onSnapshot, query, where, addDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "./firebase";
+
+const MAPBOX_TOKEN = "pk.eyJ1IjoibWFraWlpaS0iLCJhIjoiY21wbTgybHVmMmc1ZzJycTFuZXRlb3NoNCJ9.FIpjF2lKTHkbU1e6qrL_Pw";
+
+// ── Mapbox read-only map view ──────────────────────────────────────────────────
+const MapboxStaticView = ({ lat, lng, address }) => {
+  const mapContainer = useRef(null);
+  const mapRef       = useRef(null);
+
+  useEffect(() => {
+    if (!mapContainer.current || mapRef.current) return;
+    if (!lat || !lng) return;
+
+    const link = document.createElement("link");
+    link.rel  = "stylesheet";
+    link.href = "https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.css";
+    document.head.appendChild(link);
+
+    const initMap = () => {
+      const mapboxgl = window.mapboxgl;
+      mapboxgl.accessToken = MAPBOX_TOKEN;
+      const map = new mapboxgl.Map({
+        container: mapContainer.current,
+        style: "mapbox://styles/mapbox/streets-v12",
+        center: [lng, lat],
+        zoom: 15,
+        interactive: true,
+      });
+      map.addControl(new mapboxgl.NavigationControl(), "top-right");
+      new mapboxgl.Marker({ color: "#8B0000" }).setLngLat([lng, lat]).addTo(map);
+      mapRef.current = map;
+    };
+
+    if (window.mapboxgl) { initMap(); return; }
+    const script = document.createElement("script");
+    script.src = "https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.js";
+    script.onload = initMap;
+    document.head.appendChild(script);
+  }, [lat, lng]);
+
+  if (!lat || !lng) {
+    return (
+      <div style={{ width: "100%", minHeight: "200px", borderRadius: "14px", background: "#d0d8e0", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "6px" }}>
+        <svg width="30" height="36" viewBox="0 0 24 30" fill="#8B0000"><path d="M12 0C7.58 0 4 3.58 4 8c0 5.25 8 16 8 16s8-10.75 8-16c0-4.42-3.58-8-8-8zm0 11c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3z"/></svg>
+        <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.75rem", color: "#555", textAlign: "center", padding: "0 12px" }}>{address || "No location set"}</span>
+      </div>
+    );
+  }
+
+  return <div ref={mapContainer} style={{ width: "100%", height: "300px", borderRadius: "14px", overflow: "hidden" }} />;
+};
+
+const CLOUDINARY_CLOUD_NAME    = "doalndt5l";
+const CLOUDINARY_UPLOAD_PRESET = "ojtern_docs";
 
 const red     = "#8B0000";
 const darkRed = "#590101";
@@ -145,32 +198,70 @@ const ResponsiveStyles = () => (
 );
 
 // ── Report Modal ───────────────────────────────────────────────────────────────
-const ReportModal = ({ company, onClose, onSubmit }) => {
-  const [step, setStep] = useState(1);
-  const [selected, setSelected] = useState(null);
+const ReportModal = ({ company, onClose, onSubmit, reporter }) => {
+  const [step, setStep]               = useState(1);
+  const [selected, setSelected]       = useState(null);
   const [description, setDescription] = useState("");
-  const [attachedFile, setAttachedFile] = useState(null);
+  const [attachedFile, setAttachedFile] = useState(null);  // { name, type, url (local preview), file (raw) }
+  const [submitting, setSubmitting]   = useState(false);
+  const [submitError, setSubmitError] = useState("");
   const fileRef = useRef();
 
   const handleFile = (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    const allowed = ["image/png", "application/pdf"];
-    if (!allowed.includes(file.type)) { alert("Only PNG and PDF files are allowed."); return; }
+    const allowed = ["image/png", "image/jpeg", "application/pdf"];
+    if (!allowed.includes(file.type)) { alert("Only PNG, JPG, and PDF files are allowed."); return; }
     const url = URL.createObjectURL(file);
-    setAttachedFile({ name: file.name, type: file.type, url });
+    setAttachedFile({ name: file.name, type: file.type, url, file });
   };
 
-  const handleSubmit = () => {
-    if (!description.trim()) { alert("Please write a description."); return; }
-    onSubmit({
-      company: company.companyName || company.name,
-      concern: selected?.label || "Others",
-      date: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
-      description,
-      attachedFile,
+  const uploadToCloudinary = async (file) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("upload_preset", CLOUDINARY_UPLOAD_PRESET);
+    formData.append("folder", "ojtern_reports");
+    const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/upload`, {
+      method: "POST",
+      body: formData,
     });
-    onClose();
+    if (!res.ok) throw new Error("File upload failed.");
+    const data = await res.json();
+    return { url: data.secure_url, name: file.name, type: file.type };
+  };
+
+  const handleSubmit = async () => {
+    if (!description.trim()) { alert("Please write a description."); return; }
+    setSubmitting(true);
+    setSubmitError("");
+    try {
+      let fileData = null;
+      if (attachedFile?.file) {
+        fileData = await uploadToCloudinary(attachedFile.file);
+      }
+
+      const reportDoc = {
+        companyId:      company.id   || company.uid || "",
+        company:        company.companyName || company.name || "",
+        concern:        selected?.label || "Others",
+        description,
+        attachedFile:   fileData,
+        reportedBy:     reporter?.uid  || "",
+        reporterName:   reporter?.name || reporter?.companyName || "Unknown",
+        reporterRole:   reporter?.role || "coordinator",
+        date:           new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
+        createdAt:      serverTimestamp(),
+        status:         "pending",
+      };
+
+      await addDoc(collection(db, "reports"), reportDoc);
+      onSubmit?.({ ...reportDoc, attachedFile: fileData || attachedFile });
+      onClose();
+    } catch (err) {
+      setSubmitError(err.message || "Failed to submit report. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const cat = reportCategories.find(c => c.label === selected?.label);
@@ -246,7 +337,8 @@ const ReportModal = ({ company, onClose, onSubmit }) => {
             </>
           )}
         </div>
-        <div style={{ background: darkRed, padding: "12px 20px", display: "flex", justifyContent: "flex-end" }}>
+        <div style={{ background: darkRed, padding: "12px 20px", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "6px" }}>
+          {submitError && <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.75rem", color: "#ffcccc", margin: 0 }}>⚠️ {submitError}</p>}
           {step < 3 ? (
             <button
               onClick={() => { if (step === 1 && !selected) { alert("Please select a concern."); return; } setStep(step + 1); }}
@@ -257,9 +349,10 @@ const ReportModal = ({ company, onClose, onSubmit }) => {
           ) : (
             <button
               onClick={handleSubmit}
-              style={{ padding: "8px 20px", borderRadius: "20px", background: "rgba(255,255,255,0.2)", color: "white", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 600, cursor: "pointer", fontSize: "0.85rem" }}
+              disabled={submitting}
+              style={{ padding: "8px 20px", borderRadius: "20px", background: "rgba(255,255,255,0.2)", color: "white", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 600, cursor: submitting ? "not-allowed" : "pointer", fontSize: "0.85rem", opacity: submitting ? 0.7 : 1 }}
             >
-              Submit report
+              {submitting ? "Submitting…" : "Submit report"}
             </button>
           )}
         </div>
@@ -296,24 +389,12 @@ const CompanyProfile = ({ company, onBack, onReport, onMessageNow }) => {
             </div>
             <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "clamp(0.8rem, 2vw, 0.88rem)", color: "#444", lineHeight: 1.7 }}>{company.description}</p>
           </div>
-          <div className="coord-map-box" style={{ borderRadius: "14px", overflow: "hidden", background: "#d0d8e0", minHeight: "130px" }}>
-            {company.location?.lat && company.location?.lng ? (
-              <iframe
-                title="Company Location"
-                width="100%"
-                height="100%"
-                style={{ border: 0, minHeight: "130px", display: "block" }}
-                loading="lazy"
-                allowFullScreen
-                src={`https://maps.google.com/maps?q=${company.location.lat},${company.location.lng}&z=15&output=embed`}
-              />
-            ) : (
-              <div style={{ width: "100%", height: "100%", minHeight: "130px", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "6px" }}>
-                <svg width="30" height="36" viewBox="0 0 24 30" fill={red}><path d="M12 0C7.58 0 4 3.58 4 8c0 5.25 8 16 8 16s8-10.75 8-16c0-4.42-3.58-8-8-8zm0 11c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3z"/></svg>
-                <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.7rem", color: "#555", textAlign: "center", padding: "0 8px" }}>{fullLocation}</span>
-                <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.65rem", color: "#888" }}>No location data</span>
-              </div>
-            )}
+          <div className="coord-map-box" style={{ borderRadius: "14px", overflow: "hidden", minHeight: "130px" }}>
+            <MapboxStaticView
+              lat={company.postLocation?.lat || company.location?.lat}
+              lng={company.postLocation?.lng || company.location?.lng}
+              address={company.postLocation?.address || fullLocation}
+            />
           </div>
         </div>
 
@@ -339,9 +420,13 @@ const CompanyProfile = ({ company, onBack, onReport, onMessageNow }) => {
 
         <h2 style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(1.2rem, 3vw, 1.5rem)", color: "#111", marginBottom: "8px" }}>Location</h2>
         <div style={{ marginBottom: "20px" }}>
-          {locationLines.map((line, i) => (
-            <p key={i} style={{ fontFamily: "'Kufam', sans-serif", fontSize: "clamp(0.8rem, 2vw, 0.87rem)", color: "#444", marginBottom: "3px" }}>{line}</p>
-          ))}
+          {company.postLocation?.address ? (
+            <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "clamp(0.8rem, 2vw, 0.87rem)", color: "#444" }}>{company.postLocation.address}</p>
+          ) : (
+            locationLines.map((line, i) => (
+              <p key={i} style={{ fontFamily: "'Kufam', sans-serif", fontSize: "clamp(0.8rem, 2vw, 0.87rem)", color: "#444", marginBottom: "3px" }}>{line}</p>
+            ))
+          )}
         </div>
 
         <h2 style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(1.2rem, 3vw, 1.5rem)", color: "#111", marginBottom: "8px" }}>Benefits</h2>
@@ -478,7 +563,7 @@ const CompanyCard = ({ company, onViewProfile }) => {
 };
 
 // ── Main Screen ────────────────────────────────────────────────────────────────
-const CoordinatorViewCompanyScreen = ({ onReportSubmit, onNavigateToReports, onMessageNow, initialCompanyId, onClearInitialCompany, onVisitCompany }) => {
+const CoordinatorViewCompanyScreen = ({ onReportSubmit, onNavigateToReports, onMessageNow, initialCompanyId, onClearInitialCompany, onVisitCompany, coordinator }) => {
   const { isMobile } = useBreakpoint();
   const { posts: companies, loading } = useOjtPosts();
 
@@ -540,7 +625,7 @@ const CoordinatorViewCompanyScreen = ({ onReportSubmit, onNavigateToReports, onM
           onMessageNow={() => onMessageNow && onMessageNow(selectedCompany)}
         />
         {showReportModal && (
-          <ReportModal company={selectedCompany} onClose={() => setShowReportModal(false)} onSubmit={handleReportSubmit} />
+          <ReportModal company={selectedCompany} onClose={() => setShowReportModal(false)} onSubmit={handleReportSubmit} reporter={coordinator} />
         )}
       </>
     );

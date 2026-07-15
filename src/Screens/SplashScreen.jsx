@@ -56,14 +56,22 @@ const SplashScreen = () => {
   const [step1Data, setStep1Data]     = useState(null);
   const [resetEmail, setResetEmail]   = useState("");
   const [currentUser, setCurrentUser] = useState(null);
-  // true while we check if a Firebase session already exists (prevents flash of sign-in)
   const [authChecking, setAuthChecking] = useState(true);
+
+  // Helper to change view and persist it so refresh restores same screen
+  const changeView = (v) => {
+    setView(v);
+    if (["coordinator_dashboard","company_dashboard","student_dashboard"].includes(v)) {
+      sessionStorage.setItem("ojtern_view", v);
+    } else {
+      sessionStorage.removeItem("ojtern_view");
+    }
+  };
 
   // ── Restore session after page refresh ────────────────────────────────────
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
-        // User is still authenticated — fetch their Firestore profile
         const collections = ["coordinators", "students", "companies"];
         let userData = null;
         for (const col of collections) {
@@ -72,9 +80,15 @@ const SplashScreen = () => {
         }
         if (userData && userData.status === "active") {
           setCurrentUser(userData);
-          if (userData.role === "coordinator") setView("coordinator_dashboard");
-          else if (userData.role === "student")  setView("student_dashboard");
-          else if (userData.role === "company")  setView("company_dashboard");
+          // Restore the view they were on before refresh
+          const savedView = sessionStorage.getItem("ojtern_view");
+          if (savedView) {
+            setView(savedView);
+          } else {
+            if (userData.role === "coordinator") setView("coordinator_dashboard");
+            else if (userData.role === "student")  setView("student_dashboard");
+            else if (userData.role === "company")  setView("company_dashboard");
+          }
         }
       }
       setAuthChecking(false);
@@ -96,9 +110,9 @@ const SplashScreen = () => {
     </div>
   );
 
-  if (view === "coordinator_dashboard") return <CoordinatorDashboardScreen user={currentUser} onLogout={() => { setCurrentUser(null); setView("signin"); }} />;
-  if (view === "company_dashboard")     return <CompanyDashboardScreen user={currentUser} onLogout={() => { setCurrentUser(null); setView("signin"); }} />;
-  if (view === "student_dashboard")     return <StudentDashboardScreen user={currentUser} onLogout={() => { setCurrentUser(null); setView("signin"); }} />;
+  if (view === "coordinator_dashboard") return <CoordinatorDashboardScreen user={currentUser} onLogout={() => { sessionStorage.removeItem("ojtern_view"); setCurrentUser(null); setView("signin"); }} />;
+  if (view === "company_dashboard")     return <CompanyDashboardScreen     user={currentUser} onLogout={() => { sessionStorage.removeItem("ojtern_view"); setCurrentUser(null); setView("signin"); }} />;
+  if (view === "student_dashboard")     return <StudentDashboardScreen     user={currentUser} onLogout={() => { sessionStorage.removeItem("ojtern_view"); setCurrentUser(null); setView("signin"); }} />;
 
   // ── Right panel content ────────────────────────────────────────────────────
   const rightPanel = (
@@ -106,9 +120,9 @@ const SplashScreen = () => {
       {view === "signin" && (
         <SignInScreen
           onGoSignUp={() => setView("signup1")}
-          onSignInCoordinator={(userData) => { setCurrentUser(userData); setView("coordinator_dashboard"); }}
-          onSignInStudent={(userData) => { setCurrentUser(userData); setView("student_dashboard"); }}
-          onSignInCompany={(userData) => { setCurrentUser(userData); setView("company_dashboard"); }}
+          onSignInCoordinator={(userData) => { setCurrentUser(userData); changeView("coordinator_dashboard"); }}
+          onSignInStudent={(userData) => { setCurrentUser(userData); changeView("student_dashboard"); }}
+          onSignInCompany={(userData) => { setCurrentUser(userData); changeView("company_dashboard"); }}
           onForgotPassword={() => setView("forgot_password")}
         />
       )}

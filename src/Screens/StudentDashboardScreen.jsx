@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { collection, onSnapshot, query, where, orderBy, limit } from "firebase/firestore";
 import { db } from "./firebase";
-import { changePassword, logOut } from "./AuthService";
+import { changePassword } from "./AuthService";
 
 import StudentFindCompanyScreen, { useOjtPosts } from "./StudentFindCompanyScreen";
 import StudentApplicationScreen from "./StudentApplicationScreen";
@@ -377,7 +377,7 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
   const showDrawer = isMobile || isTablet;
 
   const [drawerOpen, setDrawerOpen]             = useState(false);
-  const [activeNav, setActiveNav]               = useState("dashboard");
+  const [activeNav, setActiveNav] = useState(() => sessionStorage.getItem("ojtern_student_nav") || "dashboard");
   const [recentVisited, setRecentVisited] = useState(() => {
     if (!user?.uid) return [];
     try {
@@ -422,9 +422,7 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
     setPassLoading(true);
     try {
       await changePassword(newPass, "students", user?.uid);
-      // Sign out after reset — user must log in again with new password
-      await logOut();
-      onLogout?.();
+      setShowChangePass(false);
     } catch (err) {
       setPassError(err.message || "Failed to change password.");
     } finally {
@@ -444,6 +442,11 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
   }, [recentVisited, user?.uid]);
 
   const navigate = (key) => { setActiveNav(key); setDrawerOpen(false); };
+
+  // Always keep sessionStorage in sync with activeNav
+  useEffect(() => {
+    sessionStorage.setItem("ojtern_student_nav", activeNav);
+  }, [activeNav]);
 
  const renderContent = () => {
     if (activeNav === "dashboard") {

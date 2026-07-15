@@ -184,18 +184,18 @@ const SignInScreen = ({ onGoSignUp, onSignInCoordinator, onSignInStudent, onSign
           {role === "student" ? (
             <>
               <label style={labelStyle}>Student ID:</label>
-              <input type="text" placeholder="Student ID:" value={studentId} onChange={e => setStudentId(e.target.value)} style={inputStyle} />
+              <input type="text" placeholder="Student ID:" value={studentId} onChange={e => setStudentId(e.target.value)} onKeyDown={e => e.key === "Enter" && handleSignIn()} style={inputStyle} />
             </>
           ) : (
             <>
               <label style={labelStyle}>Email:</label>
-              <input type="email" placeholder="Enter your Email:" value={email} onChange={e => setEmail(e.target.value)} style={inputStyle} />
+              <input type="email" placeholder="Enter your Email:" value={email} onChange={e => setEmail(e.target.value)} onKeyDown={e => e.key === "Enter" && handleSignIn()} style={inputStyle} />
             </>
           )}
 
           <label style={labelStyle}>Password:</label>
           <div style={{ position: "relative", marginBottom: "4px" }}>
-            <input type={showPass ? "text" : "password"} placeholder="Password:" value={password} onChange={e => setPassword(e.target.value)} style={{ ...inputStyle, paddingRight: "44px" }} />
+            <input type={showPass ? "text" : "password"} placeholder="Password:" value={password} onChange={e => setPassword(e.target.value)} onKeyDown={e => e.key === "Enter" && handleSignIn()} style={{ ...inputStyle, paddingRight: "44px" }} />
             <EyeIcon show={showPass} onClick={() => setShowPass(!showPass)} />
           </div>
 

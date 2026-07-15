@@ -2982,8 +2982,51 @@ const ViewApplicationModal = ({ application, onClose, onSave }) => {
           </div>
         </div>
 
-        {/* Body */}
+        {/* Status Progress Tracker */}
         <div className="sa-modal-body">
+          {(() => {
+            const STATUS_STEPS = ["Pending", "In Review", "To Interview", "Accepted"];
+            const STATUS_COLORS = { "Pending": "#c8a800", "In Review": "#353A8D", "To Interview": "#7C2889", "Accepted": "#2d7a2d", "Declined": darkRed };
+            const currentStatus = application.status || "Pending";
+            const isDeclined = currentStatus === "Declined";
+            const currentIdx = STATUS_STEPS.indexOf(currentStatus);
+            return (
+              <div style={{ padding: "14px 20px", background: "#f9f9f9", borderBottom: "1px solid #eee" }}>
+                <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.75rem", fontWeight: 700, color: "#888", marginBottom: "10px", textTransform: "uppercase", letterSpacing: "0.05em" }}>Application Status</p>
+                {isDeclined ? (
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px", padding: "8px 14px", background: "#fde8e8", borderRadius: "10px", border: `1px solid ${darkRed}` }}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={darkRed} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+                    <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", color: darkRed, fontWeight: 700 }}>Application Declined</span>
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", alignItems: "center", gap: "0" }}>
+                    {STATUS_STEPS.map((step, i) => {
+                      const isDone = i < currentIdx;
+                      const isCurrent = i === currentIdx;
+                      const color = isCurrent ? STATUS_COLORS[step] : isDone ? "#2d7a2d" : "#ccc";
+                      return (
+                        <React.Fragment key={step}>
+                          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", minWidth: 0, flex: 1 }}>
+                            <div style={{ width: "28px", height: "28px", borderRadius: "50%", background: color, display: "flex", alignItems: "center", justifyContent: "center", border: `2px solid ${color}`, flexShrink: 0 }}>
+                              {isDone ? (
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                              ) : (
+                                <div style={{ width: "8px", height: "8px", borderRadius: "50%", background: isCurrent ? "white" : "#e0e0e0" }} />
+                              )}
+                            </div>
+                            <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.6rem", color: isCurrent ? color : isDone ? "#2d7a2d" : "#aaa", fontWeight: isCurrent ? 700 : 400, marginTop: "4px", textAlign: "center", lineHeight: 1.2 }}>{step}</span>
+                          </div>
+                          {i < STATUS_STEPS.length - 1 && (
+                            <div style={{ height: "2px", flex: 1, background: i < currentIdx ? "#2d7a2d" : "#e0e0e0", marginBottom: "16px", minWidth: "8px" }} />
+                          )}
+                        </React.Fragment>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
           <FormFields f={f} locked={locked} />
         </div>
 

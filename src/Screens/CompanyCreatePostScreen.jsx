@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, query, where, serverTimestamp } from "firebase/firestore";
 import { db } from "./firebase";
 
-const black   = "#000000";
+const MAPBOX_TOKEN = "pk.eyJ1IjoibWFraWlpaS0iLCJhIjoiY21wbTgybHVmMmc1ZzJycTFuZXRlb3NoNCJ9.FIpjF2lKTHkbU1e6qrL_Pw";
 const darkRed = "#590101";
 const red     = "#8B0000";
 
@@ -56,25 +56,23 @@ const ResponsiveStyles = () => (
       .post-modal-footer { padding: 12px 14px; }
     }
 
-    /* Description + map row: side-by-side on desktop, stacked on mobile */
+    /* Description + map row: stacked vertically, map full width */
     .post-desc-row {
       display: flex;
+      flex-direction: column;
       gap: 14px;
-      align-items: flex-start;
-    }
-    @media (max-width: 480px) {
-      .post-desc-row { flex-direction: column; }
     }
 
-    /* Map box: fixed on desktop, full width on mobile */
+    /* Map box: full width, tall */
     .post-map-box {
-      width: 130px;
-      height: 148px;
+      width: 100%;
+      height: 320px;
       flex-shrink: 0;
-      margin-top: 30px;
+      border-radius: 16px;
+      overflow: hidden;
     }
     @media (max-width: 480px) {
-      .post-map-box { width: 100%; height: 80px; margin-top: 0; }
+      .post-map-box { height: 220px; }
     }
 
     /* Working hours + slot row: side-by-side, but slot drops below on very small screens */
@@ -229,7 +227,7 @@ const FieldLabel = ({ children }) => (
   <p style={{
     fontFamily: "'Jersey 25', sans-serif",
     fontSize: "clamp(1.05rem, 3vw, 1.3rem)",
-    color: black,
+    color: "black",
     marginBottom: "5px",
     letterSpacing: "0.03em",
     marginTop: "10px",
@@ -389,6 +387,143 @@ const GmailInput = ({ value, onChange, readOnly, error, onBlur }) => (
   </div>
 );
 
+// ── Mapbox Location Picker ─────────────────────────────────────────────────────
+const MapboxLocationPicker = ({ value, onChange, readOnly }) => {
+  const mapContainer = React.useRef(null);
+  const mapRef       = React.useRef(null);
+  const markerRef    = React.useRef(null);
+  const [query, setQuery]       = useState(value || "");
+  const [suggestions, setSugs]  = useState([]);
+  const [geocoding, setGeocoding] = useState(false);
+
+  // Load Mapbox GL JS dynamically
+  useEffect(() => {
+    if (mapRef.current || !mapContainer.current) return;
+
+    const link = document.createElement("link");
+    link.rel  = "stylesheet";
+    link.href = "https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.css";
+    document.head.appendChild(link);
+
+    const script = document.createElement("script");
+    script.src = "https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.js";
+    script.onload = () => {
+      const mapboxgl = window.mapboxgl;
+      mapboxgl.accessToken = MAPBOX_TOKEN;
+      const map = new mapboxgl.Map({
+        container: mapContainer.current,
+        style: "mapbox://styles/mapbox/streets-v12",
+        center: [120.9842, 14.5995], // default: Manila
+        zoom: 10,
+      });
+      map.addControl(new mapboxgl.NavigationControl(), "top-right");
+      mapRef.current = map;
+
+      // If there's an existing location with coords, fly to it
+      if (value) geocodeAndPin(value, map);
+    };
+    document.head.appendChild(script);
+  }, []);
+
+  const geocodeAndPin = async (text, map) => {
+    if (!text.trim()) return;
+    setGeocoding(true);
+    try {
+      const res = await fetch(
+        `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(text)}.json?access_token=${MAPBOX_TOKEN}&country=PH&limit=1`
+      );
+      const data = await res.json();
+      const feature = data.features?.[0];
+      if (!feature) return;
+      const [lng, lat] = feature.center;
+      const m = map || mapRef.current;
+      if (!m) return;
+      m.flyTo({ center: [lng, lat], zoom: 15, speed: 1.4 });
+      if (markerRef.current) markerRef.current.remove();
+      markerRef.current = new window.mapboxgl.Marker({ color: "#8B0000" })
+        .setLngLat([lng, lat])
+        .addTo(m);
+      onChange({ address: text, lat, lng });
+    } catch (_) {}
+    finally { setGeocoding(false); }
+  };
+
+  const fetchSuggestions = async (text) => {
+    if (!text.trim() || text.length < 3) { setSugs([]); return; }
+    try {
+      const res = await fetch(
+        `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(text)}.json?access_token=${MAPBOX_TOKEN}&country=PH&limit=5&types=place,locality,address,poi`
+      );
+      const data = await res.json();
+      setSugs(data.features || []);
+    } catch (_) { setSugs([]); }
+  };
+
+  const handleInput = (e) => {
+    const val = e.target.value;
+    setQuery(val);
+    fetchSuggestions(val);
+    if (!val.trim()) {
+      onChange({ address: "", lat: null, lng: null });
+      if (markerRef.current) { markerRef.current.remove(); markerRef.current = null; }
+    }
+  };
+
+  const handleSelect = (feature) => {
+    const label = feature.place_name;
+    const [lng, lat] = feature.center;
+    setQuery(label);
+    setSugs([]);
+    onChange({ address: label, lat, lng });
+    const m = mapRef.current;
+    if (!m) return;
+    m.flyTo({ center: [lng, lat], zoom: 15, speed: 1.4 });
+    if (markerRef.current) markerRef.current.remove();
+    markerRef.current = new window.mapboxgl.Marker({ color: "#8B0000" })
+      .setLngLat([lng, lat])
+      .addTo(m);
+  };
+
+  return (
+    <div style={{ width: "100%" }}>
+      {/* Search input */}
+      {!readOnly && (
+        <div style={{ position: "relative", marginBottom: "8px" }}>
+          <input
+            type="text"
+            value={query}
+            onChange={handleInput}
+            onKeyDown={e => { if (e.key === "Enter") { setSugs([]); geocodeAndPin(query); } }}
+            placeholder="Type a location (e.g. Angeles, Pampanga)..."
+            style={{ ...pillInputStyle, width: "100%", boxSizing: "border-box", paddingRight: geocoding ? "40px" : "16px" }}
+          />
+          {geocoding && (
+            <span style={{ position: "absolute", right: "12px", top: "50%", transform: "translateY(-50%)", fontSize: "0.75rem", color: "#888" }}>Searching…</span>
+          )}
+          {suggestions.length > 0 && (
+            <div style={{ position: "absolute", top: "100%", left: 0, right: 0, background: "white", border: "1px solid #ddd", borderRadius: "10px", zIndex: 999, boxShadow: "0 4px 16px rgba(0,0,0,0.12)", overflow: "hidden" }}>
+              {suggestions.map((s, i) => (
+                <div key={i} onClick={() => handleSelect(s)}
+                  style={{ padding: "9px 14px", cursor: "pointer", fontSize: "0.82rem", fontFamily: "'Kufam', sans-serif", color: "#222", borderBottom: i < suggestions.length - 1 ? "1px solid #f0f0f0" : "none" }}
+                  onMouseEnter={e => e.currentTarget.style.background = "#f8f0f0"}
+                  onMouseLeave={e => e.currentTarget.style.background = "white"}
+                >
+                  📍 {s.place_name}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Map */}
+      <div className="post-map-box">
+        <div ref={mapContainer} style={{ width: "100%", height: "100%" }} />
+      </div>
+    </div>
+  );
+};
+
 // ── Post Form Modal ───────────────────────────────────────────────────────────
 const PostFormModal = ({ post, mode, onClose, onSave, user }) => {
   const [isEditing, setIsEditing] = useState(mode === "create" || mode === "edit");
@@ -403,6 +538,7 @@ const PostFormModal = ({ post, mode, onClose, onSave, user }) => {
     slot:             post?.slot ?? 1,
     phone:            post?.phone || "+63 ",
     contactEmail:     post?.contactEmail || "",
+    postLocation:     post?.postLocation || { address: "", lat: null, lng: null },
   });
 
   const [errors, setErrors]                         = useState({});
@@ -475,9 +611,9 @@ const PostFormModal = ({ post, mode, onClose, onSave, user }) => {
         {/* Body */}
         <div className="post-modal-body" style={{ overflowY: "auto", flex: 1 }}>
 
-          {/* Description + map row */}
+          {/* Description + Requirements */}
           <div className="post-desc-row">
-            <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ width: "100%" }}>
               <FieldLabel>Description:</FieldLabel>
               <textarea className="ojt-field ojt-textarea" disabled={readOnly} value={form.description}
                 onChange={e => { set("description", e.target.value); setErrors(p => ({ ...p, description: "" })); }}
@@ -493,9 +629,14 @@ const PostFormModal = ({ post, mode, onClose, onSave, user }) => {
               <FieldError msg={errors.requirements} />
             </div>
 
-            {/* Map placeholder */}
-            <div className="post-map-box" style={{ borderRadius: "16px", background: "#c8d8e8", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", border: "1.5px dashed #aaa" }}>
-              <span style={{ fontSize: "1.8rem" }}>🗺️</span>
+            {/* Location + Mapbox Map */}
+            <div style={{ width: "100%" }}>
+              <FieldLabel>Location:</FieldLabel>
+              <MapboxLocationPicker
+                value={form.postLocation?.address || ""}
+                onChange={(loc) => set("postLocation", loc)}
+                readOnly={readOnly}
+              />
             </div>
           </div>
 
