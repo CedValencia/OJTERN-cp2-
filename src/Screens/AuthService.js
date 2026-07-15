@@ -9,6 +9,8 @@ import {
   signOut,
   sendPasswordResetEmail,
   updatePassword,
+  reauthenticateWithCredential,
+  EmailAuthProvider,
   getAuth,
 } from "firebase/auth";
 
@@ -235,6 +237,7 @@ export const getUserProfile = async (collectionName, uid) => {
   const snap = await getDoc(doc(db, collectionName, uid));
   return snap.exists() ? snap.data() : null;
 };
+
 // ─────────────────────────────────────────────────────────────────────────────
 // STUDENT — Create account (coordinator only)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -324,16 +327,39 @@ export const createStudentAccount = async (studentData, createdByUid) => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Changes the current user's password and marks passwordChanged: true in Firestore.
+ * Changes the current user's password and marks passwordChanged: true in Firestore,
+ * then signs the user out so they land back on the sign-in screen and log in fresh
+ * with their new password.
+ *
+ * Reauthenticates first, since Firebase's updatePassword requires a "recent login"
+ * (this is what throws auth/requires-recent-login if skipped).
+ *
+ * @param {string} currentPassword — the user's existing password, used to reauthenticate
  * @param {string} newPassword
  * @param {"students"|"coordinators"} collectionName
  * @param {string} uid
  */
-export const changePassword = async (newPassword, collectionName, uid) => {
+export const changePassword = async (currentPassword, newPassword, collectionName, uid) => {
   const user = auth.currentUser;
   if (!user) throw new Error("No user is currently signed in.");
+
+  // Reauthenticate first — required by Firebase before updatePassword will succeed
+  try {
+    const credential = EmailAuthProvider.credential(user.email, currentPassword);
+    await reauthenticateWithCredential(user, credential);
+  } catch (err) {
+    if (err.code === "auth/wrong-password" || err.code === "auth/invalid-credential") {
+      throw new Error("Current password is incorrect.");
+    }
+    throw err;
+  }
+
   await updatePassword(user, newPassword);
   await updateDoc(doc(db, collectionName, uid), { passwordChanged: true });
+
+  // Sign out so the app routes back to the sign-in screen — the person logs
+  // back in manually using their new password.
+  await signOut(auth);
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
