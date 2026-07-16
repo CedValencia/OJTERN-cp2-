@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
-import { collection, addDoc, serverTimestamp, onSnapshot, query, where, doc, updateDoc } from "firebase/firestore";
+import { collection, addDoc, serverTimestamp, onSnapshot, query, where, doc, updateDoc, deleteDoc } from "firebase/firestore";
 import { db } from "./firebase";
 import { uploadFilesToFolder } from "./CloudinaryService";
 import companyProfileIcon from "../icons/companyprofile.png";
@@ -2248,6 +2248,7 @@ const COLLEGES = [
     ],
   },
 ];
+
 const SUFFIX_OPTIONS = [];
 // NOTE: applications are now loaded live from Firestore (see useEffect in StudentApplicationScreen)
 
@@ -2419,6 +2420,18 @@ const ResponsiveStyles = () => (
     @media (max-width: 480px) {
       .sa-modal-subtitle { font-size: 0.70rem; }
     }
+
+    /* ── Delete confirmation popup ── */
+    .sa-confirm-inner {
+      background: #e8e8e8;
+      border-radius: 22px;
+      width: 100%;
+      max-width: 380px;
+      overflow: hidden;
+      box-shadow: 0 12px 56px rgba(0,0,0,0.35);
+      padding: 26px 26px 20px;
+      text-align: center;
+    }
   `}</style>
 );
 
@@ -2495,20 +2508,109 @@ const useField = (initial = "", validatorKey) => {
 };
 
 // ─── STYLED SELECT ─────────────────────────────────────────────────────────────
-const StyledSelect = ({ value, onChange, options, placeholder, disabled, hasError }) => (
-  <div style={{ position: "relative" }}>
-    <select
-      value={value} onChange={e => onChange(e.target.value)} disabled={disabled}
-      style={{ width: "100%", appearance: "none", WebkitAppearance: "none", background: disabled ? "#e8e8e8" : "white", border: hasError ? "1.5px solid #c00" : "none", borderRadius: "20px", padding: "8px 36px 8px 14px", fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", color: disabled ? "#aaa" : (value ? "#222" : "#999"), cursor: disabled ? "not-allowed" : "pointer", outline: "none", boxShadow: hasError ? "none" : "inset 0 1px 3px rgba(0,0,0,0.08)" }}
-    >
-      <option value="">{placeholder || "Select..."}</option>
-      {options.map(o => <option key={o} value={o}>{o}</option>)}
-    </select>
-    <div style={{ position: "absolute", right: "12px", top: "50%", transform: "translateY(-50%)", pointerEvents: "none", color: disabled ? "#bbb" : darkRed }}>
-      <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M7 10l5 5 5-5z"/></svg>
+const StyledSelect = ({ value, onChange, options, placeholder, disabled, hasError }) => {
+  const [open, setOpen] = useState(false);
+  const [openUp, setOpenUp] = useState(false);
+  const wrapRef = useRef(null);
+  const listRef = useRef(null);
+
+  // close on outside click
+  useEffect(() => {
+    const handler = (e) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  // decide open direction whenever it opens
+  useEffect(() => {
+    if (!open || !wrapRef.current) return;
+    const rect = wrapRef.current.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const spaceAbove = rect.top;
+    const estimatedListHeight = Math.min(240, options.length * 34 + 8);
+    setOpenUp(spaceBelow < estimatedListHeight && spaceAbove > spaceBelow);
+  }, [open, options.length]);
+
+  const handleSelect = (opt) => {
+    onChange(opt);
+    setOpen(false);
+  };
+
+  return (
+    <div ref={wrapRef} style={{ position: "relative" }}>
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => !disabled && setOpen(o => !o)}
+        style={{
+          width: "100%",
+          textAlign: "left",
+          background: disabled ? "#e8e8e8" : "white",
+          border: hasError ? "1.5px solid #c00" : "none",
+          borderRadius: "20px",
+          padding: "8px 36px 8px 14px",
+          fontFamily: "'Kufam', sans-serif",
+          fontSize: "0.82rem",
+          color: disabled ? "#aaa" : (value ? "#222" : "#999"),
+          cursor: disabled ? "not-allowed" : "pointer",
+          outline: "none",
+          boxShadow: hasError ? "none" : "inset 0 1px 3px rgba(0,0,0,0.08)",
+        }}
+      >
+        {value || placeholder || "Select..."}
+      </button>
+
+      <div style={{ position: "absolute", right: "12px", top: "50%", transform: "translateY(-50%)", pointerEvents: "none", color: disabled ? "#bbb" : darkRed }}>
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
+          <path d={openUp && open ? "M7 14l5-5 5 5z" : "M7 10l5 5 5-5z"} />
+        </svg>
+      </div>
+
+      {open && !disabled && (
+        <div
+          ref={listRef}
+          style={{
+            position: "absolute",
+            left: 0,
+            right: 0,
+            [openUp ? "bottom" : "top"]: "calc(100% + 4px)",
+            background: "white",
+            borderRadius: "12px",
+            boxShadow: "0 8px 24px rgba(0,0,0,0.18)",
+            maxHeight: "240px",
+            overflowY: "auto",
+            zIndex: 2000,
+          }}
+        >
+          {options.map((o) => (
+            <div
+              key={o}
+              onClick={() => handleSelect(o)}
+              style={{
+                padding: "8px 14px",
+                fontFamily: "'Kufam', sans-serif",
+                fontSize: "0.82rem",
+                cursor: "pointer",
+                background: o === value ? "#f0e5e5" : "white",
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = "#f5f5f5"}
+              onMouseLeave={e => e.currentTarget.style.background = o === value ? "#f0e5e5" : "white"}
+            >
+              {o}
+            </div>
+          ))}
+          {options.length === 0 && (
+            <div style={{ padding: "10px 14px", fontFamily: "'Kufam', sans-serif", fontSize: "0.8rem", color: "#aaa" }}>
+              No options
+            </div>
+          )}
+        </div>
+      )}
     </div>
-  </div>
-);
+  );
+};
 
 // ─── STYLED INPUT ─────────────────────────────────────────────────────────────
 const StyledInput = ({ value, onChange, placeholder, type = "text", disabled, hasError }) => (
@@ -2539,7 +2641,6 @@ const LocationPicker = ({ region, province, city, barangay, street, onChange, di
   const handleProvince = (val) => onChange({ region, province: val, city: "", barangay: "", street: "" });
   const handleCity     = (val) => onChange({ region, province, city: val, barangay: "", street: "" });
   const handleBarangay = (val) => onChange({ region, province, city, barangay: val, street });
-  const handleStreet   = (val) => onChange({ region, province, city, barangay, street: val });
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
@@ -2550,7 +2651,6 @@ const LocationPicker = ({ region, province, city, barangay, street, onChange, di
       {region   && <StyledSelect value={province} onChange={handleProvince} options={regionData?.provinces?.map(p => p.name) ?? []} placeholder="Select Province" disabled={disabled} />}
       {province && <StyledSelect value={city}     onChange={handleCity}     options={provinceData?.cities?.map(c => c.name)    ?? []} placeholder="Select City / Municipality" disabled={disabled} />}
       {city     && <StyledSelect value={barangay} onChange={handleBarangay} options={cityData?.barangays ?? []} placeholder="Select Barangay" disabled={disabled} />}
-      {city     && <StyledInput  value={street}   onChange={handleStreet}   placeholder="Street / Building (optional)" disabled={disabled} />}
     </div>
   );
 };
@@ -2795,8 +2895,10 @@ const FormFields = ({ f, locked = false }) => (
   </>
 );
 
+
 // ─── APPLY MODAL ──────────────────────────────────────────────────────────────
 export const ApplyModal = ({ company, onClose, onSubmit, user }) => {
+  const companyDisplayName = company?.name || company?.companyName || ""; 
   const COLLEGE_ABBR_MAP = {
     "CCS":  "College of Computer Studies",
     "CBA":  "College of Business and Accountancy",
@@ -2855,7 +2957,7 @@ export const ApplyModal = ({ company, onClose, onSubmit, user }) => {
         attachedFiles: uploadedFiles,
         studentId:   user?.uid        || "",
         studentName: (user?.firstName || "") + " " + (user?.lastName || ""),
-        companyId:   company?.id      || company?.companyId || "",
+        companyId:   company?.companyId || company?.id || "",
         companyName: company?.name    || company?.companyName || "",
         status:      "Pending",
         createdAt:   serverTimestamp(),
@@ -2906,7 +3008,7 @@ export const ApplyModal = ({ company, onClose, onSubmit, user }) => {
             </div>
             <h2 style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.6rem", color: darkRed, letterSpacing: "0.03em", marginBottom: "6px" }}>Application Successful</h2>
             <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#555", marginBottom: "22px" }}>
-              Your application to <strong style={{ color: darkRed }}>{company?.name}</strong> has been submitted.
+              Your application to <strong style={{ color: darkRed }}>{company?.name || company?.companyName}</strong> has been submitted.
             </p>
             <button
               onClick={() => { setShowSuccess(false); onClose(); }}
@@ -3049,37 +3151,107 @@ const ViewApplicationModal = ({ application, onClose, onSave }) => {
   );
 };
 
-// ─── APPLICATION ROW ──────────────────────────────────────────────────────────
-const ApplicationRow = ({ application, onView }) => {
-  const [showMenu, setShowMenu] = useState(false);
-  return (
-    <div
-      className="sa-app-row"
-      style={{ background: "#dadada", borderRadius: "10px", padding: "10px 14px", display: "flex", alignItems: "center", gap: "12px", transition: "background 0.15s", cursor: "pointer", position: "relative" }}
-      onClick={() => onView(application)}
-    >
-      <div style={{ width: "38px", height: "38px", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <img src={companyProfileIcon} alt="company" style={{ width: "38px", height: "38px", objectFit: "contain" }} />
+// ─── DELETE CONFIRMATION POPUP ────────────────────────────────────────────────
+const DeleteConfirmPopup = ({ companyName, onCancel, onConfirm, deleting }) => (
+  <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1200, padding: "16px" }}>
+    <div className="sa-confirm-inner">
+      <div style={{ width: "56px", height: "56px", borderRadius: "50%", background: "#c62828", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 14px" }}>
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="3 6 5 6 21 6"/>
+          <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+          <path d="M10 11v6"/><path d="M14 11v6"/>
+          <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+        </svg>
       </div>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <span style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 600, fontSize: "0.9rem", color: "#222", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>{application.company}</span>
-      </div>
-      <div style={{ position: "relative", flexShrink: 0 }} onClick={e => e.stopPropagation()}>
-        <button onClick={() => setShowMenu(!showMenu)} style={{ background: "none", border: "none", cursor: "pointer", padding: "2px 6px", color: "#555", fontSize: "1.1rem", lineHeight: 1 }}>⋮</button>
-        {showMenu && (
-          <div style={{ position: "absolute", top: "24px", right: 0, background: "white", borderRadius: "10px", boxShadow: "0 4px 12px rgba(0,0,0,0.15)", overflow: "hidden", zIndex: 10, minWidth: "80px" }}>
-            <button onClick={() => { onView(application); setShowMenu(false); }}
-              style={{ width: "100%", border: "none", background: "white", padding: "8px 12px", textAlign: "left", cursor: "pointer", fontSize: "0.78rem", fontFamily: "'Kufam', sans-serif", fontWeight: 600, color: "#222" }}
-              onMouseEnter={e => e.currentTarget.style.background = "#f5f5f5"}
-              onMouseLeave={e => e.currentTarget.style.background = "white"}>View</button>
-            <div style={{ height: "1px", background: "#e0e0e0", margin: "0 8px" }} />
-            <button style={{ width: "100%", border: "none", background: "white", padding: "8px 12px", textAlign: "left", cursor: "pointer", fontSize: "0.78rem", color: "#c62828", fontFamily: "'Kufam', sans-serif", fontWeight: 600 }}
-              onMouseEnter={e => e.currentTarget.style.background = "#fff0f0"}
-              onMouseLeave={e => e.currentTarget.style.background = "white"}>Delete</button>
-          </div>
-        )}
+      <h3 style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.5rem", color: darkRed, marginBottom: "6px" }}>Delete Application?</h3>
+      <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#555", marginBottom: "22px", lineHeight: 1.5 }}>
+        This will permanently delete your application to{" "}
+        <strong style={{ color: darkRed }}>{companyName}</strong>. This action cannot be undone.
+      </p>
+      <div style={{ display: "flex", justifyContent: "center", gap: "10px" }}>
+        <button
+          onClick={onCancel}
+          disabled={deleting}
+          style={{ padding: "10px 24px", borderRadius: "24px", background: "#888", color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif", fontSize: "1rem", cursor: deleting ? "not-allowed" : "pointer", opacity: deleting ? 0.7 : 1 }}
+        >
+          CANCEL
+        </button>
+        <button
+          onClick={onConfirm}
+          disabled={deleting}
+          style={{ padding: "10px 24px", borderRadius: "24px", background: "#c62828", color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif", fontSize: "1rem", cursor: deleting ? "not-allowed" : "pointer", opacity: deleting ? 0.7 : 1 }}
+        >
+          {deleting ? "DELETING..." : "DELETE"}
+        </button>
       </div>
     </div>
+  </div>
+);
+
+// ─── APPLICATION ROW ──────────────────────────────────────────────────────────
+const ApplicationRow = ({ application, onView, onDelete }) => {
+  const [showMenu, setShowMenu] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const menuRef = useRef(null);
+
+  useEffect(() => {
+    const handler = (e) => { if (menuRef.current && !menuRef.current.contains(e.target)) setShowMenu(false); };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const handleConfirmDelete = async () => {
+    setDeleting(true);
+    await onDelete(application.id);
+    setDeleting(false);
+    setConfirming(false);
+  };
+
+  return (
+    <>
+      <div
+        className="sa-app-row"
+        style={{ background: "#dadada", borderRadius: "10px", padding: "10px 14px", display: "flex", alignItems: "center", gap: "12px", transition: "background 0.15s", cursor: "pointer", position: "relative" }}
+        onClick={() => onView(application)}
+      >
+        <div style={{ width: "38px", height: "38px", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <img src={companyProfileIcon} alt="company" style={{ width: "38px", height: "38px", objectFit: "contain" }} />
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <span style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 600, fontSize: "0.9rem", color: "#222", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>{application.company}</span>
+        </div>
+        <div ref={menuRef} style={{ position: "relative", flexShrink: 0 }} onClick={e => e.stopPropagation()}>
+          <button onClick={() => setShowMenu(!showMenu)} style={{ background: "none", border: "none", cursor: "pointer", padding: "2px 6px", color: "#555", fontSize: "1.1rem", lineHeight: 1 }}>⋮</button>
+          {showMenu && (
+            <div style={{ position: "absolute", top: "24px", right: 0, background: "white", borderRadius: "10px", boxShadow: "0 4px 12px rgba(0,0,0,0.15)", overflow: "hidden", zIndex: 10, minWidth: "80px" }}>
+              <button onClick={() => { onView(application); setShowMenu(false); }}
+                style={{ width: "100%", border: "none", background: "white", padding: "8px 12px", textAlign: "left", cursor: "pointer", fontSize: "0.78rem", fontFamily: "'Kufam', sans-serif", fontWeight: 600, color: "#222" }}
+                onMouseEnter={e => e.currentTarget.style.background = "#f5f5f5"}
+                onMouseLeave={e => e.currentTarget.style.background = "white"}>View</button>
+              <div style={{ height: "1px", background: "#e0e0e0", margin: "0 8px" }} />
+              <button
+                onClick={() => { setConfirming(true); setShowMenu(false); }}
+                style={{ width: "100%", border: "none", background: "white", padding: "8px 12px", textAlign: "left", cursor: "pointer", fontSize: "0.78rem", color: "#c62828", fontFamily: "'Kufam', sans-serif", fontWeight: 600 }}
+                onMouseEnter={e => e.currentTarget.style.background = "#fff0f0"}
+                onMouseLeave={e => e.currentTarget.style.background = "white"}
+              >
+                Delete
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {confirming && (
+        <DeleteConfirmPopup
+          companyName={application.company}
+          deleting={deleting}
+          onCancel={() => setConfirming(false)}
+          onConfirm={handleConfirmDelete}
+        />
+      )}
+    </>
   );
 };
 
@@ -3140,6 +3312,19 @@ const StudentApplicationScreen = ({ initialCompany, onModalClose, user }) => {
     setViewKey(k => k + 1);
   };
 
+  // Deletes the application document from Firestore. Since CompanyApplicantsScreen
+  // reads from this exact same "applications" collection via onSnapshot, removing
+  // it here automatically removes it from the company's Applicants list too —
+  // no separate sync step needed.
+  const handleDelete = async (id) => {
+    try {
+      await deleteDoc(doc(db, "applications", id));
+    } catch (err) {
+      console.error("Failed to delete application:", err);
+    }
+    if (viewingApplication?.id === id) setViewingApplication(null);
+  };
+
   return (
     <>
       <ResponsiveStyles />
@@ -3171,7 +3356,7 @@ const StudentApplicationScreen = ({ initialCompany, onModalClose, user }) => {
         {/* Application rows */}
         <div className="sa-list-area">
           {filteredApplications.map(application => (
-            <ApplicationRow key={application.id} application={application} onView={handleView} />
+            <ApplicationRow key={application.id} application={application} onView={handleView} onDelete={handleDelete} />
           ))}
           {filteredApplications.length === 0 && (
             <div style={{ textAlign: "center", padding: "60px", color: "#aaa", fontFamily: "'Kufam', sans-serif", fontSize: "0.95rem" }}>

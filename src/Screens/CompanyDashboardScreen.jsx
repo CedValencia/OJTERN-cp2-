@@ -227,9 +227,11 @@ const StatCard = ({ label, value, bg = "rgba(0,0,0,0.15)", onView }) => (
 // ── Status badge ───────────────────────────────────────────────────────────────
 const StatusBadge = ({ status }) => {
   const cfg = {
-    Accepted: { bg: "#2d7a2d", text: "white" },
-    Declined: { bg: darkRed,   text: "white" },
-    Pending:  { bg: "#c8a800", text: "white" },
+    Accepted:       { bg: "#2d7a2d", text: "white" },
+    Declined:       { bg: darkRed,   text: "white" },
+    Pending:        { bg: "#c8a800", text: "white" },
+    "In Review":    { bg: "#353A8D", text: "white" },
+    "To Interview": { bg: "#7C2889", text: "white" },
   }[status] || { bg: "#aaa", text: "white" };
 
   return (
@@ -263,7 +265,7 @@ const DashboardContent = ({ onNavigate, applications = [], posts = [] }) => {
   const acceptedApplicants = applications.filter(a => a.status === "Accepted").length;
 
   const recentApplicants = [...applications]
-    .sort((a, b) => (b.appliedAt?.seconds || 0) - (a.appliedAt?.seconds || 0))
+    .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0))
     .slice(0, 5);
 
   const recentPosts = posts.slice(0, 5);
@@ -372,7 +374,7 @@ const DashboardContent = ({ onNavigate, applications = [], posts = [] }) => {
                   overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                   maxWidth: "clamp(80px, 20vw, 200px)",
                 }}>
-                  {a.studentName || a.studentFullName || a.name || "Student"}
+                  {[a.firstName, a.middleInitial, a.lastName].filter(Boolean).join(" ") || a.studentName || a.studentFullName || a.name || "Student"}
                 </span>
               </div>
               <StatusBadge status={a.status || "Pending"} />
@@ -441,7 +443,8 @@ const CompanyDashboardScreen = ({ user, onLogout }) => {
         return (
           <CompanyMessageScreen
             user={user}
-            openContact={() => setPendingContact(null)}
+            openContact={pendingContact}
+            onContactOpened={() => setPendingContact(null)}
           />
         );
       case "accountprofile":

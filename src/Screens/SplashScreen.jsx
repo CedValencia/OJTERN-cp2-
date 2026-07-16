@@ -70,31 +70,33 @@ const SplashScreen = () => {
 
   // ── Restore session after page refresh ────────────────────────────────────
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (firebaseUser) {
-        const collections = ["coordinators", "students", "companies"];
-        let userData = null;
-        for (const col of collections) {
-          const snap = await getDoc(doc(db, col, firebaseUser.uid));
-          if (snap.exists()) { userData = snap.data(); break; }
-        }
-        if (userData && userData.status === "active") {
-          setCurrentUser(userData);
-          // Restore the view they were on before refresh
-          const savedView = sessionStorage.getItem("ojtern_view");
-          if (savedView) {
-            setView(savedView);
-          } else {
-            if (userData.role === "coordinator") setView("coordinator_dashboard");
-            else if (userData.role === "student")  setView("student_dashboard");
-            else if (userData.role === "company")  setView("company_dashboard");
-          }
+  const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
+    if (firebaseUser) {
+      const collections = ["coordinators", "students", "companies"];
+      let userData = null;
+      for (const col of collections) {
+        const snap = await getDoc(doc(db, col, firebaseUser.uid));
+        if (snap.exists()) { userData = snap.data(); break; }
+      }
+
+      const badStatuses = ["pending", "rejected", "transferred"];
+      if (userData && !badStatuses.includes(userData.status)) {
+        setCurrentUser(userData);
+        // Restore the view they were on before refresh
+        const savedView = sessionStorage.getItem("ojtern_view");
+        if (savedView) {
+          setView(savedView);
+        } else {
+          if (userData.role === "coordinator") setView("coordinator_dashboard");
+          else if (userData.role === "student")  setView("student_dashboard");
+          else if (userData.role === "company")  setView("company_dashboard");
         }
       }
-      setAuthChecking(false);
-    });
-    return unsub;
-  }, []);
+    }
+    setAuthChecking(false);
+  });
+  return unsub;
+}, []);
 
   useEffect(() => {
     const t1 = setTimeout(() => setAnimate(true),  2000);

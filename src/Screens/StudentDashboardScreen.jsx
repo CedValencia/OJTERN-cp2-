@@ -478,7 +478,11 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
           navigate("messages");
         }}
         onApplyNow={(company) => {
-          setApplyCompany({ name: company.name });
+          setApplyCompany({
+            id: company.companyId || company.id,
+            companyId: company.companyId || company.id,
+            name: company.companyName || company.company || company.name,
+          });
           navigate("application");
         }}
         onVisitCompany={({ id, name }) => {

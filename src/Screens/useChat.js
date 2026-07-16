@@ -29,6 +29,19 @@ import { db } from "./firebase";
 // ── helpers ───────────────────────────────────────────────────────────────────
 export const makeConvId = (uid1, uid2) => [uid1, uid2].sort().join("_");
 
+// ✅ ADD THIS — builds "First M. Last Suffix", skipping missing parts
+const buildFullName = (p = {}) => {
+  const parts = [
+    p.firstName,
+    p.middleInitial ? (p.middleInitial.endsWith(".") ? p.middleInitial : `${p.middleInitial}.`) : "",
+    p.lastName,
+    p.suffix,
+  ].filter(Boolean);
+  return parts.join(" ").trim() || "User";
+};
+
+const ROLE_MAP = { students: "student", companies: "company", coordinators: "coordinator" };
+
 // Fetch display name + role for a uid by checking all 3 collections
 export const resolveUser = async (uid) => {
   for (const col of ["students", "companies", "coordinators"]) {
@@ -36,10 +49,18 @@ export const resolveUser = async (uid) => {
       const snap = await getDoc(doc(db, col, uid));
       if (snap.exists()) {
         const d = snap.data();
+        const composedName = buildFullName(d);
+        const name =
+          d.companyName ||
+          d.fullName ||
+          (composedName !== "User" ? composedName : null) ||
+          d.name ||
+          d.displayName ||
+          "User";
         return {
           uid,
-          name: d.companyName || d.fullName || d.name || d.firstName || d.displayName || "User",
-          role: col.slice(0, -1), // "student" | "compan" | "coordinator"  — fixed below
+          name,
+          role: ROLE_MAP[col],   // ✅ fixed "companie" typo
           collection: col,
         };
       }
@@ -47,6 +68,8 @@ export const resolveUser = async (uid) => {
   }
   return { uid, name: "Unknown", role: "unknown", collection: null };
 };
+
+export { buildFullName };
 
 // ── main hook ─────────────────────────────────────────────────────────────────
 /**

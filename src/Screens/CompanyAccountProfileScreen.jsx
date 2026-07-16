@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { doc, onSnapshot, updateDoc, collection, getDocs, query, where } from "firebase/firestore";
 import { getAuth, signOut } from "firebase/auth";
 import { db } from "./firebase";
+import { changePassword } from "./AuthService";
 import AccountProfile from "../icons/accountprofile.png";
 import viewIcon from "../icons/view.png";
 import PersonalAccountProfile from "../icons/personalaccountprofile.png";
@@ -127,32 +128,6 @@ const ResponsiveStyles = () => (
     }
     @media (max-width: 560px) {
       .cap-sub-body { padding: 16px 14px; }
-    }
-
-    /* ── OTP row ── */
-    .cap-otp-row {
-      display: flex;
-      gap: 10px;
-      margin-bottom: 16px;
-      justify-content: center;
-      flex-wrap: wrap;
-    }
-
-    /* ── OTP digit inputs ── */
-    .cap-otp-input {
-      width: 52px;
-      height: 60px;
-      text-align: center;
-      background: #590101;
-      border: none;
-      border-radius: 12px;
-      color: white;
-      font-family: 'Jersey 25', sans-serif;
-      font-size: 1.8rem;
-      outline: none;
-    }
-    @media (max-width: 400px) {
-      .cap-otp-input { width: 38px; height: 48px; font-size: 1.4rem; border-radius: 8px; }
     }
 
     /* ── Divider line ── */
@@ -472,123 +447,91 @@ const LocationPicker = ({ location, onChange, editable = true }) => {
   );
 };
 
-// ── Reset Steps ───────────────────────────────────────────────────────────────
-const ResetStep1 = ({ onNext }) => {
-  const [email, setEmail] = useState("");
-  const [error, setError] = useState("");
-  const handleSend = () => {
-    if (!email.endsWith("@gmail.com")) { setError("Must be a valid @gmail.com email."); return; }
-    setError(""); onNext(email);
-  };
-  return (
-    <div style={{ background: "#e8e8e8", borderRadius: "16px", padding: "24px 28px" }}>
-      <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.95rem", color: "#888", marginBottom: "16px", lineHeight: 1.6 }}>
-        Enter the email address linked to your account.<br />We'll send a password reset link.
-      </p>
-      <hr style={{ borderColor: "#ccc", marginBottom: "18px" }} />
-      <label style={{ ...labelStyle, color: "#111" }}>Email Address:</label>
-      <div style={{ background: darkRed, borderRadius: "20px", padding: "12px 20px", marginBottom: "8px" }}>
-        <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="example@gmail.com"
-          style={{ background: "transparent", border: "none", outline: "none", color: "white", fontFamily: "'Kufam', sans-serif", fontSize: "0.95rem", width: "100%" }} />
-      </div>
-      {error && <p style={{ color: "red", fontSize: "0.78rem", fontFamily: "'Kufam', sans-serif", marginBottom: "8px" }}>{error}</p>}
-      <div style={{ display: "flex", justifyContent: "center", marginTop: "16px" }}>
-        <button onClick={handleSend} style={{ background: darkRed, color: "white", border: "none", borderRadius: "20px", padding: "12px 40px", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.95rem", cursor: "pointer" }}>Send</button>
-      </div>
-    </div>
-  );
-};
+// ── Reset Password Screen (current-password based, like Student) ─────────────
+const ResetPasswordScreen = ({ onBack, user, onLogout }) => {
+  const [currentPass, setCurrentPass] = useState("");
+  const [newPass, setNewPass]         = useState("");
+  const [confirm, setConfirm]         = useState("");
+  const [errors, setErrors]           = useState({});
+  const [loading, setLoading]         = useState(false);
+  const [success, setSuccess]         = useState(false);
 
-const ResetStep2 = ({ onNext }) => {
-  const [code, setCode] = useState(["", "", "", "", "", ""]);
-  const inputRefs = useRef([]);
-  const handleChange = (i, val) => {
-    if (!/^\d?$/.test(val)) return;
-    const next = [...code]; next[i] = val; setCode(next);
-    if (val && i < 5) inputRefs.current[i + 1]?.focus();
-  };
-  const handleKeyDown = (i, e) => { if (e.key === "Backspace" && !code[i] && i > 0) inputRefs.current[i - 1]?.focus(); };
-  const handleSend = () => { if (code.join("").length < 6) { alert("Please enter the full 6-digit code."); return; } onNext(); };
-  return (
-    <div style={{ background: "#e8e8e8", borderRadius: "16px", padding: "24px 28px" }}>
-      <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.95rem", color: "#888", marginBottom: "16px" }}>Enter the code sent to your gmail account.</p>
-      <hr style={{ borderColor: "#ccc", marginBottom: "18px" }} />
-      <label style={{ ...labelStyle, color: "#111" }}>Enter the code:</label>
-      <div className="cap-otp-row">
-        {code.map((digit, i) => (
-          <input key={i} ref={el => inputRefs.current[i] = el} value={digit}
-            onChange={e => handleChange(i, e.target.value)} onKeyDown={e => handleKeyDown(i, e)}
-            maxLength={1} className="cap-otp-input" />
-        ))}
-      </div>
-      <p style={{ textAlign: "center", fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#555", marginBottom: "16px" }}>
-        Didn't receive the code?{" "}
-        <span onClick={() => setCode(["", "", "", "", "", ""])} style={{ color: red, cursor: "pointer", fontWeight: 600 }}>Resend!</span>
-      </p>
-      <div style={{ display: "flex", justifyContent: "center" }}>
-        <button onClick={handleSend} style={{ background: darkRed, color: "white", border: "none", borderRadius: "20px", padding: "12px 40px", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.95rem", cursor: "pointer" }}>Send</button>
-      </div>
-    </div>
-  );
-};
-
-const ResetStep3 = ({ onDone }) => {
-  const [newPass, setNewPass] = useState("");
-  const [confirm, setConfirm] = useState("");
-  const [errors, setErrors]   = useState({});
-  const handleSend = () => {
+  const handleSave = async () => {
     const e = {};
-    if (newPass.length < 8) e.newPass = "Minimum 8 characters.";
+    if (!currentPass) e.currentPass = "Please enter your current password.";
+    if (!newPass) e.newPass = "Please enter a new password.";
+    else if (newPass.length < 8) e.newPass = "Minimum 8 characters.";
     if (newPass !== confirm) e.confirm = "Passwords do not match.";
     setErrors(e);
-    if (Object.keys(e).length === 0) { alert("Password has been reset successfully!"); onDone(); }
+    if (Object.keys(e).length > 0) return;
+    setLoading(true);
+    try {
+      const uid = user?.uid || getAuth().currentUser?.uid;
+      await changePassword(currentPass, newPass, "companies", uid);
+      setSuccess(true);
+      setCurrentPass(""); setNewPass(""); setConfirm("");
+    } catch (err) {
+      setErrors({ general: err.message || "Failed to change password. Please try again." });
+    } finally {
+      setLoading(false);
+    }
   };
-  return (
-    <div style={{ background: "#e8e8e8", borderRadius: "16px", padding: "24px 28px" }}>
-      <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.95rem", color: "#888", marginBottom: "16px" }}>Enter your new password and confirm!</p>
-      <hr style={{ borderColor: "#ccc", marginBottom: "18px" }} />
-      <label style={{ ...labelStyle, color: "#111" }}>New Password:</label>
-      <PasswordInput value={newPass} onChange={e => setNewPass(e.target.value)} />
-      {errors.newPass && <p style={{ color: "red", fontSize: "0.78rem", fontFamily: "'Kufam', sans-serif", marginBottom: "8px" }}>{errors.newPass}</p>}
-      <label style={{ ...labelStyle, color: "#111" }}>Confirm Password:</label>
-      <PasswordInput value={confirm} onChange={e => setConfirm(e.target.value)} />
-      {errors.confirm && <p style={{ color: "red", fontSize: "0.78rem", fontFamily: "'Kufam', sans-serif", marginBottom: "8px" }}>{errors.confirm}</p>}
-      <div style={{ display: "flex", justifyContent: "flex-start", marginTop: "8px" }}>
-        <button onClick={handleSend} style={{ background: darkRed, color: "white", border: "none", borderRadius: "20px", padding: "12px 40px", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.95rem", cursor: "pointer" }}>Send</button>
-      </div>
-    </div>
-  );
-};
 
-const ResetPasswordScreen = ({ onBack }) => {
-  const [step, setStep] = useState(1);
+  // Password change already signed the user out inside changePassword().
+  // "Done" should route the whole app back to the sign-in screen, not just
+  // pop back to the profile menu (which no longer has a valid session anyway).
+  const handleDone = () => {
+    if (onLogout) onLogout();
+    else onBack(); // fallback, shouldn't normally happen
+  };
+
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <SectionHeaderBar iconSrc={resetIcon} title="Reset Password" onBack={onBack} />
       <div className="cap-sub-body">
-        {step === 1 && <ResetStep1 onNext={() => setStep(2)} />}
-        {step === 2 && <ResetStep2 onNext={() => setStep(3)} />}
-        {step === 3 && <ResetStep3 onDone={onBack} />}
-      </div>
-    </div>
-  );
-};
+        <div style={{ background: "#e8e8e8", borderRadius: "16px", padding: "24px 28px" }}>
+          {success ? (
+            <div style={{ textAlign: "center", padding: "20px 0" }}>
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#2d7a2d" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ display: "block", margin: "0 auto 12px" }}><circle cx="12" cy="12" r="10"/><polyline points="9 12 11 14 15 10"/></svg>
+              <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "1rem", fontWeight: 700, color: "#2d7a2d", marginBottom: "6px" }}>Password Changed!</p>
+              <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#666", marginBottom: "20px" }}>Your password has been updated. Please log in again with your new password.</p>
+              <button onClick={handleDone} style={{ background: darkRed, color: "white", border: "none", borderRadius: "20px", padding: "10px 32px", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.95rem", cursor: "pointer" }}>Done</button>
+            </div>
+          ) : (
+            <>
+              <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.88rem", color: "#666", marginBottom: "18px" }}>Enter your current password, then your new password below.</p>
 
-// ── Privacy & Security Screen ─────────────────────────────────────────────────
-const PrivacySecurityScreen = ({ onBack }) => {
-  const [subView, setSubView] = useState(null);
-  if (subView === "resetPassword") return <ResetPasswordScreen onBack={() => setSubView(null)} />;
-  return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-      <SectionHeaderBar iconSrc={privacyIcon} title="Privacy and Security" onBack={onBack} />
-      <div className="cap-sub-body">
-        <div style={{ background: darkRed, borderRadius: "16px", padding: "16px 20px" }}>
-          <MenuRow iconSrc={resetIcon} label="Reset Password" onClick={() => setSubView("resetPassword")} />
+              <label style={{ ...labelStyle, color: "#111" }}>Current Password:</label>
+              <PasswordInput value={currentPass} onChange={e => { setCurrentPass(e.target.value); setErrors(p => ({ ...p, currentPass: "" })); }} />
+              {errors.currentPass && <p style={{ color: "red", fontSize: "0.78rem", fontFamily: "'Kufam', sans-serif", marginBottom: "8px" }}>{errors.currentPass}</p>}
+
+              <label style={{ ...labelStyle, color: "#111" }}>New Password:</label>
+              <PasswordInput value={newPass} onChange={e => { setNewPass(e.target.value); setErrors(p => ({ ...p, newPass: "" })); }} />
+              {errors.newPass && <p style={{ color: "red", fontSize: "0.78rem", fontFamily: "'Kufam', sans-serif", marginBottom: "8px" }}>{errors.newPass}</p>}
+
+              <label style={{ ...labelStyle, color: "#111" }}>Confirm Password:</label>
+              <PasswordInput value={confirm} onChange={e => { setConfirm(e.target.value); setErrors(p => ({ ...p, confirm: "" })); }} />
+              {errors.confirm && <p style={{ color: "red", fontSize: "0.78rem", fontFamily: "'Kufam', sans-serif", marginBottom: "8px" }}>{errors.confirm}</p>}
+
+              {errors.general && <p style={{ color: "red", fontSize: "0.78rem", fontFamily: "'Kufam', sans-serif", marginBottom: "8px" }}>⚠️ {errors.general}</p>}
+
+              <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "16px" }}>
+                <button onClick={handleSave} disabled={loading} style={{ background: darkRed, color: "white", border: "none", borderRadius: "20px", padding: "12px 40px", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.95rem", cursor: loading ? "not-allowed" : "pointer", opacity: loading ? 0.7 : 1 }}>
+                  {loading ? "Saving…" : "Save Password"}
+                </button>
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>
   );
 };
+
+// ── Privacy & Security Screen — now goes directly to Reset Password ──────────
+const PrivacySecurityScreen = ({ onBack, user, onLogout }) => (
+  <ResetPasswordScreen onBack={onBack} user={user} onLogout={onLogout} />
+);
 
 // ── Terms Screen ──────────────────────────────────────────────────────────────
 const TermsScreen = ({ onBack }) => (
@@ -953,7 +896,7 @@ const CompanyAccountProfileScreen = ({ user, onLogout }) => {
   };
 
   if (view === "personalInfo") return <><ResponsiveStyles /><PersonalInfoScreen onBack={() => setView("main")} user={user} /></>;
-  if (view === "privacy")      return <><ResponsiveStyles /><PrivacySecurityScreen onBack={() => setView("main")} /></>;
+  if (view === "privacy")      return <><ResponsiveStyles /><GlobalStyles /><PrivacySecurityScreen onBack={() => setView("main")} user={user} onLogout={onLogout} /></>;
   if (view === "terms")        return <><ResponsiveStyles /><TermsScreen onBack={() => setView("main")} /></>;
 
   return (
@@ -981,7 +924,7 @@ const CompanyAccountProfileScreen = ({ user, onLogout }) => {
       <div className="cap-body">
         <div className="cap-menu-box">
           <MenuRow iconSrc={personalInfoIcon} label="Personal Information" onClick={() => setView("personalInfo")} />
-          <MenuRow iconSrc={privacyIcon}      label="Privacy & Security"   onClick={() => setView("privacy")} />
+          <MenuRow iconSrc={privacyIcon}      label="Reset Password"       onClick={() => setView("privacy")} />
           <MenuRow iconSrc={termsIcon}        label="Terms & Condition"    onClick={() => setView("terms")} />
         </div>
 

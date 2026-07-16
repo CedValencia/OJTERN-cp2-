@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import userIcon from "../icons/user.png";
 import viewIcon from "../icons/view.png";
-import { useChat } from "./useChat";
+import { useChat, resolveUser } from "./useChat";
 
 const red     = "#8B0000";
 const darkRed = "#590101";
@@ -194,7 +194,7 @@ const ReportModal = ({ company, onClose, onSubmit }) => {
 };
 
 // ── ChatView ──────────────────────────────────────────────────────────────────
-const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onReport }) => {
+const ChatView = ({ contact, messages, onSend, onBack, onReport }) => {
   const [input, setInput]           = useState("");
   const [attachment, setAttachment] = useState(null);
   const [showInfo, setShowInfo]     = useState(false);
@@ -246,7 +246,6 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onR
   const startEdit       = (msg)   => { if (!msg.text) return; setEditingId(msg.id); setEditText(msg.text); setPopupMsgId(null); };
   const saveEdit        = (msgId) => { if (!editText.trim()) return; onSend(contact.id, { __edit: true, id: msgId, text: editText.trim() }); setEditingId(null); setEditText(""); };
   const handleUnsent    = (msgId) => { onSend(contact.id, { __unsent: true, id: msgId }); setPopupMsgId(null); };
-  const handleDeleteConversation = () => { onDeleteConversation(contact.id); setShowInfo(false); };
 
   const avatarSize     = isMobile ? 30 : 36;
   const bubbleMaxWidth = isMobile ? "75%" : "60%";
@@ -274,7 +273,6 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onR
           </button>
           {showInfo && (
             <div style={{ position: "absolute", top: "38px", right: 0, background: "white", borderRadius: "10px", boxShadow: "0 4px 20px rgba(0,0,0,0.18)", zIndex: 200, minWidth: "170px", overflow: "hidden" }}>
-              <div onClick={handleDeleteConversation} style={{ padding: "12px 18px", fontFamily: "'Kufam', sans-serif", fontSize: "0.88rem", color: "#222", cursor: "pointer", borderBottom: "1px solid #f0f0f0" }} onMouseEnter={e => e.currentTarget.style.background = "#f5f5f5"} onMouseLeave={e => e.currentTarget.style.background = "white"}>Delete Conversation</div>
               <div onClick={() => { setShowInfo(false); setShowReport(true); }} style={{ padding: "12px 18px", fontFamily: "'Kufam', sans-serif", fontSize: "0.88rem", color: red, fontWeight: 700, cursor: "pointer" }} onMouseEnter={e => e.currentTarget.style.background = "#fff0f0"} onMouseLeave={e => e.currentTarget.style.background = "white"}>Report</div>
             </div>
           )}
@@ -497,7 +495,7 @@ const CompanyMessagesScreen = ({
   const {
     contacts, messages, loading,
     openConversation, ensureConversation,
-    sendMessage, editMessage, unsendMessage, deleteConversation,
+    sendMessage, editMessage, unsendMessage,
   } = useChat(user?.uid, myName, "company");
 
   const [activeContact, setActiveContact] = useState(null);
@@ -511,12 +509,15 @@ const CompanyMessagesScreen = ({
   useEffect(() => {
     if (!openContact || !user?.uid || !openContact.id) return;
     (async () => {
+      const resolved  = await resolveUser(openContact.id);
+      const finalName = resolved.name !== "Unknown" ? resolved.name : (openContact.name || "User");
+
       const convId = await ensureConversation(
         openContact.id,
-        openContact.name,
+        finalName,                                // ✅ canonical name, not the application-form name
         openContact.role || "student",
       );
-      const contact = { id: openContact.id, name: openContact.name, role: openContact.role || "student", convId };
+      const contact = { id: openContact.id, name: finalName, role: openContact.role || "student", convId };
       setReadConvIds(prev => new Set([...prev, contact.convId]));
       setActiveContact(contact);
       openConversation(convId);
@@ -529,11 +530,6 @@ const CompanyMessagesScreen = ({
     if (msgOrAction.__edit)        await editMessage(convId, msgOrAction.id, msgOrAction.text);
     else if (msgOrAction.__unsent) await unsendMessage(convId, msgOrAction.id);
     else await sendMessage(convId, { text: msgOrAction.text, attachment: msgOrAction.attachment });
-  };
-
-  const handleDeleteConversation = async (convId) => {
-    await deleteConversation(convId);
-    setActiveContact(null);
   };
 
   const handleReport = (report) => { if (onReportSubmit) onReportSubmit(report); };
@@ -554,7 +550,6 @@ const CompanyMessagesScreen = ({
         messages={uiMessages[activeContact.id] || []}
         onSend={(_, msg) => handleSend(activeContact.convId, msg)}
         onBack={() => setActiveContact(null)}
-        onDeleteConversation={() => handleDeleteConversation(activeContact.convId)}
         onReport={handleReport}
       />
     );
