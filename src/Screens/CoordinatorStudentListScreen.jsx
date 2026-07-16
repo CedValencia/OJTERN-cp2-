@@ -124,14 +124,39 @@ const ResponsiveStyles = () => (
   `}</style>
 );
 
-// TODO: Populate from backend — college > programs > specializations structure
-const COLLEGE_DATA = {};
+// College > Programs structure — same as CoordinatorStudentsAcccountScreen
+const COLLEGE_DATA = {
+  "CCS": {
+    label: "College of Computer Studies",
+    programs: ["BSIT"],
+  },
+  "CBA": {
+    label: "College of Business and Accountancy",
+    programs: ["BSBA (Major in Marketing Management)", "BSA"],
+  },
+  "CCJE": {
+    label: "College of Criminal Justice Education",
+    programs: ["BS CRIM"],
+  },
+  "CLA": {
+    label: "College of Liberal Arts",
+    programs: ["BA POLSCI"],
+  },
+  "CED": {
+    label: "College of Education",
+    programs: ["BEED", "BSED (Major in English)", "BSED (Major in Mathematics)"],
+  },
+  "CHM": {
+    label: "College of Hospitality Management",
+    programs: ["BSTM", "BSHM"],
+  },
+};
 
-// TODO: Populate from backend or config — available year & section options
-const YEAR_SECTIONS = [];
+// Year & Section options
+const YEAR_SECTIONS = ["4-A","4-B","4-C","4-D","4-E","4-F"];
 
-// TODO: Populate from backend or config — sex options
-const SEX_OPTIONS = [];
+// Sex options
+const SEX_OPTIONS = ["Male", "Female", "Prefer not to say"];
 
 // TODO: Replace with real data from backend
 
@@ -214,7 +239,6 @@ const PlacementModal = ({ student, onClose, onNavigateToCompany, companies }) =>
                 { label: "Sex",            value: student.sex },
                 { label: "College",        value: student.college,        full: true },
                 { label: "Program",        value: student.program,        full: true },
-                { label: "Major",          value: student.major || "N/A", full: true },
                 { label: "Year & Section", value: student.yearSection },
                 { label: "Application Status", value: application?.status || "No application yet", full: true },
               ].map(({ label, value, full }) => (

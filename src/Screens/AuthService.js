@@ -291,32 +291,33 @@ export const createStudentAccount = async (studentData, createdByUid) => {
   //    e.g. "College of Computer Studies" → coordinator passes the dept code like "CCS"
   const password = generateStudentPassword(firstName, lastName, studentId, college);
 
-  // 3. Firebase Auth
-  const { user } = await createUserWithEmailAndPassword(auth, email.trim(), password);
-
-  // 4. Firestore student doc
-  await setDoc(doc(db, "students", user.uid), {
-    uid:            user.uid,
-    studentId:      studentId.trim(),
-    lastName:       lastName.trim(),
-    middleInitial:  middleInitial.trim(),
-    firstName:      firstName.trim(),
-    fullName:       `${firstName.trim()} ${middleInitial.trim() ? middleInitial.trim() + ". " : ""}${lastName.trim()}`,
-    college:        college.trim(),
-    program:        program.trim(),
-    specialization: specialization.trim(),
-    yearSection:    yearSection.trim(),
-    sex,
-    age:            Number(age),
-    email:          email.trim(),
-    role:             "student",
-    status:           "active",
-    passwordChanged:  false,
-    createdBy:        createdByUid,
-    createdAt:        serverTimestamp(),
+  // 3. Firebase Auth — isolated so it doesn't sign the coordinator out of their own session.
+  //    The Firestore write happens inside onCreated: if it fails (e.g. rules reject it),
+  //    the Auth user we just made gets rolled back instead of becoming an orphaned account.
+  const uid = await createAuthUserIsolated(email.trim(), password, async (newUid) => {
+    await setDoc(doc(db, "students", newUid), {
+      uid:            newUid,
+      studentId:      studentId.trim(),
+      lastName:       lastName.trim(),
+      middleInitial:  middleInitial.trim(),
+      firstName:      firstName.trim(),
+      fullName:       `${firstName.trim()} ${middleInitial.trim() ? middleInitial.trim() + ". " : ""}${lastName.trim()}`,
+      college:        college.trim(),
+      program:        program.trim(),
+      specialization: specialization.trim(),
+      yearSection:    yearSection.trim(),
+      sex,
+      age:            Number(age),
+      email:          email.trim(),
+      role:             "student",
+      status:           "active",
+      passwordChanged:  false,
+      createdBy:        createdByUid,
+      createdAt:        serverTimestamp(),
+    });
   });
 
-  return { uid: user.uid, password };
+  return { uid, password };
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -342,11 +343,22 @@ export const changePassword = async (newPassword, collectionName, uid) => {
 // you in as whoever you just created, which we don't want here since a
 // coordinator stays logged in as themselves while adding/transferring).
 // ─────────────────────────────────────────────────────────────────────────────
-const createAuthUserIsolated = async (email, password) => {
+// `onCreated(uid)` runs right after the Auth user is made (e.g. the Firestore
+// profile write). If it throws, the just-created Auth user is deleted so we
+// never leave an orphaned Auth account with no Firestore doc behind.
+const createAuthUserIsolated = async (email, password, onCreated) => {
   const tempApp = initializeApp(getApp().options, `temp-${Date.now()}`);
   const tempAuth = getAuth(tempApp);
   try {
     const { user } = await createUserWithEmailAndPassword(tempAuth, email, password);
+    if (onCreated) {
+      try {
+        await onCreated(user.uid);
+      } catch (err) {
+        await user.delete().catch(() => {});
+        throw err;
+      }
+    }
     return user.uid;
   } finally {
     await deleteApp(tempApp);

@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import { doc, updateDoc, onSnapshot } from "firebase/firestore";
-import { getAuth, signOut } from "firebase/auth";
+import { getAuth, signOut, reauthenticateWithCredential, EmailAuthProvider } from "firebase/auth";
 import { db } from "./firebase";
 import { changePassword } from "./AuthService";
 import AccountProfile from "../icons/accountprofile.png";
@@ -949,6 +949,7 @@ const ResetStep3 = ({ onDone }) => {
 
 // ─── ResetPasswordScreen Component ───────────────────────────────────────────
 const ResetPasswordScreen = ({ onBack, user }) => {
+  const [currentPass, setCurrentPass] = useState("");
   const [newPass, setNewPass]         = useState("");
   const [confirm, setConfirm]         = useState("");
   const [errors, setErrors]           = useState({});
@@ -957,18 +958,29 @@ const ResetPasswordScreen = ({ onBack, user }) => {
 
   const handleSave = async () => {
     const e = {};
-    if (!newPass) e.newPass = "Please enter a new password.";
+    if (!currentPass)            e.currentPass = "Please enter your current password.";
+    if (!newPass)                e.newPass = "Please enter a new password.";
     else if (newPass.length < 8) e.newPass = "Minimum 8 characters.";
-    if (newPass !== confirm) e.confirm = "Passwords do not match.";
+    if (newPass !== confirm)     e.confirm = "Passwords do not match.";
     setErrors(e);
     if (Object.keys(e).length > 0) return;
     setLoading(true);
     try {
+      const auth = getAuth();
+      const currentUser = auth.currentUser;
+      // Re-authenticate first to fix auth/requires-recent-login
+      const credential = EmailAuthProvider.credential(currentUser.email, currentPass);
+      await reauthenticateWithCredential(currentUser, credential);
+      // Now safely change password
       await changePassword(newPass, "students", user?.uid);
       setSuccess(true);
-      setNewPass(""); setConfirm("");
+      setCurrentPass(""); setNewPass(""); setConfirm("");
     } catch (err) {
-      setErrors({ general: err.message || "Failed to change password. Please try again." });
+      if (err.code === "auth/wrong-password" || err.code === "auth/invalid-credential") {
+        setErrors({ currentPass: "Incorrect current password." });
+      } else {
+        setErrors({ general: err.message || "Failed to change password. Please try again." });
+      }
     } finally {
       setLoading(false);
     }
@@ -988,14 +1000,22 @@ const ResetPasswordScreen = ({ onBack, user }) => {
             </div>
           ) : (
             <>
-              <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.88rem", color: "#666", marginBottom: "18px" }}>Enter your new password below.</p>
+              <label style={{ ...labelStyle, color: "#111" }}>Current Password:</label>
+              <PasswordInput value={currentPass} onChange={e => { setCurrentPass(e.target.value); setErrors(p => ({ ...p, currentPass: "" })); }} />
+              {errors.currentPass && <p style={{ color: "red", fontSize: "0.78rem", fontFamily: "'Kufam', sans-serif", marginBottom: "8px" }}>{errors.currentPass}</p>}
+
+              <hr style={{ border: "none", borderTop: "1px solid #ccc", margin: "14px 0" }} />
+
               <label style={{ ...labelStyle, color: "#111" }}>New Password:</label>
               <PasswordInput value={newPass} onChange={e => { setNewPass(e.target.value); setErrors(p => ({ ...p, newPass: "" })); }} />
               {errors.newPass && <p style={{ color: "red", fontSize: "0.78rem", fontFamily: "'Kufam', sans-serif", marginBottom: "8px" }}>{errors.newPass}</p>}
-              <label style={{ ...labelStyle, color: "#111" }}>Confirm Password:</label>
+
+              <label style={{ ...labelStyle, color: "#111" }}>Confirm New Password:</label>
               <PasswordInput value={confirm} onChange={e => { setConfirm(e.target.value); setErrors(p => ({ ...p, confirm: "" })); }} />
               {errors.confirm && <p style={{ color: "red", fontSize: "0.78rem", fontFamily: "'Kufam', sans-serif", marginBottom: "8px" }}>{errors.confirm}</p>}
+
               {errors.general && <p style={{ color: "red", fontSize: "0.78rem", fontFamily: "'Kufam', sans-serif", marginBottom: "8px" }}>⚠️ {errors.general}</p>}
+
               <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "16px" }}>
                 <button onClick={handleSave} disabled={loading} style={{ background: darkRed, color: "white", border: "none", borderRadius: "20px", padding: "12px 40px", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.95rem", cursor: loading ? "not-allowed" : "pointer", opacity: loading ? 0.7 : 1 }}>
                   {loading ? "Saving…" : "Save Password"}
@@ -1170,7 +1190,7 @@ const StudentAccountProfileScreen = ({ user, onLogout }) => {
 
         <div className="sap-menu-box">
           <MenuRow iconSrc={personalInfoIcon} label="Personal Information" onClick={() => setView("personalInfo")} />
-          <MenuRow iconSrc={privacyIcon}      label="Privacy & Security"   onClick={() => setView("privacy")} />
+          <MenuRow iconSrc={privacyIcon}      label="Reset Password"   onClick={() => setView("privacy")} />
           <MenuRow iconSrc={termsIcon}        label="Terms & Condition"    onClick={() => setView("terms")} />
         </div>
 

@@ -1,8 +1,8 @@
 import React, { useState, useRef, useEffect } from "react";
 import { doc, onSnapshot, updateDoc } from "firebase/firestore";
-import { getAuth, signOut } from "firebase/auth";
+import { getAuth, signOut, reauthenticateWithCredential, EmailAuthProvider, updatePassword } from "firebase/auth";
 import { db } from "./firebase";
-import { createCoordinatorAccount, transferCoordinatorAccount } from "./AuthService";
+import { createCoordinatorAccount, transferCoordinatorAccount, changePassword } from "./AuthService";
 
 import AccountProfile from "../icons/accountprofile.png";
 import viewIcon from "../icons/view.png";
@@ -1006,45 +1006,83 @@ const ResetStep2 = ({ onNext }) => {
   );
 };
 
-const ResetStep3 = ({ onDone }) => {
-  const [newPass, setNewPass] = useState("");
-  const [confirm, setConfirm] = useState("");
-  const [errors, setErrors]   = useState({});
+// ── Reset Password Screen ─────────────────────────────────────────────────────
+const ResetPasswordScreen = ({ onBack, user }) => {
+  const [currentPass, setCurrentPass] = useState("");
+  const [newPass, setNewPass]         = useState("");
+  const [confirm, setConfirm]         = useState("");
+  const [errors, setErrors]           = useState({});
+  const [loading, setLoading]         = useState(false);
+  const [success, setSuccess]         = useState(false);
 
-  const handleSend = () => {
+  const handleSave = async () => {
     const e = {};
-    if (newPass.length < 8) e.newPass = "Minimum 8 characters.";
-    if (newPass !== confirm) e.confirm = "Passwords do not match.";
+    if (!currentPass)          e.currentPass = "Please enter your current password.";
+    if (!newPass)              e.newPass = "Please enter a new password.";
+    else if (newPass.length < 8) e.newPass = "Minimum 8 characters.";
+    if (newPass !== confirm)   e.confirm = "Passwords do not match.";
     setErrors(e);
-    if (Object.keys(e).length === 0) { alert("Password has been reset successfully!"); onDone(); }
+    if (Object.keys(e).length > 0) return;
+    setLoading(true);
+    try {
+      const auth = getAuth();
+      const currentUser = auth.currentUser;
+      // Re-authenticate with current password first
+      const credential = EmailAuthProvider.credential(currentUser.email, currentPass);
+      await reauthenticateWithCredential(currentUser, credential);
+      // Now change password and update Firestore flag
+      await changePassword(newPass, "coordinators", user?.uid);
+      setSuccess(true);
+      setCurrentPass(""); setNewPass(""); setConfirm("");
+    } catch (err) {
+      if (err.code === "auth/wrong-password" || err.code === "auth/invalid-credential") {
+        setErrors({ currentPass: "Incorrect current password." });
+      } else {
+        setErrors({ general: err.message || "Failed to change password. Please try again." });
+      }
+    } finally {
+      setLoading(false);
+    }
   };
 
-  return (
-    <div style={{ background: "#e8e8e8", borderRadius: "16px", padding: "24px 28px" }}>
-      <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.95rem", color: "#888", marginBottom: "16px" }}>Enter your new password and confirm!</p>
-      <hr style={{ borderColor: "#ccc", marginBottom: "18px" }} />
-      <label style={{ ...labelStyle, color: "#111" }}>New Password:</label>
-      <PasswordInput value={newPass} onChange={e => setNewPass(e.target.value)} />
-      {errors.newPass && <p style={{ color: "red", fontSize: "0.78rem", fontFamily: "'Kufam', sans-serif", marginBottom: "8px" }}>{errors.newPass}</p>}
-      <label style={{ ...labelStyle, color: "#111" }}>Confirm Password:</label>
-      <PasswordInput value={confirm} onChange={e => setConfirm(e.target.value)} />
-      {errors.confirm && <p style={{ color: "red", fontSize: "0.78rem", fontFamily: "'Kufam', sans-serif", marginBottom: "8px" }}>{errors.confirm}</p>}
-      <div style={{ display: "flex", justifyContent: "flex-start", marginTop: "8px" }}>
-        <button onClick={handleSend} style={{ background: darkRed, color: "white", border: "none", borderRadius: "20px", padding: "12px 40px", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.95rem", cursor: "pointer" }}>Send</button>
-      </div>
-    </div>
-  );
-};
-
-const ResetPasswordScreen = ({ onBack }) => {
-  const [step, setStep] = useState(1);
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <SectionHeaderBar iconSrc={resetIcon} title="Reset Password" onBack={onBack} />
       <div className="cap-sub-body">
-        {step === 1 && <ResetStep1 onNext={() => setStep(2)} />}
-        {step === 2 && <ResetStep2 onNext={() => setStep(3)} />}
-        {step === 3 && <ResetStep3 onDone={onBack} />}
+        <div style={{ background: "#e8e8e8", borderRadius: "16px", padding: "24px 28px" }}>
+          {success ? (
+            <div style={{ textAlign: "center", padding: "20px 0" }}>
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#2d7a2d" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginBottom: "12px" }}><circle cx="12" cy="12" r="10"/><polyline points="9 12 11 14 15 10"/></svg>
+              <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "1rem", fontWeight: 700, color: "#2d7a2d", marginBottom: "6px" }}>Password Changed!</p>
+              <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#666", marginBottom: "20px" }}>Your password has been updated successfully.</p>
+              <button onClick={onBack} style={{ background: darkRed, color: "white", border: "none", borderRadius: "20px", padding: "10px 32px", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.95rem", cursor: "pointer" }}>Done</button>
+            </div>
+          ) : (
+            <>
+              <label style={{ ...labelStyle, color: "#111" }}>Current Password:</label>
+              <PasswordInput value={currentPass} onChange={e => { setCurrentPass(e.target.value); setErrors(p => ({ ...p, currentPass: "" })); }} />
+              {errors.currentPass && <p style={{ color: "red", fontSize: "0.78rem", fontFamily: "'Kufam', sans-serif", marginBottom: "8px" }}>{errors.currentPass}</p>}
+
+              <hr style={{ border: "none", borderTop: "1px solid #ccc", margin: "14px 0" }} />
+
+              <label style={{ ...labelStyle, color: "#111" }}>New Password:</label>
+              <PasswordInput value={newPass} onChange={e => { setNewPass(e.target.value); setErrors(p => ({ ...p, newPass: "" })); }} />
+              {errors.newPass && <p style={{ color: "red", fontSize: "0.78rem", fontFamily: "'Kufam', sans-serif", marginBottom: "8px" }}>{errors.newPass}</p>}
+
+              <label style={{ ...labelStyle, color: "#111" }}>Confirm New Password:</label>
+              <PasswordInput value={confirm} onChange={e => { setConfirm(e.target.value); setErrors(p => ({ ...p, confirm: "" })); }} />
+              {errors.confirm && <p style={{ color: "red", fontSize: "0.78rem", fontFamily: "'Kufam', sans-serif", marginBottom: "8px" }}>{errors.confirm}</p>}
+
+              {errors.general && <p style={{ color: "red", fontSize: "0.78rem", fontFamily: "'Kufam', sans-serif", marginBottom: "8px" }}>⚠️ {errors.general}</p>}
+
+              <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "16px" }}>
+                <button onClick={handleSave} disabled={loading} style={{ background: darkRed, color: "white", border: "none", borderRadius: "20px", padding: "12px 40px", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.95rem", cursor: loading ? "not-allowed" : "pointer", opacity: loading ? 0.7 : 1 }}>
+                  {loading ? "Saving…" : "Save Password"}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -1052,18 +1090,18 @@ const ResetPasswordScreen = ({ onBack }) => {
 
 // ── Privacy & Security Screen ─────────────────────────────────────────────────
 const PrivacySecurityScreen = ({ onBack, user }) => {
-  const [subView, setSubView]               = useState(null);
+  const [showReset, setShowReset]           = useState(false);
   const [showTransfer, setShowTransfer]     = useState(false);
   const [showAddAccount, setShowAddAccount] = useState(false);
 
-  if (subView === "resetPassword") return <ResetPasswordScreen onBack={() => setSubView(null)} />;
+  if (showReset) return <ResetPasswordScreen onBack={() => setShowReset(false)} user={user} />;
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <SectionHeaderBar iconSrc={privacyIcon} title="Privacy and Security" onBack={onBack} />
       <div className="cap-sub-body">
         <div style={{ background: darkRed, borderRadius: "16px", padding: "16px 20px" }}>
-          <MenuRow iconSrc={resetIcon}      label="Reset Password"   onClick={() => setSubView("resetPassword")} />
+          <MenuRow iconSrc={resetIcon}      label="Reset Password"   onClick={() => setShowReset(true)} />
           <MenuRow iconSrc={transferIcon}   label="Transfer Account" onClick={() => setShowTransfer(true)} />
           <MenuRow iconSrc={addAccountIcon} label="Add Account"      onClick={() => setShowAddAccount(true)} />
         </div>
