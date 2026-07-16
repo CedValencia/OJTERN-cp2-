@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { collection, onSnapshot, query, where, doc, updateDoc } from "firebase/firestore";
 import { db } from "./firebase";
+import { buildFullName } from "./useChat";
 
 import logo from "../icons/ojtern.png";
 import dashboardIcon      from "../icons/dashboard.png";
@@ -17,14 +18,15 @@ import viewIcon           from "../icons/view.png";
 const red     = "#8B0000";
 const darkRed = "#590101";
 
-const STATUS_OPTIONS = ["Accept", "Decline", "Pending", "In Review", "To Interview"];
+// ── Status options & colors (kept consistent across student + company screens) ─
+const STATUS_OPTIONS = ["Accepted", "Declined", "Pending", "In Review", "To Interview"];
 
 const STATUS_COLORS = {
-  "Accept":      { bg: "#4CAF50", color: "white" },
-  "Decline":     { bg: "#8B0000", color: "white" },
-  "Pending":     { bg: "#C8B800", color: "white" },
-  "In Review":   { bg: "#1A3A8B", color: "white" },
-  "To Interview":{ bg: "#6B21A8", color: "white" },
+  "Accepted":     { bg: "#4CAF50", color: "white" },
+  "Declined":     { bg: "#8B0000", color: "white" },
+  "Pending":      { bg: "#C8B800", color: "white" },
+  "In Review":    { bg: "#1A3A8B", color: "white" },
+  "To Interview": { bg: "#6B21A8", color: "white" },
 };
 
 const DROPDOWN_ITEM_HEIGHT = 38;
@@ -389,23 +391,51 @@ const StatusDropdown = ({ status, onChange, open, setOpen }) => {
 
 const AttachedFileChip = ({ file }) => {
   const isPng = /\.png$/i.test(file.name || "");
-  // Inject Cloudinary's fl_attachment flag so the browser downloads the file
-  // instead of trying to render it inline (which can also trigger 401s on
-  // accounts that restrict inline PDF delivery).
-  const downloadUrl = file.url
-    ? file.url.replace("/upload/", `/upload/fl_attachment:${encodeURIComponent(file.name || "file")}/`)
-    : file.url;
+  const [downloading, setDownloading] = useState(false);
+
+  // NOTE: We deliberately avoid Cloudinary's `fl_attachment:<filename>` URL
+  // transformation here. It's fragile — filenames with spaces or certain
+  // special characters (even after encodeURIComponent) can make Cloudinary
+  // return an HTTP 400 on the transformed URL. Fetching the raw file and
+  // triggering a client-side Blob download works regardless of filename
+  // content and doesn't depend on Cloudinary's transformation parsing.
+  const handleDownload = async () => {
+    if (!file.url || downloading) return;
+    setDownloading(true);
+    try {
+      const response = await fetch(file.url);
+      if (!response.ok) throw new Error(`Fetch failed with status ${response.status}`);
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = blobUrl;
+      a.download = file.name || "file";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 2000);
+    } catch (err) {
+      console.error("Download failed, opening file in a new tab instead:", err);
+      window.open(file.url, "_blank", "noopener,noreferrer");
+    } finally {
+      setDownloading(false);
+    }
+  };
+
   return (
-    <a href={downloadUrl} download={file.name} title={`Download ${file.name}`}
-      style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", gap: "4px", cursor: "pointer", textDecoration: "none" }}>
+    <div
+      onClick={handleDownload}
+      title={downloading ? "Downloading…" : `Download ${file.name}`}
+      style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", gap: "4px", cursor: downloading ? "wait" : "pointer", opacity: downloading ? 0.6 : 1, userSelect: "none" }}
+    >
       <div style={{ position: "relative", width: "72px", height: "82px" }}>
         <img src={pdfIcon} alt={isPng ? "PNG" : "PDF"} style={{ position: "absolute", top: 0, left: 0, width: "72px", height: "82px", objectFit: "contain", zIndex: 1 }} />
         <img src={downloadIcon} alt="Download" style={{ position: "absolute", top: "-6px", right: "-6px", width: "26px", height: "26px", objectFit: "contain", zIndex: 2 }} />
       </div>
       <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.58rem", color: "#555", textAlign: "center", wordBreak: "break-all", maxWidth: "80px", lineHeight: 1.3, marginTop: "4px" }}>
-        {file.name}
+        {downloading ? "Downloading…" : file.name}
       </span>
-    </a>
+    </div>
   );
 };
 
@@ -419,7 +449,7 @@ const StatusDescriptionPopup = ({ status, onClose, onSend }) => {
       <div className="ca-popup-inner">
         <div style={{ padding: "20px 28px 0 28px" }}>
           <span style={{ display: "inline-block", background: sc.bg, color: "white", borderRadius: "20px", padding: "6px 20px", fontFamily: "'Jua', sans-serif", fontSize: "0.9rem", fontWeight: "500" }}>
-            {status === "Accept" ? "Accepted" : status === "Decline" ? "Declined" : status}
+            {status}
           </span>
         </div>
         <div style={{ margin: "16px 28px 0", borderTop: "2px solid #ccc" }} />
@@ -454,7 +484,9 @@ const PersonalDetailsModal = ({ applicant, onClose, onStatusChange, onMessage })
           {/* Header */}
           <div className="ca-modal-header">
             <h2 style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(1.3rem, 4vw, 2rem)", fontWeight: "500", margin: 0, color: "#1a1a1a" }}>Personal Details</h2>
-            <button onClick={onClose} style={{ background: darkRed, border: "none", borderRadius: "50%", width: "32px", height: "32px", color: "white", fontSize: "1rem", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>✕</button>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", flexShrink: 0 }}>
+              <button onClick={onClose} style={{ background: darkRed, border: "none", borderRadius: "50%", width: "32px", height: "32px", color: "white", fontSize: "1rem", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
+            </div>
           </div>
 
           {/* Body */}
@@ -865,8 +897,8 @@ const CompanyApplicantsScreen = ({ embedded = false, onNavigateToMessages, user 
     setViewingApplicant(null);
     if (onNavigateToMessages) {
       onNavigateToMessages({
-        id: applicant.id,
-        name: `${applicant.firstName} ${applicant.lastName}`,
+        id: applicant.studentId,        // ✅ real student uid, not applicant.id
+        name: buildFullName(applicant), // ✅ includes middle initial + suffix
       });
     }
   };
@@ -959,7 +991,7 @@ const CompanyApplicantsScreen = ({ embedded = false, onNavigateToMessages, user 
 
           <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
             {filtered.map(applicant => {
-              const fullName = `${applicant.firstName}${applicant.middleInitial ? " " + applicant.middleInitial : ""} ${applicant.lastName}`;
+              const fullName = buildFullName(applicant) !== "User" ? buildFullName(applicant) : "this applicant";
               const sc = STATUS_COLORS[applicant.status] || { bg: "#888", color: "white" };
               return (
                 <div
