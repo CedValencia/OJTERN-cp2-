@@ -110,9 +110,9 @@ const SplashScreen = () => {
     </div>
   );
 
-  if (view === "coordinator_dashboard") return <CoordinatorDashboardScreen user={currentUser} onLogout={() => { sessionStorage.removeItem("ojtern_view"); setCurrentUser(null); setView("signin"); }} />;
+  if (view === "coordinator_dashboard") return <CoordinatorDashboardScreen user={currentUser} onLogout={() => { sessionStorage.removeItem("ojtern_view"); sessionStorage.removeItem("ojtern_coord_nav"); setCurrentUser(null); setView("signin"); }} />;
   if (view === "company_dashboard")     return <CompanyDashboardScreen     user={currentUser} onLogout={() => { sessionStorage.removeItem("ojtern_view"); setCurrentUser(null); setView("signin"); }} />;
-  if (view === "student_dashboard")     return <StudentDashboardScreen     user={currentUser} onLogout={() => { sessionStorage.removeItem("ojtern_view"); setCurrentUser(null); setView("signin"); }} />;
+  if (view === "student_dashboard")     return <StudentDashboardScreen     user={currentUser} onLogout={() => { sessionStorage.removeItem("ojtern_view"); sessionStorage.removeItem("ojtern_student_nav"); setCurrentUser(null); setView("signin"); }} />;
 
   // ── Right panel content ────────────────────────────────────────────────────
   const rightPanel = (

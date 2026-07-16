@@ -948,7 +948,11 @@ const ResetStep3 = ({ onDone }) => {
 
 
 // ─── ResetPasswordScreen Component ───────────────────────────────────────────
+<<<<<<< HEAD
 const ResetPasswordScreen = ({ onBack, user }) => {
+=======
+const ResetPasswordScreen = ({ onBack, user, onLogout }) => {
+>>>>>>> 73b8157cdd8d80508c1648be7bfc831112154855
   const [currentPass, setCurrentPass] = useState("");
   const [newPass, setNewPass]         = useState("");
   const [confirm, setConfirm]         = useState("");
@@ -958,14 +962,20 @@ const ResetPasswordScreen = ({ onBack, user }) => {
 
   const handleSave = async () => {
     const e = {};
+<<<<<<< HEAD
     if (!currentPass)            e.currentPass = "Please enter your current password.";
     if (!newPass)                e.newPass = "Please enter a new password.";
+=======
+    if (!currentPass) e.currentPass = "Please enter your current password.";
+    if (!newPass) e.newPass = "Please enter a new password.";
+>>>>>>> 73b8157cdd8d80508c1648be7bfc831112154855
     else if (newPass.length < 8) e.newPass = "Minimum 8 characters.";
     if (newPass !== confirm)     e.confirm = "Passwords do not match.";
     setErrors(e);
     if (Object.keys(e).length > 0) return;
     setLoading(true);
     try {
+<<<<<<< HEAD
       const auth = getAuth();
       const currentUser = auth.currentUser;
       // Re-authenticate first to fix auth/requires-recent-login
@@ -973,6 +983,9 @@ const ResetPasswordScreen = ({ onBack, user }) => {
       await reauthenticateWithCredential(currentUser, credential);
       // Now safely change password
       await changePassword(newPass, "students", user?.uid);
+=======
+      await changePassword(currentPass, newPass, "students", user?.uid);
+>>>>>>> 73b8157cdd8d80508c1648be7bfc831112154855
       setSuccess(true);
       setCurrentPass(""); setNewPass(""); setConfirm("");
     } catch (err) {
@@ -986,6 +999,14 @@ const ResetPasswordScreen = ({ onBack, user }) => {
     }
   };
 
+  // Password change already signed the user out inside changePassword().
+  // "Done" should route the whole app back to the sign-in screen, not just
+  // pop back to the profile menu (which no longer has a valid session anyway).
+  const handleDone = () => {
+    if (onLogout) onLogout();
+    else onBack(); // fallback, shouldn't normally happen
+  };
+
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <SectionHeaderBar iconSrc={resetIcon} title="Reset Password" onBack={onBack} />
@@ -993,24 +1014,36 @@ const ResetPasswordScreen = ({ onBack, user }) => {
         <div style={{ background: "#e8e8e8", borderRadius: "16px", padding: "24px 28px" }}>
           {success ? (
             <div style={{ textAlign: "center", padding: "20px 0" }}>
-              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#2d7a2d" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginBottom: "12px" }}><circle cx="12" cy="12" r="10"/><polyline points="9 12 11 14 15 10"/></svg>
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#2d7a2d" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ display: "block", margin: "0 auto 12px" }}><circle cx="12" cy="12" r="10"/><polyline points="9 12 11 14 15 10"/></svg>
               <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "1rem", fontWeight: 700, color: "#2d7a2d", marginBottom: "6px" }}>Password Changed!</p>
-              <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#666", marginBottom: "20px" }}>Your password has been updated successfully.</p>
-              <button onClick={onBack} style={{ background: darkRed, color: "white", border: "none", borderRadius: "20px", padding: "10px 32px", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.95rem", cursor: "pointer" }}>Done</button>
+              <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#666", marginBottom: "20px" }}>Your password has been updated. Please log in again with your new password.</p>
+              <button onClick={handleDone} style={{ background: darkRed, color: "white", border: "none", borderRadius: "20px", padding: "10px 32px", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.95rem", cursor: "pointer" }}>Done</button>
             </div>
           ) : (
             <>
+<<<<<<< HEAD
+=======
+              <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.88rem", color: "#666", marginBottom: "18px" }}>Enter your current password, then your new password below.</p>
+
+>>>>>>> 73b8157cdd8d80508c1648be7bfc831112154855
               <label style={{ ...labelStyle, color: "#111" }}>Current Password:</label>
               <PasswordInput value={currentPass} onChange={e => { setCurrentPass(e.target.value); setErrors(p => ({ ...p, currentPass: "" })); }} />
               {errors.currentPass && <p style={{ color: "red", fontSize: "0.78rem", fontFamily: "'Kufam', sans-serif", marginBottom: "8px" }}>{errors.currentPass}</p>}
 
+<<<<<<< HEAD
               <hr style={{ border: "none", borderTop: "1px solid #ccc", margin: "14px 0" }} />
 
+=======
+>>>>>>> 73b8157cdd8d80508c1648be7bfc831112154855
               <label style={{ ...labelStyle, color: "#111" }}>New Password:</label>
               <PasswordInput value={newPass} onChange={e => { setNewPass(e.target.value); setErrors(p => ({ ...p, newPass: "" })); }} />
               {errors.newPass && <p style={{ color: "red", fontSize: "0.78rem", fontFamily: "'Kufam', sans-serif", marginBottom: "8px" }}>{errors.newPass}</p>}
 
+<<<<<<< HEAD
               <label style={{ ...labelStyle, color: "#111" }}>Confirm New Password:</label>
+=======
+              <label style={{ ...labelStyle, color: "#111" }}>Confirm Password:</label>
+>>>>>>> 73b8157cdd8d80508c1648be7bfc831112154855
               <PasswordInput value={confirm} onChange={e => { setConfirm(e.target.value); setErrors(p => ({ ...p, confirm: "" })); }} />
               {errors.confirm && <p style={{ color: "red", fontSize: "0.78rem", fontFamily: "'Kufam', sans-serif", marginBottom: "8px" }}>{errors.confirm}</p>}
 
@@ -1031,8 +1064,8 @@ const ResetPasswordScreen = ({ onBack, user }) => {
 
 
 // ─── PrivacySecurityScreen Component — now goes directly to Reset Password ────
-const PrivacySecurityScreen = ({ onBack, user }) => (
-  <ResetPasswordScreen onBack={onBack} user={user} />
+const PrivacySecurityScreen = ({ onBack, user, onLogout }) => (
+  <ResetPasswordScreen onBack={onBack} user={user} onLogout={onLogout} />
 );
 
 
@@ -1121,9 +1154,9 @@ const StudentAccountProfileScreen = ({ user, onLogout }) => {
     return () => unsub();
   }, [user?.uid]);
 
-  if (view === "personalInfo") return <><ResponsiveStyles /><PersonalInfoScreen onBack={() => setView("main")} user={user} /></>;
-  if (view === "privacy")      return <><ResponsiveStyles /><PrivacySecurityScreen onBack={() => setView("main")} user={user} /></>;
-  if (view === "terms")        return <><ResponsiveStyles /><TermsScreen           onBack={() => setView("main")} /></>;
+  if (view === "personalInfo") return <><ResponsiveStyles /><GlobalStyles /><PersonalInfoScreen onBack={() => setView("main")} user={user} /></>;
+if (view === "privacy")      return <><ResponsiveStyles /><GlobalStyles /><PrivacySecurityScreen onBack={() => setView("main")} user={user} onLogout={onLogout} /></>;
+if (view === "terms")        return <><ResponsiveStyles /><GlobalStyles /><TermsScreen           onBack={() => setView("main")} /></>;
 
   const handleLogoutConfirm = async () => {
     await signOut(getAuth());

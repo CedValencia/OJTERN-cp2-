@@ -445,8 +445,8 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
 
   // Always keep sessionStorage in sync with activeNav
   useEffect(() => {
-    sessionStorage.setItem("ojtern_student_nav", activeNav);
-  }, [activeNav]);
+  sessionStorage.setItem("ojtern_student_nav", activeNav);
+}, [activeNav]);
 
  const renderContent = () => {
     if (activeNav === "dashboard") {
