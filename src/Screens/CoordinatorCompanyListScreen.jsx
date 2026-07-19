@@ -518,23 +518,6 @@ const CompanyProfileView = ({ company, onBack, onAccept, onDeny }) => {
             <span style={{ fontWeight: 700 }}>Industry: </span>{company.industry}
           </p>
           <div>
-            <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "clamp(0.82rem, 2vw, 0.95rem)", color: "#222", fontWeight: 700, marginBottom: "8px" }}>OJT College / Program:</p>
-            {company.collegePrograms && company.collegePrograms.length > 0 ? (
-              <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
-                {company.collegePrograms.map((cp, i) => {
-                  const label = [cp.program, cp.major].filter(Boolean).join(" – ");
-                  return (
-                    <span key={i} style={{ padding: "4px 14px", borderRadius: "20px", background: "#e0f0e0", color: "#2a7a2a", fontFamily: "'Kufam', sans-serif", fontSize: "0.8rem", fontWeight: 600 }}>
-                      {label}
-                    </span>
-                  );
-                })}
-              </div>
-            ) : (
-              <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.88rem", color: "#aaa" }}>Not specified</span>
-            )}
-          </div>
-          <div>
             <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "clamp(0.82rem, 2vw, 0.95rem)", color: "#222", fontWeight: 700, marginBottom: "6px" }}>Location:</p>
             <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
               {locationLines.map(({ label, value }, i) => (
@@ -628,10 +611,12 @@ const mapDoc = (docSnap) => {
   const loc = d.location || {};
   const location = [loc.street, loc.barangay, loc.city, loc.province, loc.region]
     .filter(Boolean).join(", ");
+  const industryArr = Array.isArray(d.industry) ? d.industry : (d.industry ? [d.industry] : []);
   return {
     id:               docSnap.id,
     name:             d.companyName  || "",
-    industry:         d.industry     || "",
+    industry:         industryArr.join(", "),   // for display/search
+    industries:       industryArr,               // for filter matching
     email:            d.email        || "",
     region:           loc.region     || "",
     province:         loc.province   || loc.region || "",
@@ -691,15 +676,15 @@ const CoordinatorCompanyListScreen = ({ coordinatorUid }) => {
     const chunk = assignedIndustries.slice(0, 30);
 
     const pendingQ = query(
-      collection(db, "companies"),
-      where("industry",  "in", chunk),
-      where("status",    "==", "pending")
-    );
-    const approvedQ = query(
-      collection(db, "companies"),
-      where("industry",  "in", chunk),
-      where("status",    "==", "approved")
-    );
+    collection(db, "companies"),
+    where("industry",  "array-contains-any", chunk),
+    where("status",    "==", "pending")
+  );
+  const approvedQ = query(
+    collection(db, "companies"),
+    where("industry",  "array-contains-any", chunk),
+    where("status",    "==", "approved")
+  );
 
     const unsubPending  = onSnapshot(pendingQ,  snap => setReviewList(snap.docs.map(mapDoc)));
     const unsubApproved = onSnapshot(approvedQ, snap => setRegisteredList(snap.docs.map(mapDoc)));
@@ -718,7 +703,7 @@ const CoordinatorCompanyListScreen = ({ coordinatorUid }) => {
 
   const applyFilter = (list) => list.filter(c => {
     const matchSearch   = !search || c.name.toLowerCase().includes(search.toLowerCase()) || c.industry.toLowerCase().includes(search.toLowerCase()) || c.location.toLowerCase().includes(search.toLowerCase());
-    const matchIndustry = selectedIndustries.length === 0 || selectedIndustries.includes(c.industry);
+    const matchIndustry = selectedIndustries.length === 0 || selectedIndustries.some(ind => c.industries.includes(ind));
     const matchRegion   = !selectedRegion   || c.region   === selectedRegion;
     const matchProvince = !selectedProvince || c.province === selectedProvince;
     const matchCity     = !selectedCity     || c.city     === selectedCity || c.location.toLowerCase().includes(selectedCity.toLowerCase());

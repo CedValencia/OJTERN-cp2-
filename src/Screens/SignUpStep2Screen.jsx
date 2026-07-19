@@ -104,18 +104,21 @@ const ResponsiveStyles = () => (
       display: flex;
       align-items: center;
       justify-content: center;
+      padding: 12px;
     }
 
     .su2-modal-inner {
       background: white;
       border-radius: 16px;
       width: 90%;
-      max-width: 340px;
-      padding: 20px;
+      max-width: 300px;
+      max-height: 88%;
+      overflow-y: auto;
+      padding: 16px;
       box-shadow: 0 8px 32px rgba(0,0,0,0.25);
     }
     @media (max-width: 360px) {
-      .su2-modal-inner { padding: 14px; width: 95%; }
+      .su2-modal-inner { padding: 12px; width: 95%; }
     }
 
     /* ── Bottom action row ── */
@@ -169,7 +172,119 @@ const ResponsiveStyles = () => (
     @media (max-width: 360px) {
       .su2-file-name { font-size: 0.72rem; }
     }
+
+    /* ── Terms & Conditions modal ── */
+    .su2-terms-inner {
+      background: white;
+      border-radius: 16px;
+      width: 88%;
+      max-width: 280px;
+      max-height: 88%;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.25);
+      overflow: hidden;
+    }
+    @media (max-width: 360px) {
+      .su2-terms-inner { width: 92%; max-height: 85%; }
+    }
+
+    .su2-terms-header {
+      padding: 12px 16px;
+      border-bottom: 1px solid #eee;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+
+    .su2-terms-scroll {
+      padding: 12px 16px;
+      overflow-y: auto;
+      overflow-x: hidden;
+      flex: 1 1 auto;
+    }
+    @media (max-width: 360px) {
+      .su2-terms-scroll { padding: 10px 12px; }
+    }
+
+    .su2-terms-scroll h3 {
+      font-family: 'Jua', sans-serif;
+      font-size: 0.82rem;
+      color: #1a1a1a;
+      margin: 10px 0 4px;
+    }
+    .su2-terms-scroll h3:first-child { margin-top: 0; }
+    .su2-terms-scroll p {
+      font-family: 'Kufam', sans-serif;
+      font-size: 0.72rem;
+      color: #444;
+      line-height: 1.5;
+      margin: 0 0 8px;
+    }
+
+    .su2-terms-footer {
+      padding: 10px 16px;
+      border-top: 1px solid #eee;
+      flex-shrink: 0;
+      background: white;
+    }
   `}</style>
+);
+
+// ── Terms & Conditions content (placeholder — replace with OJTern's actual policy) ──
+const TermsContent = () => (
+  <>
+    <h3>1. Acceptance of Terms</h3>
+    <p>
+      By registering and maintaining a Company account on OJTern — the On-the-Job Training Management Platform of Dominican College of Tarlac, Inc. ("the School") — you agree to be bound by these Terms and Conditions and the School's Privacy Policy.
+      Electronic acceptance of these Terms has the same legal effect as a handwritten signature.
+      If you do not agree, please discontinue use of the Platform.
+    </p>
+
+    <h3>2. Company Registration and Verification</h3>
+    <p>
+      Companies register through the Platform's self-registration process and must provide truthful organizational information.
+      Each Company selects an industry classification, which determines the Coordinator(s) responsible for reviewing the application.
+      Your account remains in Pending status until reviewed and approved by the assigned Coordinator(s), based on the School's partnership, accreditation, and administrative requirements.
+      Pending or rejected accounts may not log in or access internship-related features until officially approved, and the School reserves the right to reject any registration that does not meet these requirements.
+    </p>
+
+    <h3>3. Use of the Platform</h3>
+    <p>
+      Your Company account may only be used to post legitimate internship opportunities, communicate with students and Coordinators, and manage OJT-related processes.
+      Approved Companies are expected to maintain accurate company information, provide lawful internship opportunities, comply with the School's OJT policies, and treat students professionally and fairly.
+      Misuse of the Platform — including posting misleading opportunities, harassing Users, submitting false information, or attempting to bypass verification requirements — may result in suspension or termination of your account.
+    </p>
+
+    <h3>4. Data Privacy</h3>
+    <p>
+      The School collects and processes Personal Information in accordance with the Data Privacy Act of 2012 (Republic Act No. 10173).
+      Only information reasonably necessary for internship placement is shared with your Company — such as a student's name, program, contact information, resume, and application status — and it is provided solely for legitimate OJT administration.
+      Any student or applicant data you access through the Platform must be kept confidential and used only for the intended OJT process; it must never be shared, sold, or repurposed.
+      The Platform uses secure cloud-based services and reasonable safeguards to protect this information against unauthorized access, alteration, disclosure, or destruction.
+    </p>
+
+    <h3>5. Account Responsibility</h3>
+    <p>
+      You are responsible for maintaining the confidentiality of your login credentials and for all activity under your account, including postings and messages sent by any representative you authorize to use it.
+      Passwords should be kept confidential, never shared, and changed immediately if a breach is suspected.
+      Notify the School or Platform administrator right away of any unauthorized access.
+      The School or an authorized Coordinator may suspend, deactivate, or terminate your account for violation of these Terms, submission of false information, or conduct that threatens the integrity or security of the Platform; a rejected or revoked Company account loses access to internship-related services.
+    </p>
+
+    <h3>6. Changes to These Terms</h3>
+    <p>
+      The School reserves the right to modify these Terms at any time.
+      Material changes will be communicated through the Platform or via your registered email address.
+      Continued use of the Platform after changes take effect constitutes acceptance of the revised Terms.
+    </p>
+
+    <h3>7. Contact</h3>
+    <p>
+      For questions, concerns, or requests regarding these Terms or your Personal Information, please contact the School through your assigned OJT Coordinator or the official support channel.
+    </p><p style={{ fontFamily: "'Jua', sans-serif", color: "#1a1a1a" }}>Email: support@ojtern.com</p>
+  </>
 );
 
 // Props:
@@ -185,6 +300,7 @@ const SignUpStep2Screen = ({ onBack, onGoSignIn, onSubmitSuccess, step1Data }) =
   const [error, setError]           = useState("");
   const [expanded, setExpanded]     = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [showTerms, setShowTerms]   = useState(false);
 
   const MAX_TOTAL_MB = 10;
   const MAX_BYTES    = MAX_TOTAL_MB * 1024 * 1024;
@@ -219,6 +335,24 @@ const SignUpStep2Screen = ({ onBack, onGoSignIn, onSubmitSuccess, step1Data }) =
 
   const removeFile = (index) => {
     setFiles(prev => prev.filter((_, i) => i !== index));
+    setError("");
+  };
+
+  // ── Terms & Conditions modal handlers ─────────────────────────────────────
+  const openTerms = () => setShowTerms(true);
+
+  const handleCheckboxClick = () => {
+    if (agreed) {
+      // allow unchecking directly without re-reading the terms
+      setAgreed(false);
+    } else {
+      setShowTerms(true);
+    }
+  };
+
+  const handleAgreeTerms = () => {
+    setAgreed(true);
+    setShowTerms(false);
     setError("");
   };
 
@@ -390,15 +524,53 @@ const SignUpStep2Screen = ({ onBack, onGoSignIn, onSubmitSuccess, step1Data }) =
               </div>
             )}
 
+            {/* Terms & Conditions modal overlay */}
+            {showTerms && (
+              <div className="su2-modal-overlay" onClick={() => setShowTerms(false)}>
+                <div className="su2-terms-inner" onClick={(e) => e.stopPropagation()}>
+                  <div className="su2-terms-header">
+                    <span style={{ fontFamily: "'Jua', sans-serif", fontSize: "1rem", color: "#1a1a1a" }}>
+                      Terms and Conditions & Privacy Policy
+                    </span>
+                    <span
+                      onClick={() => setShowTerms(false)}
+                      style={{ cursor: "pointer", color: "white", background: red, borderRadius: "50%", width: "26px", height: "26px", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: "700", fontSize: "0.9rem", flexShrink: 0 }}
+                    >
+                      ✕
+                    </span>
+                  </div>
+                  <div className="su2-terms-scroll">
+                    <TermsContent />
+                  </div>
+                  <div className="su2-terms-footer">
+                    <button
+                      onClick={handleAgreeTerms}
+                      className="su2-btn"
+                      style={{ width: "100%" }}
+                    >
+                      I Agree
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Checkbox */}
             <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "10px" }}>
               <div
-                onClick={() => setAgreed(!agreed)}
+                onClick={handleCheckboxClick}
                 style={{ width: "18px", height: "18px", border: "2px solid #888", borderRadius: "3px", cursor: "pointer", flexShrink: 0, background: agreed ? red : "white", display: "flex", alignItems: "center", justifyContent: "center" }}
               >
                 {agreed && <span style={{ color: "white", fontSize: "11px", fontWeight: "700" }}>✓</span>}
               </div>
-              <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#333" }}>I agree with the privacy policy</span>
+              <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#333" }}>
+                <span
+                  onClick={openTerms}
+                  style={{ textDecoration: "underline", cursor: "pointer" }}
+                >
+                  I have read and agree to the Terms and Conditions and Privacy Policy.
+                </span>{" "}
+              </span>
             </div>
 
             <hr style={{ border: "none", borderTop: "1.5px solid #ddd", marginBottom: "16px" }} />

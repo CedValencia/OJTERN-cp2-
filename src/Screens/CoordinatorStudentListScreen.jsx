@@ -121,17 +121,52 @@ const ResponsiveStyles = () => (
     @media (max-width: 400px) {
       .sp-detail-grid { grid-template-columns: 1fr; }
     }
+
+    /* Row meta line: wraps gracefully on narrow screens */
+    .sp-row-meta {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      margin-top: 2px;
+      flex-wrap: wrap;
+      row-gap: 2px;
+    }
   `}</style>
 );
 
-// TODO: Populate from backend — college > programs > specializations structure
-const COLLEGE_DATA = {};
+// College > Programs structure — same as CoordinatorStudentsAcccountScreen
+const COLLEGE_DATA = {
+  "CCS": {
+    label: "College of Computer Studies",
+    programs: ["BSIT"],
+  },
+  "CBA": {
+    label: "College of Business and Accountancy",
+    programs: ["BSBA (Major in Marketing Management)", "BSA"],
+  },
+  "CCJE": {
+    label: "College of Criminal Justice Education",
+    programs: ["BS CRIM"],
+  },
+  "CLA": {
+    label: "College of Liberal Arts",
+    programs: ["BA POLSCI"],
+  },
+  "CED": {
+    label: "College of Education",
+    programs: ["BEED", "BSED (Major in English)", "BSED (Major in Mathematics)"],
+  },
+  "CHM": {
+    label: "College of Hospitality Management",
+    programs: ["BSTM", "BSHM"],
+  },
+};
 
-// TODO: Populate from backend or config — available year & section options
-const YEAR_SECTIONS = [];
+// Year & Section options
+const YEAR_SECTIONS = ["4-A","4-B","4-C","4-D","4-E","4-F"];
 
-// TODO: Populate from backend or config — sex options
-const SEX_OPTIONS = [];
+// Sex options
+const SEX_OPTIONS = ["Male", "Female", "Prefer not to say"];
 
 // TODO: Replace with real data from backend
 
@@ -169,7 +204,7 @@ const PlacementModal = ({ student, onClose, onNavigateToCompany, companies }) =>
 
   const companyId = application?.companyId || student.companyId || null;
   const company   = companyId ? companies.find(c => c.id === companyId) : null;
-  const fullName = `${student.firstName} ${student.middleInitial ? student.middleInitial + " " : ""}${student.lastName}`;
+  const fullName = `${student.firstName} ${student.middleInitial ? student.middleInitial + " " : ""}${student.lastName}${student.suffix ? " " + student.suffix : ""}`;
 
   const handleVisitCompany = () => {
     onClose();
@@ -214,7 +249,6 @@ const PlacementModal = ({ student, onClose, onNavigateToCompany, companies }) =>
                 { label: "Sex",            value: student.sex },
                 { label: "College",        value: student.college,        full: true },
                 { label: "Program",        value: student.program,        full: true },
-                { label: "Major",          value: student.major || "N/A", full: true },
                 { label: "Year & Section", value: student.yearSection },
                 { label: "Application Status", value: application?.status || "No application yet", full: true },
               ].map(({ label, value, full }) => (
@@ -501,7 +535,7 @@ const CoordinatorStudentListScreen = ({ onNavigateToCompany }) => {
         {/* Student list */}
         <div className="sp-list-area">
           {filtered.map(student => {
-            const fullName = `${student.firstName} ${student.middleInitial ? student.middleInitial + " " : ""}${student.lastName}`;
+            const fullName = `${student.firstName} ${student.middleInitial ? student.middleInitial + " " : ""}${student.lastName}${student.suffix ? " " + student.suffix : ""}`;
             return (
               <div
                 key={student.id}
@@ -513,16 +547,25 @@ const CoordinatorStudentListScreen = ({ onNavigateToCompany }) => {
                 <div style={{ width: "1px", height: "32px", background: "rgba(0,0,0,0.12)", flexShrink: 0 }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 600, fontSize: "0.92rem", color: "#222", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{fullName}</p>
-                  <div style={{ display: "flex", alignItems: "center", gap: "4px", marginTop: "2px", overflow: "hidden" }}>
-                    <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.71rem", color: "#777", whiteSpace: "nowrap", flexShrink: 0 }}>{student.sex}</span>
+                  {/* Meta line — reflects: Student ID, College, Program, Year & Section, Sex */}
+                  <div className="sp-row-meta">
+                    <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.71rem", color: "#777", whiteSpace: "nowrap", flexShrink: 0 }}>{student.studentId}</span>
+                    {student.college && (
+                      <>
+                        <span style={{ color: "#ccc", fontSize: "0.7rem", flexShrink: 0 }}>•</span>
+                        <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.71rem", color: "#777", whiteSpace: "nowrap", flexShrink: 0 }}>{student.college}</span>
+                      </>
+                    )}
                     {student.program && (
                       <>
                         <span style={{ color: "#ccc", fontSize: "0.7rem", flexShrink: 0 }}>•</span>
-                        <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.71rem", color: "#777", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{student.program}</span>
+                        <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.71rem", color: "#777", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0, maxWidth: "160px" }}>{student.program}</span>
                       </>
                     )}
                     <span style={{ color: "#ccc", fontSize: "0.7rem", flexShrink: 0 }}>•</span>
                     <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.71rem", color: "#777", whiteSpace: "nowrap", flexShrink: 0 }}>{student.yearSection}</span>
+                    <span style={{ color: "#ccc", fontSize: "0.7rem", flexShrink: 0 }}>•</span>
+                    <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.71rem", color: "#777", whiteSpace: "nowrap", flexShrink: 0 }}>{student.sex}</span>
                   </div>
                 </div>
                 <ViewIcon onClick={(e) => { e.stopPropagation(); setViewingStudent(student); }} />

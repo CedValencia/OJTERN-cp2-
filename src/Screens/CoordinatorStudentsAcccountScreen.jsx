@@ -508,9 +508,17 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
   };
 
   const locked = readOnly && !isEditing;
-  const fullName = (lastName.value && firstName.value)
-    ? `${lastName.value}, ${firstName.value}`
-    : (initial.lastName && initial.firstName) ? `${initial.lastName}, ${initial.firstName}` : "New Student";
+
+  // fullName — used for the modal header. Now includes the suffix (e.g. "Jr.")
+  // and stays live: it recomputes from the current field values while editing,
+  // and falls back to the original `initial` data before any edits are made.
+  const buildFullName = (last, first, suf) =>
+    last && first ? `${last}, ${first}${suf ? " " + suf : ""}` : null;
+
+  const fullName =
+    buildFullName(lastName.value, firstName.value, suffix.value) ||
+    buildFullName(initial.lastName, initial.firstName, initial.suffix) ||
+    "New Student";
 
   const onStudentIdChange     = (v) => { if (/^\d*$/.test(v) && v.length <= 9) studentId.onChange(v); };
   const onLastNameChange      = (v) => { lastName.onChange(v.replace(/[^A-Za-zÑñ\s\-]/g, "")); };
@@ -603,21 +611,11 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
             </div>
           )}
 
-        </div>
-        <div className="sl-modal-footer">
-          {/* Global submit error */}
-          {submitError && (
-            <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.78rem", color: "#c00", marginRight: "auto", paddingRight: "12px" }}>
-              ⚠️ {submitError}
-            </p>
-          )}
-          {readOnly ? (
-            isEditing
-              ? <button onClick={handleSubmit} disabled={saving} style={{ padding: "10px 28px", borderRadius: "24px", background: saving ? "#aaa" : darkRed, color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(0.9rem, 2.5vw, 1.1rem)", cursor: saving ? "not-allowed" : "pointer" }}>{saving ? "SAVING…" : "SAVE"}</button>
-              : <button onClick={() => setIsEditing(true)} style={{ padding: "10px 28px", borderRadius: "24px", background: "#444", color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(0.9rem, 2.5vw, 1.1rem)", cursor: "pointer" }}>EDIT</button>
-          ) : (
-            <button onClick={handleSubmit} disabled={saving} style={{ padding: "10px 28px", borderRadius: "24px", background: saving ? "#aaa" : darkRed, color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(0.9rem, 2.5vw, 1.1rem)", cursor: saving ? "not-allowed" : "pointer" }}>{saving ? "CREATING…" : submitLabel}</button>
-          )}
+          {!readOnly && (
+  <div className="sl-modal-footer">
+    <button onClick={handleSubmit} disabled={saving} style={{ padding: "10px 28px", borderRadius: "24px", background: saving ? "#aaa" : darkRed, color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(0.9rem, 2.5vw, 1.1rem)", cursor: saving ? "not-allowed" : "pointer" }}>{saving ? "CREATING…" : submitLabel}</button>
+  </div>
+)}
         </div>
       </div>
     </div>
@@ -958,7 +956,7 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid }) => {
   const handleSave = async (form) => {
     await updateDoc(doc(db, "students", viewingStudent.id), {
       ...form,
-      fullName: `${form.firstName} ${form.middleInitial ? form.middleInitial + ". " : ""}${form.lastName}`,
+      fullName: `${form.firstName} ${form.middleInitial ? form.middleInitial + ". " : ""}${form.lastName}${form.suffix ? " " + form.suffix : ""}`,
       updatedAt: serverTimestamp(),
     });
     setViewingStudent(null);

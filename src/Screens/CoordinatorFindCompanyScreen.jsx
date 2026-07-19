@@ -563,7 +563,7 @@ const CompanyCard = ({ company, onViewProfile }) => {
 };
 
 // ── Main Screen ────────────────────────────────────────────────────────────────
-const CoordinatorViewCompanyScreen = ({ onReportSubmit, onNavigateToReports, onMessageNow, initialCompanyId, onClearInitialCompany, onVisitCompany, coordinator }) => {
+const CoordinatorFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onMessageNow, initialCompanyId, onClearInitialCompany, onVisitCompany, coordinator }) => {
   const { isMobile } = useBreakpoint();
   const { posts: companies, loading } = useOjtPosts();
 
@@ -717,4 +717,4 @@ const CoordinatorViewCompanyScreen = ({ onReportSubmit, onNavigateToReports, onM
   );
 };
 
-export default CoordinatorViewCompanyScreen;
+export default CoordinatorFindCompanyScreen;

@@ -9,7 +9,7 @@ import CoordinatorStudentListScreen from "./CoordinatorStudentListScreen";
 import CoordinatorCompanyListScreen       from "./CoordinatorCompanyListScreen";
 import CoordinatorMessagesScreen          from "./CoordinatorMessagesScreen";
 import CoordinatorAccountProfileScreen    from "./CoordinatorAccountProfileScreen";
-import CoordinatorViewCompanyScreen       from "./CoordinatorViewCompanyScreen";
+import CoordinatorFindCompanyScreen       from "./CoordinatorFindCompanyScreen";
 import CoordinatorReportCompanyScreen, { ReportDetailModal } from "./CoordinatorReportCompanyScreen";
 import AboutScreen from "./AboutScreen";
 
@@ -539,7 +539,7 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
     );
 
     if (activeNav === "viewcompany") return (
-      <CoordinatorViewCompanyScreen
+      <CoordinatorFindCompanyScreen
         onReportSubmit={handleReportSubmit}
         onNavigateToReports={() => navigate("reportcompany")}
         onMessageNow={handleMessageNow}
@@ -690,12 +690,27 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
         showConfirm={showConfirm} setShowConfirm={setShowConfirm}
       />
       {showEditInfo && (
-        <div style={{ position: "fixed", inset: 0, zIndex: 9999, background: "#590101", display: "flex", flexDirection: "column" }}>
-          <PersonalInfoScreen
-            user={user}
-            mandatory
-            onSaved={() => setShowEditInfo(false)}
-          />
+        <div style={{
+          position: "fixed", inset: 0, zIndex: 9999,
+          background: "rgba(0,0,0,0.6)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          padding: "16px",
+        }}>
+          <div style={{
+            width: "100%", maxWidth: "520px",
+            maxHeight: "85vh",
+            background: "#590101",
+            borderRadius: "24px",
+            overflow: "hidden",
+            display: "flex", flexDirection: "column",
+            boxShadow: "0 16px 48px rgba(0,0,0,0.4)",
+          }}>
+            <PersonalInfoScreen
+              user={user}
+              mandatory
+              onSaved={() => setShowEditInfo(false)}
+            />
+          </div>
         </div>
       )}
     </>

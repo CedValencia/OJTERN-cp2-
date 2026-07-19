@@ -1,8 +1,8 @@
 import React, { useState, useRef, useEffect } from "react";
 import { doc, onSnapshot, updateDoc } from "firebase/firestore";
-import { getAuth, signOut } from "firebase/auth";
+import { getAuth, signOut, reauthenticateWithCredential, EmailAuthProvider, updatePassword } from "firebase/auth";
 import { db } from "./firebase";
-import { createCoordinatorAccount, transferCoordinatorAccount } from "./AuthService";
+import { createCoordinatorAccount, transferCoordinatorAccount, changePassword } from "./AuthService";
 
 import AccountProfile from "../icons/accountprofile.png";
 import viewIcon from "../icons/view.png";
@@ -143,6 +143,63 @@ const ResponsiveStyles = () => (
     }
     @media (max-width: 560px) {
       .cap-sub-body { padding: 16px 14px; }
+    }
+
+    /* ── Terms content typography ── */
+    .cap-terms-card h3 {
+      font-family: 'Kufam', sans-serif;
+      font-weight: 700;
+      font-size: 0.95rem;
+      color: #590101;
+      margin: 18px 0 6px;
+    }
+    .cap-terms-card h3:first-of-type { margin-top: 0; }
+    .cap-terms-card p {
+      font-family: 'Kufam', sans-serif;
+      font-size: 0.85rem;
+      color: #444;
+      line-height: 1.7;
+      margin: 0 0 10px;
+    }
+    .cap-terms-card .cap-terms-sub {
+      margin: 6px 0 10px 14px;
+    }
+    .cap-terms-card .cap-terms-sub p {
+      margin: 0 0 6px;
+    }
+    .cap-terms-card .cap-terms-updated {
+      font-family: 'Kufam', sans-serif;
+      font-size: 0.78rem;
+      color: #888;
+      margin: -4px 0 16px;
+      font-style: italic;
+    }
+    /* Decimal sub-headers, e.g. "3.1 Authorized Users." */
+    .cap-terms-subhead {
+      font-family: 'Jua', sans-serif;
+      color: #1a1a1a;
+      font-size: 0.95rem;
+      font-weight: 400;
+    }
+    .cap-terms-def-row {
+      display: flex;
+      gap: 10px;
+      padding: 8px 0;
+      border-bottom: 1px solid #dcdcdc;
+    }
+    .cap-terms-def-row:last-child { border-bottom: none; }
+    .cap-terms-def-term {
+      font-family: 'Jua', sans-serif;
+      font-size: 0.95rem;
+      color: #1a1a1a;
+      flex: 0 0 110px;
+    }
+    .cap-terms-def-desc {
+      font-family: 'Kufam', sans-serif;
+      font-size: 0.8rem;
+      color: #444;
+      line-height: 1.6;
+      flex: 1;
     }
 
     /* ── Modal inner ── */
@@ -1006,45 +1063,83 @@ const ResetStep2 = ({ onNext }) => {
   );
 };
 
-const ResetStep3 = ({ onDone }) => {
-  const [newPass, setNewPass] = useState("");
-  const [confirm, setConfirm] = useState("");
-  const [errors, setErrors]   = useState({});
+// ── Reset Password Screen ─────────────────────────────────────────────────────
+const ResetPasswordScreen = ({ onBack, user }) => {
+  const [currentPass, setCurrentPass] = useState("");
+  const [newPass, setNewPass]         = useState("");
+  const [confirm, setConfirm]         = useState("");
+  const [errors, setErrors]           = useState({});
+  const [loading, setLoading]         = useState(false);
+  const [success, setSuccess]         = useState(false);
 
-  const handleSend = () => {
+  const handleSave = async () => {
     const e = {};
-    if (newPass.length < 8) e.newPass = "Minimum 8 characters.";
-    if (newPass !== confirm) e.confirm = "Passwords do not match.";
+    if (!currentPass)          e.currentPass = "Please enter your current password.";
+    if (!newPass)              e.newPass = "Please enter a new password.";
+    else if (newPass.length < 8) e.newPass = "Minimum 8 characters.";
+    if (newPass !== confirm)   e.confirm = "Passwords do not match.";
     setErrors(e);
-    if (Object.keys(e).length === 0) { alert("Password has been reset successfully!"); onDone(); }
+    if (Object.keys(e).length > 0) return;
+    setLoading(true);
+    try {
+      const auth = getAuth();
+      const currentUser = auth.currentUser;
+      // Re-authenticate with current password first
+      const credential = EmailAuthProvider.credential(currentUser.email, currentPass);
+      await reauthenticateWithCredential(currentUser, credential);
+      // Now change password and update Firestore flag
+      await changePassword(newPass, "coordinators", user?.uid);
+      setSuccess(true);
+      setCurrentPass(""); setNewPass(""); setConfirm("");
+    } catch (err) {
+      if (err.code === "auth/wrong-password" || err.code === "auth/invalid-credential") {
+        setErrors({ currentPass: "Incorrect current password." });
+      } else {
+        setErrors({ general: err.message || "Failed to change password. Please try again." });
+      }
+    } finally {
+      setLoading(false);
+    }
   };
 
-  return (
-    <div style={{ background: "#e8e8e8", borderRadius: "16px", padding: "24px 28px" }}>
-      <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.95rem", color: "#888", marginBottom: "16px" }}>Enter your new password and confirm!</p>
-      <hr style={{ borderColor: "#ccc", marginBottom: "18px" }} />
-      <label style={{ ...labelStyle, color: "#111" }}>New Password:</label>
-      <PasswordInput value={newPass} onChange={e => setNewPass(e.target.value)} />
-      {errors.newPass && <p style={{ color: "red", fontSize: "0.78rem", fontFamily: "'Kufam', sans-serif", marginBottom: "8px" }}>{errors.newPass}</p>}
-      <label style={{ ...labelStyle, color: "#111" }}>Confirm Password:</label>
-      <PasswordInput value={confirm} onChange={e => setConfirm(e.target.value)} />
-      {errors.confirm && <p style={{ color: "red", fontSize: "0.78rem", fontFamily: "'Kufam', sans-serif", marginBottom: "8px" }}>{errors.confirm}</p>}
-      <div style={{ display: "flex", justifyContent: "flex-start", marginTop: "8px" }}>
-        <button onClick={handleSend} style={{ background: darkRed, color: "white", border: "none", borderRadius: "20px", padding: "12px 40px", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.95rem", cursor: "pointer" }}>Send</button>
-      </div>
-    </div>
-  );
-};
-
-const ResetPasswordScreen = ({ onBack }) => {
-  const [step, setStep] = useState(1);
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <SectionHeaderBar iconSrc={resetIcon} title="Reset Password" onBack={onBack} />
       <div className="cap-sub-body">
-        {step === 1 && <ResetStep1 onNext={() => setStep(2)} />}
-        {step === 2 && <ResetStep2 onNext={() => setStep(3)} />}
-        {step === 3 && <ResetStep3 onDone={onBack} />}
+        <div style={{ background: "#e8e8e8", borderRadius: "16px", padding: "24px 28px" }}>
+          {success ? (
+            <div style={{ textAlign: "center", padding: "20px 0" }}>
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#2d7a2d" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginBottom: "12px" }}><circle cx="12" cy="12" r="10"/><polyline points="9 12 11 14 15 10"/></svg>
+              <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "1rem", fontWeight: 700, color: "#2d7a2d", marginBottom: "6px" }}>Password Changed!</p>
+              <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#666", marginBottom: "20px" }}>Your password has been updated successfully.</p>
+              <button onClick={onBack} style={{ background: darkRed, color: "white", border: "none", borderRadius: "20px", padding: "10px 32px", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.95rem", cursor: "pointer" }}>Done</button>
+            </div>
+          ) : (
+            <>
+              <label style={{ ...labelStyle, color: "#111" }}>Current Password:</label>
+              <PasswordInput value={currentPass} onChange={e => { setCurrentPass(e.target.value); setErrors(p => ({ ...p, currentPass: "" })); }} />
+              {errors.currentPass && <p style={{ color: "red", fontSize: "0.78rem", fontFamily: "'Kufam', sans-serif", marginBottom: "8px" }}>{errors.currentPass}</p>}
+
+              <hr style={{ border: "none", borderTop: "1px solid #ccc", margin: "14px 0" }} />
+
+              <label style={{ ...labelStyle, color: "#111" }}>New Password:</label>
+              <PasswordInput value={newPass} onChange={e => { setNewPass(e.target.value); setErrors(p => ({ ...p, newPass: "" })); }} />
+              {errors.newPass && <p style={{ color: "red", fontSize: "0.78rem", fontFamily: "'Kufam', sans-serif", marginBottom: "8px" }}>{errors.newPass}</p>}
+
+              <label style={{ ...labelStyle, color: "#111" }}>Confirm New Password:</label>
+              <PasswordInput value={confirm} onChange={e => { setConfirm(e.target.value); setErrors(p => ({ ...p, confirm: "" })); }} />
+              {errors.confirm && <p style={{ color: "red", fontSize: "0.78rem", fontFamily: "'Kufam', sans-serif", marginBottom: "8px" }}>{errors.confirm}</p>}
+
+              {errors.general && <p style={{ color: "red", fontSize: "0.78rem", fontFamily: "'Kufam', sans-serif", marginBottom: "8px" }}>⚠️ {errors.general}</p>}
+
+              <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "16px" }}>
+                <button onClick={handleSave} disabled={loading} style={{ background: darkRed, color: "white", border: "none", borderRadius: "20px", padding: "12px 40px", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.95rem", cursor: loading ? "not-allowed" : "pointer", opacity: loading ? 0.7 : 1 }}>
+                  {loading ? "Saving…" : "Save Password"}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -1052,18 +1147,18 @@ const ResetPasswordScreen = ({ onBack }) => {
 
 // ── Privacy & Security Screen ─────────────────────────────────────────────────
 const PrivacySecurityScreen = ({ onBack, user }) => {
-  const [subView, setSubView]               = useState(null);
+  const [showReset, setShowReset]           = useState(false);
   const [showTransfer, setShowTransfer]     = useState(false);
   const [showAddAccount, setShowAddAccount] = useState(false);
 
-  if (subView === "resetPassword") return <ResetPasswordScreen onBack={() => setSubView(null)} />;
+  if (showReset) return <ResetPasswordScreen onBack={() => setShowReset(false)} user={user} />;
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <SectionHeaderBar iconSrc={privacyIcon} title="Privacy and Security" onBack={onBack} />
       <div className="cap-sub-body">
         <div style={{ background: darkRed, borderRadius: "16px", padding: "16px 20px" }}>
-          <MenuRow iconSrc={resetIcon}      label="Reset Password"   onClick={() => setSubView("resetPassword")} />
+          <MenuRow iconSrc={resetIcon}      label="Reset Password"   onClick={() => setShowReset(true)} />
           <MenuRow iconSrc={transferIcon}   label="Transfer Account" onClick={() => setShowTransfer(true)} />
           <MenuRow iconSrc={addAccountIcon} label="Add Account"      onClick={() => setShowAddAccount(true)} />
         </div>
@@ -1075,14 +1170,309 @@ const PrivacySecurityScreen = ({ onBack, user }) => {
 };
 
 // ── Terms Screen ──────────────────────────────────────────────────────────────
+// Definitions table data (Section 2 of the OJTern Terms and Conditions,
+// as published by Dominican College of Tarlac, Inc. — last updated July 19, 2026)
+const TERMS_DEFINITIONS = [
+  { term: "Coordinator", desc: "A School-authorized OJT Coordinator responsible for managing students, reviewing and approving company registrations within assigned departments or industries, and overseeing the OJT process." },
+  { term: "Student", desc: "An officially enrolled student authorized to participate in the School's OJT program through the Platform." },
+  { term: "Company", desc: "A partner organization that registers to host student interns, subject to approval by the appropriate Coordinator." },
+  { term: "Account", desc: "The unique login credentials and associated user profile assigned to each User." },
+  { term: "Personal Information", desc: "Any information that identifies or can reasonably identify a User, including but not limited to name, student ID, company information, email address, contact number, and home address." },
+  { term: "Platform", desc: "OJTern, including its website, database, services, and related features." },
+];
+
 const TermsScreen = ({ onBack }) => (
   <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
     <SectionHeaderBar iconSrc={termsIcon} title="Terms & Condition" onBack={onBack} />
     <div className="cap-sub-body">
-      <div style={{ background: "#e8e8e8", borderRadius: "16px", padding: "24px 28px" }}>
-        <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.88rem", color: "#444", lineHeight: 1.8 }}>
-          By using OJTern, you agree to the following terms and conditions. All information provided must be accurate and up-to-date. The coordinator is responsible for managing student OJT placements fairly. Misuse of the platform may result in account suspension. Student data must be handled with confidentiality. OJTern reserves the right to update these terms at any time.
+      <div className="cap-terms-card" style={{ background: "#e8e8e8", borderRadius: "16px", padding: "24px 28px" }}>
+
+        <p className="cap-terms-updated">Last updated: July 19, 2026</p>
+
+        <h3>1. Introduction</h3>
+        <p>
+          These Terms and Conditions ("Terms") govern access to and use of OJTern (the "Platform"), a
+          web-based On-the-Job Training (OJT) Management Platform designed to connect OJT
+          Coordinators, Students, and Partner Companies for the administration of internship
+          placements, monitoring, communication, and reporting.
         </p>
+        <p>
+          The Platform is provided for the official use of Dominican College of Tarlac, Inc. ("the
+          School") and its authorized coordinators, enrolled students, and approved partner
+          companies.
+        </p>
+        <p>
+          By creating an account, selecting the "I have read and agree to the Terms and Conditions"
+          checkbox, logging in, or otherwise using the Platform, you acknowledge that you have read,
+          understood, and agree to be legally bound by these Terms. Electronic acceptance of these
+          Terms shall have the same legal effect as a handwritten signature.
+        </p>
+        <p>
+          If you do not agree to these Terms, you must not access or use the Platform.
+        </p>
+
+        <h3>2. Definitions</h3>
+        <div>
+          {TERMS_DEFINITIONS.map((row) => (
+            <div key={row.term} className="cap-terms-def-row">
+              <span className="cap-terms-def-term">{row.term}</span>
+              <span className="cap-terms-def-desc">{row.desc}</span>
+            </div>
+          ))}
+        </div>
+
+        <h3>3. Eligibility and Account Roles</h3>
+        <p><strong className="cap-terms-subhead">3.1 Authorized Users.</strong> Access to the Platform is limited to:</p>
+        <div className="cap-terms-sub">
+          <p>• Authorized OJT Coordinators;</p>
+          <p>• Officially enrolled students of the School; and</p>
+          <p>• Companies approved by the School through the Platform's registration process.</p>
+        </div>
+        <p>
+          <strong className="cap-terms-subhead">3.2 Student Accounts.</strong> Student accounts are created by an authorized OJT
+          Coordinator. Students receive a temporary system-generated password and are required to
+          change their password upon first login, and complete all required personal information
+          before accessing the Platform's full functionality.
+        </p>
+        <p><strong className="cap-terms-subhead">3.3 Coordinator Accounts.</strong> Coordinator accounts may be created through either:</p>
+        <div className="cap-terms-sub">
+          <p>• Initial setup by the School or System Administrator; or</p>
+          <p>
+            • The "Add Account" feature, which allows an existing Coordinator to create another
+            Coordinator account with the same department(s) and industry scope.
+          </p>
+        </div>
+        <p>
+          New Coordinators must also change their temporary password and complete their personal
+          information upon first login.
+        </p>
+        <p>
+          <strong className="cap-terms-subhead">3.4 Company Accounts.</strong> Companies register through the Platform's
+          self-registration process. Company accounts remain in Pending status until reviewed by the
+          Coordinator(s) assigned to the selected industry. Pending or rejected Companies may not log
+          in or access internship-related features until officially approved. The School and its
+          authorized Coordinators reserve the right to approve or reject Company registrations that do
+          not satisfy the School's partnership, accreditation, or administrative requirements.
+        </p>
+        <p>
+          <strong className="cap-terms-subhead">3.5 Accuracy of Information.</strong> All Users agree to provide information that is
+          accurate, complete, and current and shall promptly update their information whenever
+          necessary.
+        </p>
+
+        <h3>4. Account Security and Responsibilities</h3>
+        <p>
+          Users are responsible for maintaining the confidentiality of their login credentials and for
+          all activities performed using their Account. Users agree to:
+        </p>
+        <div className="cap-terms-sub">
+          <p>• Keep passwords confidential;</p>
+          <p>• Never share login credentials with another person;</p>
+          <p>
+            • Immediately report any unauthorized access or suspected security breach to the School or
+            Platform administrator; and
+          </p>
+          <p>• Use the Platform only for authorized educational and internship purposes.</p>
+        </div>
+        <p>
+          Temporary passwords issued during account creation must be changed upon first login.
+          Passwords should contain at least eight (8) characters and include a combination of
+          uppercase letters, lowercase letters, numbers, and special characters to improve account
+          security.
+        </p>
+        <p>
+          Failure to comply with these responsibilities may result in suspension or termination of the
+          Account.
+        </p>
+
+        <h3>5. Coordinator Account Transfer</h3>
+        <p>
+          The Platform provides a Transfer Account feature to facilitate official changes in
+          coordinatorship. Upon successful transfer:
+        </p>
+        <div className="cap-terms-sub">
+          <p>• A new Coordinator account is created;</p>
+          <p>
+            • The replacement Coordinator inherits the transferring Coordinator's assigned
+            department(s), industry scope, and management responsibilities;
+          </p>
+          <p>• The original Coordinator immediately and permanently loses access to the Platform; and</p>
+          <p>• The transfer cannot be reversed through the Platform.</p>
+        </div>
+        <p>
+          Before a transfer is completed, the transferring Coordinator must verify their identity by
+          entering their current password.
+        </p>
+        <p>
+          The School is responsible for ensuring that account transfers reflect officially authorized
+          personnel changes.
+        </p>
+
+        <h3>6. Company Registration and Approval</h3>
+        <p>
+          Companies must provide truthful organizational information during registration. Each Company
+          selects an industry classification, which determines the Coordinator(s) responsible for
+          reviewing the application. Approval decisions are based on the School's partnership
+          policies, accreditation standards, and administrative requirements.
+        </p>
+        <p>Approved Companies are expected to:</p>
+        <div className="cap-terms-sub">
+          <p>• Maintain accurate company information;</p>
+          <p>• Provide lawful internship opportunities;</p>
+          <p>• Comply with School OJT policies; and</p>
+          <p>• Treat students professionally and fairly.</p>
+        </div>
+
+        <h3>7. Acceptable Use</h3>
+        <p>Users agree not to:</p>
+        <div className="cap-terms-sub">
+          <p>• Violate any applicable law or regulation;</p>
+          <p>• Submit false or misleading information;</p>
+          <p>• Access another User's Account without authorization;</p>
+          <p>• Upload malicious software, viruses, or harmful code;</p>
+          <p>• Interfere with the operation, security, or availability of the Platform;</p>
+          <p>• Harass, discriminate against, threaten, or abuse other Users;</p>
+          <p>• Use automated tools to scrape or extract Platform data without authorization; or</p>
+          <p>• Misuse the Platform for purposes unrelated to the School's OJT program.</p>
+        </div>
+
+        <h3>8. Data Privacy</h3>
+        <p>
+          The School is committed to protecting Personal Information in accordance with the Data
+          Privacy Act of 2012 (Republic Act No. 10173) and its Implementing Rules and Regulations.
+        </p>
+        <p>The Platform collects and processes Personal Information necessary for administering the OJT program, including:</p>
+        <div className="cap-terms-sub">
+          <p>• Names;</p>
+          <p>• Student IDs;</p>
+          <p>• Contact information;</p>
+          <p>• Email addresses;</p>
+          <p>• Home addresses;</p>
+          <p>• Company information;</p>
+          <p>• Internship applications; and</p>
+          <p>• Uploaded documents such as resumes and other internship requirements.</p>
+        </div>
+        <p>
+          Personal Information will be used solely for legitimate educational and administrative
+          purposes related to internship placement, monitoring, reporting, and communication. Only
+          information reasonably necessary for internship placement may be shared with approved
+          partner Companies, such as the student's name, program, contact information, resume, and
+          application status.
+        </p>
+        <p>
+          The Platform uses secure cloud-based services for authentication and data storage and
+          implements reasonable administrative, technical, and organizational safeguards to protect
+          User information against unauthorized access, alteration, disclosure, or destruction.
+        </p>
+        <p>Personal Information will not be sold or disclosed to unauthorized third parties except:</p>
+        <div className="cap-terms-sub">
+          <p>• With the User's consent;</p>
+          <p>• When required by law; or</p>
+          <p>• When necessary for legitimate OJT administration.</p>
+        </div>
+        <p>
+          Users may request access to, correction of, or deletion of their Personal Information,
+          subject to applicable laws and the School's record-retention obligations.
+        </p>
+        <p>
+          By using the Platform, Users consent to the collection, processing, storage, and use of
+          their Personal Information as described in these Terms.
+        </p>
+
+        <h3>9. Intellectual Property</h3>
+        <p>
+          All software, source code, logos, graphics, content, interface designs, databases, and other
+          materials forming part of the Platform are the intellectual property of the School and/or
+          its developers and are protected by applicable intellectual property laws.
+        </p>
+        <p>
+          Users receive only a limited, non-exclusive, non-transferable license to use the Platform
+          solely for its intended educational and internship management purposes. No ownership rights
+          are transferred to Users.
+        </p>
+
+        <h3>10. Service Availability</h3>
+        <p>While reasonable efforts are made to maintain continuous availability, the Platform may occasionally become unavailable due to:</p>
+        <div className="cap-terms-sub">
+          <p>• Scheduled maintenance;</p>
+          <p>• Software updates;</p>
+          <p>• Server failures;</p>
+          <p>• Internet interruptions; or</p>
+          <p>• Circumstances beyond the School's reasonable control.</p>
+        </div>
+        <p>The School does not guarantee uninterrupted or error-free operation of the Platform.</p>
+
+        <h3>11. Limitation of Liability</h3>
+        <p>The Platform is provided on an "as is" and "as available" basis.</p>
+        <p>
+          To the fullest extent permitted by law, neither the School nor the Platform's developers
+          shall be liable for indirect, incidental, consequential, or special damages arising from:
+        </p>
+        <div className="cap-terms-sub">
+          <p>• Temporary system downtime;</p>
+          <p>• Data loss caused by factors beyond reasonable control;</p>
+          <p>• Communication issues between Students and Companies;</p>
+          <p>• Unsuccessful internship applications;</p>
+          <p>• Internship-related disputes; or</p>
+          <p>• Inability to access the Platform.</p>
+        </div>
+        <p>
+          The Platform facilitates internship administration only and does not guarantee internship
+          placement, employment opportunities, or internship quality.
+        </p>
+
+        <h3>12. Account Suspension and Termination</h3>
+        <p>The School or an authorized Coordinator may suspend, deactivate, or terminate an Account for:</p>
+        <div className="cap-terms-sub">
+          <p>• Violation of these Terms;</p>
+          <p>• Submission of false information;</p>
+          <p>• Unauthorized access attempts;</p>
+          <p>• Misuse of the Platform; or</p>
+          <p>• Conduct that threatens the integrity or security of the Platform.</p>
+        </div>
+        <p>Rejected or revoked Company accounts will lose access to internship-related services.</p>
+        <p>Transferred Coordinator accounts are permanently deactivated following a successful account transfer.</p>
+        <p>
+          Termination of an Account may result in loss of access to Platform services, subject to the
+          School's legal record-retention obligations.
+        </p>
+
+        <h3>13. Changes to These Terms</h3>
+        <p>The School reserves the right to modify these Terms at any time.</p>
+        <p>
+          Material changes will be communicated through the Platform or via the User's registered
+          email address.
+        </p>
+        <p>
+          Continued use of the Platform after changes become effective constitutes acceptance of the
+          revised Terms.
+        </p>
+
+        <h3>14. Governing Law</h3>
+        <p>
+          These Terms shall be governed by and interpreted in accordance with the laws of the Republic
+          of the Philippines.
+        </p>
+        <p>
+          Any dispute relating to these Terms or the Platform shall first be addressed through the
+          School's internal grievance or administrative procedures before any other legal remedy is
+          pursued.
+        </p>
+
+        <h3>15. Contact Information</h3>
+        <p>
+          For questions, concerns, or requests regarding these Terms or your Personal Information,
+          please contact the School through its designated OJT Coordinator or official support
+          channel.
+        </p>
+        <p style={{ fontFamily: "'Jua', sans-serif", color: "#1a1a1a" }}>Email: support@ojtern.com</p>
+
+        <p style={{ marginTop: "16px", fontStyle: "italic" }}>
+          By creating an Account, selecting the Terms and Conditions acceptance checkbox, logging in,
+          or otherwise using OJTern, you acknowledge that you have read, understood, and agree to be
+          legally bound by these Terms and Conditions.
+        </p>
+
       </div>
     </div>
   </div>

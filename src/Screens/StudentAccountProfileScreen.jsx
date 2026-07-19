@@ -170,14 +170,30 @@ const ResponsiveStyles = () => (
 );
 
 // ─── College & Program Data ───────────────────────────────────────────────────
-const COLLEGES = [
-    { name: "College of Computer Studies",           programs: [{ name: "Bachelor of Science in Information Technology",                  majors: [] }] },
-    { name: "College of Education",                  programs: [{ name: "Bachelor of Elementary Education",                    majors: ["Generalist"] }, { name: "Bachelor of Secondary Education", majors: ["Major in English", "Major in Mathematics"] }] },
-    { name: "College of Business and Accountancy",   programs: [{ name: "Bachelor of Science in Accountancy",                  majors: [] }, { name: "Bachelor of Science in Business Administration", majors: [] }] },
-    { name: "College of Hospitality Management", programs: [{ name: "Bachelor of Science in Tourism Management",            majors: [] }, { name: "Bachelor of Science in Hospitality Management", majors: [] }] },
-    { name: "College of Liberal Arts",               programs: [{ name: "Bachelor of Arts in Political Science",               majors: [] }] },
-    { name: "College of Criminal Justice Education", programs: [{ name: "Bachelor of Science in Criminology",                  majors: [] }] },
-  ];
+const COLLEGE_PROGRAM_MAP = {
+  CCS:  { label: "College of Computer Studies",
+          programs: { BSIT: "Bachelor of Science in Information Technology" } },
+  CBA:  { label: "College of Business and Accountancy",
+          programs: {
+            "BSBA (Major in Marketing Management)": "BS Business Administration — Major in Marketing Management",
+            BSA: "Bachelor of Science in Accountancy",
+          } },
+  CCJE: { label: "College of Criminal Justice Education",
+          programs: { "BS CRIM": "Bachelor of Science in Criminology" } },
+  CLA:  { label: "College of Liberal Arts",
+          programs: { "BA POLSCI": "Bachelor of Arts in Political Science" } },
+  CED:  { label: "College of Education",
+          programs: {
+            BEED: "Bachelor of Elementary Education",
+            "BSED (Major in English)": "BS Education — Major in English",
+            "BSED (Major in Mathematics)": "BS Education — Major in Mathematics",
+          } },
+  CHM:  { label: "College of Hospitality Management",
+          programs: {
+            BSTM: "Bachelor of Science in Tourism Management",
+            BSHM: "Bachelor of Science in Hospitality Management",
+          } },
+};
 
 const YEAR_SECTIONS = [
   "4-A","4-B","4-C","4-D",
@@ -365,9 +381,9 @@ const PersonalInfoScreen = ({ onBack, user }) => {
     lastName:       "",
     middleInitial:  "",
     firstName:      "",
-    college:        "",
-    program:        "",
-    specialization: "",
+    suffix:         "",
+    collegeCode:    "",
+    programCode:    "",
     yearSection:    "",
     sex:            "",
     age:            "",
@@ -404,16 +420,14 @@ const PersonalInfoScreen = ({ onBack, user }) => {
     const unsub = onSnapshot(doc(db, "students", user.uid), (snap) => {
       if (snap.exists() && !editing) {
         const d = snap.data();
-        const fullCollege = COLLEGE_ABBR_MAP[d.college] || d.college || "";
-        const fullProgram = PROGRAM_ABBR_MAP[d.program] || d.program || "";
         setForm({
           studentId:      d.studentId      || "",
           lastName:       d.lastName       || "",
           middleInitial:  d.middleInitial  || "",
           firstName:      d.firstName      || "",
-          college:        fullCollege,
-          program:        fullProgram,
-          specialization: d.specialization || "",
+          suffix:         d.suffix         || "",
+          collegeCode:    d.college        || "",
+          programCode:    d.program        || "",
           yearSection:    d.yearSection    || "",
           sex:            d.sex            || "",
           age:            String(d.age     || ""),
@@ -436,12 +450,14 @@ const PersonalInfoScreen = ({ onBack, user }) => {
     </div>
   );
 
-  const collegeData    = COLLEGES.find(c => c.name === form.college);
-  const programOptions = collegeData?.programs.map(p => p.name) ?? [];
-  const programData    = collegeData?.programs.find(p => p.name === form.program);
-  const majorOptions   = programData?.majors ?? [];
+  const collegeInfo    = COLLEGE_PROGRAM_MAP[form.collegeCode];
+  const collegeLabel   = collegeInfo?.label || form.collegeCode || "—";
+  const programLabel   = collegeInfo?.programs?.[form.programCode] || form.programCode || "—";
+  const programEntries = collegeInfo ? Object.entries(collegeInfo.programs) : [];
 
   const setField = (key, val) => setForm(f => ({ ...f, [key]: val }));
+  const handleCollegeChange = (code) => setForm(f => ({ ...f, collegeCode: code, programCode: "" }));
+  const handleProgramChange = (code) => setForm(f => ({ ...f, programCode: code }));
 
   const validateStudentId = (v) => {
     if (!v) return "Required";
@@ -468,6 +484,8 @@ const PersonalInfoScreen = ({ onBack, user }) => {
     const idErr = validateStudentId(form.studentId);
     if (idErr) e.studentId = idErr;
     if (!form.firstName.trim()) e.firstName = "First name is required.";
+    if (!form.collegeCode) e.collegeCode = "College is required.";
+    if (!form.programCode) e.programCode = "Program is required.";
     if (!form.lastName.trim())  e.lastName  = "Last name is required.";
     const miErr = validateMiddleInitial(form.middleInitial);
     if (miErr) e.middleInitial = miErr;
@@ -486,10 +504,10 @@ const PersonalInfoScreen = ({ onBack, user }) => {
         lastName:       form.lastName,
         middleInitial:  form.middleInitial,
         firstName:      form.firstName,
-        fullName:       form.firstName + " " + (form.middleInitial ? form.middleInitial + " " : "") + form.lastName,
-        college:        form.college,
-        program:        form.program,
-        specialization: form.specialization || "",
+        suffix:         form.suffix,
+        fullName: form.firstName + " " + (form.middleInitial ? form.middleInitial + " " : "") + form.lastName + (form.suffix ? " " + form.suffix : ""),
+        college:        form.collegeCode,
+        program:        form.programCode,
         yearSection:    form.yearSection,
         sex:            form.sex,
         age:            Number(form.age),
@@ -682,20 +700,40 @@ const PersonalInfoScreen = ({ onBack, user }) => {
             )}
           </div>
 
+            {/* Suffix */}
+          <div style={rowStyle}>
+            {fieldLabel("Suffix")}
+            {editing ? (
+              <input
+                value={form.suffix}
+                onChange={e => setField("suffix", e.target.value)}
+                placeholder="Jr. / Sr. / III"
+                style={inlineInputStyle}
+              />
+            ) : (
+              <span style={valueStyle}>{form.suffix || "—"}</span>
+            )}
+          </div>
+
           {/* College */}
           <div style={rowStyle}>
             {fieldLabel("College")}
             {editing ? (
-              <select
-                value={form.college}
-                onChange={e => { setField("college", e.target.value); setField("program", ""); setField("specialization", ""); }}
-                style={selectStyle}
-              >
-                <option value="" style={{ color: "#333" }}>Select</option>
-                {COLLEGES.map(c => <option key={c.name} value={c.name} style={{ color: "#333" }}>{c.name}</option>)}
-              </select>
+              <>
+                <select
+                  value={form.collegeCode}
+                  onChange={e => handleCollegeChange(e.target.value)}
+                  style={errors.collegeCode ? selectErrorStyle : selectStyle}
+                >
+                  <option value="" style={{ color: "#333" }}>Select</option>
+                  {Object.entries(COLLEGE_PROGRAM_MAP).map(([code, info]) => (
+                    <option key={code} value={code} style={{ color: "#333" }}>{info.label}</option>
+                  ))}
+                </select>
+                {errText(errors.collegeCode)}
+              </>
             ) : (
-              <span style={valueStyle}>{form.college || "—"}</span>
+              <span style={valueStyle}>{collegeLabel}</span>
             )}
           </div>
 
@@ -703,16 +741,21 @@ const PersonalInfoScreen = ({ onBack, user }) => {
           <div style={rowStyle}>
             {fieldLabel("Program")}
             {editing ? (
-              <select
-                value={form.program}
-                onChange={e => { setField("program", e.target.value); setField("specialization", ""); }}
-                style={selectStyle}
-              >
-                <option value="" style={{ color: "#333" }}>Select</option>
-                {programOptions.map(p => <option key={p} value={p} style={{ color: "#333" }}>{p}</option>)}
-              </select>
+              <>
+                <select
+                  value={form.programCode}
+                  onChange={e => handleProgramChange(e.target.value)}
+                  style={errors.programCode ? selectErrorStyle : selectStyle}
+                >
+                  <option value="" style={{ color: "#333" }}>Select</option>
+                  {programEntries.map(([code, label]) => (
+                    <option key={code} value={code} style={{ color: "#333" }}>{label}</option>
+                  ))}
+                </select>
+                {errText(errors.programCode)}
+              </>
             ) : (
-              <span style={valueStyle}>{form.program || "—"}</span>
+              <span style={valueStyle}>{programLabel}</span>
             )}
           </div>
 
@@ -1034,15 +1077,125 @@ const PrivacySecurityScreen = ({ onBack, user, onLogout }) => (
 );
 
 
+// ─── Terms & Conditions Data ──────────────────────────────────────────────────
+const TERMS_LAST_UPDATED = "July 19, 2026";
+
+const TERMS_SECTIONS = [
+  {
+    title: "1. Account Usage",
+    items: [
+      "Your account is created by an authorized OJT Coordinator and is intended solely for your official On-the-Job Training (OJT) activities.",
+      "You must change your temporary password and complete your personal information upon your first login before accessing the Platform's full features.",
+    ],
+  },
+  {
+    title: "2. Account Security",
+    items: [
+      "You are responsible for maintaining the confidentiality of your account credentials.",
+      "Do not share your username, student ID, email, or password with anyone.",
+      "Immediately report any unauthorized access or suspected security breach to your OJT Coordinator.",
+    ],
+  },
+  {
+    title: "3. Accuracy of Information",
+    items: [
+      "You agree to provide accurate, complete, and up-to-date personal information.",
+      "Any false or misleading information may affect your internship application or result in disciplinary action in accordance with School policies.",
+    ],
+  },
+  {
+    title: "4. Internship Applications",
+    items: [
+      "You may use OJTern to browse internship opportunities, submit applications, monitor your application status, and communicate with approved partner companies.",
+      "Submission of an application does not guarantee acceptance or internship placement.",
+    ],
+  },
+  {
+    title: "5. Acceptable Use",
+    intro: "You agree not to misuse the Platform by:",
+    items: [
+      "Accessing another user's account without authorization;",
+      "Uploading harmful, illegal, or inappropriate content;",
+      "Providing false information;",
+      "Interfering with the operation or security of the Platform; or",
+      "Using the Platform for purposes unrelated to the School's OJT Program.",
+    ],
+  },
+  {
+    title: "6. Data Privacy",
+    items: [
+      "Your personal information, including your name, student ID, contact information, resume, and other submitted documents, will be collected and processed solely for internship placement, monitoring, reporting, and other legitimate OJT-related purposes.",
+      "Relevant information may be shared only with approved partner companies and authorized School personnel as necessary for internship placement and administration, in accordance with the Data Privacy Act of 2012 (Republic Act No. 10173).",
+    ],
+  },
+  {
+    title: "7. Account Suspension or Termination",
+    items: [
+      "The School may suspend or terminate your account if you violate these Terms and Conditions, provide false information, misuse the Platform, or engage in activities that compromise the security or integrity of OJTern.",
+    ],
+  },
+  {
+    title: "8. Contact Information",
+    items: [
+      "For questions, concerns, or requests regarding these Terms or your Personal Information, please contact the School through its designated OJT Coordinator or official support channel.",
+      "Email: support@ojtern.com",
+    ],
+  },
+];
+
 // ─── TermsScreen Component ────────────────────────────────────────────────────
 const TermsScreen = ({ onBack }) => (
   <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
     <SectionHeaderBar iconSrc={termsIcon} title="Terms & Condition" onBack={onBack} />
     <div className="sap-sub-body">
       <div style={{ background: "#e8e8e8", borderRadius: "16px", padding: "24px 28px" }}>
-        <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.88rem", color: "#444", lineHeight: 1.8 }}>
-          By using OJTern, you agree to the following terms and conditions. All information provided must be accurate and up-to-date. Student data must be handled with confidentiality. OJTern reserves the right to update these terms at any time.
+
+        <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.78rem", fontStyle: "italic", color: "#888", marginBottom: "18px" }}>
+          Last updated: {TERMS_LAST_UPDATED}
         </p>
+
+        {TERMS_SECTIONS.map((section, idx) => (
+          <div key={section.title} style={{ marginBottom: idx === TERMS_SECTIONS.length - 1 ? 0 : "20px" }}>
+            <h3 style={{
+              fontFamily: "'Kufam', sans-serif",
+              fontWeight: 700,
+              fontSize: "0.92rem",
+              color: darkRed,
+              margin: "0 0 8px",
+            }}>
+              {section.title}
+            </h3>
+
+            {section.intro && (
+              <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#444", lineHeight: 1.7, margin: "0 0 6px" }}>
+                {section.intro}
+              </p>
+            )}
+
+            {section.items.map((item, i) => {
+              const isEmailLine = typeof item === "string" && item.startsWith("Email:");
+              const isBulleted = !!section.intro; // only sections with an intro (e.g. "5. Acceptable Use") get bullets
+              return (
+                <p
+                  key={i}
+                  style={{
+                    fontFamily: isEmailLine ? "'Jua', sans-serif" : "'Kufam', sans-serif",
+                    fontSize: "0.85rem",
+                    color: isEmailLine ? "#1a1a1a" : "#444",
+                    lineHeight: 1.7,
+                    margin: i === section.items.length - 1 ? 0 : "0 0 6px",
+                    display: isBulleted ? "flex" : undefined,
+                    gap: isBulleted ? "6px" : undefined,
+                  }}
+                >
+                  {isBulleted && <span style={{ flexShrink: 0 }}>•</span>}
+                  <span>{item}</span>
+                </p>
+              );
+            })}
+          </div>
+        ))}
+
       </div>
     </div>
   </div>
