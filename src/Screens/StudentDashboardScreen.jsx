@@ -407,6 +407,7 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
   const [applyCompany, setApplyCompany]         = useState(null);
   const [pendingContact, setPendingContact]     = useState(null);
   const [showChangePass, setShowChangePass]     = useState(!user?.passwordChanged);
+  const [currentPass, setCurrentPass] = useState("");
   const [newPass, setNewPass]                   = useState("");
   const [confirmPass, setConfirmPass]           = useState("");
   const [passError, setPassError]               = useState("");
@@ -415,20 +416,47 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
   const [showConfirm, setShowConfirm]           = useState(false);
 
   const handleChangePassword = async () => {
-    setPassError("");
-    if (!newPass) { setPassError("Please enter a new password."); return; }
-    if (newPass.length < 8) { setPassError("Password must be at least 8 characters."); return; }
-    if (newPass !== confirmPass) { setPassError("Passwords do not match."); return; }
-    setPassLoading(true);
-    try {
-      await changePassword(newPass, "students", user?.uid);
-      setShowChangePass(false);
-    } catch (err) {
-      setPassError(err.message || "Failed to change password.");
-    } finally {
-      setPassLoading(false);
-    }
-  };
+  setPassError("");
+
+  if (!currentPass) {
+    setPassError("Please enter your current password.");
+    return;
+  }
+
+  if (!newPass) {
+    setPassError("Please enter a new password.");
+    return;
+  }
+
+  if (newPass.length < 8) {
+    setPassError("Password must be at least 8 characters.");
+    return;
+  }
+
+  if (newPass !== confirmPass) {
+    setPassError("Passwords do not match.");
+    return;
+  }
+
+  setPassLoading(true);
+
+  try {
+    await changePassword(
+      currentPass,
+      newPass,
+      "students",
+      user.uid
+    );
+
+    setShowChangePass(false);
+    onLogout();
+
+  } catch (err) {
+    setPassError(err.message || "Failed to change password.");
+  } finally {
+    setPassLoading(false);
+  }
+};
 
   const handleReportSubmit = (report) => {
     console.log("Report submitted:", report);
@@ -478,7 +506,11 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
           navigate("messages");
         }}
         onApplyNow={(company) => {
-          setApplyCompany({ name: company.name });
+          setApplyCompany({
+            id: company.companyId || company.id,
+            companyId: company.companyId || company.id,
+            name: company.companyName || company.company || company.name,
+          });
           navigate("application");
         }}
         onVisitCompany={({ id, name }) => {
@@ -599,6 +631,29 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
               <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#555", textAlign: "center", marginBottom: "16px", lineHeight: 1.6 }}>
                 For your security, please change your password before continuing.
               </p>
+              <div style={{ position: "relative", marginBottom: "10px" }}>
+                <input
+                  type="password"
+                  placeholder="Current Password:"
+                  value={currentPass}
+                  onChange={(e) => {
+                    setCurrentPass(e.target.value);
+                    setPassError("");
+                  }}
+                  style={{
+                    width: "100%",
+                    padding: "10px 44px 10px 16px",
+                    background: "#590101",
+                    border: passError ? "1.5px solid red" : "none",
+                    borderRadius: "20px",
+                    color: "white",
+                    fontSize: "0.88rem",
+                    fontFamily: "'Kufam', sans-serif",
+                    outline: "none",
+                    boxSizing: "border-box",
+                  }}
+                />
+              </div>
               <div style={{ position: "relative", marginBottom: "10px" }}>
                 <input
                   type={showNew ? "text" : "password"}

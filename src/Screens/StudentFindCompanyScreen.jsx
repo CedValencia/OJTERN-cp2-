@@ -1,8 +1,11 @@
 import React, { useState, useRef, useEffect } from "react";
 import reportIcon from "../icons/report.png";
 import { ApplyModal } from "./StudentApplicationScreen";
-import { collection, onSnapshot, query, where } from "firebase/firestore";
+import { collection, onSnapshot, query, where, addDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "./firebase";
+
+const CLOUDINARY_CLOUD_NAME    = "doalndt5l";
+const CLOUDINARY_UPLOAD_PRESET = "ojtern_docs";
 
 const MAPBOX_TOKEN = "pk.eyJ1IjoibWFraWlpaS0iLCJhIjoiY21wbTgybHVmMmc1ZzJycTFuZXRlb3NoNCJ9.FIpjF2lKTHkbU1e6qrL_Pw";
 
@@ -384,24 +387,68 @@ const ResponsiveStyles = () => (
 );
 
 // ─── REPORT MODAL ─────────────────────────────────────────────────────────────
-const ReportModal = ({ company, onClose, onSubmit }) => {
+const ReportModal = ({ company, onClose, onSubmit, reporter }) => {
   const [step, setStep] = useState(1);
   const [selected, setSelected] = useState(null);
   const [description, setDescription] = useState("");
   const [attachedFile, setAttachedFile] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState("");
   const fileRef = useRef();
 
   const handleFile = (e) => {
     const file = e.target.files[0];
     if (!file) return;
     if (!["image/png","application/pdf"].includes(file.type)) { alert("Only PNG and PDF files are allowed."); return; }
-    setAttachedFile({ name: file.name, type: file.type, url: URL.createObjectURL(file) });
+    setAttachedFile({ name: file.name, type: file.type, url: URL.createObjectURL(file), file });
   };
 
-  const handleSubmit = () => {
+  const uploadToCloudinary = async (file) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("upload_preset", CLOUDINARY_UPLOAD_PRESET);
+    formData.append("folder", "ojtern_reports");
+    const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/upload`, {
+      method: "POST",
+      body: formData,
+    });
+    if (!res.ok) throw new Error("File upload failed.");
+    const data = await res.json();
+    return { url: data.secure_url, name: file.name, type: file.type };
+  };
+
+  const handleSubmit = async () => {
     if (!description.trim()) { alert("Please write a description."); return; }
-    onSubmit({ company: company.companyName || company.name, concern: selected?.label || "Others", date: new Date().toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}), description, attachedFile });
-    onClose();
+    setSubmitting(true);
+    setSubmitError("");
+    try {
+      let fileData = null;
+      if (attachedFile?.file) {
+        fileData = await uploadToCloudinary(attachedFile.file);
+      }
+
+      const reportDoc = {
+        companyId:      company.id   || company.uid || "",
+        company:        company.companyName || company.name || "",
+        concern:        selected?.label || "Others",
+        description,
+        attachedFile:   fileData,
+        reportedBy:     reporter?.uid  || "",
+        reporterName:   reporter?.name || reporter?.fullName || "Unknown",
+        reporterRole:   "student",
+        date:           new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
+        createdAt:      serverTimestamp(),
+        status:         "pending",
+      };
+
+      await addDoc(collection(db, "reports"), reportDoc);
+      onSubmit?.({ ...reportDoc, attachedFile: fileData || attachedFile });
+      onClose();
+    } catch (err) {
+      setSubmitError(err.message || "Failed to submit report. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const cat = reportCategories.find(c => c.label === selected?.label);
@@ -471,12 +518,17 @@ const ReportModal = ({ company, onClose, onSubmit }) => {
             </>
           )}
         </div>
-        <div style={{ background: darkRed, padding: "12px 20px", display: "flex", justifyContent: "flex-end" }}>
-          {step < 3 ? (
-            <button onClick={() => { if (step === 1 && !selected) { alert("Please select a concern."); return; } setStep(step + 1); }} style={{ padding: "8px 20px", borderRadius: "20px", background: "rgba(255,255,255,0.2)", color: "white", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 600, cursor: "pointer", fontSize: "0.85rem" }}>Next {step}/3</button>
-          ) : (
-            <button onClick={handleSubmit} style={{ padding: "8px 20px", borderRadius: "20px", background: "rgba(255,255,255,0.2)", color: "white", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 600, cursor: "pointer", fontSize: "0.85rem" }}>Submit report</button>
+        <div style={{ background: darkRed, padding: "12px 20px", display: "flex", flexDirection: "column", gap: "8px" }}>
+          {submitError && (
+            <div style={{ color: "#ffdada", fontFamily: "'Kufam', sans-serif", fontSize: "0.78rem" }}>{submitError}</div>
           )}
+          <div style={{ display: "flex", justifyContent: "flex-end" }}>
+            {step < 3 ? (
+              <button onClick={() => { if (step === 1 && !selected) { alert("Please select a concern."); return; } setStep(step + 1); }} style={{ padding: "8px 20px", borderRadius: "20px", background: "rgba(255,255,255,0.2)", color: "white", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 600, cursor: "pointer", fontSize: "0.85rem" }}>Next {step}/3</button>
+            ) : (
+              <button onClick={handleSubmit} disabled={submitting} style={{ padding: "8px 20px", borderRadius: "20px", background: "rgba(255,255,255,0.2)", color: "white", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 600, cursor: submitting ? "default" : "pointer", fontSize: "0.85rem", opacity: submitting ? 0.7 : 1 }}>{submitting ? "Submitting..." : "Submit report"}</button>
+            )}
+          </div>
         </div>
       </div>
     </div>
@@ -711,7 +763,7 @@ const StudentFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onMessa
           onMessageNow={() => onMessageNow?.({ ...selectedCompany, fromMessageNow: true })}
           onApplyNow={() => setShowApplyModal(true)}
         />
-        {showReportModal && <ReportModal company={selectedCompany} onClose={() => setShowReportModal(false)} onSubmit={handleReportSubmit} />}
+        {showReportModal && <ReportModal company={selectedCompany} onClose={() => setShowReportModal(false)} onSubmit={handleReportSubmit} reporter={user} />}
         {showApplyModal && (
           <ApplyModal
             company={selectedCompany}

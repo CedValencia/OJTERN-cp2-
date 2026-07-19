@@ -1,5 +1,5 @@
 // AuthService.js — reusable Firebase Auth + Firestore operations
-// Import `auth` and `db` from firebase.js so everything uses the same app instance
+// Import auth and db from firebase.js so everything uses the same app instance
 
 import { initializeApp, getApp, deleteApp } from "firebase/app";
 
@@ -140,8 +140,7 @@ export const signIn = async (role, emailOrStudentId, password) => {
   if (userData.role !== role) {
     await signOut(auth);
     const label = role === "coordinator" ? "OJT Coordinator" : role.charAt(0).toUpperCase() + role.slice(1);
-    throw new Error(`This account is not registered as a ${label}.`);
-  }
+    throw new Error(`This account is not registered as a ${label}.`);  }
 
   // Approval status check (mainly for companies)
   if (userData.status === "pending") {
@@ -286,10 +285,16 @@ export const createStudentAccount = async (studentData, createdByUid) => {
   } = studentData;
 
   // 1. Check for duplicate studentId
-  const q    = query(collection(db, "students"), where("studentId", "==", studentId.trim()));
-  const snap = await getDocs(q);
-  if (!snap.empty) throw new Error(`Student ID "${studentId}" is already registered.`);
+  const q = query(
+  collection(db, "students"),
+  where("studentId", "==", studentId.trim())
+);
 
+const snap = await getDocs(q);
+
+if (!snap.empty) {
+  throw new Error(`Student ID "${studentId}" is already registered.`);
+}
   // 2. Generate default password — department is derived from college abbreviation
   //    e.g. "College of Computer Studies" → coordinator passes the dept code like "CCS"
   const password = generateStudentPassword(firstName, lastName, studentId, college);
@@ -304,7 +309,7 @@ export const createStudentAccount = async (studentData, createdByUid) => {
       lastName:       lastName.trim(),
       middleInitial:  middleInitial.trim(),
       firstName:      firstName.trim(),
-      fullName:       `${firstName.trim()} ${middleInitial.trim() ? middleInitial.trim() + ". " : ""}${lastName.trim()}`,
+      fullName: `${firstName.trim()} ${middleInitial.trim() ? middleInitial.trim().replace(/\.$/, "") + ". " : ""}${lastName.trim()}`,
       college:        college.trim(),
       program:        program.trim(),
       specialization: specialization.trim(),
@@ -342,24 +347,32 @@ export const createStudentAccount = async (studentData, createdByUid) => {
  */
 export const changePassword = async (currentPassword, newPassword, collectionName, uid) => {
   const user = auth.currentUser;
-  if (!user) throw new Error("No user is currently signed in.");
 
-  // Reauthenticate first — required by Firebase before updatePassword will succeed
+  if (!user) {
+    throw new Error("No user is currently signed in.");
+  }
+
+  // Reauthenticate with the current password before Firebase will allow
+  // updatePassword — this was the missing step causing auth/requires-recent-login.
+  const credential = EmailAuthProvider.credential(user.email, currentPassword);
   try {
-    const credential = EmailAuthProvider.credential(user.email, currentPassword);
     await reauthenticateWithCredential(user, credential);
   } catch (err) {
-    if (err.code === "auth/wrong-password" || err.code === "auth/invalid-credential") {
-      throw new Error("Current password is incorrect.");
+    if (
+      err.code === "auth/wrong-password" ||
+      err.code === "auth/invalid-credential"
+    ) {
+      throw new Error("Your current password is incorrect.");
     }
     throw err;
   }
 
   await updatePassword(user, newPassword);
-  await updateDoc(doc(db, collectionName, uid), { passwordChanged: true });
 
-  // Sign out so the app routes back to the sign-in screen — the person logs
-  // back in manually using their new password.
+  await updateDoc(doc(db, collectionName, uid), {
+    passwordChanged: true,
+  });
+
   await signOut(auth);
 };
 
@@ -369,11 +382,11 @@ export const changePassword = async (currentPassword, newPassword, collectionNam
 // you in as whoever you just created, which we don't want here since a
 // coordinator stays logged in as themselves while adding/transferring).
 // ─────────────────────────────────────────────────────────────────────────────
-// `onCreated(uid)` runs right after the Auth user is made (e.g. the Firestore
+// onCreated(uid) runs right after the Auth user is made (e.g. the Firestore
 // profile write). If it throws, the just-created Auth user is deleted so we
 // never leave an orphaned Auth account with no Firestore doc behind.
 const createAuthUserIsolated = async (email, password, onCreated) => {
-  const tempApp = initializeApp(getApp().options, `temp-${Date.now()}`);
+  const tempApp = initializeApp(getApp().options,`temp-${Date.now()}`);
   const tempAuth = getAuth(tempApp);
   try {
     const { user } = await createUserWithEmailAndPassword(tempAuth, email, password);
