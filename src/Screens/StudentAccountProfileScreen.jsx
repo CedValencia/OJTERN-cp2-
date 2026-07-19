@@ -398,12 +398,12 @@ const PersonalInfoScreen = ({ onBack, user }) => {
     "CCJE": "College of Criminal Justice Education",
     "CLA":  "College of Liberal Arts",
     "CED":  "College of Education",
-    "CHM":  "College of Hospitality and Management",
+    "CHM":  "College of Hospitality Management",
   };
 
   // Map abbreviated program → full program name used by COLLEGES array
   const PROGRAM_ABBR_MAP = {
-    "BSIT":                          "Bachelor of Information Technology",
+    "BSIT":                          "Bachelor of Science in Information Technology",
     "BSBA (Major in Marketing Management)": "Bachelor of Science in Business Administration",
     "BSA":                           "Bachelor of Science in Accountancy",
     "BS CRIM":                       "Bachelor of Science in Criminology",
