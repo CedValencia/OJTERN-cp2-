@@ -166,7 +166,7 @@ const COLLEGE_DATA = {
 const YEAR_SECTIONS = ["4-A","4-B","4-C","4-D","4-E","4-F"];
 
 // Sex options
-const SEX_OPTIONS = ["Male", "Female", "Prefer not to say"];
+const SEX_OPTIONS = ["Male", "Female"];
 
 // TODO: Replace with real data from backend
 

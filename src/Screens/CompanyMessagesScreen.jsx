@@ -194,7 +194,7 @@ const ReportModal = ({ company, onClose, onSubmit }) => {
 };
 
 // ── ChatView ──────────────────────────────────────────────────────────────────
-const ChatView = ({ contact, messages, onSend, onBack, onReport }) => {
+const ChatView = ({ contact, messages, onSend, onBack, onReport, onDeleteConversation }) => {
   const [input, setInput]           = useState("");
   const [attachment, setAttachment] = useState(null);
   const [showInfo, setShowInfo]     = useState(false);
@@ -246,6 +246,7 @@ const ChatView = ({ contact, messages, onSend, onBack, onReport }) => {
   const startEdit       = (msg)   => { if (!msg.text) return; setEditingId(msg.id); setEditText(msg.text); setPopupMsgId(null); };
   const saveEdit        = (msgId) => { if (!editText.trim()) return; onSend(contact.id, { __edit: true, id: msgId, text: editText.trim() }); setEditingId(null); setEditText(""); };
   const handleUnsent    = (msgId) => { onSend(contact.id, { __unsent: true, id: msgId }); setPopupMsgId(null); };
+  const handleDeleteConversation = () => { onDeleteConversation(contact.id); setShowInfo(false); };
 
   const avatarSize     = isMobile ? 30 : 36;
   const bubbleMaxWidth = isMobile ? "75%" : "60%";
@@ -273,6 +274,7 @@ const ChatView = ({ contact, messages, onSend, onBack, onReport }) => {
           </button>
           {showInfo && (
             <div style={{ position: "absolute", top: "38px", right: 0, background: "white", borderRadius: "10px", boxShadow: "0 4px 20px rgba(0,0,0,0.18)", zIndex: 200, minWidth: "170px", overflow: "hidden" }}>
+              <div onClick={handleDeleteConversation} style={{ padding: "12px 18px", fontFamily: "'Kufam', sans-serif", fontSize: "0.88rem", color: "#222", cursor: "pointer", borderBottom: "1px solid #f0f0f0" }} onMouseEnter={e => e.currentTarget.style.background = "#f5f5f5"} onMouseLeave={e => e.currentTarget.style.background = "white"}>Delete Conversation</div>
               <div onClick={() => { setShowInfo(false); setShowReport(true); }} style={{ padding: "12px 18px", fontFamily: "'Kufam', sans-serif", fontSize: "0.88rem", color: red, fontWeight: 700, cursor: "pointer" }} onMouseEnter={e => e.currentTarget.style.background = "#fff0f0"} onMouseLeave={e => e.currentTarget.style.background = "white"}>Report</div>
             </div>
           )}
@@ -375,7 +377,7 @@ const ChatView = ({ contact, messages, onSend, onBack, onReport }) => {
         <button onClick={() => fileRef.current.click()} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", flexShrink: 0, padding: "4px" }}>
           <svg width={isMobile ? 22 : 26} height={isMobile ? 22 : 26} viewBox="0 0 24 24" fill="none" stroke="#555" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
         </button>
-        <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={handleKeyDown} placeholder="Hello!"
+        <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={handleKeyDown} placeholder="Send a message..."
           style={{ flex: 1, background: "#e8e8e8", border: "none", borderRadius: "24px", padding: isMobile ? "8px 14px" : "10px 18px", fontFamily: "'Kufam', sans-serif", fontSize: isMobile ? "0.85rem" : "0.9rem", outline: "none", color: "#222", minWidth: 0 }} />
         <button onClick={handleSend} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", flexShrink: 0, padding: "4px" }}>
           <svg width={isMobile ? 22 : 26} height={isMobile ? 22 : 26} viewBox="0 0 24 24" fill="none" stroke={darkRed} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
@@ -495,7 +497,7 @@ const CompanyMessagesScreen = ({
   const {
     contacts, messages, loading,
     openConversation, ensureConversation,
-    sendMessage, editMessage, unsendMessage,
+    sendMessage, editMessage, unsendMessage, deleteConversation,
   } = useChat(user?.uid, myName, "company");
 
   const [activeContact, setActiveContact] = useState(null);
@@ -534,6 +536,11 @@ const CompanyMessagesScreen = ({
 
   const handleReport = (report) => { if (onReportSubmit) onReportSubmit(report); };
 
+  const handleDeleteConversation = async (convId) => {
+    await deleteConversation(convId);
+    setActiveContact(null);
+  };
+
   const uiMessages = {};
   contacts.forEach(c => { uiMessages[c.id] = messages[c.convId] || []; });
 
@@ -551,6 +558,7 @@ const CompanyMessagesScreen = ({
         onSend={(_, msg) => handleSend(activeContact.convId, msg)}
         onBack={() => setActiveContact(null)}
         onReport={handleReport}
+        onDeleteConversation={() => handleDeleteConversation(activeContact.convId)}
       />
     );
   }

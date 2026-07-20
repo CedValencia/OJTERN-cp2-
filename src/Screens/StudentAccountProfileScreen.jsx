@@ -374,6 +374,8 @@ const MenuRow = ({ iconSrc, label, onClick }) => (
 // ─── PersonalInfoScreen Component ─────────────────────────────────────────────
 const PersonalInfoScreen = ({ onBack, user }) => {
   const [editing, setEditing] = useState(false);
+  const editingRef = useRef(false);
+  useEffect(() => { editingRef.current = editing; }, [editing]);
   const [loading, setLoading] = useState(true);
 
   const [form, setForm] = useState({
@@ -418,7 +420,7 @@ const PersonalInfoScreen = ({ onBack, user }) => {
   useEffect(() => {
     if (!user?.uid) return;
     const unsub = onSnapshot(doc(db, "students", user.uid), (snap) => {
-      if (snap.exists() && !editing) {
+      if (snap.exists() && !editingRef.current) {
         const d = snap.data();
         setForm({
           studentId:      d.studentId      || "",
@@ -454,6 +456,15 @@ const PersonalInfoScreen = ({ onBack, user }) => {
   const collegeLabel   = collegeInfo?.label || form.collegeCode || "—";
   const programLabel   = collegeInfo?.programs?.[form.programCode] || form.programCode || "—";
   const programEntries = collegeInfo ? Object.entries(collegeInfo.programs) : [];
+  // Defensive fallback: if the student's stored program/college code doesn't match
+  // any known key (e.g. imported with a different format), still show it as a
+  // selectable option instead of leaving the dropdown blank / forcing a reselect.
+  const programEntriesForSelect = (form.programCode && !programEntries.some(([code]) => code === form.programCode))
+    ? [...programEntries, [form.programCode, programLabel]]
+    : programEntries;
+  const collegeEntriesForSelect = (form.collegeCode && !COLLEGE_PROGRAM_MAP[form.collegeCode])
+    ? [...Object.entries(COLLEGE_PROGRAM_MAP), [form.collegeCode, { label: collegeLabel }]]
+    : Object.entries(COLLEGE_PROGRAM_MAP);
 
   const setField = (key, val) => setForm(f => ({ ...f, [key]: val }));
   const handleCollegeChange = (code) => setForm(f => ({ ...f, collegeCode: code, programCode: "" }));
@@ -606,7 +617,7 @@ const PersonalInfoScreen = ({ onBack, user }) => {
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-      <SectionHeaderBar iconSrc={personalInfoIcon} title="Personal Information" onBack={onBack} />
+      <SectionHeaderBar iconSrc={personalInfoIcon} title={editing ? "Edit Personal Information" : "Personal Information"} onBack={onBack} />
 
       <div className="sap-info-body">
         <div className="sap-info-card">
@@ -726,7 +737,7 @@ const PersonalInfoScreen = ({ onBack, user }) => {
                   style={errors.collegeCode ? selectErrorStyle : selectStyle}
                 >
                   <option value="" style={{ color: "#333" }}>Select</option>
-                  {Object.entries(COLLEGE_PROGRAM_MAP).map(([code, info]) => (
+                  {collegeEntriesForSelect.map(([code, info]) => (
                     <option key={code} value={code} style={{ color: "#333" }}>{info.label}</option>
                   ))}
                 </select>
@@ -748,7 +759,7 @@ const PersonalInfoScreen = ({ onBack, user }) => {
                   style={errors.programCode ? selectErrorStyle : selectStyle}
                 >
                   <option value="" style={{ color: "#333" }}>Select</option>
-                  {programEntries.map(([code, label]) => (
+                  {programEntriesForSelect.map(([code, label]) => (
                     <option key={code} value={code} style={{ color: "#333" }}>{label}</option>
                   ))}
                 </select>

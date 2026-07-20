@@ -21,8 +21,8 @@
 import { useState, useEffect, useCallback } from "react";
 import {
   collection, doc, getDoc, setDoc, addDoc,
-  updateDoc, deleteDoc, query, orderBy,
-  onSnapshot, serverTimestamp, where, getDocs,
+  updateDoc, deleteDoc, query, orderBy, limit,
+  onSnapshot, serverTimestamp, where, getDocs, arrayUnion,
 } from "firebase/firestore";
 import { db } from "./firebase";
 
@@ -96,7 +96,12 @@ export const useChat = (myUid, myName, myRole) => {
     );
 
     const unsub = onSnapshot(q, async (snap) => {
-      const convList = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const convList = snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        // Skip conversations this user has deleted for themself — the doc
+        // still exists (and is still visible to the other participant)
+        // until it's revived by a new message. See sendMessage below.
+        .filter(conv => !(conv.deletedFor || []).includes(myUid));
 
       // Build contacts list — always use latest name from Firestore collections
       const newContacts = await Promise.all(convList.map(async (conv) => {
@@ -224,10 +229,14 @@ export const useChat = (myUid, myName, myRole) => {
         createdAt:        serverTimestamp(),
       });
     } else {
-      // Update names in case they were previously "User" or undefined
+      // Update names in case they were previously "User" or undefined.
+      // Also un-delete it for myUid in case I'd deleted it before and am
+      // now reopening it (e.g. via a "Message" button elsewhere).
+      const existingDeletedFor = snap.data()?.deletedFor || [];
       await updateDoc(convRef, {
         [`participantNames.${myUid}`]: resolvedMyName,
         [`participantNames.${otherUid}`]: resolvedOtherName,
+        deletedFor: existingDeletedFor.filter(uid => uid !== myUid),
       });
     }
 
@@ -254,10 +263,13 @@ export const useChat = (myUid, myName, myRole) => {
       attachment: attachment || null,
     });
 
-    // Update conversation's lastMessage + updatedAt
+    // Update conversation's lastMessage + updatedAt. Also clear deletedFor —
+    // a new message should bring the conversation back for anyone who'd
+    // deleted it on their side (e.g. Messenger-style revival).
     await updateDoc(doc(db, "conversations", convId), {
       lastMessage: { text: text?.trim() || (attachment ? "📎 Attachment" : ""), senderId: myUid, ts: serverTimestamp() },
       updatedAt:   serverTimestamp(),
+      deletedFor:  [],
     });
   }, [myUid]);
 
@@ -275,19 +287,42 @@ export const useChat = (myUid, myName, myRole) => {
       unsent: true,
       text:   "",
     });
+
+    // The Chats list preview reads conversations/{convId}.lastMessage, which is
+    // a separate snapshot set at send-time — unsending a message doesn't touch
+    // it. Recompute it from the actual latest message so the preview updates
+    // too (e.g. shows "Unsent Message" if the unsent one was the most recent).
+    try {
+      const latestSnap = await getDocs(
+        query(collection(db, "conversations", convId, "messages"), orderBy("ts", "desc"), limit(1))
+      );
+      if (!latestSnap.empty) {
+        const latest = latestSnap.docs[0].data();
+        await updateDoc(doc(db, "conversations", convId), {
+          lastMessage: {
+            text:     latest.unsent ? "Unsent Message" : (latest.text || (latest.attachment ? "📎 Attachment" : "")),
+            senderId: latest.senderId,
+            ts:       latest.ts,
+          },
+        });
+      }
+    } catch (err) {
+      console.error("Failed to refresh lastMessage after unsend:", err);
+    }
   }, []);
 
-  // ── Delete entire conversation (local only — clears UI, keeps Firestore) ─
+  // ── Delete conversation — per-user only. Marks it hidden for the caller;
+  //    the doc, messages, and the other participant's view are untouched.
+  //    A new message from either side revives it for both (see sendMessage).
   const deleteConversation = useCallback(async (convId) => {
-    // Optionally mark as deleted for this user without removing for the other
-    // For now: delete all messages from Firestore for a true wipe
-    const msgsSnap = await getDocs(collection(db, "conversations", convId, "messages"));
-    await Promise.all(msgsSnap.docs.map(d => deleteDoc(d.ref)));
-    await deleteDoc(doc(db, "conversations", convId));
+    if (!myUid) return;
+    await updateDoc(doc(db, "conversations", convId), {
+      deletedFor: arrayUnion(myUid),
+    });
 
     setContacts(prev => prev.filter(c => c.convId !== convId));
     setMessages(prev => { const n = { ...prev }; delete n[convId]; return n; });
-  }, []);
+  }, [myUid]);
 
   return {
     contacts,

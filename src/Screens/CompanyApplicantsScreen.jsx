@@ -320,7 +320,7 @@ const StudentAvatar = ({ size = 42 }) => (
 );
 
 // ── StatusDropdown ─────────────────────────────────────────────────────────────
-const StatusDropdown = ({ status, onChange, open, setOpen }) => {
+const StatusDropdown = ({ status, onChange, open, setOpen, locked = false }) => {
   const ref = useRef(null);
   const current = STATUS_COLORS[status] || { bg: "#888", color: "white" };
 
@@ -339,19 +339,21 @@ const StatusDropdown = ({ status, onChange, open, setOpen }) => {
       }}>
         {status}
       </div>
-      <div
-        onClick={() => setOpen(v => !v)}
-        style={{
-          background: "white", borderRadius: "8px", width: "28px", height: "28px",
-          display: "flex", alignItems: "center", justifyContent: "center",
-          cursor: "pointer", flexShrink: 0, boxShadow: "0 1px 4px rgba(0,0,0,0.15)",
-        }}
-      >
-        <svg width="10" height="7" viewBox="0 0 10 7" fill="#555" stroke="none">
-          <polygon points="0,0 10,0 5,7"/>
-        </svg>
-      </div>
-      {open && (
+      {!locked && (
+        <div
+          onClick={() => setOpen(v => !v)}
+          style={{
+            background: "white", borderRadius: "8px", width: "28px", height: "28px",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            cursor: "pointer", flexShrink: 0, boxShadow: "0 1px 4px rgba(0,0,0,0.15)",
+          }}
+        >
+          <svg width="10" height="7" viewBox="0 0 10 7" fill="#555" stroke="none">
+            <polygon points="0,0 10,0 5,7"/>
+          </svg>
+        </div>
+      )}
+      {open && !locked && (
         <div style={{
           position: "absolute", top: "calc(100% + 6px)", right: 0,
           background: "rgba(160,160,160,0.92)", borderRadius: "16px", padding: "10px",
@@ -555,8 +557,14 @@ const PersonalDetailsModal = ({ applicant, onClose, onStatusChange, onMessage })
                     onChange={setPendingStatus}
                     open={dropdownOpen}
                     setOpen={setDropdownOpen}
+                    locked={applicant.status === "Accepted" || applicant.status === "Declined"}
                   />
                 </div>
+                {(applicant.status === "Accepted" || applicant.status === "Declined") && (
+                  <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.72rem", color: "#888", fontStyle: "italic" }}>
+                    This applicant has been {applicant.status.toLowerCase()}. Status is locked and can no longer be changed.
+                  </span>
+                )}
 
                 {dropdownOpen && (
                   <div style={{ height: DROPDOWN_HEIGHT, flexShrink: 0 }} aria-hidden="true" />
@@ -882,6 +890,13 @@ const CompanyApplicantsScreen = ({ embedded = false, onNavigateToMessages, user 
   });
 
   const handleStatusChange = async (id, newStatus) => {
+    // Once a company has accepted an applicant, the decision is final —
+    // block any further status changes even if called directly.
+    const current = applicants.find(a => a.id === id);
+    if (current?.status === "Accepted" || current?.status === "Declined") {
+      console.warn(`Blocked status change: applicant already ${current.status}.`);
+      return;
+    }
     // Optimistic local update
     setApplicants(prev => prev.map(a => a.id === id ? { ...a, status: newStatus } : a));
     if (viewingApplicant?.id === id) setViewingApplicant(prev => ({ ...prev, status: newStatus }));

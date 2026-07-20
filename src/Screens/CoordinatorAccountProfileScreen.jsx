@@ -623,7 +623,7 @@ const AddAccountModal = ({ onClose, currentUid }) => {
 };
 
 // ── Transfer Account Modal ────────────────────────────────────────────────────
-const TransferAccountModal = ({ onClose, currentUid, currentEmail }) => {
+const TransferAccountModal = ({ onClose, currentUid, currentEmail, onLogout }) => {
   const [currentPass, setCurrentPass] = useState("");
   const [name, setName]               = useState("");
   const [email, setEmail]             = useState("");
@@ -650,8 +650,9 @@ const TransferAccountModal = ({ onClose, currentUid, currentEmail }) => {
     setSubmitting(true);
     try {
       await transferCoordinatorAccount(currentUid, currentEmail, currentPass, { name, email, password: newPass });
-      alert(`Account successfully transferred to ${name}. You will no longer have access to this account.`);
+      // Auto-logout — current coordinator has no more access
       onClose();
+      onLogout?.();
     } catch (err) {
       setSubmitError(err.message || "Failed to transfer account.");
     } finally {
@@ -852,11 +853,13 @@ const PersonalInfoScreen = ({ user, onBack, onSaved, mandatory = false }) => {
 
   return (
     <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-      <SectionHeaderBar iconSrc={personalInfoIcon} title="Personal Information" onBack={mandatory ? undefined : onBack} />
+      <SectionHeaderBar iconSrc={personalInfoIcon} title={editing ? "Edit Personal Information" : "Personal Information"} onBack={onBack} />
+
       <div className="cap-info-body">
         <div className="cap-info-card">
           {/* Edit button */}
           <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "8px" }}>
+            
             {!editing && (
               <button onClick={() => setEditing(true)} title="Edit"
                 style={{ width: "32px", height: "32px", borderRadius: "50%", border: "2px solid white", background: "transparent", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
@@ -1146,7 +1149,7 @@ const ResetPasswordScreen = ({ onBack, user }) => {
 };
 
 // ── Privacy & Security Screen ─────────────────────────────────────────────────
-const PrivacySecurityScreen = ({ onBack, user }) => {
+const PrivacySecurityScreen = ({ onBack, user, onLogout }) => {
   const [showReset, setShowReset]           = useState(false);
   const [showTransfer, setShowTransfer]     = useState(false);
   const [showAddAccount, setShowAddAccount] = useState(false);
@@ -1163,7 +1166,7 @@ const PrivacySecurityScreen = ({ onBack, user }) => {
           <MenuRow iconSrc={addAccountIcon} label="Add Account"      onClick={() => setShowAddAccount(true)} />
         </div>
       </div>
-      {showTransfer   && <TransferAccountModal onClose={() => setShowTransfer(false)} currentUid={user?.uid} currentEmail={user?.email} />}
+      {showTransfer   && <TransferAccountModal onClose={() => setShowTransfer(false)} currentUid={user?.uid} currentEmail={user?.email} onLogout={onLogout} />}
       {showAddAccount && <AddAccountModal      onClose={() => setShowAddAccount(false)} currentUid={user?.uid} />}
     </div>
   );
@@ -1557,7 +1560,7 @@ const CoordinatorAccountProfileScreen = ({ user, onLogout }) => {
   };
 
   if (view === "personalInfo") return <><ResponsiveStyles /><PersonalInfoScreen user={user} onBack={() => setView("main")} /></>;
-  if (view === "privacy")      return <><ResponsiveStyles /><PrivacySecurityScreen onBack={() => setView("main")} user={user} /></>;
+  if (view === "privacy")      return <><ResponsiveStyles /><PrivacySecurityScreen onBack={() => setView("main")} user={user} onLogout={onLogout} /></>;
   if (view === "terms")        return <><ResponsiveStyles /><TermsScreen onBack={() => setView("main")} /></>;
 
   return (
@@ -1597,7 +1600,7 @@ const CoordinatorAccountProfileScreen = ({ user, onLogout }) => {
           Log Out
         </button>
 
-        {showTransfer   && <TransferAccountModal onClose={() => setShowTransfer(false)} currentUid={user?.uid} currentEmail={user?.email} />}
+        {showTransfer   && <TransferAccountModal onClose={() => setShowTransfer(false)} currentUid={user?.uid} currentEmail={user?.email} onLogout={onLogout} />}
         {showAddAccount && <AddAccountModal      onClose={() => setShowAddAccount(false)} currentUid={user?.uid} />}
       </div>
     </div>

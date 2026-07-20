@@ -742,7 +742,7 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onR
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Hello!"
+          placeholder="Send a message..."
           style={{
             flex: 1, background: "#e8e8e8", border: "none", borderRadius: "24px",
             padding: isMobile ? "8px 14px" : "10px 18px",

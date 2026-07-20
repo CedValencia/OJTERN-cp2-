@@ -317,7 +317,7 @@ const StatCard = ({ label, value, bg = "rgba(0,0,0,0.15)", onView }) => (
 const DashboardContent = ({ onNavigate, onViewCompany, onViewRegistered, coordinatorUid, recentVisited = [] }) => {
   const [recentRegistered, setRecentRegistered] = React.useState([]);
   const [totalStudents,    setTotalStudents]    = React.useState(null);
-  const [deployedStudents, setDeployedStudents] = React.useState(null);
+  const [acceptedStudents, setAcceptedStudents] = React.useState(null);
 
   React.useEffect(() => {
     if (!coordinatorUid) return;
@@ -338,13 +338,14 @@ const DashboardContent = ({ onNavigate, onViewCompany, onViewRegistered, coordin
       setTotalStudents(snap.size);
     });
 
-    // 3. Deployed students
-    const deployedQ = query(collection(db, "students"), where("companyId", "!=", null));
-    const unsubDeployed = onSnapshot(deployedQ, (snap) => {
-      setDeployedStudents(snap.size);
+    // 3. Accepted students — counted from applications whose status is "Accepted"
+    //    (capitalized — matches STATUS_OPTIONS in CompanyApplicantsScreen.jsx)
+    const acceptedQ = query(collection(db, "applications"), where("status", "==", "Accepted"));
+    const unsubAccepted = onSnapshot(acceptedQ, (snap) => {
+      setAcceptedStudents(snap.size);
     });
 
-    return () => { unsubCompany(); unsubStudents(); unsubDeployed(); };
+    return () => { unsubCompany(); unsubStudents(); unsubAccepted(); };
   }, [coordinatorUid]);
 
   return (
@@ -377,8 +378,8 @@ const DashboardContent = ({ onNavigate, onViewCompany, onViewRegistered, coordin
               onView={() => onNavigate("studentlist")}
             />
             <StatCard
-              label="Deployed Students"
-              value={deployedStudents}
+              label="Accepted Students"
+              value={acceptedStudents}
               bg="rgba(89,1,1,0.35)"
               onView={() => onNavigate("studentlist")}
             />

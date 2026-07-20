@@ -51,12 +51,21 @@ const YEAR_SECTIONS = [
   "4-A","4-B","4-C","4-D","4-E", "4-F",
 ];
 
-const SEX_OPTIONS = ["Male", "Female", "Prefer not to say"];
+const SEX_OPTIONS = ["Male", "Female"];
 
 const SUFFIX_OPTIONS = ["Jr.", "Sr.", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"];
 
 const EXCEL_COLUMNS = [
   "Student ID", "Full Name", "Default Password"
+];
+
+// Columns for the bulk-IMPORT template — separate from EXCEL_COLUMNS above,
+// which is only for the 3-column credentials export. Order must match the
+// row[0..10] indices read in ImportModal.parseFile below.
+const IMPORT_TEMPLATE_COLUMNS = [
+  "Student ID", "Last Name", "Middle Initial", "First Name",
+  "College Code", "Program Code", "Major/Specialization (or N/A)",
+  "Year & Section", "Sex", "Age", "Email",
 ];
 
 const NAME_REGEX = /^[A-Za-zÑñ][A-Za-zÑñ\s\-]*$/;
@@ -350,10 +359,10 @@ const exportToXLSX = (students) => {
 
 const downloadTemplateXLSX = () => {
   const rows = [
-    EXCEL_COLUMNS,
+    IMPORT_TEMPLATE_COLUMNS,
     [
       "e.g. 201112345", "e.g. Dela Cruz", "e.g. M.", "e.g. Juan",
-      "e.g. College of Education", "e.g. Bachelor of Secondary Education",
+      "e.g. CED", "e.g. BSED (Major in English)",
       "e.g. Major in English or N/A", "e.g. 4-A", "e.g. Male", "e.g. 21",
       "e.g. juandelacruz@gmail.com",
     ],
@@ -365,12 +374,12 @@ const downloadTemplateXLSX = () => {
   ];
   // Note: 11 columns now (added Major), ref updated below
   for (let r = 2; r < 200; r++) {
-    for (let c = 0; c < EXCEL_COLUMNS.length; c++) {
+    for (let c = 0; c < IMPORT_TEMPLATE_COLUMNS.length; c++) {
       const cell = XLSX.utils.encode_cell({ r, c });
       ws[cell] = { t: "s", v: "", s: { protection: { locked: false } } };
     }
   }
-  for (let c = 0; c < EXCEL_COLUMNS.length; c++) {
+  for (let c = 0; c < IMPORT_TEMPLATE_COLUMNS.length; c++) {
     const headerCell = XLSX.utils.encode_cell({ r: 0, c });
     if (ws[headerCell]) {
       ws[headerCell].s = {
@@ -381,7 +390,7 @@ const downloadTemplateXLSX = () => {
       };
     }
   }
-  for (let c = 0; c < EXCEL_COLUMNS.length; c++) {
+  for (let c = 0; c < IMPORT_TEMPLATE_COLUMNS.length; c++) {
     const cell = XLSX.utils.encode_cell({ r: 1, c });
     ws[cell].s = {
       fill: { patternType: "solid", fgColor: { rgb: "FFFFFF" } },
@@ -675,7 +684,7 @@ const ImportModal = ({ onClose, onImport }) => {
       if (rows.length < 2) { setPreview({ valid: [], rowErrors: ["The file has no data rows."], headerErrors: [] }); setParsing(false); return; }
       const headerRow = rows[0].map(h => String(h).trim());
       const headerErrors = [];
-      EXCEL_COLUMNS.forEach((expected, i) => { if (headerRow[i] !== expected) headerErrors.push(`Column ${i + 1}: expected "${expected}", found "${headerRow[i] || "(empty)"}"`); });
+      IMPORT_TEMPLATE_COLUMNS.forEach((expected, i) => { if (headerRow[i] !== expected) headerErrors.push(`Column ${i + 1}: expected "${expected}", found "${headerRow[i] || "(empty)"}"`); });
       if (headerErrors.length > 0) { setPreview({ valid: [], rowErrors: [], headerErrors }); setParsing(false); return; }
       const rowErrors = []; const valid = [];
       rows.slice(1).forEach((row, i) => {
@@ -728,7 +737,7 @@ const ImportModal = ({ onClose, onImport }) => {
           {fileError && <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.8rem", color: "crimson", marginTop: "8px" }}>{fileError}</p>}
           <div style={{ background: "#f0e8e8", borderRadius: "10px", padding: "10px 14px", marginTop: "12px" }}>
             <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.73rem", color: darkRed, fontWeight: 700, marginBottom: "4px" }}>Required columns (in order):</p>
-            <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.7rem", color: "#555", lineHeight: 1.7 }}>{EXCEL_COLUMNS.join(" | ")}</p>
+            <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.7rem", color: "#555", lineHeight: 1.7 }}>{IMPORT_TEMPLATE_COLUMNS.join(" | ")}</p>
           </div>
           <div style={{ marginTop: "10px", display: "flex", justifyContent: "flex-start" }}>
             <button onClick={downloadTemplateXLSX} style={{ background: darkRed, border: "none", borderRadius: "20px", padding: "8px 16px", color: "white", fontFamily: "'Kufam', sans-serif", fontSize: "0.78rem", cursor: "pointer", fontWeight: 600 }}>Download XLSX Template</button>
