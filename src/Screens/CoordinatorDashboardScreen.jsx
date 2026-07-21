@@ -2,14 +2,14 @@ import React, { useState, useEffect } from "react";
 import { changePassword, logOut } from "./AuthService";
 import { collection, query, where, orderBy, limit, onSnapshot, doc, updateDoc } from "firebase/firestore";
 import { db } from "./firebase";
-import { PersonalInfoScreen } from "./CoordinatorAccountProfileScreen";
+import { PersonalInfoScreen, ResponsiveStyles } from "./CoordinatorAccountProfileScreen";
 
 import CoordinatorStudentsAcccountScreen      from "./CoordinatorStudentsAcccountScreen";
 import CoordinatorStudentListScreen from "./CoordinatorStudentListScreen";
 import CoordinatorCompanyListScreen       from "./CoordinatorCompanyListScreen";
 import CoordinatorMessagesScreen          from "./CoordinatorMessagesScreen";
 import CoordinatorAccountProfileScreen    from "./CoordinatorAccountProfileScreen";
-import CoordinatorFindCompanyScreen       from "./CoordinatorFindCompanyScreen";
+import CoordinatorViewCompanyScreen       from "./CoordinatorFindCompanyScreen";
 import CoordinatorReportCompanyScreen, { ReportDetailModal } from "./CoordinatorReportCompanyScreen";
 import AboutScreen from "./AboutScreen";
 
@@ -317,7 +317,7 @@ const StatCard = ({ label, value, bg = "rgba(0,0,0,0.15)", onView }) => (
 const DashboardContent = ({ onNavigate, onViewCompany, onViewRegistered, coordinatorUid, recentVisited = [] }) => {
   const [recentRegistered, setRecentRegistered] = React.useState([]);
   const [totalStudents,    setTotalStudents]    = React.useState(null);
-  const [acceptedStudents, setAcceptedStudents] = React.useState(null);
+  const [deployedStudents, setDeployedStudents] = React.useState(null);
 
   React.useEffect(() => {
     if (!coordinatorUid) return;
@@ -338,14 +338,13 @@ const DashboardContent = ({ onNavigate, onViewCompany, onViewRegistered, coordin
       setTotalStudents(snap.size);
     });
 
-    // 3. Accepted students — counted from applications whose status is "Accepted"
-    //    (capitalized — matches STATUS_OPTIONS in CompanyApplicantsScreen.jsx)
-    const acceptedQ = query(collection(db, "applications"), where("status", "==", "Accepted"));
-    const unsubAccepted = onSnapshot(acceptedQ, (snap) => {
-      setAcceptedStudents(snap.size);
+    // 3. Deployed students
+    const deployedQ = query(collection(db, "students"), where("companyId", "!=", null));
+    const unsubDeployed = onSnapshot(deployedQ, (snap) => {
+      setDeployedStudents(snap.size);
     });
 
-    return () => { unsubCompany(); unsubStudents(); unsubAccepted(); };
+    return () => { unsubCompany(); unsubStudents(); unsubDeployed(); };
   }, [coordinatorUid]);
 
   return (
@@ -378,8 +377,8 @@ const DashboardContent = ({ onNavigate, onViewCompany, onViewRegistered, coordin
               onView={() => onNavigate("studentlist")}
             />
             <StatCard
-              label="Accepted Students"
-              value={acceptedStudents}
+              label="Deployed Students"
+              value={deployedStudents}
               bg="rgba(89,1,1,0.35)"
               onView={() => onNavigate("studentlist")}
             />
@@ -448,33 +447,33 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
   const [placementTargetCompanyId, setPlacementTargetCompanyId] = useState(null);
   const [dashboardCompanyId, setDashboardCompanyId]             = useState(null);
   const [dashboardTarget, setDashboardTarget]                   = useState(null);
-  // ── First-login forced flow ────────────────────────────────────────────────
-  // Step 1 (reset password): shown if passwordChanged is false
-  // Step 2 (edit personal info): shown if passwordChanged is true but profileComplete is false
-  // After step 1, user is signed out and must log in again → step 2 shows on next login
   const [showChangePass, setShowChangePass] = useState(!user?.passwordChanged);
   const [showEditInfo,   setShowEditInfo]   = useState(!!user?.passwordChanged && !user?.profileComplete);
-  const [newPass, setNewPass]                                   = useState("");
-  const [confirmPass, setConfirmPass]                           = useState("");
-  const [passError, setPassError]                               = useState("");
-  const [passLoading, setPassLoading]                           = useState(false);
-  const [showNew, setShowNew]                                   = useState(false);
-  const [showConfirm, setShowConfirm]                           = useState(false);
+  const [currentPass, setCurrentPass]       = useState("");
+  const [newPass, setNewPass]               = useState("");
+  const [confirmPass, setConfirmPass]       = useState("");
+  const [passError, setPassError]           = useState("");
+  const [passLoading, setPassLoading]       = useState(false);
+  const [showNew, setShowNew]               = useState(false);
+  const [showConfirm, setShowConfirm]       = useState(false);
 
   const handleChangePassword = async () => {
     setPassError("");
+    if (!currentPass) { setPassError("Please enter your current password."); return; }
     if (!newPass) { setPassError("Please enter a new password."); return; }
     if (newPass.length < 8) { setPassError("Password must be at least 8 characters."); return; }
     if (newPass !== confirmPass) { setPassError("Passwords do not match."); return; }
     setPassLoading(true);
     try {
-      await changePassword(newPass, "coordinators", user?.uid);
-      // Sign out after reset — coordinator must log in again with new password.
-      // On next login, passwordChanged: true + !profileComplete → Personal Info screen appears.
+      await changePassword(currentPass, newPass, "coordinators", user?.uid);
       await logOut();
       onLogout?.();
     } catch (err) {
-      setPassError(err.message || "Failed to change password.");
+      if (err.code === "auth/wrong-password" || err.code === "auth/invalid-credential") {
+        setPassError("Incorrect current password.");
+      } else {
+        setPassError(err.message || "Failed to change password.");
+      }
     } finally {
       setPassLoading(false);
     }
@@ -540,7 +539,7 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
     );
 
     if (activeNav === "viewcompany") return (
-      <CoordinatorFindCompanyScreen
+      <CoordinatorViewCompanyScreen
         onReportSubmit={handleReportSubmit}
         onNavigateToReports={() => navigate("reportcompany")}
         onMessageNow={handleMessageNow}
@@ -683,6 +682,7 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
       {/* ── Forced first-login flow: reset password, then complete profile ── */}
       <ChangePasswordModal
         show={showChangePass}
+        currentPass={currentPass} setCurrentPass={setCurrentPass}
         newPass={newPass} setNewPass={setNewPass}
         confirmPass={confirmPass} setConfirmPass={setConfirmPass}
         passError={passError} setPassError={setPassError}
@@ -699,13 +699,14 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
         }}>
           <div style={{
             width: "100%", maxWidth: "520px",
-            maxHeight: "85vh",
+            height: "85vh",
             background: "#590101",
             borderRadius: "24px",
             overflow: "hidden",
             display: "flex", flexDirection: "column",
             boxShadow: "0 16px 48px rgba(0,0,0,0.4)",
           }}>
+            <ResponsiveStyles />
             <PersonalInfoScreen
               user={user}
               mandatory
@@ -718,8 +719,26 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
   );
 };
 
-const ChangePasswordModal = ({ show, newPass, setNewPass, confirmPass, setConfirmPass, passError, setPassError, passLoading, handleChangePassword, showNew, setShowNew, showConfirm, setShowConfirm }) => {
+const ChangePasswordModal = ({ show, currentPass, setCurrentPass, newPass, setNewPass, confirmPass, setConfirmPass, passError, setPassError, passLoading, handleChangePassword, showNew, setShowNew, showConfirm, setShowConfirm }) => {
+  const [showCurrent, setShowCurrent] = useState(false);
+
   if (!show) return null;
+
+  const inputStyle = (hasError) => ({
+    width: "100%", padding: "10px 44px 10px 16px", background: "#590101",
+    border: hasError ? "1.5px solid red" : "none", borderRadius: "20px",
+    color: "white", fontSize: "0.88rem", fontFamily: "'Kufam', sans-serif",
+    outline: "none", boxSizing: "border-box",
+  });
+
+  const EyeBtn = ({ show: s, onToggle }) => (
+    <span onClick={onToggle} style={{ position: "absolute", right: "14px", top: "50%", transform: "translateY(-50%)", cursor: "pointer" }}>
+      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        {s ? <><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></> : <><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></>}
+      </svg>
+    </span>
+  );
+
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 9999, background: "rgba(0,0,0,0.65)", display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" }}>
       <div style={{ background: "white", borderRadius: "24px", border: "2px solid #1a1a1a", overflow: "hidden", width: "100%", maxWidth: "370px", boxShadow: "0 8px 32px rgba(0,0,0,0.3)" }}>
@@ -730,26 +749,36 @@ const ChangePasswordModal = ({ show, newPass, setNewPass, confirmPass, setConfir
           <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#555", textAlign: "center", marginBottom: "16px", lineHeight: 1.6 }}>
             For your security, please change your password before continuing.
           </p>
+
+          {/* Current Password */}
+          <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.8rem", fontWeight: 700, color: "#333", marginBottom: "4px" }}>Current Password:</p>
+          <div style={{ position: "relative", marginBottom: "10px" }}>
+            <input type={showCurrent ? "text" : "password"} placeholder="Enter Current Password:" value={currentPass}
+              onChange={e => { setCurrentPass(e.target.value); setPassError(""); }}
+              style={inputStyle(passError)} />
+            <EyeBtn show={showCurrent} onToggle={() => setShowCurrent(p => !p)} />
+          </div>
+
+          <hr style={{ border: "none", borderTop: "1px solid #eee", margin: "12px 0" }} />
+
+          {/* New Password */}
+          <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.8rem", fontWeight: 700, color: "#333", marginBottom: "4px" }}>New Password:</p>
           <div style={{ position: "relative", marginBottom: "10px" }}>
             <input type={showNew ? "text" : "password"} placeholder="Enter New Password:" value={newPass}
               onChange={e => { setNewPass(e.target.value); setPassError(""); }}
-              style={{ width: "100%", padding: "10px 44px 10px 16px", background: "#590101", border: passError ? "1.5px solid red" : "none", borderRadius: "20px", color: "white", fontSize: "0.88rem", fontFamily: "'Kufam', sans-serif", outline: "none", boxSizing: "border-box" }} />
-            <span onClick={() => setShowNew(p => !p)} style={{ position: "absolute", right: "14px", top: "50%", transform: "translateY(-50%)", cursor: "pointer" }}>
-              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                {showNew ? <><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></> : <><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></>}
-              </svg>
-            </span>
+              style={inputStyle(passError)} />
+            <EyeBtn show={showNew} onToggle={() => setShowNew(p => !p)} />
           </div>
+
+          {/* Confirm New Password */}
+          <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.8rem", fontWeight: 700, color: "#333", marginBottom: "4px" }}>Confirm New Password:</p>
           <div style={{ position: "relative", marginBottom: "4px" }}>
             <input type={showConfirm ? "text" : "password"} placeholder="Confirm New Password:" value={confirmPass}
               onChange={e => { setConfirmPass(e.target.value); setPassError(""); }}
-              style={{ width: "100%", padding: "10px 44px 10px 16px", background: "#590101", border: passError ? "1.5px solid red" : "none", borderRadius: "20px", color: "white", fontSize: "0.88rem", fontFamily: "'Kufam', sans-serif", outline: "none", boxSizing: "border-box" }} />
-            <span onClick={() => setShowConfirm(p => !p)} style={{ position: "absolute", right: "14px", top: "50%", transform: "translateY(-50%)", cursor: "pointer" }}>
-              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                {showConfirm ? <><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></> : <><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></>}
-              </svg>
-            </span>
+              style={inputStyle(passError)} />
+            <EyeBtn show={showConfirm} onToggle={() => setShowConfirm(p => !p)} />
           </div>
+
           {passError && <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.78rem", color: "red", margin: "4px 0 8px 4px" }}>⚠️ {passError}</p>}
           <hr style={{ border: "none", borderTop: "1.5px solid #ddd", margin: "16px 0" }} />
           <div style={{ textAlign: "center" }}>

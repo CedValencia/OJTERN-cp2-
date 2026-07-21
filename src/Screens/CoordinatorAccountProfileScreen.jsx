@@ -1608,4 +1608,4 @@ const CoordinatorAccountProfileScreen = ({ user, onLogout }) => {
 };
 
 export default CoordinatorAccountProfileScreen;
-export { PersonalInfoScreen };
+export { PersonalInfoScreen, ResponsiveStyles };
