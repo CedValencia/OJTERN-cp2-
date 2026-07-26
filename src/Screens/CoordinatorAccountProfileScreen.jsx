@@ -509,7 +509,6 @@ const AddAccountModal = ({ onClose, currentUid }) => {
     if (!name.trim()) e.name = "Name is required.";
     if (!sex) e.sex = "Select sex.";
     if (!contact.match(/^\+63 \d{3}-\d{3}-\d{4}$/)) e.contact = "Format: +63 000-000-0000";
-    if (!email.endsWith("@gmail.com")) e.email = "Must be a @gmail.com email.";
     if (!address.trim()) e.address = "Address is required.";
     if (password.length < 8) e.password = "Minimum 8 characters.";
     if (password !== confirm) e.confirm = "Passwords do not match.";
@@ -765,7 +764,6 @@ const PersonalInfoScreen = ({ user, onBack, onSaved, mandatory = false }) => {
 
   const validateEmail = (val) => {
     if (!val || !val.trim()) return "Email is required.";
-    if (!val.toLowerCase().endsWith("@gmail.com")) return "Must be a @gmail.com email.";
     return "";
   };
 

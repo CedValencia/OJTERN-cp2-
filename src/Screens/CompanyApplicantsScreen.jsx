@@ -29,6 +29,20 @@ const STATUS_COLORS = {
   "To Interview": { bg: "#6B21A8", color: "white" },
 };
 
+// Forward-only progression order. "Declined" isn't part of the sequence since
+// an applicant can be declined from any non-final stage.
+const STATUS_RANK = { "Pending": 0, "In Review": 1, "To Interview": 2, "Accepted": 3 };
+
+// An applicant can only move forward through the sequence (or be declined at
+// any point) — never back to an earlier status. Accepted/Declined are final
+// and are handled separately via the `locked` prop.
+const getDisabledStatusOptions = (currentStatus) => {
+  if (!(currentStatus in STATUS_RANK)) return [];
+  return STATUS_OPTIONS.filter(
+    opt => opt in STATUS_RANK && STATUS_RANK[opt] < STATUS_RANK[currentStatus]
+  );
+};
+
 const DROPDOWN_ITEM_HEIGHT = 38;
 const DROPDOWN_PADDING = 20;
 const DROPDOWN_HEIGHT = STATUS_OPTIONS.length * DROPDOWN_ITEM_HEIGHT + DROPDOWN_PADDING;
@@ -320,7 +334,7 @@ const StudentAvatar = ({ size = 42 }) => (
 );
 
 // ── StatusDropdown ─────────────────────────────────────────────────────────────
-const StatusDropdown = ({ status, onChange, open, setOpen, locked = false }) => {
+const StatusDropdown = ({ status, onChange, open, setOpen, locked = false, disabledOptions = [] }) => {
   const ref = useRef(null);
   const current = STATUS_COLORS[status] || { bg: "#888", color: "white" };
 
@@ -363,20 +377,24 @@ const StatusDropdown = ({ status, onChange, open, setOpen, locked = false }) => 
           {STATUS_OPTIONS.map(opt => {
             const sc = STATUS_COLORS[opt];
             const isActive = opt === status;
+            const isDisabled = !isActive && disabledOptions.includes(opt);
             return (
               <div
                 key={opt}
-                onClick={() => { onChange(opt); setOpen(false); }}
+                onClick={() => { if (isDisabled) return; onChange(opt); setOpen(false); }}
                 style={{
                   background: isActive ? sc.bg : "transparent",
                   color: isActive ? "white" : sc.bg,
                   borderRadius: "20px", padding: "5px 12px",
                   fontFamily: "'Jua', sans-serif", fontSize: "0.82rem",
-                  fontWeight: "500", cursor: "pointer", textAlign: "center",
+                  fontWeight: "500", cursor: isDisabled ? "not-allowed" : "pointer", textAlign: "center",
                   whiteSpace: "nowrap", transition: "background 0.12s, color 0.12s", userSelect: "none",
+                  opacity: isDisabled ? 0.55 : 1,
+                  textDecoration: isDisabled ? "line-through" : "none",
                 }}
-                onMouseEnter={e => { e.currentTarget.style.background = sc.bg; e.currentTarget.style.color = "white"; }}
+                onMouseEnter={e => { if (isDisabled) return; e.currentTarget.style.background = sc.bg; e.currentTarget.style.color = "white"; }}
                 onMouseLeave={e => {
+                  if (isDisabled) return;
                   e.currentTarget.style.background = isActive ? sc.bg : "transparent";
                   e.currentTarget.style.color = isActive ? "white" : sc.bg;
                 }}
@@ -558,6 +576,7 @@ const PersonalDetailsModal = ({ applicant, onClose, onStatusChange, onMessage })
                     open={dropdownOpen}
                     setOpen={setDropdownOpen}
                     locked={applicant.status === "Accepted" || applicant.status === "Declined"}
+                    disabledOptions={getDisabledStatusOptions(applicant.status)}
                   />
                 </div>
                 {(applicant.status === "Accepted" || applicant.status === "Declined") && (
@@ -890,11 +909,16 @@ const CompanyApplicantsScreen = ({ embedded = false, onNavigateToMessages, user 
   });
 
   const handleStatusChange = async (id, newStatus) => {
-    // Once a company has accepted an applicant, the decision is final —
-    // block any further status changes even if called directly.
     const current = applicants.find(a => a.id === id);
+    // Accepted/Declined are final — no further changes.
     if (current?.status === "Accepted" || current?.status === "Declined") {
       console.warn(`Blocked status change: applicant already ${current.status}.`);
+      return;
+    }
+    // Block backward moves (e.g. In Review -> Pending). Declined is always
+    // allowed since an applicant can be declined at any stage.
+    if (newStatus !== "Declined" && getDisabledStatusOptions(current?.status).includes(newStatus)) {
+      console.warn(`Blocked status change: cannot revert from ${current?.status} back to ${newStatus}.`);
       return;
     }
     // Optimistic local update

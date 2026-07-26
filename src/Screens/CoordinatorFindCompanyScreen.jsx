@@ -584,7 +584,12 @@ const CoordinatorFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onM
 
   useEffect(() => {
     if (initialCompanyId && companies.length > 0) {
-      const company = companies.find(c => c.id === initialCompanyId);
+      // Prefer an exact match on the post itself (e.g. the specific post that
+      // accepted a student). Only fall back to matching by companyId if no
+      // post carries that id directly, so we don't accidentally land on the
+      // wrong post when a company has more than one.
+      const company = companies.find(c => c.id === initialCompanyId)
+        || companies.find(c => c.companyId === initialCompanyId);
       if (company) { setSelectedCompany(company); setView("profile"); onVisitCompany?.({ id: company.id, name: company.companyName || company.name }); }
       if (onClearInitialCompany) onClearInitialCompany();
     }

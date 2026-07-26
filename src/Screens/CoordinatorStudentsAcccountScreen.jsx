@@ -337,7 +337,6 @@ const validators = {
   },
   email: (v) => {
     if (!v) return "Required";
-    if (!GMAIL_REGEX.test(v)) return "Must be @gmail.com";
     return "";
   },
 
@@ -352,6 +351,36 @@ const exportToXLSX = (students) => {
   });
   const ws = XLSX.utils.aoa_to_sheet(rows);
   ws["!cols"] = [{ wch: 16 }, { wch: 30 }, { wch: 24 }];
+
+  const cellBorder = {
+    top:    { style: "thin", color: { rgb: "000000" } },
+    bottom: { style: "thin", color: { rgb: "000000" } },
+    left:   { style: "thin", color: { rgb: "000000" } },
+    right:  { style: "thin", color: { rgb: "000000" } },
+  };
+
+  // Header row — bold + bordered
+  for (let c = 0; c < EXCEL_COLUMNS.length; c++) {
+    const headerCell = XLSX.utils.encode_cell({ r: 0, c });
+    if (ws[headerCell]) {
+      ws[headerCell].s = {
+        font: { bold: true },
+        border: cellBorder,
+        alignment: { horizontal: "left", vertical: "center" },
+      };
+    }
+  }
+
+  // Data rows — bordered
+  for (let r = 1; r <= students.length; r++) {
+    for (let c = 0; c < EXCEL_COLUMNS.length; c++) {
+      const cell = XLSX.utils.encode_cell({ r, c });
+      if (ws[cell]) {
+        ws[cell].s = { border: cellBorder, alignment: { vertical: "center" } };
+      }
+    }
+  }
+
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Student Credentials");
   XLSX.writeFile(wb, "student_credentials.xlsx");
@@ -452,7 +481,7 @@ const useField = (initial = "", validatorKey) => {
 };
 
 // ── Student Form ───────────────────────────────────────────────────────────────
-const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submitLabel = "CREATE ACCOUNT" }) => {
+const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submitLabel = "CREATE ACCOUNT", coordinatorColleges = [] }) => {
   const studentId     = useField(initial.studentId || "", "studentId");
   const lastName      = useField(initial.lastName || "", "lastName");
   const middleInitial = useField(initial.middleInitial || "", "middleInitial");
@@ -462,7 +491,17 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
   const yearSection   = useField(initial.yearSection || "", "yearSection");
   const age           = useField(initial.age || "", "age");
   const email         = useField(initial.email || "", "email");
-  const [college, setCollege] = useState(initial.college || "");
+
+  // New students are always created under one of the coordinator's own
+  // assigned department(s) — it's not a free choice of ALL colleges anymore.
+  // The specific program within that department is a free choice, though:
+  // all coordinators of the same college (e.g. all of CED) see and manage
+  // the same students regardless of program/major.
+  // Default to the single assigned college if there's only one; existing
+  // students being edited keep whatever college they already have.
+  const [college, setCollege] = useState(
+    initial.college || (coordinatorColleges.length === 1 ? coordinatorColleges[0] : "")
+  );
   const [program, setProgram] = useState(initial.program || "");
   const [collegeTouched, setCollegeTouched] = useState(false);
   const [programTouched, setProgramTouched] = useState(false);
@@ -575,8 +614,30 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
           <div className="sl-college-grid">
             <div>
               <FieldLabel>Department:</FieldLabel>
-              <StyledSelect value={college} onChange={handleCollegeChange} options={Object.keys(COLLEGE_DATA).map(k => ({ value: k, label: COLLEGE_DATA[k].label }))} placeholder="Select department" disabled={locked} hasError={!!collegeError} />
-              <FieldError msg={collegeError} />
+              {/* Locked to the coordinator's own department(s) — never the
+                  full college list. Single department → static label so it
+                  can't be changed. Multiple → dropdown, but restricted to
+                  just the coordinator's assigned departments. */}
+              {coordinatorColleges.length > 1 && !locked ? (
+                <>
+                  <StyledSelect
+                    value={college}
+                    onChange={handleCollegeChange}
+                    options={coordinatorColleges.map(k => ({ value: k, label: COLLEGE_DATA[k]?.label || k }))}
+                    placeholder="Select your department"
+                    hasError={!!collegeError}
+                  />
+                  <FieldError msg={collegeError} />
+                </>
+              ) : (
+                <div style={{
+                  width: "100%", padding: "9px 14px", borderRadius: "10px",
+                  background: "#eee", color: "#555", fontFamily: "'Kufam', sans-serif",
+                  fontSize: "0.88rem", border: "1px solid #ddd",
+                }}>
+                  {college ? (COLLEGE_DATA[college]?.label || college) : "—"}
+                </div>
+              )}
             </div>
             <div>
               <FieldLabel>Program:</FieldLabel>
@@ -634,7 +695,7 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
 const ALL_COLLEGES = Object.keys(COLLEGE_DATA);
 const ALL_PROGRAMS = [...new Set(Object.values(COLLEGE_DATA).flatMap(c => c.programs || []))];
 
-const validateRow = (row, rowIndex) => {
+const validateRow = (row, rowIndex, coordinatorColleges = []) => {
   const errs = []; const r = rowIndex + 2;
   if (!row.studentId) errs.push(`Row ${r}: Student ID is required`);
   else if (!/^\d{9}$/.test(row.studentId)) errs.push(`Row ${r}: Student ID must be exactly 9 digits`);
@@ -643,10 +704,9 @@ const validateRow = (row, rowIndex) => {
   if (row.middleInitial && !/^[A-Z]\.$/.test(row.middleInitial.trim())) errs.push(`Row ${r}: Middle Initial must be format "X."`);
   if (!row.college) errs.push(`Row ${r}: College is required`);
   else if (ALL_COLLEGES.length > 0 && !ALL_COLLEGES.includes(row.college)) errs.push(`Row ${r}: College "${row.college}" is not valid`);
+  else if (coordinatorColleges.length > 0 && !coordinatorColleges.includes(row.college)) errs.push(`Row ${r}: College "${row.college}" is not one of your assigned departments — you can only import your own department's students`);
   if (!row.program) errs.push(`Row ${r}: Program is required`);
   else if (ALL_PROGRAMS.length > 0 && !ALL_PROGRAMS.includes(row.program)) errs.push(`Row ${r}: Program "${row.program}" is not valid`);
-  if (row.college && row.program) {
-  }
   if (!row.yearSection) errs.push(`Row ${r}: Year & Section is required`);
   else if (YEAR_SECTIONS.length > 0 && !YEAR_SECTIONS.includes(row.yearSection)) errs.push(`Row ${r}: Year & Section must be one of: ${YEAR_SECTIONS.join(", ")}`);
   if (!row.sex) errs.push(`Row ${r}: Sex is required`);
@@ -654,12 +714,11 @@ const validateRow = (row, rowIndex) => {
   if (!row.age) errs.push(`Row ${r}: Age is required`);
   else { const n = Number(row.age); if (!Number.isInteger(n) || n < 1 || n > 100) errs.push(`Row ${r}: Age must be 1–100`); }
   if (!row.email) errs.push(`Row ${r}: Email is required`);
-  else if (!GMAIL_REGEX.test(row.email.trim())) errs.push(`Row ${r}: Email must be @gmail.com`);
   return errs;
 };
 
 // ── Import Modal ───────────────────────────────────────────────────────────────
-const ImportModal = ({ onClose, onImport }) => {
+const ImportModal = ({ onClose, onImport, coordinatorColleges = [] }) => {
   const [dragging, setDragging] = useState(false);
   const [file, setFile] = useState(null);
   const [fileError, setFileError] = useState("");
@@ -690,7 +749,7 @@ const ImportModal = ({ onClose, onImport }) => {
       rows.slice(1).forEach((row, i) => {
         if (row.every(c => c === "" || c === null || c === undefined)) return;
         const student = { studentId: String(row[0]||"").trim(), lastName: String(row[1]||"").trim(), middleInitial: String(row[2]||"").trim(), firstName: String(row[3]||"").trim(), college: String(row[4]||"").trim(), program: String(row[5]||"").trim(), major: String(row[6]||"").trim(), specialization: String(row[6]||"").trim(), yearSection: String(row[7]||"").trim(), sex: String(row[8]||"").trim(), age: String(row[9]||"").trim(), email: String(row[10]||"").trim(), password: "" };
-        const errs = validateRow(student, i);
+        const errs = validateRow(student, i, coordinatorColleges);
         if (errs.length > 0) rowErrors.push(...errs); else valid.push(student);
       });
       setPreview({ valid, rowErrors, headerErrors: [] });
@@ -899,10 +958,20 @@ const mapStudentDoc = (docSnap) => {
   };
 };
 
+// True if a student's (college, program) matches one of the coordinator's
+// assigned (college, program) pairs. Needed on top of the college-only
+// Firestore filter because CED/CHM/CBA have multiple programs/majors under
+// one department — a coordinator is scoped to their specific program, not
+// every student in the whole department.
 // ── Main Screen ────────────────────────────────────────────────────────────────
 // Props:
-//   coordinatorUid — logged-in coordinator's Firebase UID
-const CoordinatorStudentsAcccountScreen = ({ coordinatorUid }) => {
+//   coordinatorUid      — logged-in coordinator's Firebase UID
+//   coordinatorColleges — array of college keys (e.g. ["CCS"]) derived from the
+//                         coordinator's deptSelections — a coordinator can be
+//                         assigned to more than one department. All
+//                         coordinators of the same college see the same
+//                         students, regardless of program/major.
+const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges }) => {
   const [students, setStudents]                 = useState([]);
   const [loading, setLoading]                   = useState(true);
   const [selected, setSelected]                 = useState(new Set());
@@ -915,16 +984,24 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid }) => {
   const [filters, setFilters]                   = useState({ college: "", program: "", sex: "", section: "" });
   const filterRef = useRef(null);
 
-  // ── Real-time listener: students created by this coordinator ───────────────
+  // ── Real-time listener: ALL students in this coordinator's department(s) ──
+  // Same scope as the Student List screen — every coordinator assigned to a
+  // given college (e.g. all of CED) manages the same pool of student
+  // accounts, regardless of which coordinator originally created them.
   useEffect(() => {
-    if (!coordinatorUid) return;
-    const q = query(collection(db, "students"), where("createdBy", "==", coordinatorUid));
+    if (!coordinatorUid || !coordinatorColleges || coordinatorColleges.length === 0) {
+      setStudents([]); setLoading(false); return;
+    }
+    const q = query(
+      collection(db, "students"),
+      where("college", "in", coordinatorColleges)
+    );
     const unsub = onSnapshot(q, (snap) => {
       setStudents(snap.docs.map(mapStudentDoc));
       setLoading(false);
     });
     return () => unsub();
-  }, [coordinatorUid]);
+  }, [coordinatorUid, coordinatorColleges]);
 
   // ── Close filter panel on outside click ───────────────────────────────────
   useEffect(() => {
@@ -1121,9 +1198,9 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid }) => {
         </div>
       </div>
 
-      {showNewModal    && <StudentForm onClose={() => setShowNewModal(false)} onSubmit={handleCreate} submitLabel="CREATE ACCOUNT" />}
-      {viewingStudent  && <StudentForm initial={viewingStudent} readOnly onClose={() => setViewingStudent(null)} onSubmit={handleSave} />}
-      {showImportModal && <ImportModal onClose={() => setShowImportModal(false)} onImport={handleImport} />}
+      {showNewModal    && <StudentForm coordinatorColleges={coordinatorColleges} onClose={() => setShowNewModal(false)} onSubmit={handleCreate} submitLabel="CREATE ACCOUNT" />}
+      {viewingStudent  && <StudentForm initial={viewingStudent} readOnly coordinatorColleges={coordinatorColleges} onClose={() => setViewingStudent(null)} onSubmit={handleSave} />}
+      {showImportModal && <ImportModal coordinatorColleges={coordinatorColleges} onClose={() => setShowImportModal(false)} onImport={handleImport} />}
 
       {/* ── Success modal after creating a student ── */}
       {successInfo && (

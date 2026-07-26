@@ -7,6 +7,15 @@ import userIcon from "../icons/user.png";
 const red = "#8B0000";
 const darkRed = "#590101";
 
+// Colors for the small status pill shown on each student row / placement modal
+const STATUS_COLORS = {
+  "Accepted":    { bg: "#4CAF50", color: "white" },
+  "Declined":    { bg: "#c0392b", color: "white" },
+  "Pending":     { bg: "#bbb",    color: "white" },
+  "In Review":   { bg: "#e0a800", color: "white" },
+  "To Interview":{ bg: "#5b8def", color: "white" },
+};
+
 // ── Responsive styles ─────────────────────────────────────────────────────────
 const ResponsiveStyles = () => (
   <style>{`
@@ -195,10 +204,13 @@ const PlacementModal = ({ student, onClose, onNavigateToCompany, companies }) =>
 
   useEffect(() => {
     if (!student?.id) return;
-    // Look for an accepted/pending application for this student
+    // Look for an accepted/pending application for this student — prefer
+    // the Accepted one if the student has more than one application.
     const q = query(collection(db, "applications"), where("studentId", "==", student.id));
     getDocs(q).then(snap => {
-      if (!snap.empty) setApplication(snap.docs[0].data());
+      if (snap.empty) return;
+      const docs = snap.docs.map(d => d.data());
+      setApplication(docs.find(a => a.status === "Accepted") || docs[0]);
     });
   }, [student?.id]);
 
@@ -225,21 +237,31 @@ const PlacementModal = ({ student, onClose, onNavigateToCompany, companies }) =>
             <span style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(1rem, 4vw, 1.35rem)", color: "#222" }}>{fullName}</span>
           </div>
 
-          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
-            <div style={{ flex: 1 }}>
-              <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.15rem", color: "#222", marginBottom: "4px" }}>Placement:</p>
+          <div>
+            <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.15rem", color: "#222", marginBottom: "4px" }}>Placement:</p>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px" }}>
               {company ? (
                 <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.88rem", color: "#777", marginBottom: "8px" }}>{company.name}</p>
               ) : (
                 <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.88rem", color: "#bbb", fontStyle: "italic", marginBottom: "8px" }}>{application ? "Application pending company approval" : "No company assigned yet"}</p>
               )}
+              {company && (
+                <div onClick={handleVisitCompany} style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer", marginBottom: "8px", flexShrink: 0 }}>
+                  <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.72rem", color: red, fontWeight: 600, whiteSpace: "nowrap" }}>Visit</span>
+                  <ViewIcon onClick={handleVisitCompany} />
+                </div>
+              )}
             </div>
-            {company && (
-              <div style={{ marginLeft: "16px", display: "flex", flexDirection: "column", alignItems: "center", gap: "4px" }}>
-                <ViewIcon onClick={handleVisitCompany} />
-                <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.65rem", color: "#aaa" }}>Visit</span>
-              </div>
-            )}
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.68rem", color: "#bbb" }}>Status:</span>
+              {application ? (
+                <span style={{ background: (STATUS_COLORS[application.status] || { bg: "#888" }).bg, color: (STATUS_COLORS[application.status] || { color: "white" }).color, borderRadius: "20px", padding: "2px 11px", fontSize: "0.7rem", fontFamily: "'Kufam', sans-serif", fontWeight: 700 }}>
+                  {application.status}
+                </span>
+              ) : (
+                <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.75rem", color: "#999", fontStyle: "italic" }}>No application yet</span>
+              )}
+            </div>
           </div>
 
           <div style={{ marginTop: "18px", padding: "12px 14px", background: "#fafafa", borderRadius: "10px", border: "1px solid #f0e0e0" }}>
@@ -250,7 +272,6 @@ const PlacementModal = ({ student, onClose, onNavigateToCompany, companies }) =>
                 { label: "College",        value: student.college,        full: true },
                 { label: "Program",        value: student.program,        full: true },
                 { label: "Year & Section", value: student.yearSection },
-                { label: "Application Status", value: application?.status || "No application yet", full: true },
               ].map(({ label, value, full }) => (
                 <div key={label} style={{ gridColumn: full ? "1 / -1" : "auto" }}>
                   <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.68rem", color: "#bbb", marginBottom: "2px" }}>{label}</p>
@@ -269,7 +290,7 @@ const FilterPanel = ({ filters, setFilters, filterRef }) => {
   const [expandedCollege, setExpandedCollege] = useState(filters.college || "");
 
   const allColleges        = Object.keys(COLLEGE_DATA);
-  const allPrograms        = expandedCollege ? Object.keys(COLLEGE_DATA[expandedCollege]?.programs || {}) : [];
+  const allPrograms        = expandedCollege ? (COLLEGE_DATA[expandedCollege]?.programs || []) : [];
   const allSpecializations = (expandedCollege && filters.program)
     ? (COLLEGE_DATA[expandedCollege]?.programs[filters.program]?.specializations || [])
     : [];
@@ -351,7 +372,7 @@ const FilterPanel = ({ filters, setFilters, filterRef }) => {
       {/* College → Program → Major */}
       <div style={{ padding: "6px 12px 10px" }}>
         <p style={{ fontSize: "0.78rem", fontWeight: "bold", color: darkRed, marginBottom: "6px" }}>
-          College:
+          Department:
           {expandedCollege && (
             <span style={{ fontWeight: "normal", color: "#888", marginLeft: "6px", fontSize: "0.68rem" }}>
               {[expandedCollege, filters.program].filter(Boolean).join(" › ")}
@@ -367,7 +388,7 @@ const FilterPanel = ({ filters, setFilters, filterRef }) => {
                   style={{ padding: "4px 8px", borderRadius: "6px", fontSize: "0.72rem", cursor: "pointer", background: "#f7f0f0", color: darkRed, border: "1px solid #e0c0c0" }}
                   onMouseEnter={e => e.currentTarget.style.background = "#f0d0d0"}
                   onMouseLeave={e => e.currentTarget.style.background = "#f7f0f0"}
-                >{col}</div>
+                >{COLLEGE_DATA[col]?.label || col}</div>
               ))
             ) : (
               <span style={{ fontSize: "0.72rem", color: "#bbb", fontStyle: "italic" }}>No colleges available</span>
@@ -415,7 +436,7 @@ const FilterPanel = ({ filters, setFilters, filterRef }) => {
   );
 };
 
-const CoordinatorStudentListScreen = ({ onNavigateToCompany }) => {
+const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany }) => {
   const [search, setSearch]                 = useState("");
   const [viewingStudent, setViewingStudent] = useState(null);
   const [showFilter, setShowFilter]         = useState(false);
@@ -426,15 +447,24 @@ const CoordinatorStudentListScreen = ({ onNavigateToCompany }) => {
   const [companies, setCompanies]   = useState([]);
   const [loadingStudents, setLoadingStudents] = useState(true);
 
-  // ── Load students ──────────────────────────────────────────────────────────
+  // ── Load students — scoped to this coordinator's own department(s). ──────
+  // NOTE: needs a Firestore composite index (college + createdAt) the first
+  // time it runs; Firestore will log a console link to auto-create it.
   useEffect(() => {
-    const q = query(collection(db, "students"), orderBy("createdAt", "desc"));
+    if (!coordinatorColleges || coordinatorColleges.length === 0) {
+      setStudents([]); setLoadingStudents(false); return;
+    }
+    const q = query(
+      collection(db, "students"),
+      where("college", "in", coordinatorColleges),
+      orderBy("createdAt", "desc")
+    );
     const unsub = onSnapshot(q, snap => {
       setStudents(snap.docs.map(d => ({ id: d.id, ...d.data() })));
       setLoadingStudents(false);
     }, () => setLoadingStudents(false));
     return () => unsub();
-  }, []);
+  }, [coordinatorColleges]);
 
   // ── Load companies ─────────────────────────────────────────────────────────
   useEffect(() => {
@@ -443,6 +473,7 @@ const CoordinatorStudentListScreen = ({ onNavigateToCompany }) => {
     });
     return () => unsub();
   }, []);
+
 
   useEffect(() => {
     const handler = (e) => {
@@ -524,7 +555,7 @@ const CoordinatorStudentListScreen = ({ onNavigateToCompany }) => {
             )}
             {filters.college && (
               <span style={{ background: "#f0e0e0", color: darkRed, border: `1px solid ${red}`, borderRadius: "20px", padding: "2px 10px", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif", display: "flex", alignItems: "center", gap: "5px" }}>
-                {[filters.college, filters.program, filters.specialization].filter(Boolean).join(" › ")}
+                {[filters.college ? (COLLEGE_DATA[filters.college]?.label || filters.college) : "", filters.program, filters.specialization].filter(Boolean).join(" › ")}
                 <span onClick={() => setFilters(prev => ({ ...prev, college: "", program: "", specialization: "" }))} style={{ cursor: "pointer", fontWeight: "bold" }}>×</span>
               </span>
             )}

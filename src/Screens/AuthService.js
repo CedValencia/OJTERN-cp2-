@@ -46,7 +46,12 @@ export const registerCompany = async (step1Data, verificationDocs) => {
   const email = rawEmail.trim().toLowerCase(); // normalize so Auth + Firestore always match
 
   // 1. Firebase Auth
-  const { user } = await createUserWithEmailAndPassword(auth, email, password);
+  let user;
+  try {
+    ({ user } = await createUserWithEmailAndPassword(auth, email, password));
+  } catch (err) {
+    throw new Error(getFriendlyAuthError(err));
+  }
 
   // 2. Firestore company doc
   await setDoc(doc(db, "companies", user.uid), {
@@ -62,6 +67,29 @@ export const registerCompany = async (step1Data, verificationDocs) => {
   });
 
   return user.uid;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Maps a raw Firebase Auth error code to a user-friendly message.
+// Falls back to a generic message instead of ever showing the raw
+// "Firebase: Error (auth/...)" string in the UI.
+// ─────────────────────────────────────────────────────────────────────────────
+const FRIENDLY_AUTH_ERRORS = {
+  "invalid-email":          "Invalid email address or password. Please check and try again.",
+  "user-not-found":         "Invalid credentials. Please check and try again.",
+  "wrong-password":         "Invalid credentials. Please check and try again.",
+  "invalid-credential":     "Invalid credentials. Please check and try again.",
+  "missing-password":       "Please enter your password.",
+  "too-many-requests":      "Too many failed attempts. Please try again later.",
+  "user-disabled":          "This account has been disabled. Please contact the administrator.",
+  "network-request-failed": "Network error. Please check your connection and try again.",
+  "email-already-in-use":   "An account with that email already exists.",
+  "weak-password":          "Password is too weak. Please use at least 6 characters.",
+};
+
+const getFriendlyAuthError = (err) => {
+  const code = (err.code || "").replace(/^auth\//, ""); // "auth/invalid-email" → "invalid-email"
+  return FRIENDLY_AUTH_ERRORS[code] || "Something went wrong. Please try again.";
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -115,14 +143,7 @@ export const signIn = async (role, emailOrStudentId, password) => {
   try {
     userCredential = await signInWithEmailAndPassword(auth, loginEmail.trim().toLowerCase(), password);
   } catch (err) {
-    if (
-      err.code === "auth/user-not-found"    ||
-      err.code === "auth/wrong-password"    ||
-      err.code === "auth/invalid-credential"
-    ) {
-      throw new Error("Invalid credentials. Please check and try again.");
-    }
-    throw err;
+    throw new Error(getFriendlyAuthError(err));
   }
 
   const { user } = userCredential;
@@ -131,7 +152,7 @@ export const signIn = async (role, emailOrStudentId, password) => {
   const userSnap = await getDoc(doc(db, collectionMap[role], user.uid));
   if (!userSnap.exists()) {
     await signOut(auth);
-    throw new Error("Account not found in the system. Please contact your administrator.");
+    throw new Error("Account not found.");
   }
 
   const userData = userSnap.data();
@@ -191,7 +212,11 @@ export const resetPassword = async (email) => {
 
   if (!found) throw new Error("No account found with that email address.");
 
-  await sendPasswordResetEmail(auth, normalized);
+  try {
+    await sendPasswordResetEmail(auth, normalized);
+  } catch (err) {
+    throw new Error(getFriendlyAuthError(err));
+  }
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -358,20 +383,44 @@ export const changePassword = async (currentPassword, newPassword, collectionNam
   try {
     await reauthenticateWithCredential(user, credential);
   } catch (err) {
+    // Log full details so we can see exactly what Firebase actually
+    // returned — some SDK versions throw a raw, uncoded error instead of
+    // a proper auth/wrong-password code when the backend's error format
+    // changes, which otherwise shows up in the UI as a cryptic crash.
+    console.error("[changePassword] reauthenticate failed:", {
+      code: err.code, name: err.name, message: err.message,
+      emailUsed: user.email, passwordLength: currentPassword?.length,
+    });
     if (
       err.code === "auth/wrong-password" ||
       err.code === "auth/invalid-credential"
     ) {
       throw new Error("Your current password is incorrect.");
     }
-    throw err;
+    // Any other failure (including raw SDK crashes with no .code) —
+    // still treat as a credential problem rather than leaking the
+    // internal error message to the user.
+    throw new Error("Your current password is incorrect.");
   }
 
   await updatePassword(user, newPassword);
 
-  await updateDoc(doc(db, collectionName, uid), {
-    passwordChanged: true,
-  });
+  try {
+    await updateDoc(doc(db, collectionName, uid), {
+      passwordChanged: true,
+    });
+  } catch (err) {
+    // If this fails (e.g. a Firestore rules issue), the password itself
+    // has ALREADY changed successfully above — but the app will keep
+    // showing the "Set New Password" screen forever since the flag
+    // never got set. Log full details so we can see exactly why.
+    console.error("[changePassword] updateDoc(passwordChanged) failed:", {
+      code: err.code, message: err.message, collectionName, uid,
+    });
+    throw new Error(
+      "Your password was changed, but we couldn't update your account status. Please contact support — do not try changing your password again."
+    );
+  }
 
   await signOut(auth);
 };
@@ -499,7 +548,12 @@ export const createCoordinatorAccount = async (accountData, inviterUid) => {
  */
 export const transferCoordinatorAccount = async (currentUid, currentEmail, currentPassword, newAccountData) => {
   // 1. Re-authenticate the current coordinator before doing anything irreversible
-  const { user: reauthedUser } = await signInWithEmailAndPassword(auth, currentEmail.trim().toLowerCase(), currentPassword);
+  let reauthedUser;
+  try {
+    ({ user: reauthedUser } = await signInWithEmailAndPassword(auth, currentEmail.trim().toLowerCase(), currentPassword));
+  } catch (err) {
+    throw new Error("Your current password is incorrect.");
+  }
 
   // 2. Load the current coordinator's scope to carry over
   const currentSnap = await getDoc(doc(db, "coordinators", currentUid));

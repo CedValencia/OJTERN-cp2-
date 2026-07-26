@@ -642,9 +642,10 @@ const mapDoc = (docSnap) => {
 // ── Main Screen ───────────────────────────────────────────────────────────────
 // Props:
 //   coordinatorUid  — the logged-in coordinator's Firebase UID
-const CoordinatorCompanyListScreen = ({ coordinatorUid }) => {
+const CoordinatorCompanyListScreen = ({ coordinatorUid, initialCompanyId, onClearInitialCompany, onBackToOrigin }) => {
   const [view, setView]                             = useState("list");
   const [selectedCompany, setSelectedCompany]       = useState(null);
+  const [cameFromDashboard, setCameFromDashboard]   = useState(false);
   const [registeredList, setRegisteredList]         = useState([]);
   const [reviewList, setReviewList]                 = useState([]);
   const [assignedIndustries, setAssignedIndustries] = useState([]);
@@ -691,6 +692,21 @@ const CoordinatorCompanyListScreen = ({ coordinatorUid }) => {
 
     return () => { unsubPending(); unsubApproved(); };
   }, [loadingIndustries, assignedIndustries]);
+
+  // ── Deep-link: jump straight to a company's profile when arriving here
+  //    with a specific initialCompanyId (e.g. from the dashboard's Recent
+  //    Registered Company card), instead of landing on the full list.
+  useEffect(() => {
+    if (!initialCompanyId) return;
+    const match = registeredList.find(c => c.id === initialCompanyId)
+               || reviewList.find(c => c.id === initialCompanyId);
+    if (match) {
+      setSelectedCompany(match);
+      setView("profile");
+      setCameFromDashboard(true);
+      onClearInitialCompany?.();
+    }
+  }, [initialCompanyId, registeredList, reviewList, onClearInitialCompany]);
 
   // Close filter panel on outside click
   useEffect(() => {
@@ -774,7 +790,14 @@ const CoordinatorCompanyListScreen = ({ coordinatorUid }) => {
         <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "white", position: "relative" }}>
           <CompanyProfileView
             company={selectedCompany}
-            onBack={() => setView("list")}
+            onBack={() => {
+              if (cameFromDashboard) {
+                onBackToOrigin?.();
+              } else {
+                setView("list");
+              }
+              setCameFromDashboard(false);
+            }}
             onAccept={handleAccept}
             onDeny={handleDeny}
           />
@@ -857,7 +880,7 @@ const CoordinatorCompanyListScreen = ({ coordinatorUid }) => {
             {filteredRegistered.length > 0 ? (
               <div className="clist-company-grid">
                 {filteredRegistered.map(c => (
-                  <CompanyCard key={c.id} company={c} isReview={false} onViewProfile={(company) => { setSelectedCompany(company); setView("profile"); }} />
+                  <CompanyCard key={c.id} company={c} isReview={false} onViewProfile={(company) => { setSelectedCompany(company); setView("profile"); setCameFromDashboard(false); }} />
                 ))}
               </div>
             ) : (
@@ -873,7 +896,7 @@ const CoordinatorCompanyListScreen = ({ coordinatorUid }) => {
             {filteredReview.length > 0 ? (
               <div className="clist-company-grid">
                 {filteredReview.map(c => (
-                  <CompanyCard key={c.id} company={c} isReview={true} onViewProfile={(company) => { setSelectedCompany(company); setView("profile"); }} />
+                  <CompanyCard key={c.id} company={c} isReview={true} onViewProfile={(company) => { setSelectedCompany(company); setView("profile"); setCameFromDashboard(false); }} />
                 ))}
               </div>
             ) : (

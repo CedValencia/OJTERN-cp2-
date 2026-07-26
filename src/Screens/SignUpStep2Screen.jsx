@@ -379,7 +379,18 @@ const SignUpStep2Screen = ({ onBack, onGoSignIn, onSubmitSuccess, step1Data }) =
       const uploadedUrls = await uploadFiles(files);
 
       // 2. Register via AuthService (creates Auth user + Firestore doc)
-      await registerCompany(step1Data, uploadedUrls);
+      // Normalize industry to an array — Firestore's "array-contains-any"
+      // query (used in the coordinator company list) requires the
+      // `industry` field to be an array, but Step 1's <select> only ever
+      // produces a single string.
+      const normalizedStep1Data = {
+        ...step1Data,
+        industry: Array.isArray(step1Data.industry)
+          ? step1Data.industry
+          : [step1Data.industry],
+      };
+
+      await registerCompany(normalizedStep1Data, uploadedUrls);
 
       onSubmitSuccess();
     } catch (err) {

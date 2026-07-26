@@ -550,7 +550,6 @@ const PostFormModal = ({ post, mode, onClose, onSave, user }) => {
 
   const validateGmail = (val) => {
     if (!val || !val.trim()) return "Email is required.";
-    if (!val.toLowerCase().endsWith("@gmail.com")) return "Email must end with @gmail.com";
     return "";
   };
 
