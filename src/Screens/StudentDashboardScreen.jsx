@@ -219,6 +219,89 @@ const EmptyListPlaceholder = ({ label = "No data available" }) => (
   </div>
 );
 
+// ── Notification bell + dropdown (application status update notifications) ────
+const NotificationBell = ({ items, open, onToggle }) => {
+  const unread = items.filter((n) => n.unread).length;
+  return (
+    <div style={{ position: "relative" }}>
+      <div style={{ cursor: "pointer", padding: "8px", position: "relative" }} onClick={onToggle} aria-label="Notifications">
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+          <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+        </svg>
+        {unread > 0 && (
+          <span style={{
+            position: "absolute", top: "3px", right: "3px",
+            minWidth: "16px", height: "16px", borderRadius: "8px",
+            background: "#ff3b30", color: "white", border: `1.5px solid ${darkRed}`,
+            fontFamily: "'Kufam', sans-serif", fontSize: "0.6rem", fontWeight: 700,
+            display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px",
+          }}>
+            {unread > 9 ? "9+" : unread}
+          </span>
+        )}
+      </div>
+
+      {open && (
+        <>
+          <div onClick={onToggle} style={{ position: "fixed", inset: 0, zIndex: 998 }} />
+          <div style={{
+            position: "absolute", top: "50px", right: 0, width: "320px", maxWidth: "88vw",
+            background: "white", borderRadius: "14px", overflow: "hidden",
+            boxShadow: "0 12px 32px rgba(0,0,0,0.3)", border: "1px solid #eee", zIndex: 999,
+          }}>
+            <div style={{ background: darkRed, padding: "12px 16px" }}>
+              <span style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.92rem", color: "white" }}>
+                Notifications
+              </span>
+            </div>
+            <div style={{ maxHeight: "360px", overflowY: "auto" }}>
+              {items.length === 0 ? (
+                <div style={{ padding: "28px 16px", textAlign: "center" }}>
+                  <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#aaa" }}>
+                    No notifications yet.
+                  </span>
+                </div>
+              ) : items.map((n) => (
+                <div
+                  key={n.id}
+                  onClick={n.onClick}
+                  style={{
+                    display: "flex", gap: "10px", alignItems: "flex-start",
+                    padding: "12px 16px", borderBottom: "1px solid #f0f0f0",
+                    cursor: "pointer", background: n.unread ? "rgba(139,0,0,0.06)" : "white",
+                  }}
+                >
+                  <div style={{
+                    width: "8px", height: "8px", borderRadius: "50%", marginTop: "5px", flexShrink: 0,
+                    background: n.unread ? "#8B0000" : "transparent",
+                  }} />
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", fontWeight: 700, color: "#222", marginBottom: "2px" }}>
+                      {n.title}
+                    </p>
+                    {n.subtitle && (
+                      <p style={{
+                        fontFamily: "'Kufam', sans-serif", fontSize: "0.75rem", color: "#666",
+                        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                      }}>
+                        {n.subtitle}
+                      </p>
+                    )}
+                    <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.68rem", color: "#8B0000", marginTop: "3px" }}>
+                      {timeAgo(n.time)}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+};
+
 // ── Sidebar nav list ───────────────────────────────────────────────────────────
 const SidebarNavList = ({ activeNav, onNavigate }) => (
   <>
@@ -386,8 +469,9 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
     } catch { return []; }
   });
   const [recentApplications, setRecentApplications] = useState([]);
+  const [allApplications, setAllApplications] = useState([]);
 
-  // Fetch recent applications from Firestore
+  // Fetch applications from Firestore (full list kept for notifications; top 5 shown on dashboard)
   useEffect(() => {
     if (!user?.uid) return;
     const q = query(
@@ -397,12 +481,46 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
     const unsub = onSnapshot(q, snap => {
       const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       docs.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+      setAllApplications(docs);
       setRecentApplications(docs.slice(0, 5));
     }, (err) => {
       console.error("Failed to load recent applications:", err);
     });
     return () => unsub();
   }, [user?.uid]);
+
+  // ── Notifications: application status updates (Accepted / Declined) ────────
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [lastSeenNotif, setLastSeenNotif] = useState(() => {
+    if (!user?.uid) return 0;
+    return Number(localStorage.getItem(`notif_lastSeen_student_${user.uid}`)) || 0;
+  });
+
+  const notifications = React.useMemo(() => {
+    return allApplications
+      .filter((a) => ["Accepted", "Declined", "Rejected"].includes(a.status))
+      .map((a) => ({
+        id: `app-${a.id}`,
+        time: (a.updatedAt?.seconds || a.createdAt?.seconds || 0) * 1000,
+        title: a.status === "Accepted" ? "Application accepted" : "Application declined",
+        subtitle: a.companyName || a.name || "",
+      }))
+      .sort((a, b) => b.time - a.time)
+      .slice(0, 30)
+      .map((n) => ({ ...n, unread: n.time > lastSeenNotif, onClick: () => { setNotifOpen(false); navigate("application"); } }));
+  }, [allApplications, lastSeenNotif]);
+
+  const toggleNotif = () => {
+    setNotifOpen((prev) => {
+      const next = !prev;
+      if (next) {
+        const now = Date.now();
+        setLastSeenNotif(now);
+        if (user?.uid) { try { localStorage.setItem(`notif_lastSeen_student_${user.uid}`, String(now)); } catch {} }
+      }
+      return next;
+    });
+  };
   const [initialCompanyId, setInitialCompanyId] = useState(null);
   const [applyCompany, setApplyCompany]         = useState(null);
   const [pendingContact, setPendingContact]     = useState(null);
@@ -568,12 +686,7 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
               </span>
             )}
           </div>
-          <div style={{ cursor: "pointer", padding: "8px" }}>
-            <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
-              <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
-            </svg>
-          </div>
+          <NotificationBell items={notifications} open={notifOpen} onToggle={toggleNotif} />
         </div>
 
         {/* ── Body ── */}

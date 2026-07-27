@@ -22,6 +22,17 @@ import aboutIcon         from "../icons/about.png";
 const red     = "#8B0000";
 const darkRed = "#590101";
 
+// ── Time ago helper ────────────────────────────────────────────────────────────
+const timeAgo = (ts) => {
+  if (!ts) return "";
+  const diff = Math.floor((Date.now() - ts) / 1000);
+  if (diff < 60)    return "Just now";
+  if (diff < 3600)  return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  if (diff < 604800) return `${Math.floor(diff / 86400)}d ago`;
+  return new Date(ts).toLocaleDateString([], { month: "short", day: "numeric" });
+};
+
 // ── Responsive breakpoint hook ─────────────────────────────────────────────────
 const useBreakpoint = () => {
   const [bp, setBp] = useState({ isMobile: false, isTablet: false, isDesktop: true });
@@ -247,6 +258,89 @@ const StatusBadge = ({ status }) => {
   );
 };
 
+// ── Notification bell + dropdown (new applicant notifications) ────────────────
+const NotificationBell = ({ items, open, onToggle }) => {
+  const unread = items.filter((n) => n.unread).length;
+  return (
+    <div style={{ position: "relative" }}>
+      <div style={{ cursor: "pointer", padding: "8px", position: "relative" }} onClick={onToggle} aria-label="Notifications">
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+          <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+        </svg>
+        {unread > 0 && (
+          <span style={{
+            position: "absolute", top: "3px", right: "3px",
+            minWidth: "16px", height: "16px", borderRadius: "8px",
+            background: "#ff3b30", color: "white", border: `1.5px solid ${darkRed}`,
+            fontFamily: "'Kufam', sans-serif", fontSize: "0.6rem", fontWeight: 700,
+            display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px",
+          }}>
+            {unread > 9 ? "9+" : unread}
+          </span>
+        )}
+      </div>
+
+      {open && (
+        <>
+          <div onClick={onToggle} style={{ position: "fixed", inset: 0, zIndex: 998 }} />
+          <div style={{
+            position: "absolute", top: "50px", right: 0, width: "320px", maxWidth: "88vw",
+            background: "white", borderRadius: "14px", overflow: "hidden",
+            boxShadow: "0 12px 32px rgba(0,0,0,0.3)", border: "1px solid #eee", zIndex: 999,
+          }}>
+            <div style={{ background: darkRed, padding: "12px 16px" }}>
+              <span style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.92rem", color: "white" }}>
+                Notifications
+              </span>
+            </div>
+            <div style={{ maxHeight: "360px", overflowY: "auto" }}>
+              {items.length === 0 ? (
+                <div style={{ padding: "28px 16px", textAlign: "center" }}>
+                  <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#aaa" }}>
+                    No notifications yet.
+                  </span>
+                </div>
+              ) : items.map((n) => (
+                <div
+                  key={n.id}
+                  onClick={n.onClick}
+                  style={{
+                    display: "flex", gap: "10px", alignItems: "flex-start",
+                    padding: "12px 16px", borderBottom: "1px solid #f0f0f0",
+                    cursor: "pointer", background: n.unread ? "rgba(139,0,0,0.06)" : "white",
+                  }}
+                >
+                  <div style={{
+                    width: "8px", height: "8px", borderRadius: "50%", marginTop: "5px", flexShrink: 0,
+                    background: n.unread ? "#8B0000" : "transparent",
+                  }} />
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", fontWeight: 700, color: "#222", marginBottom: "2px" }}>
+                      {n.title}
+                    </p>
+                    {n.subtitle && (
+                      <p style={{
+                        fontFamily: "'Kufam', sans-serif", fontSize: "0.75rem", color: "#666",
+                        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                      }}>
+                        {n.subtitle}
+                      </p>
+                    )}
+                    <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.68rem", color: "#8B0000", marginTop: "3px" }}>
+                      {timeAgo(n.time)}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+};
+
 // ── Empty state placeholder ────────────────────────────────────────────────────
 const EmptyListPlaceholder = ({ label = "No data available" }) => (
   <div style={{
@@ -392,10 +486,16 @@ const CompanyDashboardScreen = ({ user, onLogout }) => {
   const showDrawer = isMobile || isTablet;
 
   const [drawerOpen,     setDrawerOpen]     = useState(false);
-  const [activeNav,      setActiveNav]      = useState("dashboard");
+  const [activeNav,      setActiveNav]      = useState(() => sessionStorage.getItem("ojtern_company_nav") || "dashboard");
   const [applications,   setApplications]   = useState([]);
   const [posts,          setPosts]          = useState([]);
   const [pendingContact, setPendingContact] = useState(null);
+
+  // Keep sessionStorage in sync so a page refresh reopens the same module
+  // instead of always bouncing back to Dashboard.
+  useEffect(() => {
+    sessionStorage.setItem("ojtern_company_nav", activeNav);
+  }, [activeNav]);
 
   // Close drawer when resizing to desktop
   useEffect(() => { if (isDesktop) setDrawerOpen(false); }, [isDesktop]);
@@ -419,6 +519,41 @@ const CompanyDashboardScreen = ({ user, onLogout }) => {
     }, err => console.error("Applications error:", err));
     return () => unsub();
   }, [user?.uid]);
+
+  // ── Notifications: new applicants, time-sorted ──────────────────────────────
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [lastSeenNotif, setLastSeenNotif] = useState(() => {
+    if (!user?.uid) return 0;
+    return Number(localStorage.getItem(`notif_lastSeen_company_${user.uid}`)) || 0;
+  });
+
+  const notifications = React.useMemo(() => {
+    return [...applications]
+      .map((a) => ({
+        id: `app-${a.id}`,
+        time: (a.createdAt?.seconds || 0) * 1000,
+        title: "New applicant",
+        subtitle: [
+          [a.firstName, a.middleInitial, a.lastName].filter(Boolean).join(" ") || a.studentName || a.studentFullName || a.name || "A student",
+          a.jobTitle || a.postTitle || a.position,
+        ].filter(Boolean).join(" — applied for "),
+      }))
+      .sort((a, b) => b.time - a.time)
+      .slice(0, 30)
+      .map((n) => ({ ...n, unread: n.time > lastSeenNotif, onClick: () => { setNotifOpen(false); navigate("applicants"); } }));
+  }, [applications, lastSeenNotif]);
+
+  const toggleNotif = () => {
+    setNotifOpen((prev) => {
+      const next = !prev;
+      if (next) {
+        const now = Date.now();
+        setLastSeenNotif(now);
+        if (user?.uid) { try { localStorage.setItem(`notif_lastSeen_company_${user.uid}`, String(now)); } catch {} }
+      }
+      return next;
+    });
+  };
 
   const navigate = (key) => { setActiveNav(key); setDrawerOpen(false); };
 
@@ -495,13 +630,7 @@ const CompanyDashboardScreen = ({ user, onLogout }) => {
               </span>
             )}
           </div>
-          <div style={{ cursor: "pointer", padding: "8px" }}>
-            <svg width="30" height="30" viewBox="0 0 24 24" fill="none"
-              stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
-              <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
-            </svg>
-          </div>
+          <NotificationBell items={notifications} open={notifOpen} onToggle={toggleNotif} />
         </div>
 
         {/* ── Body ── */}

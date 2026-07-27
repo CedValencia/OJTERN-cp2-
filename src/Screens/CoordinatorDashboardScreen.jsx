@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { changePassword, logOut } from "./AuthService";
+import { changePassword, logOut, getUserProfile } from "./AuthService";
 import { collection, query, where, orderBy, limit, onSnapshot, doc, updateDoc } from "firebase/firestore";
 import { db } from "./firebase";
 import { PersonalInfoScreen, ResponsiveStyles } from "./CoordinatorAccountProfileScreen";
@@ -29,6 +29,36 @@ import aboutIcon            from "../icons/about.png";
 // ── Design tokens ──────────────────────────────────────────────────────────────
 const red     = "#8B0000";
 const darkRed = "#590101";
+
+// ── Coordinator department scoping ─────────────────────────────────────────────
+// Coordinator docs store assigned departments as `deptSelections`, an array of
+// { department: "College of Computer Studies", program, specialization } — the
+// FULL label, not the short key ("CCS") used on student records. Map label ->
+// key here so dashboard queries can filter students by college.
+// IMPORTANT: keep this list in sync with the COLLEGE_DATA labels in
+// CoordinatorStudentListScreen.jsx and CoordinatorStudentsAcccountScreen.jsx.
+const DEPT_LABEL_TO_COLLEGE_KEY = {
+  "College of Computer Studies":          "CCS",
+  "College of Business and Accountancy":  "CBA",
+  "College of Criminal Justice Education":"CCJE",
+  "College of Liberal Arts":              "CLA",
+  "College of Education":                 "CED",
+  "College of Hospitality Management":    "CHM",
+};
+
+// A coordinator can be assigned to more than one department, so this returns
+// an array of college keys (deduped) instead of a single value. All
+// coordinators assigned to the same college (e.g. all CED coordinators) see
+// the same set of students, regardless of program/major — the specific
+// program is just shown per-student in the Student List, not used to further
+// split which coordinator sees which student.
+const getAssignedCollegeKeys = (deptSelections) => {
+  if (!Array.isArray(deptSelections)) return [];
+  const keys = deptSelections
+    .map((sel) => DEPT_LABEL_TO_COLLEGE_KEY[sel?.department])
+    .filter(Boolean);
+  return [...new Set(keys)];
+};
 
 // ── Time ago helper ────────────────────────────────────────────────────────────
 const timeAgo = (ts) => {
@@ -202,6 +232,89 @@ const EmptyListPlaceholder = ({ label = "No data available" }) => (
   </div>
 );
 
+// ── Notification bell + dropdown (registration + report notifications) ────────
+const NotificationBell = ({ items, open, onToggle }) => {
+  const unread = items.filter((n) => n.unread).length;
+  return (
+    <div style={{ position: "relative" }}>
+      <div style={{ cursor: "pointer", padding: "8px", position: "relative" }} onClick={onToggle} aria-label="Notifications">
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+          <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+        </svg>
+        {unread > 0 && (
+          <span style={{
+            position: "absolute", top: "3px", right: "3px",
+            minWidth: "16px", height: "16px", borderRadius: "8px",
+            background: "#ff3b30", color: "white", border: `1.5px solid ${darkRed}`,
+            fontFamily: "'Kufam', sans-serif", fontSize: "0.6rem", fontWeight: 700,
+            display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px",
+          }}>
+            {unread > 9 ? "9+" : unread}
+          </span>
+        )}
+      </div>
+
+      {open && (
+        <>
+          <div onClick={onToggle} style={{ position: "fixed", inset: 0, zIndex: 998 }} />
+          <div style={{
+            position: "absolute", top: "50px", right: 0, width: "320px", maxWidth: "88vw",
+            background: "white", borderRadius: "14px", overflow: "hidden",
+            boxShadow: "0 12px 32px rgba(0,0,0,0.3)", border: "1px solid #eee", zIndex: 999,
+          }}>
+            <div style={{ background: darkRed, padding: "12px 16px" }}>
+              <span style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.92rem", color: "white" }}>
+                Notifications
+              </span>
+            </div>
+            <div style={{ maxHeight: "360px", overflowY: "auto" }}>
+              {items.length === 0 ? (
+                <div style={{ padding: "28px 16px", textAlign: "center" }}>
+                  <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#aaa" }}>
+                    No notifications yet.
+                  </span>
+                </div>
+              ) : items.map((n) => (
+                <div
+                  key={n.id}
+                  onClick={n.onClick}
+                  style={{
+                    display: "flex", gap: "10px", alignItems: "flex-start",
+                    padding: "12px 16px", borderBottom: "1px solid #f0f0f0",
+                    cursor: "pointer", background: n.unread ? "rgba(139,0,0,0.06)" : "white",
+                  }}
+                >
+                  <div style={{
+                    width: "8px", height: "8px", borderRadius: "50%", marginTop: "5px", flexShrink: 0,
+                    background: n.unread ? "#8B0000" : "transparent",
+                  }} />
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", fontWeight: 700, color: "#222", marginBottom: "2px" }}>
+                      {n.title}
+                    </p>
+                    {n.subtitle && (
+                      <p style={{
+                        fontFamily: "'Kufam', sans-serif", fontSize: "0.75rem", color: "#666",
+                        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                      }}>
+                        {n.subtitle}
+                      </p>
+                    )}
+                    <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.68rem", color: "#8B0000", marginTop: "3px" }}>
+                      {timeAgo(n.time)}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+};
+
 // ── Sidebar nav list (reused in static & drawer) ───────────────────────────────
 const SidebarNav = ({ activeNav, onNavigate }) => (
   <>
@@ -314,38 +427,81 @@ const StatCard = ({ label, value, bg = "rgba(0,0,0,0.15)", onView }) => (
 );
 
 // ── Dashboard Content ──────────────────────────────────────────────────────────
-const DashboardContent = ({ onNavigate, onViewCompany, onViewRegistered, coordinatorUid, recentVisited = [] }) => {
+const DashboardContent = ({ onNavigate, onViewCompany, onViewRegistered, coordinatorUid, coordinatorColleges, coordinatorIndustries = [], recentVisited = [] }) => {
   const [recentRegistered, setRecentRegistered] = React.useState([]);
   const [totalStudents,    setTotalStudents]    = React.useState(null);
-  const [deployedStudents, setDeployedStudents] = React.useState(null);
+  const [acceptedStudents, setAcceptedStudents] = React.useState(null);
+
+  // Track raw sets so we can intersect "active students in my department(s)"
+  // with "students who have an Accepted application" — applications don't
+  // carry a college field, so the accepted count is derived client-side.
+  const [activeStudentIds,     setActiveStudentIds]     = React.useState(new Set());
+  const [acceptedAppStudentIds, setAcceptedAppStudentIds] = React.useState(new Set());
 
   React.useEffect(() => {
     if (!coordinatorUid) return;
 
-    // 1. Recent approved companies
-    const companyQ = query(
-      collection(db, "companies"),
-      where("status", "==", "approved"),
-      limit(5)
-    );
-    const unsubCompany = onSnapshot(companyQ, (snap) => {
-      setRecentRegistered(snap.docs.map(d => ({ id: d.id, name: d.data().companyName })));
-    });
+    // 1. Recent approved companies — scoped to this coordinator's assigned
+    //    industries (same "industry array-contains-any" pattern already used
+    //    successfully in CoordinatorCompanyListScreen). Without this, every
+    //    coordinator saw every approved company regardless of industry.
+    let unsubCompany = () => {};
+    if (coordinatorIndustries.length > 0) {
+      const companyQ = query(
+        collection(db, "companies"),
+        where("status", "==", "approved"),
+        where("industry", "array-contains-any", coordinatorIndustries.slice(0, 30)),
+        limit(5)
+      );
+      unsubCompany = onSnapshot(companyQ, (snap) => {
+        setRecentRegistered(snap.docs.map(d => ({ id: d.id, name: d.data().companyName })));
+      });
+    } else {
+      setRecentRegistered([]);
+    }
 
-    // 2. Total students
-    const studentQ = query(collection(db, "students"), where("status", "==", "active"));
+    // If this coordinator has no recognized department assigned yet, don't
+    // run the (invalid) empty "in" query — just show zero instead of crashing.
+    if (!coordinatorColleges || coordinatorColleges.length === 0) {
+      setTotalStudents(0);
+      setActiveStudentIds(new Set());
+      return () => { unsubCompany(); };
+    }
+
+    // 2. Total students — scoped to college/department only. All coordinators
+    //    assigned to the same college (e.g. all of CED) see the same set of
+    //    students regardless of program/major — the specific program is shown
+    //    per-student in the Student List, not used to further split coordinators.
+    //    NOTE: needs a Firestore composite index (status + college) the first
+    //    time it runs; Firestore will log a console link to create it.
+    const studentQ = query(
+      collection(db, "students"),
+      where("status", "==", "active"),
+      where("college", "in", coordinatorColleges)
+    );
     const unsubStudents = onSnapshot(studentQ, (snap) => {
       setTotalStudents(snap.size);
+      setActiveStudentIds(new Set(snap.docs.map(d => d.id)));
     });
 
-    // 3. Deployed students
-    const deployedQ = query(collection(db, "students"), where("companyId", "!=", null));
-    const unsubDeployed = onSnapshot(deployedQ, (snap) => {
-      setDeployedStudents(snap.size);
+    // 3. Accepted students — an "accepted" student is one with at least one
+    //    application whose status is "Accepted" (set by the company in
+    //    CompanyApplicantsScreen). Count unique studentId values since a
+    //    student could have multiple applications. Filtered down to only
+    //    student IDs that belong to this coordinator's department(s) (see #2).
+    const acceptedQ = query(collection(db, "applications"), where("status", "==", "Accepted"));
+    const unsubAccepted = onSnapshot(acceptedQ, (snap) => {
+      setAcceptedAppStudentIds(new Set(snap.docs.map(d => d.data().studentId)));
     });
 
-    return () => { unsubCompany(); unsubStudents(); unsubDeployed(); };
-  }, [coordinatorUid]);
+    return () => { unsubCompany(); unsubStudents(); unsubAccepted(); };
+  }, [coordinatorUid, coordinatorColleges, coordinatorIndustries]);
+
+  React.useEffect(() => {
+    let count = 0;
+    activeStudentIds.forEach((id) => { if (acceptedAppStudentIds.has(id)) count += 1; });
+    setAcceptedStudents(count);
+  }, [activeStudentIds, acceptedAppStudentIds]);
 
   return (
     <div style={{ padding: "clamp(16px, 4vw, 32px)", overflowY: "auto", flex: 1 }}>
@@ -377,8 +533,8 @@ const DashboardContent = ({ onNavigate, onViewCompany, onViewRegistered, coordin
               onView={() => onNavigate("studentlist")}
             />
             <StatCard
-              label="Deployed Students"
-              value={deployedStudents}
+              label="Accepted Students"
+              value={acceptedStudents}
               bg="rgba(89,1,1,0.35)"
               onView={() => onNavigate("studentlist")}
             />
@@ -422,6 +578,41 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
   const { isMobile, isTablet, isDesktop } = useBreakpoint();
   const showDrawer = isMobile || isTablet;
 
+  // The `user` prop is captured at login and can go stale — e.g. if this
+  // coordinator completed their mandatory department/industry setup AFTER
+  // that snapshot was taken, `user.deptSelections` here would still be
+  // empty/outdated even though Firestore has the right data (this is why
+  // Account Profile, which reads Firestore directly, showed the correct
+  // department while the dashboard showed 0 students). So we fetch the
+  // coordinator's own doc fresh here too, same pattern already used
+  // successfully in CoordinatorCompanyListScreen for assignedIndustries.
+  const [coordinatorProfile, setCoordinatorProfile] = useState(null);
+  useEffect(() => {
+    if (!user?.uid) return;
+    let cancelled = false;
+    getUserProfile("coordinators", user.uid).then((data) => {
+      if (!cancelled) setCoordinatorProfile(data || null);
+    });
+    return () => { cancelled = true; };
+  }, [user?.uid]);
+
+  // Derived once per change of the fetched deptSelections — memoized so this
+  // array keeps a stable reference across renders (it's used as a useEffect
+  // dependency downstream, and a fresh array every render would resubscribe
+  // Firestore listeners on every parent re-render).
+  const coordinatorColleges = React.useMemo(
+    () => getAssignedCollegeKeys(coordinatorProfile?.deptSelections),
+    [coordinatorProfile?.deptSelections]
+  );
+
+  // Same idea for industries — used to scope "Recent Registered Company" on
+  // the dashboard to only the companies under this coordinator's assigned
+  // industries (mirrors CoordinatorCompanyListScreen's own scoping).
+  const coordinatorIndustries = React.useMemo(
+    () => coordinatorProfile?.assignedIndustries || [],
+    [coordinatorProfile?.assignedIndustries]
+  );
+
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [recentVisited, setRecentVisited] = useState(() => {
     if (!user?.uid) return [];
@@ -443,6 +634,58 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
     });
     return unsub;
   }, []);
+
+  // ── Load pending company registrations (for notifications) ─────────────────
+  // NOTE: needs a Firestore composite index (status + createdAt) the first
+  // time it runs; Firestore will log a console link to create it.
+  const [pendingRegistrations, setPendingRegistrations] = useState([]);
+  useEffect(() => {
+    const q = query(collection(db, "companies"), where("status", "==", "pending"), orderBy("createdAt", "desc"), limit(20));
+    const unsub = onSnapshot(q, (snap) => {
+      setPendingRegistrations(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    }, () => {});
+    return unsub;
+  }, []);
+
+  // ── Notifications: new registrations + new reports, merged & time-sorted ──
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [lastSeenNotif, setLastSeenNotif] = useState(() => {
+    if (!user?.uid) return 0;
+    return Number(localStorage.getItem(`notif_lastSeen_coord_${user.uid}`)) || 0;
+  });
+
+  const notifications = React.useMemo(() => {
+    const regItems = pendingRegistrations.map((c) => ({
+      id: `reg-${c.id}`,
+      time: (c.createdAt?.seconds || 0) * 1000,
+      title: "New company registration",
+      subtitle: c.companyName || "A company registered and is awaiting review.",
+      onClick: () => { setNotifOpen(false); navigate("companylist"); },
+    }));
+    const reportItems = reports.map((r) => ({
+      id: `rep-${r.id}`,
+      time: (r.createdAt?.seconds || 0) * 1000,
+      title: "New report submitted",
+      subtitle: r.companyName || r.subject || r.reason || "A new report was submitted.",
+      onClick: () => { setNotifOpen(false); navigate("reportcompany"); setViewingReport(r); },
+    }));
+    return [...regItems, ...reportItems]
+      .sort((a, b) => b.time - a.time)
+      .slice(0, 30)
+      .map((n) => ({ ...n, unread: n.time > lastSeenNotif }));
+  }, [pendingRegistrations, reports, lastSeenNotif]);
+
+  const toggleNotif = () => {
+    setNotifOpen((prev) => {
+      const next = !prev;
+      if (next) {
+        const now = Date.now();
+        setLastSeenNotif(now);
+        if (user?.uid) { try { localStorage.setItem(`notif_lastSeen_coord_${user.uid}`, String(now)); } catch {} }
+      }
+      return next;
+    });
+  };
   const [messageTarget, setMessageTarget]                       = useState(null);
   const [placementTargetCompanyId, setPlacementTargetCompanyId] = useState(null);
   const [dashboardCompanyId, setDashboardCompanyId]             = useState(null);
@@ -531,6 +774,8 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
     if (activeNav === "dashboard") return (
       <DashboardContent
         coordinatorUid={user?.uid}
+        coordinatorColleges={coordinatorColleges}
+        coordinatorIndustries={coordinatorIndustries}
         onNavigate={navigate}
         onViewCompany={handleViewCompany}
         onViewRegistered={handleViewRegistered}
@@ -554,10 +799,16 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
       />
     );
 
-    if (activeNav === "studentsaccount") return <CoordinatorStudentsAcccountScreen coordinatorUid={user?.uid} />;
+    if (activeNav === "studentsaccount") return (
+      <CoordinatorStudentsAcccountScreen
+        coordinatorUid={user?.uid}
+        coordinatorColleges={coordinatorColleges}
+      />
+    );
 
     if (activeNav === "studentlist") return (
       <CoordinatorStudentListScreen
+        coordinatorColleges={coordinatorColleges}
         onNavigateToCompany={(companyId) => {
           setPlacementTargetCompanyId(companyId);
           navigate("viewcompany");
@@ -570,6 +821,7 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
         coordinatorUid={user?.uid}
         initialCompanyId={dashboardTarget === "companylist" ? dashboardCompanyId : null}
         onClearInitialCompany={() => { setDashboardCompanyId(null); setDashboardTarget(null); }}
+        onBackToOrigin={() => navigate("dashboard")}
       />
     );
 
@@ -628,12 +880,7 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
               </span>
             )}
           </div>
-          <div style={{ cursor: "pointer", padding: "8px" }}>
-            <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
-              <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
-            </svg>
-          </div>
+          <NotificationBell items={notifications} open={notifOpen} onToggle={toggleNotif} />
         </div>
 
         {/* ── Body ── */}

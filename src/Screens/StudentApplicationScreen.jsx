@@ -2957,6 +2957,7 @@ export const ApplyModal = ({ company, onClose, onSubmit, user }) => {
         attachedFiles: uploadedFiles,
         studentId:   user?.uid        || "",
         studentName: (user?.firstName || "") + " " + (user?.lastName || ""),
+        postId:      company?.id      || "",
         companyId:   company?.companyId || company?.id || "",
         companyName: company?.name    || company?.companyName || "",
         status:      "Pending",

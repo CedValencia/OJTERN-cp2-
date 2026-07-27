@@ -810,7 +810,7 @@ const ChatListView = ({ contacts, messages, onOpen, readConvIds }) => {
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "#f5f5f5" }}>
-      <div style={{ margin: isMobile ? "14px 14px 0" : "20px 24px 0", background: darkRed, borderRadius: "14px", overflow: "hidden" }}>
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, margin: isMobile ? "14px 14px 14px" : "20px 24px 20px", background: darkRed, borderRadius: "14px", overflow: "hidden" }}>
         <div style={{
           padding: isMobile ? "12px 16px" : "14px 20px",
           display: "flex", alignItems: "center", justifyContent: "space-between",
@@ -836,7 +836,7 @@ const ChatListView = ({ contacts, messages, onOpen, readConvIds }) => {
             />
           </div>
         </div>
-        <div style={{ background: "#e8e8e8", maxHeight: isMobile ? "55vh" : "320px", overflowY: "auto" }}>
+        <div style={{ flex: 1, minHeight: 0, background: "#e8e8e8", overflowY: "auto", display: "flex", flexDirection: "column" }}>
           {filtered.length === 0 && activeContacts.length === 0 && (
             <div style={{ padding: "24px", textAlign: "center" }}>
               <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.88rem", color: "#aaa" }}>No conversations yet.</p>
@@ -898,14 +898,14 @@ const ChatListView = ({ contacts, messages, onOpen, readConvIds }) => {
               </div>
             );
           })}
+          {activeContacts.length > 0 && filtered.length > 0 && (
+            <div style={{ marginTop: "auto", padding: "14px" }}>
+              <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem", color: "#aaa", textAlign: "center" }}>
+                No more available chats!
+              </p>
+            </div>
+          )}
         </div>
-      </div>
-      <div style={{ padding: isMobile ? "16px 14px" : "20px 24px" }}>
-        {activeContacts.length > 0 && (
-          <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem", color: "#aaa", textAlign: "center" }}>
-            No more available chats!
-          </p>
-        )}
       </div>
     </div>
   );

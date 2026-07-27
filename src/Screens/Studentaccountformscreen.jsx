@@ -471,7 +471,6 @@ const PersonalInfoScreen = ({ onBack, user }) => {
     if (miErr) e.middleInitial = miErr;
     const ageErr = validateAge(form.age);
     if (ageErr) e.age = ageErr;
-    if (!form.email.endsWith("@gmail.com")) e.email = "Must be a @gmail.com email.";
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -840,11 +839,7 @@ const ResetStep1 = ({ onNext }) => {
   const [email, setEmail] = useState("");
   const [error, setError] = useState("");
 
-  const handleSend = () => {
-    if (!email.endsWith("@gmail.com")) { setError("Must be a valid @gmail.com email."); return; }
-    setError("");
-    onNext(email);
-  };
+ 
 
   return (
     <div style={{ background: "#e8e8e8", borderRadius: "16px", padding: "24px 28px" }}>
