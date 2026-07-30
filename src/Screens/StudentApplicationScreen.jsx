@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
-import { collection, addDoc, serverTimestamp, onSnapshot, query, where, doc, updateDoc, deleteDoc } from "firebase/firestore";
+import { collection, addDoc, serverTimestamp, onSnapshot, query, where, doc, updateDoc, deleteDoc, getDocs } from "firebase/firestore";
 import { db } from "./firebase";
 import { uploadFilesToFolder } from "./CloudinaryService";
 import companyProfileIcon from "../icons/companyprofile.png";
@@ -2937,8 +2937,45 @@ export const ApplyModal = ({ company, onClose, onSubmit, user }) => {
   const [showSuccess, setShowSuccess] = useState(false);
   const [submitError, setSubmitError] = useState("");
   const [submitting, setSubmitting]   = useState(false);
+  const [alreadyApplied, setAlreadyApplied] = useState(false);
+  const [checkingApplied, setCheckingApplied] = useState(true);
+
+  // The specific OJT post being applied to — a student may apply to more
+  // than one post at the same company, so the duplicate check below scopes
+  // to postId, not just companyId.
+  const targetPostId = company?.id || "";
+
+  // ── Prevent duplicate applications: check if this student already has
+  //    an application on file for this specific post before letting them
+  //    apply again. (Applying to a different post at the same company is
+  //    allowed — only re-applying to the same post is blocked.)
+  useEffect(() => {
+    let cancelled = false;
+    const checkExistingApplication = async () => {
+      if (!user?.uid || !targetPostId) { setCheckingApplied(false); return; }
+      try {
+        const dupQ = query(
+          collection(db, "applications"),
+          where("studentId", "==", user.uid),
+          where("postId", "==", targetPostId)
+        );
+        const snap = await getDocs(dupQ);
+        if (!cancelled) setAlreadyApplied(!snap.empty);
+      } catch (err) {
+        console.error("Failed to check existing application:", err);
+      } finally {
+        if (!cancelled) setCheckingApplied(false);
+      }
+    };
+    checkExistingApplication();
+    return () => { cancelled = true; };
+  }, [user?.uid, targetPostId]);
 
   const handleSubmit = async () => {
+    if (alreadyApplied) {
+      setSubmitError("You've already applied to this post.");
+      return;
+    }
     f.touchAll();
     if (!f.isValid()) {
       setSubmitError("Please complete all required fields before submitting.");
@@ -2947,6 +2984,21 @@ export const ApplyModal = ({ company, onClose, onSubmit, user }) => {
     setSubmitError("");
     setSubmitting(true);
     try {
+      // Re-check right before writing, in case an application was submitted
+      // elsewhere (another tab/device) since the initial check on open.
+      const dupQ = query(
+        collection(db, "applications"),
+        where("studentId", "==", user?.uid || ""),
+        where("postId", "==", targetPostId)
+      );
+      const dupSnap = await getDocs(dupQ);
+      if (!dupSnap.empty) {
+        setAlreadyApplied(true);
+        setSubmitError("You've already applied to this post.");
+        setSubmitting(false);
+        return;
+      }
+
       const formData = f.getFormData();
       let uploadedFiles = [];
       if (formData.attachedFiles && formData.attachedFiles.length > 0) {
@@ -2988,7 +3040,20 @@ export const ApplyModal = ({ company, onClose, onSubmit, user }) => {
 
         {/* Body */}
         <div className="sa-modal-body">
-          <FormFields f={f} locked={false} />
+          {alreadyApplied ? (
+            <div style={{ textAlign: "center", padding: "32px 12px" }}>
+              <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.2rem", color: darkRed, marginBottom: "8px" }}>
+                You've Already Applied
+              </p>
+              <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#555", lineHeight: 1.6 }}>
+                You can only submit one application per post.<br />
+                You can still apply to other open posts at this company.<br />
+                Check your Applications list to view its current status.
+              </p>
+            </div>
+          ) : (
+            <FormFields f={f} locked={false} />
+          )}
         </div>
 
         {/* Footer */}
@@ -2996,8 +3061,10 @@ export const ApplyModal = ({ company, onClose, onSubmit, user }) => {
           {submitError && (
             <p style={{ width: "100%", textAlign: "right", fontFamily: "'Kufam', sans-serif", fontSize: "0.78rem", color: "#c00", margin: "0 0 4px" }}>{submitError}</p>
           )}
-          <button onClick={onClose}       style={{ padding: "10px 28px", borderRadius: "24px", background: "#555",    color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif", fontSize: "1.1rem", cursor: "pointer" }}>CANCEL</button>
-          <button onClick={handleSubmit} disabled={submitting} style={{ padding: "10px 28px", borderRadius: "24px", background: darkRed,  color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif", fontSize: "1.1rem", cursor: submitting ? "not-allowed" : "pointer", opacity: submitting ? 0.7 : 1 }}>{submitting ? "SUBMITTING..." : "SUBMIT"}</button>
+          <button onClick={onClose}       style={{ padding: "10px 28px", borderRadius: "24px", background: "#555",    color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif", fontSize: "1.1rem", cursor: "pointer" }}>{alreadyApplied ? "CLOSE" : "CANCEL"}</button>
+          {!alreadyApplied && (
+            <button onClick={handleSubmit} disabled={submitting || checkingApplied} style={{ padding: "10px 28px", borderRadius: "24px", background: darkRed,  color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif", fontSize: "1.1rem", cursor: (submitting || checkingApplied) ? "not-allowed" : "pointer", opacity: (submitting || checkingApplied) ? 0.7 : 1 }}>{submitting ? "SUBMITTING..." : "SUBMIT"}</button>
+          )}
         </div>
       </div>
 

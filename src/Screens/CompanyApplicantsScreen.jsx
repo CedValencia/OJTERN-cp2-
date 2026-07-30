@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
-import { collection, onSnapshot, query, where, doc, updateDoc } from "firebase/firestore";
+import { collection, onSnapshot, query, where, doc, updateDoc, addDoc, serverTimestamp, runTransaction } from "firebase/firestore";
 import { db } from "./firebase";
 import { buildFullName } from "./useChat";
 
@@ -908,6 +908,14 @@ const CompanyApplicantsScreen = ({ embedded = false, onNavigateToMessages, user 
     return matchSearch && matchSex && matchCollege && matchProgram && matchSpec && matchRegion && matchProvince && matchCity && matchBarangay;
   });
 
+  // Human-readable phrasing per status, used in the notification sent to the student.
+  const STATUS_NOTIF_TEXT = {
+    "In Review":     "is now in review",
+    "To Interview":  "has moved to the interview stage",
+    "Accepted":      "has been accepted",
+    "Declined":      "has been declined",
+  };
+
   const handleStatusChange = async (id, newStatus) => {
     const current = applicants.find(a => a.id === id);
     // Accepted/Declined are final — no further changes.
@@ -927,6 +935,39 @@ const CompanyApplicantsScreen = ({ embedded = false, onNavigateToMessages, user 
     // Persist to Firestore
     try {
       await updateDoc(doc(db, "applications", id), { status: newStatus });
+
+      // When a student is accepted, the specific post they applied to has
+      // one fewer open slot. Uses a transaction (not a plain increment) so
+      // the count never goes below 0 even if multiple accepts land at once.
+      if (newStatus === "Accepted" && current?.postId) {
+        try {
+          await runTransaction(db, async (tx) => {
+            const postRef = doc(db, "ojt_posts", current.postId);
+            const postSnap = await tx.get(postRef);
+            if (postSnap.exists()) {
+              const currentSlot = postSnap.data().slot ?? 0;
+              tx.update(postRef, { slot: Math.max(0, currentSlot - 1) });
+            }
+          });
+        } catch (slotErr) {
+          console.error("Failed to update post slot count:", slotErr);
+        }
+      }
+
+      // Notify the student about this status change
+      if (current?.studentId) {
+        const statusText = STATUS_NOTIF_TEXT[newStatus] || `is now ${newStatus.toLowerCase()}`;
+        await addDoc(collection(db, "notifications"), {
+          studentId:     current.studentId,
+          message:       `Your application on ${current.companyName || "the company"} ${statusText}.`,
+          type:          "application_status",
+          applicationId: id,
+          companyName:   current.companyName || "",
+          status:        newStatus,
+          read:          false,
+          createdAt:     serverTimestamp(),
+        });
+      }
     } catch (err) {
       console.error("Failed to update status:", err);
     }

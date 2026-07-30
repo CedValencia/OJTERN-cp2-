@@ -4,7 +4,7 @@ import userIcon from "../icons/user.png";
 
 // Firebase
 import { db }                          from "./firebase";
-import { createStudentAccount, generateStudentPassword } from "./AuthService";
+import { createStudentAccount, generateStudentPassword, logActivity } from "./AuthService";
 import {
   collection, query, where,
   onSnapshot, doc, updateDoc, deleteDoc, serverTimestamp,
@@ -668,8 +668,8 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
             <FieldError msg={email.error} />
           </div>
 
-          {/* Password preview — only shown on create, updates live as lastName/college changes */}
-          {!readOnly && lastName.value && college && (
+          {/* Password preview — shown on create, and when coordinator views an existing student */}
+          {lastName.value && college && (
             <div style={{ background: "#fff8f8", border: "1.5px solid #f5c0c0", borderRadius: "10px", padding: "10px 14px", marginBottom: "10px" }}>
               <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1rem", color: "#8B0000", marginBottom: "4px" }}>🔑 Default Password:</p>
               <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.92rem", color: "#320000", fontWeight: "700", margin: 0 }}>
@@ -975,6 +975,10 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
   const [students, setStudents]                 = useState([]);
   const [loading, setLoading]                   = useState(true);
   const [selected, setSelected]                 = useState(new Set());
+  const [selectMode, setSelectMode]             = useState(false);
+  const [confirmDeleteInfo, setConfirmDeleteInfo] = useState(null); // { type: "single" | "selected", id?, count? }
+  const [confirmExport, setConfirmExport]         = useState(false);
+  const [exportEmptyWarning, setExportEmptyWarning] = useState(false);
   const [search, setSearch]                     = useState("");
   const [showNewModal, setShowNewModal]         = useState(false);
   const [showImportModal, setShowImportModal]   = useState(false);
@@ -1024,13 +1028,17 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
 
   const toggleSelect = (id) => { setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; }); };
   const toggleAll    = () => { if (selected.size === filtered.length && filtered.length > 0) setSelected(new Set()); else setSelected(new Set(filtered.map(s => s.id))); };
+  const enterSelectMode = () => setSelectMode(true);
+  const exitSelectMode  = () => { setSelectMode(false); setSelected(new Set()); };
 
   // ── Create — calls AuthService then shows success modal ───────────────────
   const handleCreate = async (form) => {
     const { password } = await createStudentAccount(form, coordinatorUid);
+    const fullName = `${form.firstName} ${form.middleInitial ? form.middleInitial + ". " : ""}${form.lastName}`;
+    logActivity(coordinatorUid, "student_created", `Created student account for ${fullName}`, { targetId: form.studentId, targetName: fullName }).catch(err => console.error("Failed to log activity:", err));
     setShowNewModal(false);
     setSuccessInfo({
-      fullName:  `${form.firstName} ${form.middleInitial ? form.middleInitial + ". " : ""}${form.lastName}`,
+      fullName,
       studentId: form.studentId,
       email:     form.email,
       password,
@@ -1040,49 +1048,74 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
 
   // ── Save (edit) — updates Firestore doc ───────────────────────────────────
   const handleSave = async (form) => {
+    const fullName = `${form.firstName} ${form.middleInitial ? form.middleInitial + ". " : ""}${form.lastName}${form.suffix ? " " + form.suffix : ""}`;
     await updateDoc(doc(db, "students", viewingStudent.id), {
       ...form,
-      fullName: `${form.firstName} ${form.middleInitial ? form.middleInitial + ". " : ""}${form.lastName}${form.suffix ? " " + form.suffix : ""}`,
+      fullName,
       updatedAt: serverTimestamp(),
     });
+    logActivity(coordinatorUid, "student_edited", `Edited student account for ${fullName}`, { targetId: viewingStudent.id, targetName: fullName }).catch(err => console.error("Failed to log activity:", err));
     setViewingStudent(null);
   };
 
   // ── Delete single ─────────────────────────────────────────────────────────
   const handleDelete = (id) => {
-    setTimeout(async () => {
-      if (!window.confirm("Delete this student? This cannot be undone.")) return;
-      await deleteDoc(doc(db, "students", id));
-      setSelected(prev => { const n = new Set(prev); n.delete(id); return n; });
-    }, 0);
+    setTimeout(() => setConfirmDeleteInfo({ type: "single", id }), 0);
   };
 
   // ── Delete selected ───────────────────────────────────────────────────────
-  const handleDeleteSelected = async () => {
-    if (!window.confirm(`Delete ${selected.size} selected student(s)? This cannot be undone.`)) return;
-    await Promise.all([...selected].map(id => deleteDoc(doc(db, "students", id))));
-    setSelected(new Set());
+  const handleDeleteSelected = () => {
+    setConfirmDeleteInfo({ type: "selected", count: selected.size });
+  };
+
+  // ── Runs the actual deletion once confirmed in the modal ────────────────────
+  const confirmDelete = async () => {
+    if (!confirmDeleteInfo) return;
+    if (confirmDeleteInfo.type === "single") {
+      const id = confirmDeleteInfo.id;
+      const target = students.find(s => s.id === id);
+      await deleteDoc(doc(db, "students", id));
+      logActivity(coordinatorUid, "student_deleted", `Deleted student account for ${target?.fullName || target?.studentId || id}`, { targetId: id, targetName: target?.fullName || "" }).catch(err => console.error("Failed to log activity:", err));
+      setSelected(prev => { const n = new Set(prev); n.delete(id); return n; });
+    } else {
+      const count = selected.size;
+      await Promise.all([...selected].map(id => deleteDoc(doc(db, "students", id))));
+      logActivity(coordinatorUid, "student_deleted_bulk", `Deleted ${count} student account(s)`, { targetCount: count }).catch(err => console.error("Failed to log activity:", err));
+      setSelected(new Set());
+    }
+    setConfirmDeleteInfo(null);
   };
 
   // ── Import — batch creates via AuthService ────────────────────────────────
   const handleImport = async (newStudents) => {
+    let successCount = 0;
     // Fire in sequence to avoid hammering Firebase Auth rate limits
     for (const s of newStudents) {
       try {
         await createStudentAccount(s, coordinatorUid);
+        successCount++;
       } catch (err) {
         console.warn(`Skipped ${s.studentId}:`, err.message);
       }
+    }
+    if (successCount > 0) {
+      logActivity(coordinatorUid, "student_imported_bulk", `Imported ${successCount} student account(s)`, { targetCount: successCount }).catch(err => console.error("Failed to log activity:", err));
     }
     // onSnapshot auto-updates the list
   };
 
   const handleExport = () => {
-    if (students.length === 0) { alert("No students to export."); return; }
-    exportToXLSX(students.map(s => ({
+    if (selected.size === 0) { setExportEmptyWarning(true); return; }
+    setConfirmExport(true);
+  };
+
+  const doExport = () => {
+    const studentsToExport = students.filter(s => selected.has(s.id));
+    exportToXLSX(studentsToExport.map(s => ({
       studentId: s.studentId, firstName: s.firstName,
       middleInitial: s.middleInitial, lastName: s.lastName, college: s.college,
     })));
+    setConfirmExport(false);
   };
 
   const allSelected = filtered.length > 0 && selected.size === filtered.length;
@@ -1127,17 +1160,22 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
         {/* Sub Bar */}
         <div className="sl-subbar">
           <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
-            <div onClick={toggleAll} style={{ display: "flex", alignItems: "center", gap: "10px", cursor: "pointer" }}>
-              <div style={{ width: "18px", height: "18px", border: `2px solid ${darkRed}`, borderRadius: "3px", background: allSelected ? darkRed : "white", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                {allSelected && <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>}
-              </div>
-              <span style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(0.9rem, 2.5vw, 1.1rem)", color: darkRed }}>Select All</span>
-            </div>
-            {selected.size > 0 && (
-              <button onClick={handleDeleteSelected} style={{ display: "flex", alignItems: "center", gap: "6px", padding: "5px 14px", borderRadius: "20px", background: "#8B0000", color: "white", border: "none", fontFamily: "'Kufam', sans-serif", fontSize: "0.8rem", cursor: "pointer", fontWeight: 600 }}>
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
-                Delete ({selected.size})
-              </button>
+            {!selectMode ? (
+              <span onClick={enterSelectMode} style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(0.9rem, 2.5vw, 1.1rem)", color: darkRed, cursor: "pointer" }}>Select</span>
+            ) : (
+              <>
+                <div onClick={toggleAll} style={{ display: "flex", alignItems: "center", gap: "10px", cursor: "pointer" }}>
+                  <div style={{ width: "18px", height: "18px", border: `2px solid ${darkRed}`, borderRadius: "3px", background: allSelected ? darkRed : "white", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    {allSelected && <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>}
+                  </div>
+                  <span style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(0.9rem, 2.5vw, 1.1rem)", color: darkRed }}>Select All</span>
+                </div>
+                <button onClick={handleDeleteSelected} disabled={selected.size === 0} style={{ display: "flex", alignItems: "center", gap: "6px", padding: "5px 14px", borderRadius: "20px", background: "#8B0000", color: "white", border: "none", fontFamily: "'Kufam', sans-serif", fontSize: "0.8rem", cursor: selected.size === 0 ? "default" : "pointer", fontWeight: 600, opacity: selected.size === 0 ? 0.5 : 1 }}>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+                  {allSelected && selected.size > 0 ? "Delete All" : `Delete${selected.size > 0 ? ` (${selected.size})` : ""}`}
+                </button>
+                <span onClick={exitSelectMode} style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.8rem", color: "#888", cursor: "pointer", textDecoration: "underline" }}>Cancel</span>
+              </>
             )}
           </div>
           <div className="sl-action-btns">
@@ -1168,9 +1206,11 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
             <div key={s.id} className="student-row" onClick={() => setViewingStudent(s)}
               style={{ background: selected.has(s.id) ? "#d0cece" : "#dadada", borderRadius: "10px", padding: "10px 14px", display: "flex", alignItems: "center", gap: "12px", transition: "background 0.15s", cursor: "pointer" }}
             >
-              <div onClick={(e) => { e.stopPropagation(); toggleSelect(s.id); }} style={{ width: "18px", height: "18px", border: `2px solid ${darkRed}`, borderRadius: "3px", background: selected.has(s.id) ? darkRed : "white", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 }}>
-                {selected.has(s.id) && <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>}
-              </div>
+              {selectMode && (
+                <div onClick={(e) => { e.stopPropagation(); toggleSelect(s.id); }} style={{ width: "18px", height: "18px", border: `2px solid ${darkRed}`, borderRadius: "3px", background: selected.has(s.id) ? darkRed : "white", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 }}>
+                  {selected.has(s.id) && <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>}
+                </div>
+              )}
               <StudentAvatar />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <span style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 600, fontSize: "0.9rem", color: "#222", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>
@@ -1201,6 +1241,52 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
       {showNewModal    && <StudentForm coordinatorColleges={coordinatorColleges} onClose={() => setShowNewModal(false)} onSubmit={handleCreate} submitLabel="CREATE ACCOUNT" />}
       {viewingStudent  && <StudentForm initial={viewingStudent} readOnly coordinatorColleges={coordinatorColleges} onClose={() => setViewingStudent(null)} onSubmit={handleSave} />}
       {showImportModal && <ImportModal coordinatorColleges={coordinatorColleges} onClose={() => setShowImportModal(false)} onImport={handleImport} />}
+
+      {/* ── Warning modal: no students selected for export ── */}
+      {exportEmptyWarning && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2100, padding: "16px" }}>
+          <div style={{ background: "white", borderRadius: "20px", padding: "28px 24px", width: "100%", maxWidth: "340px", boxShadow: "0 8px 32px rgba(0,0,0,0.22)", textAlign: "center" }}>
+            <div style={{ fontSize: "2.2rem", marginBottom: "8px" }}>⚠️</div>
+            <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.2rem", color: "#1a1a1a", marginBottom: "18px" }}>
+              Select the student(s) you want to export first.
+            </p>
+            <button onClick={() => setExportEmptyWarning(false)} style={{ background: darkRed, color: "white", border: "none", borderRadius: "20px", padding: "10px 28px", fontFamily: "'Jersey 25', sans-serif", fontSize: "0.95rem", cursor: "pointer" }}>OK</button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Export confirmation modal ── */}
+      {confirmExport && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2100, padding: "16px" }}>
+          <div style={{ background: "white", borderRadius: "20px", padding: "28px 24px", width: "100%", maxWidth: "340px", boxShadow: "0 8px 32px rgba(0,0,0,0.22)", textAlign: "center" }}>
+            <div style={{ fontSize: "2.2rem", marginBottom: "8px" }}>📤</div>
+            <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.3rem", color: "#1a1a1a", marginBottom: "8px" }}>
+              Are you sure you want to export {selected.size} student{selected.size !== 1 ? "s" : ""}?
+            </p>
+            <div style={{ display: "flex", gap: "10px", justifyContent: "center", marginTop: "14px" }}>
+              <button onClick={() => setConfirmExport(false)} style={{ background: "white", color: darkRed, border: `2px solid ${darkRed}`, borderRadius: "20px", padding: "10px 22px", fontFamily: "'Jersey 25', sans-serif", fontSize: "0.95rem", cursor: "pointer" }}>Cancel</button>
+              <button onClick={doExport} style={{ background: darkRed, color: "white", border: "none", borderRadius: "20px", padding: "10px 22px", fontFamily: "'Jersey 25', sans-serif", fontSize: "0.95rem", cursor: "pointer" }}>Export</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Delete confirmation modal (replaces window.confirm) ── */}
+      {confirmDeleteInfo && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2100, padding: "16px" }}>
+          <div style={{ background: "white", borderRadius: "20px", padding: "28px 24px", width: "100%", maxWidth: "340px", boxShadow: "0 8px 32px rgba(0,0,0,0.22)", textAlign: "center" }}>
+            <div style={{ fontSize: "2.2rem", marginBottom: "8px" }}>🗑️</div>
+            <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.3rem", color: "#1a1a1a", marginBottom: "8px" }}>
+              {confirmDeleteInfo.type === "single" ? "Delete this student?" : `Delete ${confirmDeleteInfo.count} selected student(s)?`}
+            </p>
+            <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", color: "#555", marginBottom: "22px" }}>This cannot be undone.</p>
+            <div style={{ display: "flex", gap: "10px", justifyContent: "center" }}>
+              <button onClick={() => setConfirmDeleteInfo(null)} style={{ background: "white", color: darkRed, border: `2px solid ${darkRed}`, borderRadius: "20px", padding: "10px 22px", fontFamily: "'Jersey 25', sans-serif", fontSize: "0.95rem", cursor: "pointer" }}>Cancel</button>
+              <button onClick={confirmDelete} style={{ background: darkRed, color: "white", border: "none", borderRadius: "20px", padding: "10px 22px", fontFamily: "'Jersey 25', sans-serif", fontSize: "0.95rem", cursor: "pointer" }}>Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Success modal after creating a student ── */}
       {successInfo && (

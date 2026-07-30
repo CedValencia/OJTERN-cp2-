@@ -213,6 +213,23 @@ const AttachmentBubble = ({ attachment, isMe }) => {
 
 
 // ─── ReportModal ──────────────────────────────────────────────────────────────
+const ConfirmModal = ({ message, onConfirm, onCancel }) => {
+  const isMobile = useIsMobile();
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 3000, padding: isMobile ? "12px" : "0" }}>
+      <div style={{ background: "white", borderRadius: "16px", width: "100%", maxWidth: "360px", overflow: "hidden", display: "flex", flexDirection: "column" }}>
+        <div style={{ padding: "22px 22px 6px" }}>
+          <p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.95rem", color: "#222", textAlign: "center", lineHeight: 1.5 }}>{message}</p>
+        </div>
+        <div style={{ display: "flex", borderTop: "1px solid #eee", marginTop: "18px" }}>
+          <button onClick={onCancel} style={{ flex: 1, padding: "13px", background: "white", border: "none", borderRight: "1px solid #eee", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.9rem", color: "#555", cursor: "pointer" }}>No</button>
+          <button onClick={onConfirm} style={{ flex: 1, padding: "13px", background: "white", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.9rem", color: red, cursor: "pointer" }}>Yes</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const ReportModal = ({ company, onClose, onSubmit }) => {
   const [step, setStep]               = useState(1);
   const [selected, setSelected]       = useState(null);
@@ -411,6 +428,7 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onR
   const [editingId, setEditingId]   = useState(null);
   const [editText, setEditText]     = useState("");
   const [popupMsgId, setPopupMsgId] = useState(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showReport, setShowReport] = useState(false);
 
   const bottomRef = useRef();
@@ -474,7 +492,8 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onR
   const startEdit    = (msg) => { if (!msg.text) return; setEditingId(msg.id); setEditText(msg.text); setPopupMsgId(null); };
   const saveEdit     = (msgId) => { if (!editText.trim()) return; onSend(contact.id, { __edit: true, id: msgId, text: editText.trim() }); setEditingId(null); setEditText(""); };
   const handleUnsent = (msgId) => { onSend(contact.id, { __unsent: true, id: msgId }); setPopupMsgId(null); };
-  const handleDeleteConversation = () => { onDeleteConversation(contact.id); setShowInfo(false); };
+  const handleDeleteConversation = () => { setShowInfo(false); setShowDeleteConfirm(true); };
+  const confirmDeleteConversation = () => { onDeleteConversation(contact.id); setShowDeleteConfirm(false); };
 
   const avatarSize    = isMobile ? 30 : 36;
   const bubbleMaxWidth = isMobile ? "75%" : "60%";
@@ -691,7 +710,7 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onR
                         </div>
                       )}
                       {msg.edited && (
-                        <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.68rem", color: "#aaa", marginTop: "2px" }}>edited</span>
+                        <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.68rem", color: "#aaa", marginTop: "2px" }}>Edited</span>
                       )}
                     </>
                   )}
@@ -763,6 +782,14 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onR
           company={contact}
           onClose={() => setShowReport(false)}
           onSubmit={report => { onReport(report); setShowReport(false); }}
+        />
+      )}
+
+      {showDeleteConfirm && (
+        <ConfirmModal
+          message="Are you sure to delete the conversation?"
+          onConfirm={confirmDeleteConversation}
+          onCancel={() => setShowDeleteConfirm(false)}
         />
       )}
     </div>

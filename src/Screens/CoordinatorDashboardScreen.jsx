@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { changePassword, logOut, getUserProfile } from "./AuthService";
-import { collection, query, where, orderBy, limit, onSnapshot, doc, updateDoc } from "firebase/firestore";
+import { collection, query, where, orderBy, limit, onSnapshot, doc, updateDoc, getDocs } from "firebase/firestore";
 import { db } from "./firebase";
 import { PersonalInfoScreen, ResponsiveStyles } from "./CoordinatorAccountProfileScreen";
 
@@ -231,89 +231,6 @@ const EmptyListPlaceholder = ({ label = "No data available" }) => (
     </span>
   </div>
 );
-
-// ── Notification bell + dropdown (registration + report notifications) ────────
-const NotificationBell = ({ items, open, onToggle }) => {
-  const unread = items.filter((n) => n.unread).length;
-  return (
-    <div style={{ position: "relative" }}>
-      <div style={{ cursor: "pointer", padding: "8px", position: "relative" }} onClick={onToggle} aria-label="Notifications">
-        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
-          <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
-        </svg>
-        {unread > 0 && (
-          <span style={{
-            position: "absolute", top: "3px", right: "3px",
-            minWidth: "16px", height: "16px", borderRadius: "8px",
-            background: "#ff3b30", color: "white", border: `1.5px solid ${darkRed}`,
-            fontFamily: "'Kufam', sans-serif", fontSize: "0.6rem", fontWeight: 700,
-            display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px",
-          }}>
-            {unread > 9 ? "9+" : unread}
-          </span>
-        )}
-      </div>
-
-      {open && (
-        <>
-          <div onClick={onToggle} style={{ position: "fixed", inset: 0, zIndex: 998 }} />
-          <div style={{
-            position: "absolute", top: "50px", right: 0, width: "320px", maxWidth: "88vw",
-            background: "white", borderRadius: "14px", overflow: "hidden",
-            boxShadow: "0 12px 32px rgba(0,0,0,0.3)", border: "1px solid #eee", zIndex: 999,
-          }}>
-            <div style={{ background: darkRed, padding: "12px 16px" }}>
-              <span style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.92rem", color: "white" }}>
-                Notifications
-              </span>
-            </div>
-            <div style={{ maxHeight: "360px", overflowY: "auto" }}>
-              {items.length === 0 ? (
-                <div style={{ padding: "28px 16px", textAlign: "center" }}>
-                  <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#aaa" }}>
-                    No notifications yet.
-                  </span>
-                </div>
-              ) : items.map((n) => (
-                <div
-                  key={n.id}
-                  onClick={n.onClick}
-                  style={{
-                    display: "flex", gap: "10px", alignItems: "flex-start",
-                    padding: "12px 16px", borderBottom: "1px solid #f0f0f0",
-                    cursor: "pointer", background: n.unread ? "rgba(139,0,0,0.06)" : "white",
-                  }}
-                >
-                  <div style={{
-                    width: "8px", height: "8px", borderRadius: "50%", marginTop: "5px", flexShrink: 0,
-                    background: n.unread ? "#8B0000" : "transparent",
-                  }} />
-                  <div style={{ minWidth: 0, flex: 1 }}>
-                    <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", fontWeight: 700, color: "#222", marginBottom: "2px" }}>
-                      {n.title}
-                    </p>
-                    {n.subtitle && (
-                      <p style={{
-                        fontFamily: "'Kufam', sans-serif", fontSize: "0.75rem", color: "#666",
-                        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                      }}>
-                        {n.subtitle}
-                      </p>
-                    )}
-                    <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.68rem", color: "#8B0000", marginTop: "3px" }}>
-                      {timeAgo(n.time)}
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </>
-      )}
-    </div>
-  );
-};
 
 // ── Sidebar nav list (reused in static & drawer) ───────────────────────────────
 const SidebarNav = ({ activeNav, onNavigate }) => (
@@ -625,6 +542,9 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
 
   const [reports, setReports]                                   = useState([]);
   const [viewingReport, setViewingReport]                       = useState(null);
+  const [recentActivity, setRecentActivity]                     = useState([]);
+  const [coordinatorNames, setCoordinatorNames]                  = useState({});
+  const [showActivityDropdown, setShowActivityDropdown]         = useState(false);
 
   // ── Load reports from Firestore in real-time ───────────────────────────────
   useEffect(() => {
@@ -635,57 +555,140 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
     return unsub;
   }, []);
 
-  // ── Load pending company registrations (for notifications) ─────────────────
-  // NOTE: needs a Firestore composite index (status + createdAt) the first
-  // time it runs; Firestore will log a console link to create it.
-  const [pendingRegistrations, setPendingRegistrations] = useState([]);
+  // ── Map company name -> industry, so reports (which only store a company
+  //    name, not an id) can be scoped to this coordinator's assigned industries ──
+  const [companyIndustryMap, setCompanyIndustryMap]              = useState({});
   useEffect(() => {
-    const q = query(collection(db, "companies"), where("status", "==", "pending"), orderBy("createdAt", "desc"), limit(20));
-    const unsub = onSnapshot(q, (snap) => {
-      setPendingRegistrations(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    }, () => {});
+    const unsub = onSnapshot(collection(db, "companies"), (snap) => {
+      const map = {};
+      snap.docs.forEach(d => {
+        const data = d.data();
+        const name = data?.companyName || data?.name;
+        if (name) map[name] = Array.isArray(data.industry) ? data.industry : (data.industry ? [data.industry] : []);
+      });
+      setCompanyIndustryMap(map);
+    }, (err) => console.error("Failed to load company industries:", err));
     return unsub;
   }, []);
 
-  // ── Notifications: new registrations + new reports, merged & time-sorted ──
-  const [notifOpen, setNotifOpen] = useState(false);
-  const [lastSeenNotif, setLastSeenNotif] = useState(() => {
-    if (!user?.uid) return 0;
-    return Number(localStorage.getItem(`notif_lastSeen_coord_${user.uid}`)) || 0;
+  // Reports scoped to this coordinator's assigned industries (via the
+  // reported company's industry). Used for both the notification dropdown
+  // and the full Report Company list.
+  const scopedReports = React.useMemo(() => {
+    if (coordinatorIndustries.length === 0) return reports; // fail open until scope is loaded
+    return reports.filter(r => {
+      const ind = companyIndustryMap[r.company];
+      if (!ind || ind.length === 0) return true; // unknown company — fail open rather than hide
+      return ind.some(i => coordinatorIndustries.includes(i));
+    });
+  }, [reports, companyIndustryMap, coordinatorIndustries]);
+
+
+  // ── Load the shared activity log — every coordinator's actions, newest first ──
+  useEffect(() => {
+    const q = query(
+      collection(db, "activity_logs"),
+      orderBy("createdAt", "desc"),
+      limit(30)
+    );
+    const unsub = onSnapshot(q, (snap) => {
+      setRecentActivity(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    }, (err) => console.error("Failed to load activity log:", err));
+    return unsub;
+  }, []);
+
+  // ── Look up every coordinator's name + department scope once, so the
+  //    activity table can show who did what — and be filtered to only show
+  //    coordinators whose scope overlaps with the current coordinator's. ────
+  const [coordinatorScopes, setCoordinatorScopes]                = useState({});
+  useEffect(() => {
+    getDocs(collection(db, "coordinators")).then(snap => {
+      const namesMap = {};
+      const scopesMap = {};
+      snap.docs.forEach(d => {
+        const data = d.data();
+        namesMap[d.id]  = data?.name || "Unknown";
+        scopesMap[d.id] = getAssignedCollegeKeys(data?.deptSelections);
+      });
+      setCoordinatorNames(namesMap);
+      setCoordinatorScopes(scopesMap);
+    }).catch(err => console.error("Failed to load coordinator names:", err));
+  }, []);
+
+  // Only show activity from coordinators whose department/college scope
+  // overlaps with the current coordinator's own scope.
+  const visibleActivity = recentActivity.filter(entry => {
+    const actorColleges = coordinatorScopes[entry.coordinatorUid] || [];
+    if (coordinatorColleges.length === 0 || actorColleges.length === 0) return true; // fail open until scopes are loaded
+    return actorColleges.some(c => coordinatorColleges.includes(c));
   });
 
-  const notifications = React.useMemo(() => {
-    const regItems = pendingRegistrations.map((c) => ({
-      id: `reg-${c.id}`,
-      time: (c.createdAt?.seconds || 0) * 1000,
-      title: "New company registration",
-      subtitle: c.companyName || "A company registered and is awaiting review.",
-      onClick: () => { setNotifOpen(false); navigate("companylist"); },
-    }));
-    const reportItems = reports.map((r) => ({
-      id: `rep-${r.id}`,
-      time: (r.createdAt?.seconds || 0) * 1000,
-      title: "New report submitted",
-      subtitle: r.companyName || r.subject || r.reason || "A new report was submitted.",
-      onClick: () => { setNotifOpen(false); navigate("reportcompany"); setViewingReport(r); },
-    }));
-    return [...regItems, ...reportItems]
-      .sort((a, b) => b.time - a.time)
-      .slice(0, 30)
-      .map((n) => ({ ...n, unread: n.time > lastSeenNotif }));
-  }, [pendingRegistrations, reports, lastSeenNotif]);
+  const formatActivityTime = (createdAt) => {
+    if (!createdAt?.seconds) return "";
+    const diffMs = Date.now() - createdAt.seconds * 1000;
+    const diffMin = Math.floor(diffMs / 60000);
+    if (diffMin < 1) return "just now";
+    if (diffMin < 60) return `${diffMin}m ago`;
+    const diffHr = Math.floor(diffMin / 60);
+    if (diffHr < 24) return `${diffHr}h ago`;
+    const diffDay = Math.floor(diffHr / 24);
+    return `${diffDay}d ago`;
+  };
 
-  const toggleNotif = () => {
-    setNotifOpen((prev) => {
+  // ── Notifications: pending company registrations (scoped to this
+  //    coordinator's industries) + reports still awaiting action ────────────
+  const [pendingCompanies, setPendingCompanies]                  = useState([]);
+  useEffect(() => {
+    if (coordinatorIndustries.length === 0) { setPendingCompanies([]); return; }
+    const q = query(
+      collection(db, "companies"),
+      where("status", "==", "pending"),
+      where("industry", "array-contains-any", coordinatorIndustries.slice(0, 30))
+    );
+    const unsub = onSnapshot(q, (snap) => {
+      setPendingCompanies(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    }, (err) => console.error("Failed to load pending companies:", err));
+    return unsub;
+  }, [coordinatorIndustries]);
+
+  const coordinatorNotifications = React.useMemo(() => {
+    const fromCompanies = pendingCompanies.map(c => ({
+      id: `company_${c.id}`,
+      message: `${c.companyName || c.name || "A company"} registered and is awaiting review.`,
+      createdAt: c.createdAt,
+    }));
+    const fromReports = scopedReports
+      .filter(r => (r.status || "pending") === "pending")
+      .map(r => ({
+        id: `report_${r.id}`,
+        message: `New report submitted for ${r.company}.`,
+        createdAt: r.createdAt,
+      }));
+    return [...fromCompanies, ...fromReports].sort(
+      (a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0)
+    );
+  }, [pendingCompanies, scopedReports]);
+
+  const [showNotifDropdown, setShowNotifDropdown]                = useState(false);
+  const [lastSeenNotifAt, setLastSeenNotifAt]                    = useState(() =>
+    Number(localStorage.getItem(`ojtern_coord_notif_seen_${user?.uid || ""}`)) || 0
+  );
+  const unreadNotifCount = coordinatorNotifications.filter(
+    n => (n.createdAt?.seconds || 0) * 1000 > lastSeenNotifAt
+  ).length;
+
+  const handleToggleNotifDropdown = () => {
+    setShowNotifDropdown(prev => {
       const next = !prev;
       if (next) {
         const now = Date.now();
-        setLastSeenNotif(now);
-        if (user?.uid) { try { localStorage.setItem(`notif_lastSeen_coord_${user.uid}`, String(now)); } catch {} }
+        localStorage.setItem(`ojtern_coord_notif_seen_${user?.uid || ""}`, String(now));
+        setLastSeenNotifAt(now);
       }
       return next;
     });
   };
+
   const [messageTarget, setMessageTarget]                       = useState(null);
   const [placementTargetCompanyId, setPlacementTargetCompanyId] = useState(null);
   const [dashboardCompanyId, setDashboardCompanyId]             = useState(null);
@@ -842,7 +845,7 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
 
     if (activeNav === "reportcompany") return (
       <CoordinatorReportCompanyScreen
-        reports={reports}
+        reports={scopedReports}
         onViewReport={(r) => setViewingReport(r)}
       />
     );
@@ -880,7 +883,103 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
               </span>
             )}
           </div>
-          <NotificationBell items={notifications} open={notifOpen} onToggle={toggleNotif} />
+          <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+            {/* Activity Log */}
+            <div style={{ position: "relative" }}>
+              <div style={{ cursor: "pointer", padding: "8px" }} onClick={() => setShowActivityDropdown(prev => !prev)} title="Activity Log">
+                <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="9"/>
+                  <path d="M12 7v5l3 3"/>
+                </svg>
+              </div>
+              {showActivityDropdown && (
+                <>
+                  <div style={{ position: "fixed", inset: 0, zIndex: 40 }} onClick={() => setShowActivityDropdown(false)} />
+                  <div style={{
+                    position: "absolute", top: "48px", right: 0, width: "min(560px, 90vw)", maxHeight: "420px",
+                    overflowY: "auto", background: "white", border: `1px solid ${darkRed}`,
+                    borderRadius: "10px", boxShadow: "0 8px 24px rgba(0,0,0,0.18)", zIndex: 50,
+                  }}>
+                    <div style={{ padding: "12px 14px", borderBottom: "1px solid #eee", fontFamily: "'Jersey 25', sans-serif", fontSize: "1.05rem", color: darkRed, position: "sticky", top: 0, background: "white" }}>
+                      Activity Log
+                    </div>
+                    {visibleActivity.length === 0 ? (
+                      <div style={{ padding: "24px 14px", textAlign: "center", fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", color: "#888" }}>
+                        No recent activity yet.
+                      </div>
+                    ) : (
+                      <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: "'Kufam', sans-serif" }}>
+                        <thead>
+                          <tr style={{ background: "#f5f5f5" }}>
+                            <th style={{ textAlign: "left", padding: "8px 12px", fontSize: "0.72rem", color: "#888", fontWeight: 600 }}>Activity</th>
+                            <th style={{ textAlign: "left", padding: "8px 12px", fontSize: "0.72rem", color: "#888", fontWeight: 600, whiteSpace: "nowrap" }}>Date</th>
+                            <th style={{ textAlign: "left", padding: "8px 12px", fontSize: "0.72rem", color: "#888", fontWeight: 600, whiteSpace: "nowrap" }}>Coordinator</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {visibleActivity.map(entry => (
+                            <tr key={entry.id} style={{ borderTop: "1px solid #f2f2f2" }}>
+                              <td style={{ padding: "9px 12px", fontSize: "0.8rem", color: "#333" }}>{entry.description}</td>
+                              <td style={{ padding: "9px 12px", fontSize: "0.74rem", color: "#999", whiteSpace: "nowrap" }}>{formatActivityTime(entry.createdAt)}</td>
+                              <td style={{ padding: "9px 12px", fontSize: "0.78rem", color: "#555", whiteSpace: "nowrap" }}>{coordinatorNames[entry.coordinatorUid] || "Unknown"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Notifications */}
+            <div style={{ position: "relative" }}>
+              <div style={{ cursor: "pointer", padding: "8px", position: "relative" }} onClick={handleToggleNotifDropdown}>
+                <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+                  <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+                </svg>
+                {unreadNotifCount > 0 && (
+                  <span style={{
+                    position: "absolute", top: "4px", right: "4px",
+                    background: "#e63946", color: "white", borderRadius: "50%",
+                    minWidth: "16px", height: "16px", fontSize: "0.65rem",
+                    fontFamily: "'Kufam', sans-serif", fontWeight: "bold",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    padding: "0 3px", lineHeight: 1,
+                  }}>
+                    {unreadNotifCount > 9 ? "9+" : unreadNotifCount}
+                  </span>
+                )}
+              </div>
+              {showNotifDropdown && (
+                <>
+                  <div style={{ position: "fixed", inset: 0, zIndex: 40 }} onClick={() => setShowNotifDropdown(false)} />
+                  <div style={{
+                    position: "absolute", top: "48px", right: 0, width: "320px", maxHeight: "400px",
+                    overflowY: "auto", background: "white", border: `1px solid ${darkRed}`,
+                    borderRadius: "10px", boxShadow: "0 8px 24px rgba(0,0,0,0.18)", zIndex: 50,
+                  }}>
+                    <div style={{ padding: "12px 14px", borderBottom: "1px solid #eee", fontFamily: "'Jersey 25', sans-serif", fontSize: "1.05rem", color: darkRed }}>
+                      Notifications
+                    </div>
+                    {coordinatorNotifications.length === 0 ? (
+                      <div style={{ padding: "24px 14px", textAlign: "center", fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", color: "#888" }}>
+                        No notifications yet.
+                      </div>
+                    ) : (
+                      coordinatorNotifications.map(n => (
+                        <div key={n.id} style={{ padding: "10px 14px", borderBottom: "1px solid #f2f2f2", fontFamily: "'Kufam', sans-serif" }}>
+                          <p style={{ margin: 0, fontSize: "0.82rem", color: "#333", lineHeight: 1.4 }}>{n.message}</p>
+                          <p style={{ margin: "4px 0 0", fontSize: "0.68rem", color: "#999" }}>{formatActivityTime(n.createdAt)}</p>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
         </div>
 
         {/* ── Body ── */}
@@ -923,7 +1022,7 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
       </div>
 
       {viewingReport && (
-        <ReportDetailModal report={viewingReport} onClose={() => setViewingReport(null)} />
+        <ReportDetailModal report={viewingReport} onClose={() => setViewingReport(null)} coordinatorUid={user?.uid} />
       )}
 
       {/* ── Forced first-login flow: reset password, then complete profile ── */}

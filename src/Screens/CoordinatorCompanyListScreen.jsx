@@ -4,7 +4,7 @@ import downloadIcon from "../icons/download.png";
 import pdfIcon      from "../icons/pdf.png";
 
 import { db }                                            from "./firebase";
-import { approveCompany, rejectCompany, getUserProfile } from "./AuthService";
+import { approveCompany, rejectCompany, getUserProfile, logActivity } from "./AuthService";
 import { collection, query, where, onSnapshot }          from "firebase/firestore";
 
 const red     = "#8B0000";
@@ -658,16 +658,30 @@ const CoordinatorCompanyListScreen = ({ coordinatorUid, initialCompanyId, onClea
   const [selectedProvince, setSelectedProvince]     = useState("");
   const [selectedCity,     setSelectedCity]         = useState("");
   const [selectedBarangay, setSelectedBarangay]     = useState("");
+  const [loadError,        setLoadError]            = useState(false);
+  const [retryCount,       setRetryCount]           = useState(0);
   const filterRef = useRef(null);
 
   // ── Step 1: load coordinator's assigned industries ────────────────────────
   useEffect(() => {
     if (!coordinatorUid) return;
-    getUserProfile("coordinators", coordinatorUid).then(data => {
-      if (data) setAssignedIndustries(data.assignedIndustries || []);
-      setLoadingIndustries(false);
-    });
-  }, [coordinatorUid]);
+    let cancelled = false;
+    setLoadingIndustries(true);
+    setLoadError(false);
+    getUserProfile("coordinators", coordinatorUid)
+      .then(data => {
+        if (cancelled) return;
+        setAssignedIndustries(data?.assignedIndustries || []);
+        setLoadingIndustries(false);
+      })
+      .catch(err => {
+        console.error("Failed to load coordinator profile:", err);
+        if (cancelled) return;
+        setLoadError(true);
+        setLoadingIndustries(false);
+      });
+    return () => { cancelled = true; };
+  }, [coordinatorUid, retryCount]);
 
   // ── Step 2: real-time listeners scoped to coordinator's industries ─────────
   useEffect(() => {
@@ -737,6 +751,7 @@ const CoordinatorCompanyListScreen = ({ coordinatorUid, initialCompanyId, onClea
     if (!company) return;
     try {
       await approveCompany(id, coordinatorUid);
+      logActivity(coordinatorUid, "company_approved", `Approved ${company.name}`, { targetId: id, targetName: company.name }).catch(err => console.error("Failed to log activity:", err));
       showToast(`${company.name} has been accepted.`, "#2a7a2a");
       setView("list");
     } catch (err) {
@@ -750,6 +765,7 @@ const CoordinatorCompanyListScreen = ({ coordinatorUid, initialCompanyId, onClea
     if (!company) return;
     try {
       await rejectCompany(id, coordinatorUid);
+      logActivity(coordinatorUid, "company_declined", `Declined ${company.name}`, { targetId: id, targetName: company.name }).catch(err => console.error("Failed to log activity:", err));
       showToast(`${company.name} has been declined.`, darkRed);
       setView("list");
     } catch (err) {
@@ -769,6 +785,20 @@ const CoordinatorCompanyListScreen = ({ coordinatorUid, initialCompanyId, onClea
     return (
       <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", background: "#f5f5f5" }}>
         <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.95rem", color: "#888" }}>Loading coordinator profile…</p>
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "#f5f5f5", gap: "14px", padding: "0 24px", textAlign: "center" }}>
+        <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.95rem", color: "#888" }}>
+          Couldn't load your coordinator profile. This is usually a connection issue — check your internet and try again.
+        </p>
+        <button
+          onClick={() => setRetryCount(c => c + 1)}
+          style={{ padding: "10px 28px", borderRadius: "24px", background: darkRed, color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif", fontSize: "1rem", cursor: "pointer" }}
+        >RETRY</button>
       </div>
     );
   }

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { collection, onSnapshot, query, where, orderBy, limit } from "firebase/firestore";
+import { collection, onSnapshot, query, where, orderBy, limit, doc, updateDoc } from "firebase/firestore";
 import { db } from "./firebase";
 import { changePassword } from "./AuthService";
 
@@ -219,89 +219,6 @@ const EmptyListPlaceholder = ({ label = "No data available" }) => (
   </div>
 );
 
-// ── Notification bell + dropdown (application status update notifications) ────
-const NotificationBell = ({ items, open, onToggle }) => {
-  const unread = items.filter((n) => n.unread).length;
-  return (
-    <div style={{ position: "relative" }}>
-      <div style={{ cursor: "pointer", padding: "8px", position: "relative" }} onClick={onToggle} aria-label="Notifications">
-        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
-          <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
-        </svg>
-        {unread > 0 && (
-          <span style={{
-            position: "absolute", top: "3px", right: "3px",
-            minWidth: "16px", height: "16px", borderRadius: "8px",
-            background: "#ff3b30", color: "white", border: `1.5px solid ${darkRed}`,
-            fontFamily: "'Kufam', sans-serif", fontSize: "0.6rem", fontWeight: 700,
-            display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px",
-          }}>
-            {unread > 9 ? "9+" : unread}
-          </span>
-        )}
-      </div>
-
-      {open && (
-        <>
-          <div onClick={onToggle} style={{ position: "fixed", inset: 0, zIndex: 998 }} />
-          <div style={{
-            position: "absolute", top: "50px", right: 0, width: "320px", maxWidth: "88vw",
-            background: "white", borderRadius: "14px", overflow: "hidden",
-            boxShadow: "0 12px 32px rgba(0,0,0,0.3)", border: "1px solid #eee", zIndex: 999,
-          }}>
-            <div style={{ background: darkRed, padding: "12px 16px" }}>
-              <span style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.92rem", color: "white" }}>
-                Notifications
-              </span>
-            </div>
-            <div style={{ maxHeight: "360px", overflowY: "auto" }}>
-              {items.length === 0 ? (
-                <div style={{ padding: "28px 16px", textAlign: "center" }}>
-                  <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#aaa" }}>
-                    No notifications yet.
-                  </span>
-                </div>
-              ) : items.map((n) => (
-                <div
-                  key={n.id}
-                  onClick={n.onClick}
-                  style={{
-                    display: "flex", gap: "10px", alignItems: "flex-start",
-                    padding: "12px 16px", borderBottom: "1px solid #f0f0f0",
-                    cursor: "pointer", background: n.unread ? "rgba(139,0,0,0.06)" : "white",
-                  }}
-                >
-                  <div style={{
-                    width: "8px", height: "8px", borderRadius: "50%", marginTop: "5px", flexShrink: 0,
-                    background: n.unread ? "#8B0000" : "transparent",
-                  }} />
-                  <div style={{ minWidth: 0, flex: 1 }}>
-                    <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", fontWeight: 700, color: "#222", marginBottom: "2px" }}>
-                      {n.title}
-                    </p>
-                    {n.subtitle && (
-                      <p style={{
-                        fontFamily: "'Kufam', sans-serif", fontSize: "0.75rem", color: "#666",
-                        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                      }}>
-                        {n.subtitle}
-                      </p>
-                    )}
-                    <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.68rem", color: "#8B0000", marginTop: "3px" }}>
-                      {timeAgo(n.time)}
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </>
-      )}
-    </div>
-  );
-};
-
 // ── Sidebar nav list ───────────────────────────────────────────────────────────
 const SidebarNavList = ({ activeNav, onNavigate }) => (
   <>
@@ -469,9 +386,56 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
     } catch { return []; }
   });
   const [recentApplications, setRecentApplications] = useState([]);
-  const [allApplications, setAllApplications] = useState([]);
+  const [notifications, setNotifications]         = useState([]);
+  const [showNotifDropdown, setShowNotifDropdown]  = useState(false);
 
-  // Fetch applications from Firestore (full list kept for notifications; top 5 shown on dashboard)
+  // Fetch this student's notifications in real-time (application status updates, etc.)
+  useEffect(() => {
+    if (!user?.uid) return;
+    const q = query(
+      collection(db, "notifications"),
+      where("studentId", "==", user.uid)
+    );
+    const unsub = onSnapshot(q, snap => {
+      const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      docs.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+      setNotifications(docs);
+    }, (err) => {
+      console.error("Failed to load notifications:", err);
+    });
+    return () => unsub();
+  }, [user?.uid]);
+
+  const unreadCount = notifications.filter(n => !n.read).length;
+
+  const handleToggleNotifDropdown = () => {
+    setShowNotifDropdown(prev => {
+      const next = !prev;
+      if (next) {
+        // Mark all unread notifications as read when the dropdown is opened
+        notifications.filter(n => !n.read).forEach(n => {
+          updateDoc(doc(db, "notifications", n.id), { read: true }).catch(err =>
+            console.error("Failed to mark notification as read:", err)
+          );
+        });
+      }
+      return next;
+    });
+  };
+
+  const formatNotifTime = (createdAt) => {
+    if (!createdAt?.seconds) return "";
+    const diffMs = Date.now() - createdAt.seconds * 1000;
+    const diffMin = Math.floor(diffMs / 60000);
+    if (diffMin < 1) return "just now";
+    if (diffMin < 60) return `${diffMin}m ago`;
+    const diffHr = Math.floor(diffMin / 60);
+    if (diffHr < 24) return `${diffHr}h ago`;
+    const diffDay = Math.floor(diffHr / 24);
+    return `${diffDay}d ago`;
+  };
+
+  // Fetch recent applications from Firestore
   useEffect(() => {
     if (!user?.uid) return;
     const q = query(
@@ -481,46 +445,12 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
     const unsub = onSnapshot(q, snap => {
       const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       docs.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
-      setAllApplications(docs);
       setRecentApplications(docs.slice(0, 5));
     }, (err) => {
       console.error("Failed to load recent applications:", err);
     });
     return () => unsub();
   }, [user?.uid]);
-
-  // ── Notifications: application status updates (Accepted / Declined) ────────
-  const [notifOpen, setNotifOpen] = useState(false);
-  const [lastSeenNotif, setLastSeenNotif] = useState(() => {
-    if (!user?.uid) return 0;
-    return Number(localStorage.getItem(`notif_lastSeen_student_${user.uid}`)) || 0;
-  });
-
-  const notifications = React.useMemo(() => {
-    return allApplications
-      .filter((a) => ["Accepted", "Declined", "Rejected"].includes(a.status))
-      .map((a) => ({
-        id: `app-${a.id}`,
-        time: (a.updatedAt?.seconds || a.createdAt?.seconds || 0) * 1000,
-        title: a.status === "Accepted" ? "Application accepted" : "Application declined",
-        subtitle: a.companyName || a.name || "",
-      }))
-      .sort((a, b) => b.time - a.time)
-      .slice(0, 30)
-      .map((n) => ({ ...n, unread: n.time > lastSeenNotif, onClick: () => { setNotifOpen(false); navigate("application"); } }));
-  }, [allApplications, lastSeenNotif]);
-
-  const toggleNotif = () => {
-    setNotifOpen((prev) => {
-      const next = !prev;
-      if (next) {
-        const now = Date.now();
-        setLastSeenNotif(now);
-        if (user?.uid) { try { localStorage.setItem(`notif_lastSeen_student_${user.uid}`, String(now)); } catch {} }
-      }
-      return next;
-    });
-  };
   const [initialCompanyId, setInitialCompanyId] = useState(null);
   const [applyCompany, setApplyCompany]         = useState(null);
   const [pendingContact, setPendingContact]     = useState(null);
@@ -686,7 +616,57 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
               </span>
             )}
           </div>
-          <NotificationBell items={notifications} open={notifOpen} onToggle={toggleNotif} />
+          <div style={{ position: "relative" }}>
+            <div style={{ cursor: "pointer", padding: "8px", position: "relative" }} onClick={handleToggleNotifDropdown}>
+              <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+                <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+              </svg>
+              {unreadCount > 0 && (
+                <span style={{
+                  position: "absolute", top: "4px", right: "4px",
+                  background: "#e63946", color: "white", borderRadius: "50%",
+                  minWidth: "16px", height: "16px", fontSize: "0.65rem",
+                  fontFamily: "'Kufam', sans-serif", fontWeight: "bold",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  padding: "0 3px", lineHeight: 1,
+                }}>
+                  {unreadCount > 9 ? "9+" : unreadCount}
+                </span>
+              )}
+            </div>
+
+            {showNotifDropdown && (
+              <>
+                <div style={{ position: "fixed", inset: 0, zIndex: 40 }} onClick={() => setShowNotifDropdown(false)} />
+                <div style={{
+                  position: "absolute", top: "48px", right: 0, width: "320px", maxHeight: "400px",
+                  overflowY: "auto", background: "white", border: `1px solid ${darkRed}`,
+                  borderRadius: "10px", boxShadow: "0 8px 24px rgba(0,0,0,0.18)", zIndex: 50,
+                }}>
+                  <div style={{ padding: "12px 14px", borderBottom: "1px solid #eee", fontFamily: "'Jersey 25', sans-serif", fontSize: "1.05rem", color: darkRed }}>
+                    Notifications
+                  </div>
+                  {notifications.length === 0 ? (
+                    <div style={{ padding: "24px 14px", textAlign: "center", fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", color: "#888" }}>
+                      No notifications yet.
+                    </div>
+                  ) : (
+                    notifications.map(n => (
+                      <div key={n.id} style={{
+                        padding: "10px 14px", borderBottom: "1px solid #f2f2f2",
+                        background: n.read ? "white" : "#fff5f5",
+                        fontFamily: "'Kufam', sans-serif",
+                      }}>
+                        <p style={{ margin: 0, fontSize: "0.82rem", color: "#333", lineHeight: 1.4 }}>{n.message}</p>
+                        <p style={{ margin: "4px 0 0", fontSize: "0.68rem", color: "#999" }}>{formatNotifTime(n.createdAt)}</p>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </>
+            )}
+          </div>
         </div>
 
         {/* ── Body ── */}
