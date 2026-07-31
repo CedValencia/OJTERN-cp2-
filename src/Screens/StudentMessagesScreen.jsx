@@ -230,11 +230,28 @@ const ConfirmModal = ({ message, onConfirm, onCancel }) => {
   );
 };
 
+const InfoModal = ({ message, onClose }) => {
+  const isMobile = useIsMobile();
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 4000, padding: isMobile ? "12px" : "0" }}>
+      <div style={{ background: "white", borderRadius: "16px", width: "100%", maxWidth: "360px", overflow: "hidden", display: "flex", flexDirection: "column" }}>
+        <div style={{ padding: "22px 22px 6px" }}>
+          <p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.95rem", color: "#222", textAlign: "center", lineHeight: 1.5 }}>{message}</p>
+        </div>
+        <div style={{ display: "flex", borderTop: "1px solid #eee", marginTop: "18px" }}>
+          <button onClick={onClose} style={{ flex: 1, padding: "13px", background: "white", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.9rem", color: red, cursor: "pointer" }}>OK</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const ReportModal = ({ company, onClose, onSubmit }) => {
   const [step, setStep]               = useState(1);
   const [selected, setSelected]       = useState(null);
   const [description, setDescription] = useState("");
   const [attachedFile, setAttachedFile] = useState(null);
+  const [infoMsg, setInfoMsg]         = useState(null);
   const fileRef = useRef();
   const isMobile = useIsMobile();
 
@@ -242,13 +259,13 @@ const ReportModal = ({ company, onClose, onSubmit }) => {
     const file = e.target.files[0];
     if (!file) return;
     const allowed = ["image/png", "application/pdf"];
-    if (!allowed.includes(file.type)) { alert("Only PNG and PDF files are allowed."); return; }
-    if (file.size > 10 * 1024 * 1024) { alert("File must be under 10MB."); return; }
+    if (!allowed.includes(file.type)) { setInfoMsg("Only PNG and PDF files are allowed."); return; }
+    if (file.size > 10 * 1024 * 1024) { setInfoMsg("File must be under 10MB."); return; }
     setAttachedFile({ name: file.name, type: file.type, url: URL.createObjectURL(file) });
   };
 
   const handleSubmit = () => {
-    if (!description.trim()) { alert("Please write a description."); return; }
+    if (!description.trim()) { setInfoMsg("Please write a description."); return; }
     onSubmit({
       company: company.name,
       concern: selected?.label || "Others",
@@ -390,7 +407,7 @@ const ReportModal = ({ company, onClose, onSubmit }) => {
           {step < 3 ? (
             <button
               onClick={() => {
-                if (step === 1 && !selected) { alert("Please select a concern."); return; }
+                if (step === 1 && !selected) { setInfoMsg("Please select a concern."); return; }
                 setStep(step + 1);
               }}
               style={{
@@ -415,6 +432,7 @@ const ReportModal = ({ company, onClose, onSubmit }) => {
           )}
         </div>
       </div>
+      {infoMsg && <InfoModal message={infoMsg} onClose={() => setInfoMsg(null)} />}
     </div>
   );
 };
@@ -430,6 +448,7 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onR
   const [popupMsgId, setPopupMsgId] = useState(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showReport, setShowReport] = useState(false);
+  const [infoMsg, setInfoMsg]       = useState(null);
 
   const bottomRef = useRef();
   const fileRef   = useRef();
@@ -453,8 +472,8 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onR
     const file = e.target.files[0];
     if (!file) return;
     const allowed = ["image/png", "application/pdf"];
-    if (!allowed.includes(file.type)) { alert("Only PNG and PDF files are allowed."); return; }
-    if (file.size > 10 * 1024 * 1024) { alert("File must be under 10MB."); return; }
+    if (!allowed.includes(file.type)) { setInfoMsg("Only PNG and PDF files are allowed."); return; }
+    if (file.size > 10 * 1024 * 1024) { setInfoMsg("File must be under 10MB."); return; }
     setAttachment({ name: file.name, type: file.type, url: URL.createObjectURL(file) });
     e.target.value = "";
   };
@@ -792,6 +811,8 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onR
           onCancel={() => setShowDeleteConfirm(false)}
         />
       )}
+
+      {infoMsg && <InfoModal message={infoMsg} onClose={() => setInfoMsg(null)} />}
     </div>
   );
 };

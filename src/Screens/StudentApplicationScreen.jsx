@@ -2655,18 +2655,32 @@ const LocationPicker = ({ region, province, city, barangay, street, onChange, di
   );
 };
 
+// ─── INFO MODAL ───────────────────────────────────────────────────────────────
+const InfoModal = ({ message, onClose }) => (
+  <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1500, padding: "16px" }}>
+    <div style={{ background: "#d8d8d8", borderRadius: "18px", width: "100%", maxWidth: "360px", padding: "32px 28px 26px", textAlign: "center", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+      <div style={{ width: "64px", height: "64px", borderRadius: "50%", background: darkRed, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px" }}>
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      </div>
+      <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem", color: "#333", marginBottom: "22px", lineHeight: 1.5 }}>{message}</p>
+      <button onClick={onClose} style={{ padding: "10px 40px", borderRadius: "24px", background: darkRed, color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif", fontSize: "1.1rem", cursor: "pointer" }}>OKAY</button>
+    </div>
+  </div>
+);
+
 // ─── FILE UPLOAD ──────────────────────────────────────────────────────────────
 const MultiFileUpload = ({ attachedFiles, onAdd, onRemove, disabled }) => {
   const fileRef = useRef();
+  const [infoMsg, setInfoMsg] = useState(null);
 
   const handlePick = (e) => {
     const picked = Array.from(e.target.files);
     if (!picked.length) return;
     const invalid = picked.filter(f => !ALLOWED_FILE_TYPES.includes(f.type));
-    if (invalid.length) { alert("Only PDF and PNG files are allowed."); e.target.value = ""; return; }
+    if (invalid.length) { setInfoMsg("Only PDF and PNG files are allowed."); e.target.value = ""; return; }
     const currentSize = (attachedFiles || []).reduce((sum, f) => sum + (f.size || 0), 0);
     const newSize = picked.reduce((sum, f) => sum + f.size, 0);
-    if (currentSize + newSize > MAX_FILE_SIZE) { alert("Total file size must not exceed 10MB."); e.target.value = ""; return; }
+    if (currentSize + newSize > MAX_FILE_SIZE) { setInfoMsg("Total file size must not exceed 10MB."); e.target.value = ""; return; }
     onAdd(picked);
     e.target.value = "";
   };
@@ -2701,6 +2715,7 @@ const MultiFileUpload = ({ attachedFiles, onAdd, onRemove, disabled }) => {
         )}
       </div>
       {!disabled && <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.72rem", color: "#aaa", marginTop: "5px", paddingLeft: "4px" }}>PDF and PNG only · Max 10MB total · Multiple files allowed</p>}
+      {infoMsg && <InfoModal message={infoMsg} onClose={() => setInfoMsg(null)} />}
     </div>
   );
 };
@@ -2790,7 +2805,9 @@ const useApplicationForm = (initial) => {
 };
 
 // ─── SHARED FORM FIELDS (used in both Apply + View modals) ───────────────────
-const FormFields = ({ f, locked = false }) => (
+const FormFields = ({ f, locked = false }) => {
+  const [infoMsg, setInfoMsg] = useState(null);
+  return (
   <>
     {/* Name */}
     <div className="sa-name-grid">
@@ -2885,15 +2902,17 @@ const FormFields = ({ f, locked = false }) => (
         onAdd={(newFiles) => {
           const currentSize = (f.attachedFiles || []).reduce((s, file) => s + (file.size || 0), 0);
           const newSize = newFiles.reduce((s, file) => s + file.size, 0);
-          if (currentSize + newSize > MAX_FILE_SIZE) { alert("Total file size must not exceed 10MB."); return; }
+          if (currentSize + newSize > MAX_FILE_SIZE) { setInfoMsg("Total file size must not exceed 10MB."); return; }
           f.setAttachedFiles([...(f.attachedFiles || []), ...newFiles]);
         }}
         onRemove={(idx) => { const updated = [...(f.attachedFiles || [])]; updated.splice(idx, 1); f.setAttachedFiles(updated); }}
         disabled={locked}
       />
     </div>
+    {infoMsg && <InfoModal message={infoMsg} onClose={() => setInfoMsg(null)} />}
   </>
-);
+  );
+};
 
 
 // ─── APPLY MODAL ──────────────────────────────────────────────────────────────

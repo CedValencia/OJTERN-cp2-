@@ -2994,7 +2994,7 @@ const PersonalInfoScreen = ({ onBack, user }) => {
   const handleSave = async () => {
     if (!validate()) return;
     const uid = user?.uid || getAuth().currentUser?.uid;
-    if (!uid) { alert("Error: Not logged in."); return; }
+    if (!uid) { setErrorMsg("Error: Not logged in."); setShowError(true); return; }
     try {
       await updateDoc(doc(db, "companies", uid), {
         companyName, industry: industries, courseSelections, location, email,

@@ -123,25 +123,43 @@ const ConfirmModal = ({ message, onConfirm, onCancel }) => {
   );
 };
 
+// ── InfoModal ─────────────────────────────────────────────────────────────────
+const InfoModal = ({ message, onClose }) => {
+  const isMobile = useIsMobile();
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 4000, padding: isMobile ? "12px" : "0" }}>
+      <div style={{ background: "white", borderRadius: "16px", width: "100%", maxWidth: "360px", overflow: "hidden", display: "flex", flexDirection: "column" }}>
+        <div style={{ padding: "22px 22px 6px" }}>
+          <p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.95rem", color: "#222", textAlign: "center", lineHeight: 1.5 }}>{message}</p>
+        </div>
+        <div style={{ display: "flex", borderTop: "1px solid #eee", marginTop: "18px" }}>
+          <button onClick={onClose} style={{ flex: 1, padding: "13px", background: "white", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.9rem", color: red, cursor: "pointer" }}>OK</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ── ReportModal ───────────────────────────────────────────────────────────────
 const ReportModal = ({ company, onClose, onSubmit }) => {
   const [step, setStep]               = useState(1);
   const [selected, setSelected]       = useState(null);
   const [description, setDescription] = useState("");
   const [attachedFile, setAttachedFile] = useState(null);
+  const [infoMsg, setInfoMsg]         = useState(null);
   const fileRef  = useRef();
   const isMobile = useIsMobile();
 
   const handleFile = (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    if (!["image/png", "application/pdf"].includes(file.type)) { alert("Only PNG and PDF files are allowed."); return; }
-    if (file.size > 10 * 1024 * 1024) { alert("File must be under 10MB."); return; }
+    if (!["image/png", "application/pdf"].includes(file.type)) { setInfoMsg("Only PNG and PDF files are allowed."); return; }
+    if (file.size > 10 * 1024 * 1024) { setInfoMsg("File must be under 10MB."); return; }
     setAttachedFile({ name: file.name, type: file.type, url: URL.createObjectURL(file) });
   };
 
   const handleSubmit = () => {
-    if (!description.trim()) { alert("Please write a description."); return; }
+    if (!description.trim()) { setInfoMsg("Please write a description."); return; }
     onSubmit({ company: company.name, concern: selected?.label || "Others", date: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }), description, attachedFile });
     onClose();
   };
@@ -201,12 +219,13 @@ const ReportModal = ({ company, onClose, onSubmit }) => {
         </div>
         <div style={{ background: darkRed, padding: "12px 20px", display: "flex", justifyContent: "flex-end" }}>
           {step < 3 ? (
-            <button onClick={() => { if (step === 1 && !selected) { alert("Please select a concern."); return; } setStep(step + 1); }} style={{ padding: "8px 20px", borderRadius: "20px", background: "rgba(255,255,255,0.2)", color: "white", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 600, cursor: "pointer", fontSize: "0.85rem" }}>Next {step}/3</button>
+            <button onClick={() => { if (step === 1 && !selected) { setInfoMsg("Please select a concern."); return; } setStep(step + 1); }} style={{ padding: "8px 20px", borderRadius: "20px", background: "rgba(255,255,255,0.2)", color: "white", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 600, cursor: "pointer", fontSize: "0.85rem" }}>Next {step}/3</button>
           ) : (
             <button onClick={handleSubmit} style={{ padding: "8px 20px", borderRadius: "20px", background: "rgba(255,255,255,0.2)", color: "white", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 600, cursor: "pointer", fontSize: "0.85rem" }}>Submit report</button>
           )}
         </div>
       </div>
+      {infoMsg && <InfoModal message={infoMsg} onClose={() => setInfoMsg(null)} />}
     </div>
   );
 };
@@ -221,6 +240,7 @@ const ChatView = ({ contact, messages, onSend, onBack, onReport, onDeleteConvers
   const [popupMsgId, setPopupMsgId] = useState(null);
   const [showReport, setShowReport] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [infoMsg, setInfoMsg]       = useState(null);
   const bottomRef      = useRef();
   const fileRef        = useRef();
   const infoRef        = useRef();
@@ -241,8 +261,8 @@ const ChatView = ({ contact, messages, onSend, onBack, onReport, onDeleteConvers
   const handleFile = (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    if (!["image/png", "application/pdf"].includes(file.type)) { alert("Only PNG and PDF files are allowed."); return; }
-    if (file.size > 10 * 1024 * 1024) { alert("File must be under 10MB."); return; }
+    if (!["image/png", "application/pdf"].includes(file.type)) { setInfoMsg("Only PNG and PDF files are allowed."); return; }
+    if (file.size > 10 * 1024 * 1024) { setInfoMsg("File must be under 10MB."); return; }
     setAttachment({ name: file.name, type: file.type, url: URL.createObjectURL(file) });
     e.target.value = "";
   };
@@ -406,6 +426,7 @@ const ChatView = ({ contact, messages, onSend, onBack, onReport, onDeleteConvers
 
       {showReport && <ReportModal company={contact} onClose={() => setShowReport(false)} onSubmit={report => { onReport(report); setShowReport(false); }} />}
       {showDeleteConfirm && <ConfirmModal message="Are you sure to delete the conversation?" onConfirm={confirmDeleteConversation} onCancel={() => setShowDeleteConfirm(false)} />}
+      {infoMsg && <InfoModal message={infoMsg} onClose={() => setInfoMsg(null)} />}
     </div>
   );
 };

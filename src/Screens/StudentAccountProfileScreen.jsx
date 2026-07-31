@@ -969,13 +969,14 @@ const ResetStep3 = ({ onDone }) => {
   const [newPass, setNewPass] = useState("");
   const [confirm, setConfirm] = useState("");
   const [errors, setErrors]   = useState({});
+  const [showSuccess, setShowSuccess] = useState(false);
 
   const handleSend = () => {
     const e = {};
     if (newPass.length < 8)   e.newPass = "Minimum 8 characters.";
     if (newPass !== confirm)  e.confirm  = "Passwords do not match.";
     setErrors(e);
-    if (Object.keys(e).length === 0) { alert("Password has been reset successfully!"); onDone(); }
+    if (Object.keys(e).length === 0) { setShowSuccess(true); }
   };
 
   return (
@@ -995,6 +996,7 @@ const ResetStep3 = ({ onDone }) => {
           Send
         </button>
       </div>
+      {showSuccess && <InfoModal message="Password has been reset successfully!" onClose={() => { setShowSuccess(false); onDone(); }} />}
     </div>
   );
 };
@@ -1213,6 +1215,48 @@ const TermsScreen = ({ onBack }) => (
 
 
 // ─── StudentAccountProfileScreen Component ────────────────────────────────────
+
+const InfoModal = ({ message, onClose }) => (
+  <div style={{
+    position: "fixed", inset: 0, zIndex: 9999,
+    background: "rgba(0,0,0,0.45)",
+    display: "flex", alignItems: "center", justifyContent: "center",
+  }}>
+    <div style={{
+      background: "white", borderRadius: "20px",
+      padding: "36px 32px", width: "clamp(280px, 85vw, 380px)",
+      display: "flex", flexDirection: "column", alignItems: "center",
+      gap: "12px", boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
+    }}>
+      {/* Icon */}
+      <div style={{
+        width: "64px", height: "64px", borderRadius: "50%",
+        background: "#fde8e8", display: "flex",
+        alignItems: "center", justifyContent: "center", marginBottom: "4px",
+      }}>
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none"
+          stroke="#8B0000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="10"/>
+          <line x1="12" y1="8" x2="12" y2="12"/>
+          <line x1="12" y1="16" x2="12.01" y2="16"/>
+        </svg>
+      </div>
+      <p style={{
+        fontFamily: "'Kufam', sans-serif", fontSize: "0.95rem",
+        color: "#333", margin: 0, textAlign: "center", lineHeight: 1.5,
+      }}>{message}</p>
+      <div style={{ display: "flex", width: "100%", marginTop: "8px" }}>
+        <button onClick={onClose} style={{
+          flex: 1, padding: "12px", borderRadius: "30px",
+          border: "none", background: "#8B0000",
+          fontFamily: "'Kufam', sans-serif", fontWeight: 700,
+          fontSize: "0.95rem", cursor: "pointer", color: "white",
+          boxShadow: "0 3px 10px rgba(139,0,0,0.3)",
+        }}>OK</button>
+      </div>
+    </div>
+  </div>
+);
 
 const LogoutModal = ({ onConfirm, onCancel }) => (
   <div style={{
