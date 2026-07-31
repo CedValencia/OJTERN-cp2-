@@ -8,6 +8,8 @@
  *     .participantRoles: { uid1: "student", uid2: "company" }
  *     .lastMessage: { text, senderId, ts }
  *     .updatedAt: serverTimestamp
+ *     .deletedFor: [uid, ...]           ← hides conv from that uid's Chats list until a new message arrives
+ *     .clearedAt: { uid: serverTimestamp } ← that uid's permanent "hide history before this point" cutoff
  *
  *   conversations/{convId}/messages/{msgId}
  *     .text: string
@@ -18,7 +20,7 @@
  *     .attachment: { name, url, type } | null
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   collection, doc, getDoc, setDoc, addDoc,
   updateDoc, deleteDoc, query, orderBy, limit,
@@ -79,9 +81,14 @@ export { buildFullName };
  */
 export const useChat = (myUid, myName, myRole) => {
   const [contacts, setContacts]   = useState([]);   // [{ id, name, role, convId }]
-  const [messages, setMessages]   = useState({});   // { [convId]: Message[] }
+  const [messages, setMessages]   = useState({});   // { [convId]: Message[] } — raw, unfiltered
   const [loading,  setLoading]    = useState(true);
   const [unsubMap, setUnsubMap]   = useState({});   // { [convId]: unsubscribe }
+  // { [convId]: ms } — this user's own "cleared history before this point"
+  // cutoff, from conv.clearedAt[myUid]. Messages at/before this cutoff are
+  // hidden from THIS user's view only; the shared messages subcollection
+  // and the other participant's view are untouched.
+  const [clearedAtMap, setClearedAtMap] = useState({});
 
   // ── Load all conversations for this user ────────────────────────────────
   useEffect(() => {
@@ -96,8 +103,18 @@ export const useChat = (myUid, myName, myRole) => {
     );
 
     const unsub = onSnapshot(q, async (snap) => {
-      const convList = snap.docs
-        .map(d => ({ id: d.id, ...d.data() }))
+      const allConvs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+      // Capture each conversation's clear-cutoff for THIS user (if any),
+      // independent of whether the conversation is currently hidden.
+      const newClearedAtMap = {};
+      allConvs.forEach(conv => {
+        const clearedSeconds = conv.clearedAt?.[myUid]?.seconds;
+        if (clearedSeconds) newClearedAtMap[conv.id] = clearedSeconds * 1000;
+      });
+      setClearedAtMap(newClearedAtMap);
+
+      const convList = allConvs
         // Skip conversations this user has deleted for themself — the doc
         // still exists (and is still visible to the other participant)
         // until it's revived by a new message. See sendMessage below.
@@ -230,13 +247,14 @@ export const useChat = (myUid, myName, myRole) => {
       });
     } else {
       // Update names in case they were previously "User" or undefined.
-      // Also un-delete it for myUid in case I'd deleted it before and am
-      // now reopening it (e.g. via a "Message" button elsewhere).
-      const existingDeletedFor = snap.data()?.deletedFor || [];
+      // NOTE: intentionally NOT touching `deletedFor` here — merely opening
+      // a chat (e.g. via "Message Now" on a company/coordinator profile)
+      // should not revive a conversation the user deleted. Only an actual
+      // new message (see sendMessage below) brings a deleted conversation
+      // back, Messenger-style.
       await updateDoc(convRef, {
         [`participantNames.${myUid}`]: resolvedMyName,
         [`participantNames.${otherUid}`]: resolvedOtherName,
-        deletedFor: existingDeletedFor.filter(uid => uid !== myUid),
       });
     }
 
@@ -311,22 +329,36 @@ export const useChat = (myUid, myName, myRole) => {
     }
   }, []);
 
-  // ── Delete conversation — per-user only. Marks it hidden for the caller;
-  //    the doc, messages, and the other participant's view are untouched.
-  //    A new message from either side revives it for both (see sendMessage).
+  // ── Delete conversation — per-user only. Hides it from the caller's Chats
+  //    list (until revived by a new message, see sendMessage) AND
+  //    permanently hides all message history up to this point — for the
+  //    caller only. The doc, the messages themselves, and the other
+  //    participant's view are untouched.
   const deleteConversation = useCallback(async (convId) => {
     if (!myUid) return;
     await updateDoc(doc(db, "conversations", convId), {
       deletedFor: arrayUnion(myUid),
+      [`clearedAt.${myUid}`]: serverTimestamp(),
     });
 
     setContacts(prev => prev.filter(c => c.convId !== convId));
     setMessages(prev => { const n = { ...prev }; delete n[convId]; return n; });
   }, [myUid]);
 
+  // Messages as this user should see them — raw messages minus anything at
+  // or before their own clearedAt cutoff for that conversation.
+  const visibleMessages = useMemo(() => {
+    const out = {};
+    Object.keys(messages).forEach(convId => {
+      const cutoff = clearedAtMap[convId] || 0;
+      out[convId] = (messages[convId] || []).filter(m => m.ts > cutoff);
+    });
+    return out;
+  }, [messages, clearedAtMap]);
+
   return {
     contacts,
-    messages,
+    messages: visibleMessages,
     loading,
     openConversation,
     ensureConversation,

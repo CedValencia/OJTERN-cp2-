@@ -23,6 +23,7 @@ import {
   query,
   where,
   getDocs,
+  addDoc,
   serverTimestamp,
 } from "firebase/firestore";
 
@@ -46,12 +47,7 @@ export const registerCompany = async (step1Data, verificationDocs) => {
   const email = rawEmail.trim().toLowerCase(); // normalize so Auth + Firestore always match
 
   // 1. Firebase Auth
-  let user;
-  try {
-    ({ user } = await createUserWithEmailAndPassword(auth, email, password));
-  } catch (err) {
-    throw new Error(getFriendlyAuthError(err));
-  }
+  const { user } = await createUserWithEmailAndPassword(auth, email, password);
 
   // 2. Firestore company doc
   await setDoc(doc(db, "companies", user.uid), {
@@ -67,29 +63,6 @@ export const registerCompany = async (step1Data, verificationDocs) => {
   });
 
   return user.uid;
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Maps a raw Firebase Auth error code to a user-friendly message.
-// Falls back to a generic message instead of ever showing the raw
-// "Firebase: Error (auth/...)" string in the UI.
-// ─────────────────────────────────────────────────────────────────────────────
-const FRIENDLY_AUTH_ERRORS = {
-  "invalid-email":          "Invalid email address or password. Please check and try again.",
-  "user-not-found":         "Invalid credentials. Please check and try again.",
-  "wrong-password":         "Invalid credentials. Please check and try again.",
-  "invalid-credential":     "Invalid credentials. Please check and try again.",
-  "missing-password":       "Please enter your password.",
-  "too-many-requests":      "Too many failed attempts. Please try again later.",
-  "user-disabled":          "This account has been disabled. Please contact the administrator.",
-  "network-request-failed": "Network error. Please check your connection and try again.",
-  "email-already-in-use":   "An account with that email already exists.",
-  "weak-password":          "Password is too weak. Please use at least 6 characters.",
-};
-
-const getFriendlyAuthError = (err) => {
-  const code = (err.code || "").replace(/^auth\//, ""); // "auth/invalid-email" → "invalid-email"
-  return FRIENDLY_AUTH_ERRORS[code] || "Something went wrong. Please try again.";
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -143,7 +116,14 @@ export const signIn = async (role, emailOrStudentId, password) => {
   try {
     userCredential = await signInWithEmailAndPassword(auth, loginEmail.trim().toLowerCase(), password);
   } catch (err) {
-    throw new Error(getFriendlyAuthError(err));
+    if (
+      err.code === "auth/user-not-found"    ||
+      err.code === "auth/wrong-password"    ||
+      err.code === "auth/invalid-credential"
+    ) {
+      throw new Error("Invalid credentials. Please check and try again.");
+    }
+    throw err;
   }
 
   const { user } = userCredential;
@@ -152,7 +132,7 @@ export const signIn = async (role, emailOrStudentId, password) => {
   const userSnap = await getDoc(doc(db, collectionMap[role], user.uid));
   if (!userSnap.exists()) {
     await signOut(auth);
-    throw new Error("Account not found.");
+    throw new Error("Account not found in the system. Please contact your administrator.");
   }
 
   const userData = userSnap.data();
@@ -212,11 +192,7 @@ export const resetPassword = async (email) => {
 
   if (!found) throw new Error("No account found with that email address.");
 
-  try {
-    await sendPasswordResetEmail(auth, normalized);
-  } catch (err) {
-    throw new Error(getFriendlyAuthError(err));
-  }
+  await sendPasswordResetEmail(auth, normalized);
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -245,6 +221,27 @@ export const rejectCompany = (companyId, coordinatorUid) =>
     status:     "rejected",
     rejectedBy: coordinatorUid,
     rejectedAt: serverTimestamp(),
+  });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// COORDINATOR ACTIVITY LOG
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Records a coordinator action to the shared activity log, shown as a
+ * "Recent Activity" feed on the coordinator dashboard.
+ * @param {string} coordinatorUid
+ * @param {string} action     short machine-readable action key, e.g. "company_approved"
+ * @param {string} description human-readable summary, e.g. "Approved Gueco Repair Shops"
+ * @param {object} [meta]     optional extra fields (e.g. targetId, targetName)
+ */
+export const logActivity = (coordinatorUid, action, description, meta = {}) =>
+  addDoc(collection(db, "activity_logs"), {
+    coordinatorUid,
+    action,
+    description,
+    ...meta,
+    createdAt: serverTimestamp(),
   });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -548,12 +545,7 @@ export const createCoordinatorAccount = async (accountData, inviterUid) => {
  */
 export const transferCoordinatorAccount = async (currentUid, currentEmail, currentPassword, newAccountData) => {
   // 1. Re-authenticate the current coordinator before doing anything irreversible
-  let reauthedUser;
-  try {
-    ({ user: reauthedUser } = await signInWithEmailAndPassword(auth, currentEmail.trim().toLowerCase(), currentPassword));
-  } catch (err) {
-    throw new Error("Your current password is incorrect.");
-  }
+  const { user: reauthedUser } = await signInWithEmailAndPassword(auth, currentEmail.trim().toLowerCase(), currentPassword);
 
   // 2. Load the current coordinator's scope to carry over
   const currentSnap = await getDoc(doc(db, "coordinators", currentUid));

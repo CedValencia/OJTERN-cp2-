@@ -197,6 +197,18 @@ const ResponsiveStyles = () => (
   `}</style>
 );
 
+// ── Alert Modal (replaces native window.alert with an in-app styled dialog) ──
+const AlertModal = ({ message, onClose }) => (
+  <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1100, padding: "16px" }}>
+    <div style={{ background: "white", borderRadius: "14px", width: "100%", maxWidth: "340px", overflow: "hidden", textAlign: "center" }}>
+      <div style={{ padding: "26px 22px 18px" }}>
+        <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.92rem", color: "#333", margin: 0, lineHeight: 1.5 }}>{message}</p>
+      </div>
+      <button onClick={onClose} style={{ width: "100%", padding: "13px", border: "none", borderTop: "1px solid #eee", background: "white", color: darkRed, fontFamily: "'Jersey 25', sans-serif", fontSize: "1.1rem", cursor: "pointer" }}>OK</button>
+    </div>
+  </div>
+);
+
 // ── Report Modal ───────────────────────────────────────────────────────────────
 const ReportModal = ({ company, onClose, onSubmit, reporter }) => {
   const [step, setStep]               = useState(1);
@@ -205,13 +217,16 @@ const ReportModal = ({ company, onClose, onSubmit, reporter }) => {
   const [attachedFile, setAttachedFile] = useState(null);  // { name, type, url (local preview), file (raw) }
   const [submitting, setSubmitting]   = useState(false);
   const [submitError, setSubmitError] = useState("");
+  const [alertMsg, setAlertMsg]       = useState("");
   const fileRef = useRef();
 
   const handleFile = (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    const allowed = ["image/png", "image/jpeg", "application/pdf"];
-    if (!allowed.includes(file.type)) { alert("Only PNG, JPG, and PDF files are allowed."); return; }
+    const allowed = ["image/png", "application/pdf"];
+    if (!allowed.includes(file.type)) { setAlertMsg("Only PNG and PDF files are allowed."); return; }
+    const MAX_SIZE = 10 * 1024 * 1024; // 10MB
+    if (file.size > MAX_SIZE) { setAlertMsg("File size must not exceed 10MB."); return; }
     const url = URL.createObjectURL(file);
     setAttachedFile({ name: file.name, type: file.type, url, file });
   };
@@ -231,7 +246,8 @@ const ReportModal = ({ company, onClose, onSubmit, reporter }) => {
   };
 
   const handleSubmit = async () => {
-    if (!description.trim()) { alert("Please write a description."); return; }
+    if (!description.trim()) { setAlertMsg("Please write a description."); return; }
+    if (!attachedFile)        { setAlertMsg("Please attach a file."); return; }
     setSubmitting(true);
     setSubmitError("");
     try {
@@ -312,7 +328,7 @@ const ReportModal = ({ company, onClose, onSubmit, reporter }) => {
                 placeholder="Describe the issue..."
                 style={{ width: "100%", minHeight: "100px", border: "none", borderBottom: `2px solid ${red}`, outline: "none", fontFamily: "'Kufam', sans-serif", fontSize: "0.88rem", resize: "none", background: "transparent", color: "#222", marginBottom: "20px" }}
               />
-              <p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.95rem", marginBottom: "10px" }}>Attach File:</p>
+              <p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.95rem", marginBottom: "10px" }}>Attach File: <span style={{ color: red, fontWeight: 400, fontSize: "0.8rem" }}>(required)</span></p>
               <input ref={fileRef} type="file" accept=".png,.pdf" style={{ display: "none" }} onChange={handleFile} />
               {!attachedFile ? (
                 <div onClick={() => fileRef.current.click()} style={{ width: "80px", height: "80px", background: "#e8c8c8", borderRadius: "14px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
@@ -341,7 +357,7 @@ const ReportModal = ({ company, onClose, onSubmit, reporter }) => {
           {submitError && <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.75rem", color: "#ffcccc", margin: 0 }}>⚠️ {submitError}</p>}
           {step < 3 ? (
             <button
-              onClick={() => { if (step === 1 && !selected) { alert("Please select a concern."); return; } setStep(step + 1); }}
+              onClick={() => { if (step === 1 && !selected) { setAlertMsg("Please select a concern."); return; } setStep(step + 1); }}
               style={{ padding: "8px 20px", borderRadius: "20px", background: "rgba(255,255,255,0.2)", color: "white", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 600, cursor: "pointer", fontSize: "0.85rem" }}
             >
               Next {step}/3
@@ -357,6 +373,7 @@ const ReportModal = ({ company, onClose, onSubmit, reporter }) => {
           )}
         </div>
       </div>
+      {alertMsg && <AlertModal message={alertMsg} onClose={() => setAlertMsg("")} />}
     </div>
   );
 };
@@ -510,7 +527,7 @@ const FilterPanel = ({ selectedIndustries, setSelectedIndustries, citySearch, se
 const CompanyCard = ({ company, onViewProfile }) => {
   const isActive = company.disabled === false || company.active !== false;
   const displayName = company.companyName || company.name || "Unnamed Company";
-  const displayIndustry = company.industry || "—";
+  const displayIndustry = Array.isArray(company.industry) ? (company.industry.join(", ") || "—") : (company.industry || "—");
   const displayLocation = typeof company.location === "object"
     ? [company.location.city, company.location.province].filter(Boolean).join(", ")
     : (company.location || "—");
@@ -600,10 +617,11 @@ const CoordinatorFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onM
 
   const filtered = companies.filter(c => {
     const name = (c.company || c.name || "").toLowerCase();
-    const industry = (c.industry || "").toLowerCase();
+    const industryArr = Array.isArray(c.industry) ? c.industry : (c.industry ? [c.industry] : []);
+    const industry = industryArr.join(" ").toLowerCase();
     const loc = (c.location?.city || c.location || "").toLowerCase();
     const matchSearch   = name.includes(search.toLowerCase()) || industry.includes(search.toLowerCase()) || loc.includes(search.toLowerCase());
-    const matchIndustry = selectedIndustries.length === 0 || selectedIndustries.includes(c.industry);
+    const matchIndustry = selectedIndustries.length === 0 || industryArr.some(ind => selectedIndustries.includes(ind));
     const matchCity     = !citySearch.trim() || (c.location?.city || c.location?.fullAddress || c.location || "").toLowerCase().includes(citySearch.trim().toLowerCase());
     return matchSearch && matchIndustry && matchCity;
   });

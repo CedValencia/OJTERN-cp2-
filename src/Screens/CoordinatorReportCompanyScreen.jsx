@@ -1,4 +1,7 @@
 import React, { useState, useEffect } from "react";
+import { doc, updateDoc, serverTimestamp } from "firebase/firestore";
+import { db } from "./firebase";
+import { logActivity } from "./AuthService";
 
 const red     = "#8B0000";
 const darkRed = "#590101";
@@ -263,15 +266,42 @@ const PdfIcon = () => (
 );
 
 // ── Report Detail Modal ───────────────────────────────────────────────────────
-export const ReportDetailModal = ({ report, onClose }) => {
+export const ReportDetailModal = ({ report, onClose, coordinatorUid }) => {
   const [lightbox, setLightbox] = useState(false);
+  const [status, setStatus]     = useState(report?.status || "pending");
+  const [working, setWorking]   = useState(false);
 
   if (!report) return null;
 
   const file    = report.attachedFile;
   const allowed = isAllowedType(file);
-  const isPng   = allowed && file.type === "image/png";
+  const isImage = allowed && file.type === "image/png";
   const isPdf   = allowed && file.type === "application/pdf";
+
+  const badge = REPORT_STATUS_BADGE[status] || REPORT_STATUS_BADGE.pending;
+
+  const handleAction = async (newStatus) => {
+    if (working || status !== "pending") return;
+    setWorking(true);
+    try {
+      await updateDoc(doc(db, "reports", report.id), {
+        status:      newStatus,
+        resolvedBy:  coordinatorUid || "",
+        resolvedAt:  serverTimestamp(),
+      });
+      logActivity(
+        coordinatorUid,
+        newStatus === "resolved" ? "report_resolved" : "report_dismissed",
+        `${newStatus === "resolved" ? "Resolved" : "Dismissed"} report on ${report.company}`,
+        { targetId: report.id, targetName: report.company }
+      ).catch(err => console.error("Failed to log activity:", err));
+      setStatus(newStatus);
+    } catch (err) {
+      console.error(`Failed to ${newStatus} report:`, err);
+    } finally {
+      setWorking(false);
+    }
+  };
 
   return (
     <>
@@ -287,8 +317,14 @@ export const ReportDetailModal = ({ report, onClose }) => {
               fontSize: "clamp(1.1rem, 4vw, 1.4rem)",
               color: "white",
               overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+              display: "flex", alignItems: "center", gap: "10px",
             }}>
               {report.company}
+              <span style={{
+                fontFamily: "'Kufam', sans-serif", fontSize: "0.68rem", fontWeight: 700,
+                background: badge.bg, color: "white", borderRadius: "12px",
+                padding: "3px 10px", whiteSpace: "nowrap", flexShrink: 0,
+              }}>{badge.label}</span>
             </span>
             <button
               onClick={onClose}
@@ -334,7 +370,7 @@ export const ReportDetailModal = ({ report, onClose }) => {
                     Unsupported file type. Only PNG images and PDF files can be previewed or downloaded.
                   </div>
                 )}
-                {isPng && (
+                {isImage && (
                   <div>
                     <div
                       onClick={() => setLightbox(true)}
@@ -391,10 +427,42 @@ export const ReportDetailModal = ({ report, onClose }) => {
               </>
             )}
           </div>
+
+          <div style={{
+            display: "flex", justifyContent: "flex-end", gap: "10px",
+            padding: "14px 20px", borderTop: "1px solid #eee",
+          }}>
+            {status === "pending" ? (
+              <>
+                <button
+                  onClick={() => handleAction("dismissed")}
+                  disabled={working}
+                  style={{
+                    padding: "9px 22px", borderRadius: "22px", background: "#666",
+                    color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif",
+                    fontSize: "1rem", cursor: working ? "not-allowed" : "pointer", opacity: working ? 0.7 : 1,
+                  }}
+                >DISMISS</button>
+                <button
+                  onClick={() => handleAction("resolved")}
+                  disabled={working}
+                  style={{
+                    padding: "9px 22px", borderRadius: "22px", background: "#2a7a2a",
+                    color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif",
+                    fontSize: "1rem", cursor: working ? "not-allowed" : "pointer", opacity: working ? 0.7 : 1,
+                  }}
+                >RESOLVE</button>
+              </>
+            ) : (
+              <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.8rem", color: "#888", margin: 0 }}>
+                This report has been {status} and can no longer be changed.
+              </p>
+            )}
+          </div>
         </div>
       </div>
 
-      {lightbox && isPng && (
+      {lightbox && isImage && (
         <ImageLightbox src={file.url} name={file.name} onClose={() => setLightbox(false)} />
       )}
     </>
@@ -427,6 +495,23 @@ const ViewButton = ({ onClick }) => (
   >View</button>
 );
 
+// ── Status badge (reused in table and cards) ──────────────────────────────────
+const REPORT_STATUS_BADGE = {
+  pending:   { bg: "#e0a800", label: "Pending" },
+  resolved:  { bg: "#2a7a2a", label: "Resolved" },
+  dismissed: { bg: "#666",    label: "Dismissed" },
+};
+const StatusBadge = ({ status }) => {
+  const b = REPORT_STATUS_BADGE[status] || REPORT_STATUS_BADGE.pending;
+  return (
+    <span style={{
+      fontFamily: "'Kufam', sans-serif", fontSize: "0.7rem", fontWeight: 700,
+      background: b.bg, color: "white", borderRadius: "12px",
+      padding: "3px 10px", whiteSpace: "nowrap",
+    }}>{b.label}</span>
+  );
+};
+
 // ── Report Company Screen ─────────────────────────────────────────────────────
 const CoordinatorReportCompanyScreen = ({ reports = [], onViewReport }) => (
   <>
@@ -451,7 +536,7 @@ const CoordinatorReportCompanyScreen = ({ reports = [], onViewReport }) => (
         <table className="rc-table">
           <thead>
             <tr style={{ background: darkRed }}>
-              {["Reported Company", "Concern", "Date", "Action"].map(h => (
+              {["Reported Company", "Concern", "Date", "Status", "Action"].map(h => (
                 <th key={h} className="rc-th">{h}</th>
               ))}
             </tr>
@@ -462,6 +547,7 @@ const CoordinatorReportCompanyScreen = ({ reports = [], onViewReport }) => (
                 <td className="rc-td">{r.company}</td>
                 <td className="rc-td">{r.concern}</td>
                 <td className="rc-td">{r.date}</td>
+                <td className="rc-td"><StatusBadge status={r.status || "pending"} /></td>
                 <td className="rc-td">
                   <ViewButton onClick={() => onViewReport && onViewReport(r)} />
                 </td>
@@ -469,7 +555,7 @@ const CoordinatorReportCompanyScreen = ({ reports = [], onViewReport }) => (
             ))}
             {reports.length === 0 && (
               <tr>
-                <td colSpan={4} style={{ padding: "60px" }}>
+                <td colSpan={5} style={{ padding: "60px" }}>
                   <EmptyState />
                 </td>
               </tr>
@@ -500,6 +586,9 @@ const CoordinatorReportCompanyScreen = ({ reports = [], onViewReport }) => (
                 <p className="rc-card-label">Date</p>
                 <p className="rc-card-value">{r.date}</p>
               </div>
+            </div>
+            <div style={{ marginTop: "8px" }}>
+              <StatusBadge status={r.status || "pending"} />
             </div>
           </div>
         ))}
