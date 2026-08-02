@@ -2476,7 +2476,6 @@ const appValidators = {
   },
   email: (v) => {
     if (!v || !v.trim()) return "Required";
-    if (!GMAIL_REGEX.test(v.trim())) return "Must be @gmail.com";
     return "";
   },
 };

@@ -509,6 +509,7 @@ const AddAccountModal = ({ onClose, currentUid }) => {
     if (!name.trim()) e.name = "Name is required.";
     if (!sex) e.sex = "Select sex.";
     if (!contact.match(/^\+63 \d{3}-\d{3}-\d{4}$/)) e.contact = "Format: +63 000-000-0000";
+    if (!email.trim()) e.email = "Email is required.";
     if (!address.trim()) e.address = "Address is required.";
     if (password.length < 8) e.password = "Minimum 8 characters.";
     if (password !== confirm) e.confirm = "Passwords do not match.";
@@ -581,7 +582,7 @@ const AddAccountModal = ({ onClose, currentUid }) => {
             </div>
             <div>
               <label style={labelStyle}>Email Address:</label>
-              <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="example@gmail.com" style={{ ...fieldStyle, marginBottom: "2px" }} />
+              <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="example@email.com" style={{ ...fieldStyle, marginBottom: "2px" }} />
               {errors.email && <p style={{ color: "red", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif" }}>{errors.email}</p>}
             </div>
             <div>
@@ -636,7 +637,7 @@ const TransferAccountModal = ({ onClose, currentUid, currentEmail, onLogout }) =
     const e = {};
     if (!currentPass) e.currentPass = "Your current password is required to confirm this transfer.";
     if (!name.trim()) e.name = "New coordinator's name is required.";
-    if (!email.endsWith("@gmail.com")) e.email = "Must be a valid @gmail.com email.";
+    if (!email.trim()) e.email = "Email is required.";
     if (newPass.length < 8) e.newPass = "Minimum 8 characters.";
     if (newPass !== confirmPass) e.confirmPass = "Passwords do not match.";
     setErrors(e);
@@ -1001,7 +1002,7 @@ const ResetStep1 = ({ onNext }) => {
   const [error, setError] = useState("");
 
   const handleSend = () => {
-    if (!email.endsWith("@gmail.com")) { setError("Must be a valid @gmail.com email."); return; }
+    if (!email.trim()) { setError("Email is required."); return; }
     setError(""); onNext(email);
   };
 
@@ -1112,7 +1113,7 @@ const ResetPasswordScreen = ({ onBack, user }) => {
             <div style={{ textAlign: "center", padding: "20px 0" }}>
               <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#2d7a2d" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginBottom: "12px" }}><circle cx="12" cy="12" r="10"/><polyline points="9 12 11 14 15 10"/></svg>
               <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "1rem", fontWeight: 700, color: "#2d7a2d", marginBottom: "6px" }}>Password Changed!</p>
-              <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#666", marginBottom: "20px" }}>Your password has been updated successfully.</p>
+              <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#666", marginBottom: "20px" }}>Your password has been updated successfully. Please log in again with your new password.</p>
               <button onClick={onBack} style={{ background: darkRed, color: "white", border: "none", borderRadius: "20px", padding: "10px 32px", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.95rem", cursor: "pointer" }}>Done</button>
             </div>
           ) : (

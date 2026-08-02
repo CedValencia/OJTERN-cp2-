@@ -17,7 +17,7 @@
  *     .ts: serverTimestamp
  *     .edited: bool
  *     .unsent: bool
- *     .attachment: { name, url, type } | null
+ *     .attachments: [{ name, url, type }, ...] | null
  */
 
 import { useState, useEffect, useCallback, useMemo } from "react";
@@ -164,7 +164,7 @@ export const useChat = (myUid, myName, myRole) => {
                 ts:         data.ts?.seconds ? data.ts.seconds * 1000 : Date.now(),
                 edited:     data.edited || false,
                 unsent:     data.unsent || false,
-                attachment: data.attachment || null,
+                attachments: data.attachments || (data.attachment ? [data.attachment] : []),
               };
             });
             setMessages(prev => ({ ...prev, [c.convId]: msgs }));
@@ -197,7 +197,7 @@ export const useChat = (myUid, myName, myRole) => {
           ts:         data.ts?.seconds ? data.ts.seconds * 1000 : Date.now(),
           edited:     data.edited || false,
           unsent:     data.unsent || false,
-          attachment: data.attachment || null,
+          attachments: data.attachments || (data.attachment ? [data.attachment] : []),
         };
       });
       setMessages(prev => ({ ...prev, [convId]: msgs }));
@@ -268,24 +268,30 @@ export const useChat = (myUid, myName, myRole) => {
   }, [myUid, myName, myRole]);
 
   // ── Send a new message ──────────────────────────────────────────────────
-  const sendMessage = useCallback(async (convId, { text, attachment }) => {
-    if (!convId || (!text?.trim() && !attachment)) return;
+  const sendMessage = useCallback(async (convId, { text, attachments }) => {
+    const hasAttachments = Array.isArray(attachments) && attachments.length > 0;
+    if (!convId || (!text?.trim() && !hasAttachments)) return;
 
     const msgRef = collection(db, "conversations", convId, "messages");
     await addDoc(msgRef, {
-      text:       text?.trim() || "",
-      senderId:   myUid,
-      ts:         serverTimestamp(),
-      edited:     false,
-      unsent:     false,
-      attachment: attachment || null,
+      text:        text?.trim() || "",
+      senderId:    myUid,
+      ts:          serverTimestamp(),
+      edited:      false,
+      unsent:      false,
+      attachments: hasAttachments ? attachments : null,
     });
 
     // Update conversation's lastMessage + updatedAt. Also clear deletedFor —
     // a new message should bring the conversation back for anyone who'd
     // deleted it on their side (e.g. Messenger-style revival).
     await updateDoc(doc(db, "conversations", convId), {
-      lastMessage: { text: text?.trim() || (attachment ? "📎 Attachment" : ""), senderId: myUid, ts: serverTimestamp() },
+      lastMessage: {
+        text: text?.trim() || (hasAttachments
+          ? (attachments.length > 1 ? `📎 ${attachments.length} Attachments` : "📎 Attachment")
+          : ""),
+        senderId: myUid, ts: serverTimestamp(),
+      },
       updatedAt:   serverTimestamp(),
       deletedFor:  [],
     });
@@ -318,7 +324,7 @@ export const useChat = (myUid, myName, myRole) => {
         const latest = latestSnap.docs[0].data();
         await updateDoc(doc(db, "conversations", convId), {
           lastMessage: {
-            text:     latest.unsent ? "Unsent Message" : (latest.text || (latest.attachment ? "📎 Attachment" : "")),
+            text:     latest.unsent ? "Unsent Message" : (latest.text || ((latest.attachments?.length || latest.attachment) ? (latest.attachments?.length > 1 ? `📎 ${latest.attachments.length} Attachments` : "📎 Attachment") : "")),
             senderId: latest.senderId,
             ts:       latest.ts,
           },

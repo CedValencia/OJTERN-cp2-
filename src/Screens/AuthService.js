@@ -121,7 +121,7 @@ export const signIn = async (role, emailOrStudentId, password) => {
       err.code === "auth/wrong-password"    ||
       err.code === "auth/invalid-credential"
     ) {
-      throw new Error("Invalid credentials. Please check and try again.");
+     throw new Error("Invalid password. Please check and try again.");
     }
     throw err;
   }

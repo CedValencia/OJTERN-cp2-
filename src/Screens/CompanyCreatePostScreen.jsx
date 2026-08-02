@@ -525,8 +525,15 @@ const MapboxLocationPicker = ({ value, onChange, readOnly }) => {
 };
 
 // ── Post Form Modal ───────────────────────────────────────────────────────────
-const PostFormModal = ({ post, mode, onClose, onSave, user }) => {
+const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile }) => {
   const [isEditing, setIsEditing] = useState(mode === "create" || mode === "edit");
+
+  // The post's location is fixed to whatever the company has set in their
+  // Account Profile — it is never typed/edited from this form. Build the
+  // display address the same way PersonalInfoScreen does.
+  const profileLoc = companyProfile?.location || {};
+  const fixedAddress = [profileLoc.street, profileLoc.barangay, profileLoc.city, profileLoc.province, profileLoc.region]
+    .filter(Boolean).join(", ");
 
   const [form, setForm] = useState({
     benefits:         post?.benefits         || "",
@@ -538,8 +545,18 @@ const PostFormModal = ({ post, mode, onClose, onSave, user }) => {
     slot:             post?.slot ?? 1,
     phone:            post?.phone || "+63 ",
     contactEmail:     post?.contactEmail || "",
-    postLocation:     post?.postLocation || { address: "", lat: null, lng: null },
+    postLocation:     post?.postLocation || { address: fixedAddress, lat: null, lng: null },
   });
+
+  // Keep postLocation's address in lockstep with the company profile even if
+  // the profile changes while this modal is open, or if the post predates
+  // this fixed-location behavior and still has a stale/empty address.
+  useEffect(() => {
+    if (fixedAddress && form.postLocation?.address !== fixedAddress) {
+      setForm(f => ({ ...f, postLocation: { ...f.postLocation, address: fixedAddress } }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fixedAddress]);
 
   const [errors, setErrors]                         = useState({});
   const [courseErrors, setCourseErrors]             = useState([]);
@@ -628,14 +645,29 @@ const PostFormModal = ({ post, mode, onClose, onSave, user }) => {
               <FieldError msg={errors.requirements} />
             </div>
 
-            {/* Location + Mapbox Map */}
+            {/* Location + Mapbox Map (fixed to Account Profile location — not editable here) */}
             <div style={{ width: "100%" }}>
               <FieldLabel>Location:</FieldLabel>
-              <MapboxLocationPicker
-                value={form.postLocation?.address || ""}
-                onChange={(loc) => set("postLocation", loc)}
-                readOnly={readOnly}
-              />
+              {fixedAddress ? (
+                <>
+                  <div style={{ ...pillInputReadonly, marginBottom: "8px", display: "flex", alignItems: "center", boxSizing: "border-box" }}>
+                    📍 {fixedAddress}
+                  </div>
+                  <MapboxLocationPicker
+                    key={fixedAddress}
+                    value={fixedAddress}
+                    onChange={(loc) => set("postLocation", loc)}
+                    readOnly={true}
+                  />
+                </>
+              ) : (
+                <div style={{ background: "#f0e0e0", border: `1px dashed ${darkRed}`, borderRadius: "14px", padding: "14px 16px", fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", color: darkRed }}>
+                  No location set yet. Please set your company location first.
+                </div>
+              )}
+              <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.7rem", color: "#888", margin: "4px 0 0" }}>
+                This follows your company's location.
+              </p>
             </div>
           </div>
 
@@ -919,6 +951,7 @@ const PostOJTContent = ({ user }) => {
           onClose={closeModal}
           onSave={handleSave}
           user={user}
+          companyProfile={companyProfile}
         />
       )}
     </div>

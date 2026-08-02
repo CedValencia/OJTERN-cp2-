@@ -15,6 +15,26 @@ const red = "#590101";
 const darkRed = "#590101";
 const fieldBg = "#7A4F4F";
 
+const MAPBOX_TOKEN = "pk.eyJ1IjoibWFraWlpaS0iLCJhIjoiY21wbTgybHVmMmc1ZzJycTFuZXRlb3NoNCJ9.FIpjF2lKTHkbU1e6qrL_Pw";
+
+// Forward-geocode an address string to { address, lat, lng } via Mapbox, so a
+// post's pinned map location can follow the company's profile location.
+async function geocodeAddress(text) {
+  if (!text || !text.trim()) return { address: "", lat: null, lng: null };
+  try {
+    const res = await fetch(
+      `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(text)}.json?access_token=${MAPBOX_TOKEN}&country=PH&limit=1`
+    );
+    const data = await res.json();
+    const feature = data.features?.[0];
+    if (!feature) return { address: text, lat: null, lng: null };
+    const [lng, lat] = feature.center;
+    return { address: text, lat, lng };
+  } catch (_) {
+    return { address: text, lat: null, lng: null };
+  }
+}
+
 // ── Responsive Styles ─────────────────────────────────────────────────────────
 const ResponsiveStyles = () => (
   <style>{`
@@ -3000,7 +3020,12 @@ const PersonalInfoScreen = ({ onBack, user }) => {
         companyName, industry: industries, courseSelections, location, email,
       });
       const postsSnap = await getDocs(query(collection(db, "ojt_posts"), where("companyId", "==", uid)));
-      await Promise.all(postsSnap.docs.map(d => updateDoc(d.ref, { companyName, name: companyName })));
+      const newAddress = [location.street, location.barangay, location.city, location.province, location.region]
+        .filter(Boolean).join(", ");
+      const newPostLocation = await geocodeAddress(newAddress);
+      await Promise.all(postsSnap.docs.map(d => updateDoc(d.ref, {
+        companyName, name: companyName, location, postLocation: newPostLocation,
+      })));
       const convsSnap = await getDocs(query(collection(db, "conversations"), where("participants", "array-contains", uid)));
       await Promise.all(convsSnap.docs.map(d => updateDoc(d.ref, { [`participantNames.${uid}`]: companyName })));
       setEditing(false);

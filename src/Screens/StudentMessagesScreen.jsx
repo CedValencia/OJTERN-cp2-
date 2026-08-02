@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from "react";
 import userIcon from "../icons/user.png";
 import viewIcon from "../icons/view.png";
 import { useChat } from "./useChat";
+import { uploadFilesToFolder } from "./CloudinaryService";
 
 // ─── Color Tokens ─────────────────────────────────────────────────────────────
 const red = "#8B0000";
@@ -213,7 +214,7 @@ const AttachmentBubble = ({ attachment, isMe }) => {
 
 
 // ─── ReportModal ──────────────────────────────────────────────────────────────
-const ConfirmModal = ({ message, onConfirm, onCancel }) => {
+const ConfirmModal = ({ message, onConfirm, onCancel, confirmLabel = "Yes", cancelLabel = "No" }) => {
   const isMobile = useIsMobile();
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 3000, padding: isMobile ? "12px" : "0" }}>
@@ -222,8 +223,8 @@ const ConfirmModal = ({ message, onConfirm, onCancel }) => {
           <p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.95rem", color: "#222", textAlign: "center", lineHeight: 1.5 }}>{message}</p>
         </div>
         <div style={{ display: "flex", borderTop: "1px solid #eee", marginTop: "18px" }}>
-          <button onClick={onCancel} style={{ flex: 1, padding: "13px", background: "white", border: "none", borderRight: "1px solid #eee", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.9rem", color: "#555", cursor: "pointer" }}>No</button>
-          <button onClick={onConfirm} style={{ flex: 1, padding: "13px", background: "white", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.9rem", color: red, cursor: "pointer" }}>Yes</button>
+          <button onClick={onCancel} style={{ flex: 1, padding: "13px", background: "white", border: "none", borderRight: "1px solid #eee", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.9rem", color: "#555", cursor: "pointer" }}>{cancelLabel}</button>
+          <button onClick={onConfirm} style={{ flex: 1, padding: "13px", background: "white", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.9rem", color: red, cursor: "pointer" }}>{confirmLabel}</button>
         </div>
       </div>
     </div>
@@ -266,6 +267,7 @@ const ReportModal = ({ company, onClose, onSubmit }) => {
 
   const handleSubmit = () => {
     if (!description.trim()) { setInfoMsg("Please write a description."); return; }
+    if (!attachedFile)        { setInfoMsg("Please attach a file."); return; }
     onSubmit({
       company: company.name,
       concern: selected?.label || "Others",
@@ -441,12 +443,13 @@ const ReportModal = ({ company, onClose, onSubmit }) => {
 // ─── ChatView ─────────────────────────────────────────────────────────────────
 const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onReport }) => {
   const [input, setInput]           = useState("");
-  const [attachment, setAttachment] = useState(null);
+  const [attachments, setAttachments] = useState([]);
   const [showInfo, setShowInfo]     = useState(false);
   const [editingId, setEditingId]   = useState(null);
   const [editText, setEditText]     = useState("");
   const [popupMsgId, setPopupMsgId] = useState(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [unsendTarget, setUnsendTarget] = useState(null);
   const [showReport, setShowReport] = useState(false);
   const [infoMsg, setInfoMsg]       = useState(null);
 
@@ -468,28 +471,56 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onR
     return () => document.removeEventListener("mousedown", handler);
   }, [popupMsgId]);
 
+  const MAX_ATTACHMENTS = 5;
+  const [sending, setSending] = useState(false);
   const handleFile = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
     const allowed = ["image/png", "application/pdf"];
-    if (!allowed.includes(file.type)) { setInfoMsg("Only PNG and PDF files are allowed."); return; }
-    if (file.size > 10 * 1024 * 1024) { setInfoMsg("File must be under 10MB."); return; }
-    setAttachment({ name: file.name, type: file.type, url: URL.createObjectURL(file) });
+    const room = MAX_ATTACHMENTS - attachments.length;
+    if (room <= 0) { setInfoMsg(`You can attach up to ${MAX_ATTACHMENTS} files per message.`); e.target.value = ""; return; }
+    const next = [];
+    let rejected = false;
+    for (const file of files.slice(0, room)) {
+      if (!allowed.includes(file.type)) { rejected = true; continue; }
+      if (file.size > 10 * 1024 * 1024) { rejected = true; continue; }
+      next.push({ name: file.name, type: file.type, url: URL.createObjectURL(file), file });
+    }
+    if (files.length > room) setInfoMsg(`Only ${room} more file(s) could be added (max ${MAX_ATTACHMENTS} per message).`);
+    else if (rejected) setInfoMsg("Only PNG and PDF files under 10MB are allowed.");
+    if (next.length > 0) setAttachments(prev => [...prev, ...next]);
     e.target.value = "";
   };
 
-  const handleSend = () => {
-    if (!input.trim() && !attachment) return;
+  const handleSend = async () => {
+    if (sending) return;
+    if (!input.trim() && attachments.length === 0) return;
     const now = new Date();
     const timeStr = now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true })
       .toLowerCase().replace(" ", "");
+
+    let uploadedAttachments = null;
+    if (attachments.length > 0) {
+      setSending(true);
+      try {
+        const uploaded = await uploadFilesToFolder(attachments.map(a => a.file), "chat_attachments");
+        uploadedAttachments = uploaded.map((u, i) => ({ name: u.name, url: u.url, type: attachments[i].type }));
+      } catch (err) {
+        console.error("Failed to upload attachments:", err);
+        setInfoMsg("Failed to upload attachment(s). Please try again.");
+        setSending(false);
+        return;
+      }
+      setSending(false);
+    }
+
     onSend(contact.id, {
       id: Date.now(), sender: "me", text: input.trim(),
       time: timeStr, edited: false, unsent: false,
-      attachment: attachment || null,
+      attachments: uploadedAttachments,
     });
     setInput("");
-    setAttachment(null);
+    setAttachments([]);
   };
 
   const handleKeyDown = (e) => {
@@ -510,7 +541,8 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onR
 
   const startEdit    = (msg) => { if (!msg.text) return; setEditingId(msg.id); setEditText(msg.text); setPopupMsgId(null); };
   const saveEdit     = (msgId) => { if (!editText.trim()) return; onSend(contact.id, { __edit: true, id: msgId, text: editText.trim() }); setEditingId(null); setEditText(""); };
-  const handleUnsent = (msgId) => { onSend(contact.id, { __unsent: true, id: msgId }); setPopupMsgId(null); };
+  const handleUnsent = (msgId) => { setUnsendTarget(msgId); setPopupMsgId(null); };
+  const confirmUnsend = () => { onSend(contact.id, { __unsent: true, id: unsendTarget }); setUnsendTarget(null); };
   const handleDeleteConversation = () => { setShowInfo(false); setShowDeleteConfirm(true); };
   const confirmDeleteConversation = () => { onDeleteConversation(contact.id); setShowDeleteConfirm(false); };
 
@@ -597,6 +629,37 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onR
           const isPopupOpen = popupMsgId === msg.id;
           const hasText     = !!msg.text;
 
+          const popupMenu = isPopupOpen && !msg.unsent && (
+            <div
+              onMouseDown={e => e.stopPropagation()}
+              style={{
+                position: "absolute", bottom: "calc(100% + 4px)", right: 0,
+                background: "white", borderRadius: "10px",
+                boxShadow: "0 4px 16px rgba(0,0,0,0.18)", zIndex: 100,
+                minWidth: "120px", overflow: "hidden",
+              }}
+            >
+              {hasText && (
+                <div
+                  onClick={() => startEdit(msg)}
+                  style={{ padding: "10px 16px", fontFamily: "'Kufam', sans-serif", fontSize: "0.88rem", color: "#222", cursor: "pointer", borderBottom: "1px solid #f0f0f0" }}
+                  onMouseEnter={e => e.currentTarget.style.background = "#f5f5f5"}
+                  onMouseLeave={e => e.currentTarget.style.background = "white"}
+                >
+                  Edit
+                </div>
+              )}
+              <div
+                onClick={() => handleUnsent(msg.id)}
+                style={{ padding: "10px 16px", fontFamily: "'Kufam', sans-serif", fontSize: "0.88rem", color: red, fontWeight: 700, cursor: "pointer" }}
+                onMouseEnter={e => e.currentTarget.style.background = "#fff0f0"}
+                onMouseLeave={e => e.currentTarget.style.background = "white"}
+              >
+                Unsend
+              </div>
+            </div>
+          );
+
           return (
             <React.Fragment key={msg.id}>
               {showTime && msgTimeStr && (
@@ -619,36 +682,6 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onR
                   maxWidth: bubbleMaxWidth, display: "flex", flexDirection: "column",
                   alignItems: isMe ? "flex-end" : "flex-start", gap: "3px", position: "relative",
                 }}>
-                  {isPopupOpen && isMe && !msg.unsent && (
-                    <div
-                      onMouseDown={e => e.stopPropagation()}
-                      style={{
-                        position: "absolute", bottom: "calc(100% + 6px)", right: 0,
-                        background: "white", borderRadius: "10px",
-                        boxShadow: "0 4px 16px rgba(0,0,0,0.18)", zIndex: 100,
-                        minWidth: "120px", overflow: "hidden",
-                      }}
-                    >
-                      {hasText && (
-                        <div
-                          onClick={() => startEdit(msg)}
-                          style={{ padding: "10px 16px", fontFamily: "'Kufam', sans-serif", fontSize: "0.88rem", color: "#222", cursor: "pointer", borderBottom: "1px solid #f0f0f0" }}
-                          onMouseEnter={e => e.currentTarget.style.background = "#f5f5f5"}
-                          onMouseLeave={e => e.currentTarget.style.background = "white"}
-                        >
-                          Edit
-                        </div>
-                      )}
-                      <div
-                        onClick={() => handleUnsent(msg.id)}
-                        style={{ padding: "10px 16px", fontFamily: "'Kufam', sans-serif", fontSize: "0.88rem", color: red, fontWeight: 700, cursor: "pointer" }}
-                        onMouseEnter={e => e.currentTarget.style.background = "#fff0f0"}
-                        onMouseLeave={e => e.currentTarget.style.background = "white"}
-                      >
-                        Unsent
-                      </div>
-                    </div>
-                  )}
                   {msg.unsent ? (
                     <div style={{
                       background: "transparent", border: "1.5px dashed #bbb",
@@ -659,36 +692,20 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onR
                     }}>
                       Unsent Message
                     </div>
-                  ) : editingId === msg.id ? (
-                    <div style={{ display: "flex", flexDirection: "column", gap: "6px", alignItems: "flex-end" }}>
-                      <input
-                        value={editText}
-                        onChange={e => setEditText(e.target.value)}
-                        onKeyDown={e => { if (e.key === "Enter") saveEdit(msg.id); if (e.key === "Escape") setEditingId(null); }}
-                        autoFocus
-                        style={{
-                          padding: "8px 14px", borderRadius: "20px",
-                          border: `2px solid ${darkRed}`, fontFamily: "'Kufam', sans-serif",
-                          fontSize: "0.88rem", outline: "none", background: "#fff8f8",
-                          minWidth: isMobile ? "140px" : "180px",
-                        }}
-                      />
-                      <div style={{ display: "flex", gap: "6px" }}>
-                        <button onClick={() => setEditingId(null)} style={{ padding: "5px 14px", borderRadius: "14px", background: "#eee", color: "#555", border: "none", fontFamily: "'Kufam', sans-serif", fontSize: "0.76rem", cursor: "pointer" }}>Cancel</button>
-                        <button onClick={() => saveEdit(msg.id)} style={{ padding: "5px 14px", borderRadius: "14px", background: darkRed, color: "white", border: "none", fontFamily: "'Kufam', sans-serif", fontSize: "0.76rem", cursor: "pointer" }}>Save</button>
-                      </div>
-                    </div>
                   ) : (
                     <>
                       {msg.text && (
                         <div style={{ display: "flex", alignItems: "center", gap: "6px", justifyContent: isMe ? "flex-end" : "flex-start" }}>
                           {isMe && (
-                            <button
-                              onClick={() => setPopupMsgId(prev => prev === msg.id ? null : msg.id)}
-                              style={{ background: "none", border: "none", cursor: "pointer", padding: "2px 4px", color: "#aaa", fontSize: "1rem", lineHeight: 1, flexShrink: 0 }}
-                            >
-                              ⋮
-                            </button>
+                            <div style={{ position: "relative" }}>
+                              <button
+                                onClick={() => setPopupMsgId(prev => prev === msg.id ? null : msg.id)}
+                                style={{ background: "none", border: "none", cursor: "pointer", padding: "2px 4px", color: "#aaa", fontSize: "1rem", lineHeight: 1, flexShrink: 0 }}
+                              >
+                                ⋮
+                              </button>
+                              {popupMenu}
+                            </div>
                           )}
                           <div
                             onMouseDown={e => startLongPress(e, msg)}
@@ -706,7 +723,7 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onR
                               fontSize: isMobile ? "0.82rem" : "0.88rem",
                               lineHeight: 1.5, cursor: isMe ? "pointer" : "default",
                               userSelect: "none",
-                              outline: isPopupOpen ? "2px solid rgba(255,255,255,0.4)" : "none",
+                              outline: (isPopupOpen || editingId === msg.id) ? `2px solid ${darkRed}` : "none",
                               WebkitUserSelect: "none", WebkitTouchCallout: "none",
                             }}
                           >
@@ -714,20 +731,41 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onR
                           </div>
                         </div>
                       )}
-                      {msg.attachment && (
-                        <div
-                          style={{ marginTop: msg.text ? "4px" : "0" }}
-                          onMouseDown={e => startLongPress(e, msg)}
-                          onMouseUp={cancelLongPress}
-                          onMouseLeave={cancelLongPress}
-                          onTouchStart={e => startLongPress(e, msg)}
-                          onTouchEnd={cancelLongPress}
-                          onTouchMove={cancelLongPress}
-                          onContextMenu={e => e.preventDefault()}
-                        >
-                          <AttachmentBubble attachment={msg.attachment} isMe={isMe} />
-                        </div>
-                      )}
+                      {(() => {
+                        const attachmentsList = msg.attachments || (msg.attachment ? [msg.attachment] : []);
+                        if (attachmentsList.length === 0) return null;
+                        return (
+                          <div style={{ display: "flex", alignItems: "center", gap: "6px", justifyContent: isMe ? "flex-end" : "flex-start", marginTop: msg.text ? "4px" : "0" }}>
+                            {isMe && !msg.text && (
+                              <div style={{ position: "relative" }}>
+                                <button
+                                  onClick={() => setPopupMsgId(prev => prev === msg.id ? null : msg.id)}
+                                  style={{ background: "none", border: "none", cursor: "pointer", padding: "2px 4px", color: "#aaa", fontSize: "1rem", lineHeight: 1, flexShrink: 0 }}
+                                >
+                                  ⋮
+                                </button>
+                                {popupMenu}
+                              </div>
+                            )}
+                            <div style={{ display: "flex", flexDirection: "column", gap: "4px", alignItems: isMe ? "flex-end" : "flex-start" }}>
+                              {attachmentsList.map((att, ai) => (
+                                <div
+                                  key={ai}
+                                  onMouseDown={e => startLongPress(e, msg)}
+                                  onMouseUp={cancelLongPress}
+                                  onMouseLeave={cancelLongPress}
+                                  onTouchStart={e => startLongPress(e, msg)}
+                                  onTouchEnd={cancelLongPress}
+                                  onTouchMove={cancelLongPress}
+                                  onContextMenu={e => e.preventDefault()}
+                                >
+                                  <AttachmentBubble attachment={att} isMe={isMe} />
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })()}
                       {msg.edited && (
                         <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.68rem", color: "#aaa", marginTop: "2px" }}>Edited</span>
                       )}
@@ -742,59 +780,107 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onR
         <div ref={bottomRef} />
       </div>
 
-      {/* Attachment Preview Bar */}
-      {attachment && (
+      {editingId ? (
+        /* ── Edit Message Bar ── */
         <div style={{
-          padding: isMobile ? "6px 12px" : "8px 20px",
-          background: "#f9f9f9", borderTop: "1px solid #eee",
-          display: "flex", alignItems: "center", gap: "10px",
+          padding: isMobile ? "8px 12px" : "10px 20px",
+          borderTop: `1px solid ${darkRed}`, background: "#fff5f5",
+          display: "flex", flexDirection: "column", gap: "8px", flexShrink: 0,
         }}>
-          {attachment.type.startsWith("image/") ? (
-            <img src={attachment.url} alt="preview" style={{ width: "40px", height: "40px", objectFit: "cover", borderRadius: "6px", border: "1px solid #ddd" }} />
-          ) : (
-            <div style={{ display: "flex", alignItems: "center", gap: "6px", background: "#f0e0e0", padding: "6px 12px", borderRadius: "8px" }}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={red} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                <polyline points="14 2 14 8 20 8"/>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <span style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1rem", color: darkRed }}>Edit message</span>
+            <button onClick={() => { setEditingId(null); setEditText(""); }} style={{ background: "none", border: "none", cursor: "pointer", color: "#888", fontSize: "1.1rem", lineHeight: 1, padding: "2px" }}>✕</button>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <input
+              value={editText}
+              onChange={e => setEditText(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter") saveEdit(editingId); if (e.key === "Escape") { setEditingId(null); setEditText(""); } }}
+              autoFocus
+              style={{
+                flex: 1, background: "#e8e8e8", border: "none", borderRadius: "24px",
+                padding: isMobile ? "8px 14px" : "10px 18px",
+                fontFamily: "'Kufam', sans-serif", fontSize: isMobile ? "0.85rem" : "0.9rem",
+                outline: "none", color: "#222", minWidth: 0,
+              }}
+            />
+            <button onClick={() => saveEdit(editingId)} disabled={!editText.trim()} style={{
+                background: editText.trim() ? darkRed : "#ccc", border: "none", borderRadius: "50%",
+                width: isMobile ? 32 : 36, height: isMobile ? 32 : 36, display: "flex", alignItems: "center", justifyContent: "center",
+                cursor: editText.trim() ? "pointer" : "not-allowed", flexShrink: 0,
+              }}
+            >
+              <svg width={isMobile ? 16 : 18} height={isMobile ? 16 : 18} viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="20 6 9 17 4 12"/>
               </svg>
-              <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.78rem", color: darkRed }}>{attachment.name}</span>
+            </button>
+          </div>
+        </div>
+      ) : (
+        <>
+          {/* Attachment Preview Bar */}
+          {attachments.length > 0 && (
+            <div style={{
+              padding: isMobile ? "6px 12px" : "8px 20px",
+              background: "#f9f9f9", borderTop: "1px solid #eee",
+              display: "flex", alignItems: "center", gap: "10px",
+              overflowX: "auto",
+            }}>
+              {sending && (
+                <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.78rem", color: darkRed, fontStyle: "italic", flexShrink: 0 }}>Uploading…</span>
+              )}
+              {attachments.map((att, i) => (
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: "6px", flexShrink: 0, opacity: sending ? 0.6 : 1 }}>
+                  {att.type.startsWith("image/") ? (
+                    <img src={att.url} alt="preview" style={{ width: "40px", height: "40px", objectFit: "cover", borderRadius: "6px", border: "1px solid #ddd" }} />
+                  ) : (
+                    <div style={{ display: "flex", alignItems: "center", gap: "6px", background: "#f0e0e0", padding: "6px 12px", borderRadius: "8px" }}>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={red} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                        <polyline points="14 2 14 8 20 8"/>
+                      </svg>
+                      <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.78rem", color: darkRed, maxWidth: "90px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{att.name}</span>
+                    </div>
+                  )}
+                  <button disabled={sending} onClick={() => setAttachments(prev => prev.filter((_, idx) => idx !== i))} style={{ background: "none", border: "none", color: "#aaa", cursor: sending ? "not-allowed" : "pointer", fontSize: "1rem" }}>✕</button>
+                </div>
+              ))}
             </div>
           )}
-          <button onClick={() => setAttachment(null)} style={{ background: "none", border: "none", color: "#aaa", cursor: "pointer", fontSize: "1rem" }}>✕</button>
-        </div>
-      )}
 
-      {/* Input Bar */}
-      <div style={{
-        padding: inputPadding, borderTop: "1px solid #eee",
-        display: "flex", alignItems: "center",
-        gap: isMobile ? "6px" : "10px", background: "#f5f5f5", flexShrink: 0,
-      }}>
-        <input ref={fileRef} type="file" accept=".png,.pdf" style={{ display: "none" }} onChange={handleFile} />
-        <button onClick={() => fileRef.current.click()} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", flexShrink: 0, padding: "4px" }}>
-          <svg width={isMobile ? 22 : 26} height={isMobile ? 22 : 26} viewBox="0 0 24 24" fill="none" stroke="#555" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
-          </svg>
-        </button>
-        <input
-          value={input}
-          onChange={e => setInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="Send a message..."
-          style={{
-            flex: 1, background: "#e8e8e8", border: "none", borderRadius: "24px",
-            padding: isMobile ? "8px 14px" : "10px 18px",
-            fontFamily: "'Kufam', sans-serif", fontSize: isMobile ? "0.85rem" : "0.9rem",
-            outline: "none", color: "#222", minWidth: 0,
-          }}
-        />
-        <button onClick={handleSend} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", flexShrink: 0, padding: "4px" }}>
-          <svg width={isMobile ? 22 : 26} height={isMobile ? 22 : 26} viewBox="0 0 24 24" fill="none" stroke={darkRed} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <line x1="22" y1="2" x2="11" y2="13"/>
-            <polygon points="22 2 15 22 11 13 2 9 22 2"/>
-          </svg>
-        </button>
-      </div>
+          {/* Input Bar */}
+          <div style={{
+            padding: inputPadding, borderTop: "1px solid #eee",
+            display: "flex", alignItems: "center",
+            gap: isMobile ? "6px" : "10px", background: "#f5f5f5", flexShrink: 0,
+          }}>
+            <input ref={fileRef} type="file" accept=".png,.pdf" multiple style={{ display: "none" }} onChange={handleFile} />
+            <button onClick={() => fileRef.current.click()} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", flexShrink: 0, padding: "4px" }}>
+              <svg width={isMobile ? 22 : 26} height={isMobile ? 22 : 26} viewBox="0 0 24 24" fill="none" stroke="#555" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+              </svg>
+            </button>
+            <input
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Send a message..."
+              style={{
+                flex: 1, background: "#e8e8e8", border: "none", borderRadius: "24px",
+                padding: isMobile ? "8px 14px" : "10px 18px",
+                fontFamily: "'Kufam', sans-serif", fontSize: isMobile ? "0.85rem" : "0.9rem",
+                outline: "none", color: "#222", minWidth: 0,
+              }}
+            />
+            <button onClick={handleSend} disabled={sending} style={{ background: "none", border: "none", cursor: sending ? "not-allowed" : "pointer", display: "flex", alignItems: "center", flexShrink: 0, padding: "4px", opacity: sending ? 0.5 : 1 }}>
+              <svg width={isMobile ? 22 : 26} height={isMobile ? 22 : 26} viewBox="0 0 24 24" fill="none" stroke={darkRed} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="22" y1="2" x2="11" y2="13"/>
+                <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+              </svg>
+            </button>
+          </div>
+        </>
+      )}
 
       {showReport && (
         <ReportModal
@@ -809,6 +895,16 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onR
           message="Are you sure to delete the conversation?"
           onConfirm={confirmDeleteConversation}
           onCancel={() => setShowDeleteConfirm(false)}
+        />
+      )}
+
+      {unsendTarget && (
+        <ConfirmModal
+          message="This message will be unsent for everyone in the chat."
+          confirmLabel="Confirm"
+          cancelLabel="Cancel"
+          onConfirm={confirmUnsend}
+          onCancel={() => setUnsendTarget(null)}
         />
       )}
 
@@ -931,7 +1027,7 @@ const ChatListView = ({ contacts, messages, onOpen, readConvIds }) => {
                     {lastMsg ? (
                       <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.76rem", color: isUnread ? "#590101" : "#888", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", fontWeight: isUnread ? 700 : 400, margin: 0, flex: 1 }}>
                         {lastMsg.sender === "me" ? "You: " : ""}
-                        {lastMsg.text ? lastMsg.text : lastMsg.attachment ? "📎 Attachment" : ""}
+                        {lastMsg.text ? lastMsg.text : (lastMsg.attachments?.length > 1 ? `📎 ${lastMsg.attachments.length} Attachments` : (lastMsg.attachments?.length === 1 || lastMsg.attachment) ? "📎 Attachment" : "")}
                       </p>
                     ) : <span />}
                     {isUnread && <div style={{ width: "10px", height: "10px", borderRadius: "50%", background: "#8B0000", flexShrink: 0, marginLeft: "6px" }} />}
@@ -1007,7 +1103,7 @@ const StudentMessagesScreen = ({
     } else if (msgOrAction.__unsent) {
       await unsendMessage(convId, msgOrAction.id);
     } else {
-      await sendMessage(convId, { text: msgOrAction.text, attachment: msgOrAction.attachment });
+      await sendMessage(convId, { text: msgOrAction.text, attachments: msgOrAction.attachments });
     }
   };
 

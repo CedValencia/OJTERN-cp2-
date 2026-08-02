@@ -13,6 +13,7 @@ const MAPBOX_TOKEN = "pk.eyJ1IjoibWFraWlpaS0iLCJhIjoiY21wbTgybHVmMmc1ZzJycTFuZXR
 const MapboxStaticView = ({ lat, lng, address }) => {
   const mapContainer = useRef(null);
   const mapRef       = useRef(null);
+  const [showZoom, setShowZoom] = useState(false);
 
   useEffect(() => {
     if (!mapContainer.current || mapRef.current) return;
@@ -47,19 +48,145 @@ const MapboxStaticView = ({ lat, lng, address }) => {
 
   if (!lat || !lng) {
     return (
-      <div style={{ width: "100%", minHeight: "200px", borderRadius: "14px", background: "#d0d8e0", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "6px" }}>
+      <div style={{ width: "100%", height: "100%", minHeight: "200px", borderRadius: "14px", background: "#d0d8e0", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "6px" }}>
         <svg width="30" height="36" viewBox="0 0 24 30" fill="#8B0000"><path d="M12 0C7.58 0 4 3.58 4 8c0 5.25 8 16 8 16s8-10.75 8-16c0-4.42-3.58-8-8-8zm0 11c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3z"/></svg>
         <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.75rem", color: "#555", textAlign: "center", padding: "0 12px" }}>{address || "No location set"}</span>
       </div>
     );
   }
 
-  return <div ref={mapContainer} style={{ width: "100%", height: "300px", borderRadius: "14px", overflow: "hidden" }} />;
+  return (
+    <div style={{ position: "relative", width: "100%", height: "100%" }}>
+      <div ref={mapContainer} style={{ width: "100%", height: "100%", borderRadius: "14px", overflow: "hidden" }} />
+      <button
+        onClick={() => setShowZoom(true)}
+        title="Click to view fullscreen"
+        style={{
+          position: "absolute", bottom: "10px", left: "50%", transform: "translateX(-50%)",
+          background: "rgba(0,0,0,0.6)", color: "white", border: "none", borderRadius: "16px",
+          padding: "4px 12px", fontSize: "0.72rem", fontFamily: "'Kufam', sans-serif",
+          cursor: "pointer", display: "flex", alignItems: "center", gap: "4px", zIndex: 5,
+        }}
+      >
+        🔍 Click to zoom
+      </button>
+      {showZoom && <MapZoomModal lat={lat} lng={lng} onClose={() => setShowZoom(false)} />}
+    </div>
+  );
+};
+
+// ── Fullscreen map modal, opened via "Click to zoom" ───────────────────────────
+const MapZoomModal = ({ lat, lng, onClose }) => {
+  const mapContainerRef = useRef(null);
+  const mapRef          = useRef(null);
+
+  useEffect(() => {
+    const loadMap = () => {
+      if (!mapContainerRef.current || mapRef.current) return;
+      window.mapboxgl.accessToken = MAPBOX_TOKEN;
+      mapRef.current = new window.mapboxgl.Map({
+        container: mapContainerRef.current,
+        style:     "mapbox://styles/mapbox/streets-v12",
+        center:    [lng, lat],
+        zoom:      15,
+      });
+      mapRef.current.addControl(new window.mapboxgl.NavigationControl(), "top-right");
+      new window.mapboxgl.Marker({ color: "#8B0000" }).setLngLat([lng, lat]).addTo(mapRef.current);
+    };
+
+    if (window.mapboxgl) { loadMap(); return; }
+    const link = document.createElement("link");
+    link.rel  = "stylesheet";
+    link.href = "https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.css";
+    document.head.appendChild(link);
+    const script = document.createElement("script");
+    script.src = "https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.js";
+    script.onload = loadMap;
+    document.head.appendChild(script);
+
+    return () => { if (mapRef.current) { mapRef.current.remove(); mapRef.current = null; } };
+  }, [lat, lng]);
+
+  return (
+    <div
+      onClick={onClose}
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: "16px" }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{ width: "min(92vw, 800px)", height: "min(85vh, 560px)", borderRadius: "16px", overflow: "hidden", position: "relative", boxShadow: "0 8px 32px rgba(0,0,0,0.4)" }}
+      >
+        <div ref={mapContainerRef} style={{ width: "100%", height: "100%" }} />
+        <button
+          onClick={onClose}
+          style={{ position: "absolute", top: "12px", left: "12px", zIndex: 10, background: "#8B0000", color: "white", border: "none", borderRadius: "20px", padding: "6px 16px", fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", cursor: "pointer", boxShadow: "0 2px 8px rgba(0,0,0,0.3)" }}
+        >
+          ✕ Close
+        </button>
+      </div>
+    </div>
+  );
 };
 
 // ─── COLORS ───────────────────────────────────────────────────────────────────
 const red     = "#8B0000";
 const darkRed = "#590101";
+
+// ─── SUCCESS MODAL ────────────────────────────────────────────────────────────
+const SuccessModal = ({ onClose }) => {
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,0.5)",
+        zIndex: 2000,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "16px",
+      }}
+    >
+      <div
+        style={{
+          background: "white",
+          borderRadius: "16px",
+          padding: "32px 24px",
+          textAlign: "center",
+          maxWidth: "360px",
+          boxShadow: "0 8px 32px rgba(0,0,0,0.3)",
+        }}
+      >
+        <div style={{ marginBottom: "16px" }}>
+          <svg width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="#8B0000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ margin: "0 auto" }}>
+            <polyline points="20 6 9 17 4 12" />
+          </svg>
+        </div>
+        <h3 style={{ fontFamily: "'Kufam', sans-serif", fontSize: "1.3rem", color: "#333", marginBottom: "8px" }}>Report Submitted Successfully</h3>
+        <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.95rem", color: "#666", marginBottom: "24px" }}>Thank you for reporting. Our team will review your report shortly.</p>
+        <button
+          onClick={onClose}
+          style={{
+            background: "#8B0000",
+            color: "white",
+            border: "none",
+            borderRadius: "8px",
+            padding: "10px 32px",
+            fontFamily: "'Kufam', sans-serif",
+            fontSize: "1rem",
+            fontWeight: "600",
+            cursor: "pointer",
+            transition: "background 0.2s ease",
+          }}
+          onMouseEnter={(e) => (e.target.style.background = "#590101")}
+          onMouseLeave={(e) => (e.target.style.background = "#8B0000")}
+        >
+          Okay
+        </button>
+      </div>
+    </div>
+  );
+};
 
 // ─── REGIONS ─────────────────────────────────────────────────────────────────
 // TODO: Populate from backend — list of regions > provinces > cities > barangays
@@ -323,11 +450,12 @@ const ResponsiveStyles = () => (
 
     /* Map placeholder: fixed width on desktop, full width on mobile */
     .stud-map-box {
-      width: 180px;
+      width: 320px;
+      height: 260px;
       flex-shrink: 0;
     }
     @media (max-width: 640px) {
-      .stud-map-box { width: 100%; min-height: 100px; }
+      .stud-map-box { width: 100%; height: 240px; }
     }
 
     /* Profile bottom bar padding */
@@ -581,7 +709,7 @@ const CompanyProfile = ({ company, onBack, onReport, onMessageNow, onApplyNow })
             </div>
             <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "clamp(0.8rem, 2vw, 0.88rem)", color: "#444", lineHeight: 1.7 }}>{company.description}</p>
           </div>
-          <div className="stud-map-box" style={{ borderRadius: "14px", overflow: "hidden", minHeight: "130px" }}>
+          <div className="stud-map-box" style={{ borderRadius: "14px", overflow: "hidden" }}>
             <MapboxStaticView
               lat={company.postLocation?.lat}
               lng={company.postLocation?.lng}
@@ -718,7 +846,7 @@ const CompanyCard = ({ company, onViewProfile }) => {
       <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.8rem", color: "#555" }}>Slots Available: {totalSlots}</p>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "8px" }}>
         <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.75rem", color: "#999", fontStyle: "italic" }}>{postedDate ? `Posted ${postedDate}` : ""}</span>
-        <span onClick={() => isActive && onViewProfile(company)} style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.8rem", color: isActive ? red : "#aaa", fontWeight: "bold", cursor: isActive ? "pointer" : "default", display: "flex", alignItems: "center", gap: "4px", flexShrink: 0 }}>View Profile<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></span>
+        <span onClick={() => isActive && onViewProfile(company)} style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.8rem", color: isActive ? red : "#aaa", fontWeight: "bold", cursor: isActive ? "pointer" : "default", display: "flex", alignItems: "center", gap: "4px", flexShrink: 0 }}>View Post<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></span>
       </div>
     </div>
   );
@@ -730,6 +858,7 @@ const StudentFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onMessa
   const [view, setView] = useState("list");
   const [selectedCompany, setSelectedCompany] = useState(null);
   const [showReportModal, setShowReportModal] = useState(false);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [search, setSearch] = useState("");
   const [showFilter, setShowFilter] = useState(false);
   const [selectedIndustries, setSelectedIndustries] = useState([]);
@@ -755,7 +884,7 @@ const StudentFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onMessa
   const hasFilter = selectedIndustries.length > 0 || citySearch.trim();
 
   const filtered = companies.filter(c => {
-    const name = (c.company || c.name || "").toLowerCase();
+    const name = (c.companyName || c.company || c.name || "").toLowerCase();
     const industryArr = Array.isArray(c.industry) ? c.industry : (c.industry ? [c.industry] : []);
     const industry = industryArr.join(" ").toLowerCase();
     const loc = (c.location?.city || c.location || "").toLowerCase();
@@ -768,7 +897,12 @@ const StudentFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onMessa
   const activeBadgeLabel = () => citySearch.trim() ? `City: ${citySearch.trim()}` : null;
   const clearAllFilters = () => { setSelectedIndustries([]); setCitySearch(""); };
 
-  const handleReportSubmit = (report) => { onReportSubmit?.(report); setShowReportModal(false); setView("list"); onNavigateToReports?.(); };
+  const handleReportSubmit = (report) => { 
+    onReportSubmit?.(report); 
+    setShowReportModal(false); 
+    setShowSuccessModal(true); 
+    onNavigateToReports?.(); 
+  };
 
   if (view === "profile" && selectedCompany) {
     return (
@@ -782,6 +916,7 @@ const StudentFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onMessa
           onApplyNow={() => setShowApplyModal(true)}
         />
         {showReportModal && <ReportModal company={selectedCompany} onClose={() => setShowReportModal(false)} onSubmit={handleReportSubmit} reporter={user} />}
+        {showSuccessModal && <SuccessModal onClose={() => setShowSuccessModal(false)} />}
         {showApplyModal && (
           <ApplyModal
             company={selectedCompany}
