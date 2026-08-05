@@ -159,11 +159,22 @@ const ResponsiveStyles = () => (
 const isAllowedType = (file) =>
   file && (file.type === "image/png" || file.type === "application/pdf");
 
-const handleDownload = (file) => {
-  const a = document.createElement("a");
-  a.href = file.url;
-  a.download = file.name;
-  a.click();
+const handleDownload = async (file) => {
+  try {
+    const res = await fetch(file.url);
+    const blob = await res.blob();
+    const blobUrl = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = blobUrl;
+    a.download = file.name || "download";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(blobUrl);
+  } catch (err) {
+    console.error("Download failed, falling back to opening in a new tab:", err);
+    window.open(file.url, "_blank", "noopener,noreferrer");
+  }
 };
 
 // ── Image Lightbox ────────────────────────────────────────────────────────────
@@ -266,10 +277,36 @@ const PdfIcon = () => (
 );
 
 // ── Report Detail Modal ───────────────────────────────────────────────────────
+// ── Resolution actions ─────────────────────────────────────────────────────
+// Each report category (report.concern) has a sensible set of actions a
+// coordinator can take. "Others" is the fallback for any concern not listed.
+const ACTIONS_BY_CONCERN = {
+  "Fraud and Scam":         ["Block Company", "Suspend Account", "Warning Issued", "Refer to Authorities"],
+  "Discrimination":         ["Warning Issued", "Require Correction", "Suspend Account", "Block Company"],
+  "Sexual Harassment":      ["Suspend Account", "Block Company", "Refer to Authorities"],
+  "Harmful Misinformation": ["Require Correction", "Warning Issued", "Suspend Account"],
+  "Workplace Misconduct":   ["Warning Issued", "Settlement / Mediation", "Suspend Account", "Block Company"],
+  "Others":                 ["Warning Issued", "Settlement / Mediation", "Suspend Account", "Block Company"],
+};
+
+const RESOLUTION_ACTION_META = {
+  "Block Company":          { icon: "⛔", desc: "Company loses access to the platform immediately." },
+  "Suspend Account":        { icon: "⏸", desc: "Temporary hold while further review takes place." },
+  "Warning Issued":         { icon: "⚠️", desc: "Formal notice sent; account stays active." },
+  "Settlement / Mediation": { icon: "🤝", desc: "Both parties agreed on a resolution." },
+  "Require Correction":     { icon: "✏️", desc: "Company must edit or remove the flagged content." },
+  "Refer to Authorities":   { icon: "🏛", desc: "Escalated to school administration or relevant authority." },
+};
+
 export const ReportDetailModal = ({ report, onClose, coordinatorUid }) => {
-  const [lightbox, setLightbox] = useState(false);
-  const [status, setStatus]     = useState(report?.status || "pending");
-  const [working, setWorking]   = useState(false);
+  const [lightbox, setLightbox]           = useState(false);
+  const [status, setStatus]               = useState(report?.status || "pending");
+  const [working, setWorking]             = useState(false);
+  const [resolvingPanel, setResolvingPanel] = useState(false);
+  const [selectedAction, setSelectedAction] = useState(null);
+  const [resolutionNotes, setResolutionNotes] = useState("");
+  const [savedAction, setSavedAction]         = useState(report?.resolutionAction || "");
+  const [savedNotes, setSavedNotes]           = useState(report?.resolutionNotes || "");
 
   if (!report) return null;
 
@@ -279,25 +316,55 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid }) => {
   const isPdf   = allowed && file.type === "application/pdf";
 
   const badge = REPORT_STATUS_BADGE[status] || REPORT_STATUS_BADGE.pending;
+  const availableActions = ACTIONS_BY_CONCERN[report.concern] || ACTIONS_BY_CONCERN["Others"];
+  const canConfirmResolve = selectedAction && resolutionNotes.trim().length > 0;
 
-  const handleAction = async (newStatus) => {
+  const handleDismiss = async () => {
     if (working || status !== "pending") return;
     setWorking(true);
     try {
       await updateDoc(doc(db, "reports", report.id), {
-        status:      newStatus,
+        status:      "dismissed",
         resolvedBy:  coordinatorUid || "",
         resolvedAt:  serverTimestamp(),
       });
       logActivity(
         coordinatorUid,
-        newStatus === "resolved" ? "report_resolved" : "report_dismissed",
-        `${newStatus === "resolved" ? "Resolved" : "Dismissed"} report on ${report.company}`,
+        "report_dismissed",
+        `Dismissed report on ${report.company}`,
         { targetId: report.id, targetName: report.company }
       ).catch(err => console.error("Failed to log activity:", err));
-      setStatus(newStatus);
+      setStatus("dismissed");
     } catch (err) {
-      console.error(`Failed to ${newStatus} report:`, err);
+      console.error("Failed to dismiss report:", err);
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  const handleConfirmResolve = async () => {
+    if (working || status !== "pending" || !canConfirmResolve) return;
+    setWorking(true);
+    try {
+      await updateDoc(doc(db, "reports", report.id), {
+        status:           "resolved",
+        resolutionAction: selectedAction,
+        resolutionNotes:  resolutionNotes.trim(),
+        resolvedBy:       coordinatorUid || "",
+        resolvedAt:       serverTimestamp(),
+      });
+      logActivity(
+        coordinatorUid,
+        "report_resolved",
+        `Resolved report on ${report.company} (${selectedAction})`,
+        { targetId: report.id, targetName: report.company }
+      ).catch(err => console.error("Failed to log activity:", err));
+      setSavedAction(selectedAction);
+      setSavedNotes(resolutionNotes.trim());
+      setStatus("resolved");
+      setResolvingPanel(false);
+    } catch (err) {
+      console.error("Failed to resolve report:", err);
     } finally {
       setWorking(false);
     }
@@ -405,10 +472,6 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid }) => {
                 )}
                 {isPdf && (
                   <div>
-                    <iframe
-                      src={file.url} title="PDF Preview"
-                      style={{ width: "100%", height: "340px", borderRadius: "8px", border: "1px solid #ddd", marginBottom: "10px" }}
-                    />
                     <div style={{
                       display: "flex", alignItems: "center", gap: "10px",
                       background: "#f5f5f5", padding: "10px 14px",
@@ -426,6 +489,70 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid }) => {
                 )}
               </>
             )}
+            {resolvingPanel && (
+              <div style={{ background: "#fdf1f1", border: `1.5px solid ${red}`, borderRadius: "12px", padding: "16px", marginBottom: "16px" }}>
+                <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.1rem", color: darkRed, marginBottom: "10px" }}>
+                  What action was taken?
+                </p>
+                <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "16px" }}>
+                  {availableActions.map(action => {
+                    const meta = RESOLUTION_ACTION_META[action];
+                    const isSelected = selectedAction === action;
+                    return (
+                      <div
+                        key={action}
+                        onClick={() => setSelectedAction(action)}
+                        style={{
+                          display: "flex", alignItems: "center", gap: "10px",
+                          padding: "9px 12px", borderRadius: "10px", cursor: "pointer",
+                          border: `2px solid ${isSelected ? red : "#e5e5e5"}`,
+                          background: isSelected ? "white" : "#fbfbfb",
+                        }}
+                      >
+                        <span style={{ fontSize: "1rem" }}>{meta.icon}</span>
+                        <div style={{ flex: 1 }}>
+                          <p style={{ fontFamily: "'Jua', sans-serif", fontSize: "0.85rem", color: "#1a1a1a" }}>{action}</p>
+                          <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.7rem", color: "#888" }}>{meta.desc}</p>
+                        </div>
+                        <div style={{
+                          width: "16px", height: "16px", borderRadius: "50%", flexShrink: 0,
+                          border: `2px solid ${isSelected ? red : "#bbb"}`,
+                          background: isSelected ? red : "transparent",
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                        }}>
+                          {isSelected && <div style={{ width: "5px", height: "5px", borderRadius: "50%", background: "white" }} />}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <p style={{ fontFamily: "'Jua', sans-serif", fontSize: "0.9rem", color: "#1a1a1a", marginBottom: "6px" }}>
+                  How was this resolved?
+                </p>
+                <textarea
+                  value={resolutionNotes}
+                  onChange={e => setResolutionNotes(e.target.value)}
+                  placeholder="Describe the resolution — what was found, what the company was told, what happens next..."
+                  style={{
+                    width: "100%", minHeight: "80px", borderRadius: "10px",
+                    border: "1.5px solid #ddd", padding: "10px 12px",
+                    fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", color: "#1a1a1a",
+                    resize: "vertical", outline: "none",
+                  }}
+                />
+              </div>
+            )}
+
+            {status !== "pending" && savedAction && (
+              <div style={{ background: "#f2f8f2", borderRadius: "10px", padding: "12px 14px", marginBottom: "16px", display: "flex", gap: "10px", alignItems: "flex-start" }}>
+                <span style={{ fontSize: "1rem" }}>{RESOLUTION_ACTION_META[savedAction]?.icon}</span>
+                <div>
+                  <p style={{ fontFamily: "'Jua', sans-serif", fontSize: "0.85rem", color: "#2a7a2a" }}>{savedAction}</p>
+                  <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.8rem", color: "#555", marginTop: "2px" }}>{savedNotes}</p>
+                </div>
+              </div>
+            )}
           </div>
 
           <div style={{
@@ -433,26 +560,50 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid }) => {
             padding: "14px 20px", borderTop: "1px solid #eee",
           }}>
             {status === "pending" ? (
-              <>
-                <button
-                  onClick={() => handleAction("dismissed")}
-                  disabled={working}
-                  style={{
-                    padding: "9px 22px", borderRadius: "22px", background: "#666",
-                    color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif",
-                    fontSize: "1rem", cursor: working ? "not-allowed" : "pointer", opacity: working ? 0.7 : 1,
-                  }}
-                >DISMISS</button>
-                <button
-                  onClick={() => handleAction("resolved")}
-                  disabled={working}
-                  style={{
-                    padding: "9px 22px", borderRadius: "22px", background: "#2a7a2a",
-                    color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif",
-                    fontSize: "1rem", cursor: working ? "not-allowed" : "pointer", opacity: working ? 0.7 : 1,
-                  }}
-                >RESOLVE</button>
-              </>
+              resolvingPanel ? (
+                <>
+                  <button
+                    onClick={() => { setResolvingPanel(false); setSelectedAction(null); setResolutionNotes(""); }}
+                    disabled={working}
+                    style={{
+                      padding: "9px 22px", borderRadius: "22px", background: "white",
+                      color: "#666", border: "1.5px solid #ccc", fontFamily: "'Jersey 25', sans-serif",
+                      fontSize: "1rem", cursor: working ? "not-allowed" : "pointer",
+                    }}
+                  >CANCEL</button>
+                  <button
+                    onClick={handleConfirmResolve}
+                    disabled={working || !canConfirmResolve}
+                    style={{
+                      padding: "9px 22px", borderRadius: "22px",
+                      background: canConfirmResolve ? "#2a7a2a" : "#ccc",
+                      color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif",
+                      fontSize: "1rem", cursor: (working || !canConfirmResolve) ? "not-allowed" : "pointer",
+                    }}
+                  >CONFIRM RESOLUTION</button>
+                </>
+              ) : (
+                <>
+                  <button
+                    onClick={handleDismiss}
+                    disabled={working}
+                    style={{
+                      padding: "9px 22px", borderRadius: "22px", background: "#666",
+                      color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif",
+                      fontSize: "1rem", cursor: working ? "not-allowed" : "pointer", opacity: working ? 0.7 : 1,
+                    }}
+                  >DISMISS</button>
+                  <button
+                    onClick={() => setResolvingPanel(true)}
+                    disabled={working}
+                    style={{
+                      padding: "9px 22px", borderRadius: "22px", background: "#2a7a2a",
+                      color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif",
+                      fontSize: "1rem", cursor: working ? "not-allowed" : "pointer", opacity: working ? 0.7 : 1,
+                    }}
+                  >RESOLVE</button>
+                </>
+              )
             ) : (
               <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.8rem", color: "#888", margin: 0 }}>
                 This report has been {status} and can no longer be changed.

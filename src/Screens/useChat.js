@@ -7,6 +7,7 @@
  *     .participantNames: { uid1: "Name A", uid2: "Name B" }
  *     .participantRoles: { uid1: "student", uid2: "company" }
  *     .lastMessage: { text, senderId, ts }
+ *     .lastRead: { uid: serverTimestamp }  ← per-user "I've seen up to this point" marker, persisted across devices/sessions
  *     .updatedAt: serverTimestamp
  *     .deletedFor: [uid, ...]           ← hides conv from that uid's Chats list until a new message arrives
  *     .clearedAt: { uid: serverTimestamp } ← that uid's permanent "hide history before this point" cutoff
@@ -33,11 +34,12 @@ export const makeConvId = (uid1, uid2) => [uid1, uid2].sort().join("_");
 
 // ✅ ADD THIS — builds "First M. Last Suffix", skipping missing parts
 const buildFullName = (p = {}) => {
+  const hasSuffix = p.suffix && p.suffix !== "N/A" && p.suffix !== "None";
   const parts = [
     p.firstName,
     p.middleInitial ? (p.middleInitial.endsWith(".") ? p.middleInitial : `${p.middleInitial}.`) : "",
     p.lastName,
-    p.suffix,
+    hasSuffix ? p.suffix : "",
   ].filter(Boolean);
   return parts.join(" ").trim() || "User";
 };
@@ -139,7 +141,7 @@ export const useChat = (myUid, myName, myRole) => {
           }).catch(() => {});
         }
 
-        return { id: otherUid, name: otherName, role: otherRole, convId: conv.id, lastMessage: conv.lastMessage || null };
+        return { id: otherUid, name: otherName, role: otherRole, convId: conv.id, lastMessage: conv.lastMessage || null, lastRead: conv.lastRead || {} };
       }));
       setContacts(newContacts);
       setLoading(false);
@@ -351,6 +353,19 @@ export const useChat = (myUid, myName, myRole) => {
     setMessages(prev => { const n = { ...prev }; delete n[convId]; return n; });
   }, [myUid]);
 
+  // ── Mark a conversation as read (by this user) up to now — persisted to
+  //    Firestore so it survives refreshes, new sessions, and other devices ──
+  const markConversationRead = useCallback(async (convId) => {
+    if (!myUid || !convId) return;
+    try {
+      await updateDoc(doc(db, "conversations", convId), {
+        [`lastRead.${myUid}`]: serverTimestamp(),
+      });
+    } catch (err) {
+      console.error("Failed to mark conversation as read:", err);
+    }
+  }, [myUid]);
+
   // Messages as this user should see them — raw messages minus anything at
   // or before their own clearedAt cutoff for that conversation.
   const visibleMessages = useMemo(() => {
@@ -372,5 +387,6 @@ export const useChat = (myUid, myName, myRole) => {
     editMessage,
     unsendMessage,
     deleteConversation,
+    markConversationRead,
   };
 };

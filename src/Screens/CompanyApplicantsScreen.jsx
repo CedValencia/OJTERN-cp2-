@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
-import { collection, onSnapshot, query, where, doc, updateDoc, addDoc, serverTimestamp, runTransaction } from "firebase/firestore";
+import { collection, onSnapshot, query, where, doc, getDoc, updateDoc, addDoc, serverTimestamp, runTransaction } from "firebase/firestore";
 import { db } from "./firebase";
 import { buildFullName } from "./useChat";
 
@@ -854,10 +854,35 @@ const CompanyApplicantsScreen = ({ embedded = false, onNavigateToMessages, user 
       collection(db, "applications"),
       where("companyId", "==", user.uid)
     );
-    const unsub = onSnapshot(q, snap => {
+    const unsub = onSnapshot(q, async snap => {
       const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       docs.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
-      setApplicants(docs);
+
+      // Overlay each applicant's CURRENT profile name fields (from "students"
+      // collection) on top of the snapshot saved at application time, so that
+      // edits made later in Account Profile show up here right away.
+      const studentIds = [...new Set(docs.map(d => d.studentId).filter(Boolean))];
+      const profileMap = {};
+      await Promise.all(studentIds.map(async sid => {
+        try {
+          const snapDoc = await getDoc(doc(db, "students", sid));
+          if (snapDoc.exists()) profileMap[sid] = snapDoc.data();
+        } catch (_) {}
+      }));
+
+      const enriched = docs.map(d => {
+        const live = profileMap[d.studentId];
+        if (!live) return d;
+        return {
+          ...d,
+          firstName:     live.firstName     ?? d.firstName,
+          middleInitial: live.middleInitial ?? d.middleInitial,
+          lastName:      live.lastName      ?? d.lastName,
+          suffix:        live.suffix        ?? d.suffix,
+        };
+      });
+
+      setApplicants(enriched);
     }, err => console.error("Applicants fetch error:", err));
     return () => unsub();
   }, [user?.uid]);

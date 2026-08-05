@@ -2,7 +2,9 @@ import React, { useState, useRef, useEffect } from "react";
 import userIcon from "../icons/user.png";
 import viewIcon from "../icons/view.png";
 import { useChat, resolveUser } from "./useChat";
-import { uploadFilesToFolder } from "./CloudinaryService";
+import { uploadFilesToFolder, uploadFileToFolder } from "./CloudinaryService";
+import { collection, addDoc, serverTimestamp } from "firebase/firestore";
+import { db } from "./firebase";
 
 const red     = "#8B0000";
 const darkRed = "#590101";
@@ -156,13 +158,13 @@ const ReportModal = ({ company, onClose, onSubmit }) => {
     if (!file) return;
     if (!["image/png", "application/pdf"].includes(file.type)) { setInfoMsg("Only PNG and PDF files are allowed."); return; }
     if (file.size > 10 * 1024 * 1024) { setInfoMsg("File must be under 10MB."); return; }
-    setAttachedFile({ name: file.name, type: file.type, url: URL.createObjectURL(file) });
+    setAttachedFile({ name: file.name, type: file.type, url: URL.createObjectURL(file), file });
   };
 
   const handleSubmit = () => {
     if (!description.trim()) { setInfoMsg("Please write a description."); return; }
     if (!attachedFile)        { setInfoMsg("Please attach a file."); return; }
-    onSubmit({ company: company.name, concern: selected?.label || "Others", date: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }), description, attachedFile });
+    onSubmit({ company: company.name, companyId: company.id || "", concern: selected?.label || "Others", date: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }), description, attachedFile });
     onClose();
   };
 
@@ -521,7 +523,7 @@ const formatChatTime = (ts) => {
   return date.toLocaleDateString([], { month: "short", day: "numeric" });
 };
 
-const ChatListView = ({ contacts, messages, onOpen, readConvIds }) => {
+const ChatListView = ({ contacts, messages, onOpen, myUid }) => {
   const [search, setSearch] = useState("");
   const isMobile = useIsMobile();
 
@@ -562,7 +564,9 @@ const ChatListView = ({ contacts, messages, onOpen, readConvIds }) => {
               sender: lm.senderId === contact.id ? "them" : "me",
             } : null;
             const lastMsg = msgs[msgs.length - 1] || fallback;
-            const isUnread = !!(lastMsg && lastMsg.sender === "them") && !readConvIds.has(contact.convId);
+            const lastMsgTs   = lastMsg?.ts || 0;
+            const myLastReadMs = contact.lastRead?.[myUid]?.seconds ? contact.lastRead[myUid].seconds * 1000 : 0;
+            const isUnread = !!(lastMsg && lastMsg.sender === "them") && lastMsgTs > myLastReadMs;
             return (
               <div key={contact.id} onClick={() => onOpen(contact)}
                 style={{ display: "flex", alignItems: "center", gap: isMobile ? "10px" : "14px", padding: isMobile ? "10px 14px" : "13px 20px", background: isUnread ? "#f0e8e8" : "#e0e0e0", borderBottom: idx < filtered.length - 1 ? "1px solid #d0d0d0" : "none", cursor: "pointer", transition: "background 0.15s" }}
@@ -614,15 +618,16 @@ const CompanyMessagesScreen = ({
     contacts, messages, loading,
     openConversation, ensureConversation,
     sendMessage, editMessage, unsendMessage, deleteConversation,
+    markConversationRead,
   } = useChat(user?.uid, myName, "company");
 
   const [activeContact, setActiveContact] = useState(null);
-  const [readConvIds, setReadConvIds]     = useState(new Set());
 
   useEffect(() => {
     if (!activeContact?.convId) return;
     openConversation(activeContact.convId);
-  }, [activeContact, openConversation]);
+    markConversationRead(activeContact.convId);
+  }, [activeContact, openConversation, markConversationRead]);
 
   useEffect(() => {
     if (!openContact || !user?.uid || !openContact.id) return;
@@ -636,9 +641,9 @@ const CompanyMessagesScreen = ({
         openContact.role || "student",
       );
       const contact = { id: openContact.id, name: finalName, role: openContact.role || "student", convId };
-      setReadConvIds(prev => new Set([...prev, contact.convId]));
       setActiveContact(contact);
       openConversation(convId);
+      markConversationRead(convId);
       if (onContactOpened) onContactOpened();
     })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -650,7 +655,30 @@ const CompanyMessagesScreen = ({
     else await sendMessage(convId, { text: msgOrAction.text, attachments: msgOrAction.attachments });
   };
 
-  const handleReport = (report) => { if (onReportSubmit) onReportSubmit(report); };
+  const handleReport = async (report) => {
+    try {
+      let uploadedFile = null;
+      if (report.attachedFile?.file) {
+        uploadedFile = await uploadFileToFolder(report.attachedFile.file, "report_attachments");
+      }
+      await addDoc(collection(db, "reports"), {
+        company:      report.company,
+        companyId:    report.companyId || "",
+        concern:      report.concern,
+        date:         report.date,
+        description:  report.description,
+        attachedFile: uploadedFile ? { name: uploadedFile.name, url: uploadedFile.url, type: report.attachedFile.type } : null,
+        status:       "pending",
+        reporterId:   user?.uid || "",
+        reporterName: myName,
+        reporterRole: "company",
+        createdAt:    serverTimestamp(),
+      });
+    } catch (err) {
+      console.error("Failed to submit report:", err);
+    }
+    if (onReportSubmit) onReportSubmit(report);
+  };
 
   const handleDeleteConversation = async (convId) => {
     await deleteConversation(convId);
@@ -683,13 +711,13 @@ const CompanyMessagesScreen = ({
     <ChatListView
       contacts={contacts}
       messages={uiMessages}
-      readConvIds={readConvIds}
+      myUid={user?.uid}
       onOpen={async (c) => {
         const convId = await ensureConversation(c.id, c.name, c.role || "student");
         if (!convId) return;
         const contact = { ...c, convId };
         openConversation(convId);
-        setReadConvIds(prev => new Set([...prev, contact.convId]));
+        markConversationRead(convId);
         setActiveContact(contact);
       }}
     />

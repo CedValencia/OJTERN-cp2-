@@ -2,7 +2,9 @@ import React, { useState, useRef, useEffect } from "react";
 import userIcon from "../icons/user.png";
 import viewIcon from "../icons/view.png";
 import { useChat } from "./useChat";
-import { uploadFilesToFolder } from "./CloudinaryService";
+import { uploadFilesToFolder, uploadFileToFolder } from "./CloudinaryService";
+import { collection, addDoc, serverTimestamp } from "firebase/firestore";
+import { db } from "./firebase";
 
 const red     = "#8B0000";
 const darkRed = "#590101";
@@ -142,6 +144,30 @@ const InfoModal = ({ message, onClose }) => {
   );
 };
 
+// ── Report success confirmation ───────────────────────────────────────────────
+const ReportSuccessModal = ({ onClose }) => {
+  const isMobile = useIsMobile();
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 4000, padding: isMobile ? "12px" : "0" }}>
+      <div style={{ background: "white", borderRadius: "16px", padding: "32px 24px", textAlign: "center", maxWidth: "360px", width: "100%", boxShadow: "0 8px 32px rgba(0,0,0,0.3)" }}>
+        <div style={{ marginBottom: "16px" }}>
+          <svg width="60" height="60" viewBox="0 0 24 24" fill="none" stroke={red} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ margin: "0 auto" }}>
+            <polyline points="20 6 9 17 4 12" />
+          </svg>
+        </div>
+        <h3 style={{ fontFamily: "'Kufam', sans-serif", fontSize: "1.3rem", color: "#333", marginBottom: "8px" }}>Report Submitted Successfully</h3>
+        <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.95rem", color: "#666", marginBottom: "24px" }}>Thank you for reporting. Our team will review your report shortly.</p>
+        <button
+          onClick={onClose}
+          style={{ background: red, color: "white", border: "none", borderRadius: "8px", padding: "10px 32px", fontFamily: "'Kufam', sans-serif", fontSize: "1rem", fontWeight: "600", cursor: "pointer" }}
+        >
+          Okay
+        </button>
+      </div>
+    </div>
+  );
+};
+
 const ReportModal = ({ company, onClose, onSubmit }) => {
   const [step, setStep]               = useState(1);
   const [selected, setSelected]       = useState(null);
@@ -156,13 +182,13 @@ const ReportModal = ({ company, onClose, onSubmit }) => {
     if (!file) return;
     if (!["image/png", "application/pdf"].includes(file.type)) { setInfoMsg("Only PNG and PDF files are allowed."); return; }
     if (file.size > 10 * 1024 * 1024) { setInfoMsg("File must be under 10MB."); return; }
-    setAttachedFile({ name: file.name, type: file.type, url: URL.createObjectURL(file) });
+    setAttachedFile({ name: file.name, type: file.type, url: URL.createObjectURL(file), file });
   };
 
   const handleSubmit = () => {
     if (!description.trim()) { setInfoMsg("Please write a description."); return; }
     if (!attachedFile)        { setInfoMsg("Please attach a file."); return; }
-    onSubmit({ company: company.name, concern: selected?.label || "Others", date: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }), description, attachedFile });
+    onSubmit({ company: company.name, companyId: company.id || "", concern: selected?.label || "Others", date: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }), description, attachedFile });
     onClose();
   };
 
@@ -521,7 +547,7 @@ const formatChatTime = (ts) => {
   return date.toLocaleDateString([], { month: "short", day: "numeric" });
 };
 
-const ChatListView = ({ contacts, messages, onOpen, readConvIds }) => {
+const ChatListView = ({ contacts, messages, onOpen, myUid }) => {
   const [search, setSearch] = useState("");
   const isMobile = useIsMobile();
 
@@ -563,7 +589,9 @@ const ChatListView = ({ contacts, messages, onOpen, readConvIds }) => {
               sender: lm.senderId === contact.id ? "them" : "me",
             } : null;
             const lastMsg = msgs[msgs.length - 1] || fallback;
-            const isUnread = !!(lastMsg && lastMsg.sender === "them") && !readConvIds.has(contact.convId);
+            const lastMsgTs   = lastMsg?.ts || 0;
+            const myLastReadMs = contact.lastRead?.[myUid]?.seconds ? contact.lastRead[myUid].seconds * 1000 : 0;
+            const isUnread = !!(lastMsg && lastMsg.sender === "them") && lastMsgTs > myLastReadMs;
             return (
               <div key={contact.id} onClick={() => onOpen(contact)}
                 style={{ display: "flex", alignItems: "center", gap: isMobile ? "10px" : "14px", padding: isMobile ? "10px 14px" : "13px 20px", background: isUnread ? "#f0e8e8" : "#e0e0e0", borderBottom: idx < filtered.length - 1 ? "1px solid #d0d0d0" : "none", cursor: "pointer", transition: "background 0.15s" }}
@@ -606,6 +634,7 @@ const ChatListView = ({ contacts, messages, onOpen, readConvIds }) => {
 const CoordinatorMessagesScreen = ({
   user,               // { uid, name, role: "coordinator" }
   onReportSubmit,
+  onNavigateToReports,
   openContact,        // { id: uid, name, role }
   onContactOpened,
 }) => {
@@ -613,15 +642,18 @@ const CoordinatorMessagesScreen = ({
     contacts, messages, loading,
     openConversation, ensureConversation,
     sendMessage, editMessage, unsendMessage, deleteConversation,
+    markConversationRead,
   } = useChat(user?.uid, user?.name || "Coordinator", "coordinator");
 
   const [activeContact, setActiveContact] = useState(null);
-  const [readConvIds, setReadConvIds]     = useState(new Set());
+  const [showReportSuccess, setShowReportSuccess] = useState(false);
+  const [reportError, setReportError] = useState("");
 
   useEffect(() => {
     if (!activeContact?.convId) return;
     openConversation(activeContact.convId);
-  }, [activeContact, openConversation]);
+    markConversationRead(activeContact.convId);
+  }, [activeContact, openConversation, markConversationRead]);
 
   useEffect(() => {
     if (!openContact || !user?.uid) return;
@@ -632,9 +664,9 @@ const CoordinatorMessagesScreen = ({
         openContact.role || "student",
       );
       const contact = { id: openContact.id, name: openContact.name, role: openContact.role || "student", convId };
-      setReadConvIds(prev => new Set([...prev, contact.convId]));
       setActiveContact(contact);
       openConversation(convId);
+      markConversationRead(convId);
       if (onContactOpened) onContactOpened();
     })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -651,7 +683,32 @@ const CoordinatorMessagesScreen = ({
     setActiveContact(null);
   };
 
-  const handleReport = (report) => { if (onReportSubmit) onReportSubmit(report); };
+  const handleReport = async (report) => {
+    try {
+      let uploadedFile = null;
+      if (report.attachedFile?.file) {
+        uploadedFile = await uploadFileToFolder(report.attachedFile.file, "report_attachments");
+      }
+      await addDoc(collection(db, "reports"), {
+        company:      report.company,
+        companyId:    report.companyId || "",
+        concern:      report.concern,
+        date:         report.date,
+        description:  report.description,
+        attachedFile: uploadedFile ? { name: uploadedFile.name, url: uploadedFile.url, type: report.attachedFile.type } : null,
+        status:       "pending",
+        reporterId:   user?.uid || "",
+        reporterName: user?.name || "Coordinator",
+        reporterRole: "coordinator",
+        createdAt:    serverTimestamp(),
+      });
+      setShowReportSuccess(true);
+      if (onReportSubmit) onReportSubmit(report);
+    } catch (err) {
+      console.error("Failed to submit report:", err);
+      setReportError("Failed to submit report. Please try again.");
+    }
+  };
 
   const uiMessages = {};
   contacts.forEach(c => { uiMessages[c.id] = messages[c.convId] || []; });
@@ -664,14 +721,20 @@ const CoordinatorMessagesScreen = ({
 
   if (activeContact) {
     return (
-      <ChatView
-        contact={activeContact}
-        messages={uiMessages[activeContact.id] || []}
-        onSend={(_, msg) => handleSend(activeContact.convId, msg)}
-        onBack={() => setActiveContact(null)}
-        onDeleteConversation={() => handleDeleteConversation(activeContact.convId)}
-        onReport={handleReport}
-      />
+      <>
+        <ChatView
+          contact={activeContact}
+          messages={uiMessages[activeContact.id] || []}
+          onSend={(_, msg) => handleSend(activeContact.convId, msg)}
+          onBack={() => setActiveContact(null)}
+          onDeleteConversation={() => handleDeleteConversation(activeContact.convId)}
+          onReport={handleReport}
+        />
+        {showReportSuccess && (
+          <ReportSuccessModal onClose={() => { setShowReportSuccess(false); onNavigateToReports?.(); }} />
+        )}
+        {reportError && <InfoModal message={reportError} onClose={() => setReportError("")} />}
+      </>
     );
   }
 
@@ -679,12 +742,12 @@ const CoordinatorMessagesScreen = ({
     <ChatListView
       contacts={contacts}
       messages={uiMessages}
-      readConvIds={readConvIds}
+      myUid={user?.uid}
       onOpen={async (c) => {
         const convId = await ensureConversation(c.id, c.name, c.role || "student");
         const contact = { ...c, convId };
         openConversation(convId);
-        setReadConvIds(prev => new Set([...prev, contact.convId]));
+        markConversationRead(convId);
       setActiveContact(contact);
       }}
     />

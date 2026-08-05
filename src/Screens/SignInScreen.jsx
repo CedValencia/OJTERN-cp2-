@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { signIn } from "./AuthService";
+import { signIn, logOut } from "./AuthService";
 
 const darkRed = "#320000";
 const red = "#8B0000";
@@ -108,8 +108,19 @@ const SignInScreen = ({ onGoSignUp, onSignInCoordinator, onSignInStudent, onSign
       // ✅ FIXED: signIn called only once
       const { userData } = await signIn(role, identifier, password);
 
-      // ✅ Route based on actual role from Firestore, not UI selection
+      // ✅ Defense-in-depth: only route to the dashboard matching the role the
+      // user actually selected in this form. AuthService.signIn already checks
+      // this, but we never want this screen to silently redirect someone to a
+      // different dashboard than the one they clicked, even if signIn's own
+      // check were ever bypassed by a future bug elsewhere.
       const actualRole = userData.role;
+      if (actualRole !== role) {
+        await logOut();
+        const label = role === "coordinator" ? "OJT Coordinator" : role.charAt(0).toUpperCase() + role.slice(1);
+        setAuthError(`This account is not registered as a ${label}.`);
+        return;
+      }
+
       if (actualRole === "coordinator") onSignInCoordinator(userData);
       else if (actualRole === "student") onSignInStudent?.(userData);
       else if (actualRole === "company") onSignInCompany?.(userData);

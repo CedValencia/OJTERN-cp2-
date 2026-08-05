@@ -442,11 +442,11 @@ const GlobalStyles = () => {
   return null;
 };
 
-const PasswordInput = ({ value, onChange, placeholder = "••••••••" }) => {
+const PasswordInput = ({ value, onChange, placeholder = "••••••••", onKeyDown }) => {
   const [show, setShow] = useState(false);
   return (
     <div style={{ position: "relative", marginBottom: "12px" }}>
-      <input type={show ? "text" : "password"} value={value} onChange={onChange} placeholder={placeholder}
+      <input type={show ? "text" : "password"} value={value} onChange={onChange} onKeyDown={onKeyDown} placeholder={placeholder}
         style={{ ...fieldStyle, paddingRight: "44px" }} />
       <EyeIcon show={show} onClick={() => setShow(s => !s)} />
     </div>
@@ -490,9 +490,99 @@ const MenuRow = ({ iconSrc, label, onClick }) => (
 );
 
 // ── Add Account Modal ─────────────────────────────────────────────────────────
-const AddAccountModal = ({ onClose, currentUid }) => {
+const AddAccountSuccessModal = ({ name, onOk }) => (
+  <div style={{
+    position: "fixed", inset: 0, zIndex: 1100,
+    background: "rgba(0,0,0,0.5)",
+    display: "flex", alignItems: "center", justifyContent: "center", padding: "16px",
+  }}>
+    <div style={{
+      background: "white", borderRadius: "20px",
+      padding: "36px 32px", width: "clamp(280px, 85vw, 380px)",
+      display: "flex", flexDirection: "column", alignItems: "center",
+      gap: "12px", boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
+    }}>
+      <div style={{
+        width: "64px", height: "64px", borderRadius: "50%",
+        background: "#e8f5e9", display: "flex",
+        alignItems: "center", justifyContent: "center", marginBottom: "4px",
+      }}>
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#2d7a2d" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="20 6 9 17 4 12"/>
+        </svg>
+      </div>
+      <p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "1.1rem", color: "#1a1a1a", margin: 0, textAlign: "center" }}>
+        Account Added Successfully!
+      </p>
+      <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.88rem", color: "#666", margin: 0, textAlign: "center", lineHeight: 1.5 }}>
+        Account for {name} has been added successfully. They can now log in and will be prompted to set up their own password.
+      </p>
+      <button onClick={onOk} style={{
+        marginTop: "8px", width: "100%", padding: "12px", borderRadius: "30px",
+        border: "none", background: darkRed, color: "white",
+        fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.95rem", cursor: "pointer",
+      }}>Ok</button>
+    </div>
+  </div>
+);
+
+const END_SESSION_SECONDS = 5;
+
+const EndSessionModal = ({ onDone }) => {
+  const [secondsLeft, setSecondsLeft] = useState(END_SESSION_SECONDS);
+
+  useEffect(() => {
+    if (secondsLeft <= 0) { onDone?.(); return; }
+    const t = setTimeout(() => setSecondsLeft(s => s - 1), 1000);
+    return () => clearTimeout(t);
+  }, [secondsLeft, onDone]);
+
+  return (
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 1200,
+      background: "rgba(0,0,0,0.6)",
+      display: "flex", alignItems: "center", justifyContent: "center", padding: "16px",
+    }}>
+      <div style={{
+        background: "white", borderRadius: "20px",
+        padding: "36px 32px", width: "clamp(280px, 85vw, 360px)",
+        display: "flex", flexDirection: "column", alignItems: "center",
+        gap: "10px", boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
+      }}>
+        <div style={{
+          width: "60px", height: "60px", borderRadius: "50%",
+          background: "#fdecea", display: "flex",
+          alignItems: "center", justifyContent: "center", marginBottom: "4px",
+        }}>
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke={red} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+            <polyline points="16 17 21 12 16 7"/>
+            <line x1="21" y1="12" x2="9" y2="12"/>
+          </svg>
+        </div>
+        <p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "1.1rem", color: "#1a1a1a", margin: 0, textAlign: "center" }}>
+          End Session
+        </p>
+        <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.86rem", color: "#666", margin: 0, textAlign: "center", lineHeight: 1.5 }}>
+          For your security, you'll be logged out now. Logging out in {secondsLeft}s…
+        </p>
+        <button onClick={onDone} style={{
+          marginTop: "8px", width: "100%", padding: "12px", borderRadius: "30px",
+          border: "none", background: darkRed, color: "white",
+          fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.95rem", cursor: "pointer",
+        }}>Log Out Now</button>
+      </div>
+    </div>
+  );
+};
+
+const AddAccountModal = ({ onClose, currentUid, onLogout, coordinatorDeptSelections = [] }) => {
   const [name, setName]                     = useState("");
-  const [deptSelections, setDeptSelections] = useState([{ department: "", program: "", specialization: "" }]);
+  // Auto-assign the new account to the signed-in coordinator's own
+  // department(s) — the coordinator can no longer pick a different one.
+  const [deptSelections, setDeptSelections] = useState(
+    coordinatorDeptSelections.length ? coordinatorDeptSelections : [{ department: "", program: "", specialization: "" }]
+  );
   const [sex, setSex]                       = useState("");
   const [contact, setContact]               = useState("");
   const [email, setEmail]                   = useState("");
@@ -503,6 +593,21 @@ const AddAccountModal = ({ onClose, currentUid }) => {
   const [deptErrors, setDeptErrors]         = useState([]);
   const [submitting, setSubmitting]         = useState(false);
   const [submitError, setSubmitError]       = useState("");
+  const [showAddedSuccess, setShowAddedSuccess] = useState(false);
+  const [showEndSession, setShowEndSession]     = useState(false);
+
+  // If the coordinator's own department loads in after this modal is
+  // already open (async Firestore snapshot), keep the auto-assigned
+  // department in sync instead of leaving it blank.
+  useEffect(() => {
+    if (coordinatorDeptSelections.length) setDeptSelections(coordinatorDeptSelections);
+  }, [coordinatorDeptSelections]);
+
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter" && !submitting) {
+      handleSubmit();
+    }
+  };
 
   const validate = () => {
     const e = {};
@@ -511,23 +616,17 @@ const AddAccountModal = ({ onClose, currentUid }) => {
     if (!contact.match(/^\+63 \d{3}-\d{3}-\d{4}$/)) e.contact = "Format: +63 000-000-0000";
     if (!email.trim()) e.email = "Email is required.";
     if (!address.trim()) e.address = "Address is required.";
-    if (password.length < 8) e.password = "Minimum 8 characters.";
+    if (password.length < 8) e.password = "Password must be at least 8 characters";
     if (password !== confirm) e.confirm = "Passwords do not match.";
 
-    const newDeptErrors = deptSelections.map(entry => {
-      const err = {};
-      if (!entry.department) err.department = true;
-      if (entry.department && !entry.program) err.program = true;
-      if (entry.department && entry.program) {
-        const specs = DEPARTMENT_PROGRAM_DATA[entry.department]?.specializations?.[entry.program] ?? [];
-        if (specs.length > 0 && !entry.specialization) err.specialization = true;
-      }
-      return err;
-    });
-    setDeptErrors(newDeptErrors);
-    const hasDeptError = newDeptErrors.some(e => Object.keys(e).length > 0);
+    // Department is auto-assigned from the signed-in coordinator's own
+    // department, so the only thing that can go wrong here is it not
+    // having loaded yet.
+    if (!deptSelections.length || !deptSelections[0]?.department) {
+      e.department = "Your department could not be determined. Please try again.";
+    }
     setErrors(e);
-    return Object.keys(e).length === 0 && !hasDeptError;
+    return Object.keys(e).length === 0;
   };
 
   const handleSubmit = async () => {
@@ -536,8 +635,7 @@ const AddAccountModal = ({ onClose, currentUid }) => {
     setSubmitting(true);
     try {
       await createCoordinatorAccount({ name, sex, contact, email, address, password, deptSelections }, currentUid);
-      alert(`Account for ${name} has been added successfully. They can now log in and will be prompted to set up their own password.`);
-      onClose();
+      setShowAddedSuccess(true);
     } catch (err) {
       setSubmitError(err.message || "Failed to add account.");
     } finally {
@@ -560,8 +658,12 @@ const AddAccountModal = ({ onClose, currentUid }) => {
             <div>
               <label style={labelStyle}>Department / Program:</label>
               <div style={{ background: fieldBg, borderRadius: "14px", padding: "10px 12px" }}>
-                <MultiDepartmentPicker selections={deptSelections} onChange={setDeptSelections} readOnly={false} errors={deptErrors} />
+                <MultiDepartmentPicker selections={deptSelections} onChange={setDeptSelections} readOnly={true} errors={deptErrors} />
               </div>
+              <p style={{ fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif", color: "#777", margin: "4px 0 0 4px" }}>
+                New accounts are automatically added under your own department.
+              </p>
+              {errors.department && <p style={{ color: "red", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif" }}>{errors.department}</p>}
             </div>
             <div>
               <label style={labelStyle}>Sex:</label>
@@ -596,12 +698,12 @@ const AddAccountModal = ({ onClose, currentUid }) => {
           <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
             <div>
               <label style={labelStyle}>Enter Password:</label>
-              <PasswordInput value={password} onChange={e => setPassword(e.target.value)} />
+              <PasswordInput value={password} onChange={e => setPassword(e.target.value)} onKeyDown={handleKeyDown} />
               {errors.password && <p style={{ color: "red", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif" }}>{errors.password}</p>}
             </div>
             <div>
               <label style={labelStyle}>Confirm Password:</label>
-              <PasswordInput value={confirm} onChange={e => setConfirm(e.target.value)} />
+              <PasswordInput value={confirm} onChange={e => setConfirm(e.target.value)} onKeyDown={handleKeyDown} />
               {errors.confirm && <p style={{ color: "red", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif" }}>{errors.confirm}</p>}
             </div>
           </div>
@@ -618,12 +720,25 @@ const AddAccountModal = ({ onClose, currentUid }) => {
           </button>
         </div>
       </div>
+
+      {showAddedSuccess && (
+        <AddAccountSuccessModal
+          name={name}
+          onOk={() => { setShowAddedSuccess(false); setShowEndSession(true); }}
+        />
+      )}
+
+      {showEndSession && (
+        <EndSessionModal
+          onDone={() => { onClose(); onLogout?.(); }}
+        />
+      )}
     </div>
   );
 };
 
 // ── Transfer Account Modal ────────────────────────────────────────────────────
-const TransferAccountModal = ({ onClose, currentUid, currentEmail, onLogout }) => {
+const TransferAccountModal = ({ onClose, currentUid, currentEmail, onLogout, coordinatorDeptSelections = [] }) => {
   const [currentPass, setCurrentPass] = useState("");
   const [name, setName]               = useState("");
   const [email, setEmail]             = useState("");
@@ -633,12 +748,18 @@ const TransferAccountModal = ({ onClose, currentUid, currentEmail, onLogout }) =
   const [submitting, setSubmitting]   = useState(false);
   const [submitError, setSubmitError] = useState("");
 
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter" && !submitting) {
+      handleSubmit();
+    }
+  };
+
   const validate = () => {
     const e = {};
     if (!currentPass) e.currentPass = "Your current password is required to confirm this transfer.";
     if (!name.trim()) e.name = "New coordinator's name is required.";
     if (!email.trim()) e.email = "Email is required.";
-    if (newPass.length < 8) e.newPass = "Minimum 8 characters.";
+    if (newPass.length < 8) e.newPass = "Password must be at least 8 characters";
     if (newPass !== confirmPass) e.confirmPass = "Passwords do not match.";
     setErrors(e);
     return Object.keys(e).length === 0;
@@ -649,7 +770,12 @@ const TransferAccountModal = ({ onClose, currentUid, currentEmail, onLogout }) =
     setSubmitError("");
     setSubmitting(true);
     try {
-      await transferCoordinatorAccount(currentUid, currentEmail, currentPass, { name, email, password: newPass });
+      // The receiving coordinator automatically inherits the same
+      // department(s) as the current account — this is a transfer of the
+      // same account/department, not a new assignment.
+      await transferCoordinatorAccount(currentUid, currentEmail, currentPass, {
+        name, email, password: newPass, deptSelections: coordinatorDeptSelections,
+      });
       // Auto-logout — current coordinator has no more access
       onClose();
       onLogout?.();
@@ -669,12 +795,26 @@ const TransferAccountModal = ({ onClose, currentUid, currentEmail, onLogout }) =
 
           <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.3rem", color: red, marginBottom: "12px" }}>CONFIRM YOUR IDENTITY:</p>
           <label style={labelStyle}>Your Current Password:</label>
-          <PasswordInput value={currentPass} onChange={e => setCurrentPass(e.target.value)} />
+          <PasswordInput value={currentPass} onChange={e => setCurrentPass(e.target.value)} onKeyDown={handleKeyDown} />
           {errors.currentPass && <p style={{ color: "red", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif", marginBottom: "6px" }}>{errors.currentPass}</p>}
 
           <hr style={{ borderColor: "#eee", margin: "16px 0" }} />
 
           <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.3rem", color: red, marginBottom: "12px" }}>NEW COORDINATOR'S DETAILS:</p>
+
+          <label style={labelStyle}>Department / Program:</label>
+          <div style={{ background: fieldBg, borderRadius: "14px", padding: "10px 12px", marginBottom: "6px" }}>
+            <MultiDepartmentPicker
+              selections={coordinatorDeptSelections.length ? coordinatorDeptSelections : [{ department: "", program: "", specialization: "" }]}
+              onChange={() => {}}
+              readOnly={true}
+              errors={[]}
+            />
+          </div>
+          <p style={{ fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif", color: "#777", margin: "-2px 0 8px 4px" }}>
+            The new coordinator will inherit your department automatically.
+          </p>
+
           <label style={labelStyle}>Full Name:</label>
           <input value={name} onChange={e => setName(e.target.value)} placeholder="Full Name" style={{ ...fieldStyle, marginBottom: "2px" }} />
           {errors.name && <p style={{ color: "red", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif", marginBottom: "6px" }}>{errors.name}</p>}
@@ -684,10 +824,10 @@ const TransferAccountModal = ({ onClose, currentUid, currentEmail, onLogout }) =
           {errors.email && <p style={{ color: "red", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif", marginBottom: "8px" }}>{errors.email}</p>}
 
           <label style={labelStyle}>Set Their Password:</label>
-          <PasswordInput value={newPass} onChange={e => setNewPass(e.target.value)} />
+          <PasswordInput value={newPass} onChange={e => setNewPass(e.target.value)} onKeyDown={handleKeyDown} />
           {errors.newPass && <p style={{ color: "red", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif", marginBottom: "6px" }}>{errors.newPass}</p>}
           <label style={labelStyle}>Confirm Password:</label>
-          <PasswordInput value={confirmPass} onChange={e => setConfirmPass(e.target.value)} />
+          <PasswordInput value={confirmPass} onChange={e => setConfirmPass(e.target.value)} onKeyDown={handleKeyDown} />
           {errors.confirmPass && <p style={{ color: "red", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif", marginBottom: "6px" }}>{errors.confirmPass}</p>}
 
           {submitError && (
@@ -737,6 +877,7 @@ const PersonalInfoScreen = ({ user, onBack, onSaved, mandatory = false }) => {
   const [deptErrors, setDeptErrors] = useState([]);
   const [saving, setSaving]     = useState(false);
   const [saveError, setSaveError] = useState("");
+  const [showSaveSuccess, setShowSaveSuccess] = useState(false);
 
   // ── Always reflect the latest Firestore data, not a stale `user` prop ────
   // (Fixes fields resetting to blank when re-opening Edit after a save.)
@@ -765,12 +906,14 @@ const PersonalInfoScreen = ({ user, onBack, onSaved, mandatory = false }) => {
 
   const validateEmail = (val) => {
     if (!val || !val.trim()) return "Email is required.";
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val.trim())) return "Invalid email address.";
     return "";
   };
 
   const validate = () => {
     const e = {};
     if (!name.trim()) e.name = "Name is required.";
+    if (!sex) e.sex = "Select sex.";
     const phoneErr = validatePhone(contact);
     if (phoneErr) e.contact = phoneErr;
     const emailErr = validateEmail(email);
@@ -821,6 +964,7 @@ const PersonalInfoScreen = ({ user, onBack, onSaved, mandatory = false }) => {
       setErrors({});
       setDeptErrors([]);
       onSaved?.(payload);
+      setShowSaveSuccess(true);
     } catch (err) {
       setSaveError(err.message || "Failed to save your information.");
     } finally {
@@ -902,12 +1046,15 @@ const PersonalInfoScreen = ({ user, onBack, onSaved, mandatory = false }) => {
           <div style={rowStyle}>
             <span style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.88rem", color: "white" }}>Sex:</span>
             {editing ? (
-              <select value={sex} onChange={e => setSex(e.target.value)}
-                style={{ background: "transparent", border: "none", borderBottom: "1px solid white", color: "white", fontFamily: "'Kufam', sans-serif", fontSize: "0.88rem", outline: "none", cursor: "pointer", marginLeft: "8px" }}>
-                <option value="" style={{ color: "#333" }}>Select</option>
-                <option style={{ color: "#333" }}>Male</option>
-                <option style={{ color: "#333" }}>Female</option>
-              </select>
+              <>
+                <select value={sex} onChange={e => { setSex(e.target.value); setErrors(p => ({ ...p, sex: "" })); }}
+                  style={{ background: "transparent", border: "none", borderBottom: errors.sex ? "1px solid #ffcccc" : "1px solid white", color: "white", fontFamily: "'Kufam', sans-serif", fontSize: "0.88rem", outline: "none", cursor: "pointer", marginLeft: "8px" }}>
+                  <option value="" style={{ color: "#333" }}>Select</option>
+                  <option style={{ color: "#333" }}>Male</option>
+                  <option style={{ color: "#333" }}>Female</option>
+                </select>
+                {errors.sex && <p style={{ color: "#ffcccc", fontSize: "0.72rem", fontFamily: "'Kufam', sans-serif", margin: "4px 0 0 0" }}>{errors.sex}</p>}
+              </>
             ) : (
               <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.88rem", color: "white", marginLeft: "6px" }}>{sex || "—"}</span>
             )}
@@ -992,6 +1139,10 @@ const PersonalInfoScreen = ({ user, onBack, onSaved, mandatory = false }) => {
           )}
         </div>
       </div>
+
+      {showSaveSuccess && (
+        <CoordinatorSaveSuccessModal onClose={() => setShowSaveSuccess(false)} />
+      )}
     </div>
   );
 };
@@ -1074,11 +1225,17 @@ const ResetPasswordScreen = ({ onBack, user }) => {
   const [loading, setLoading]         = useState(false);
   const [success, setSuccess]         = useState(false);
 
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter" && !loading) {
+      handleSave();
+    }
+  };
+
   const handleSave = async () => {
     const e = {};
     if (!currentPass)          e.currentPass = "Please enter your current password.";
     if (!newPass)              e.newPass = "Please enter a new password.";
-    else if (newPass.length < 8) e.newPass = "Minimum 8 characters.";
+    else if (newPass.length < 8) e.newPass = "Password must be at least 8 characters";
     if (newPass !== confirm)   e.confirm = "Passwords do not match.";
     setErrors(e);
     if (Object.keys(e).length > 0) return;
@@ -1090,7 +1247,7 @@ const ResetPasswordScreen = ({ onBack, user }) => {
       const credential = EmailAuthProvider.credential(currentUser.email, currentPass);
       await reauthenticateWithCredential(currentUser, credential);
       // Now change password and update Firestore flag
-      await changePassword(newPass, "coordinators", user?.uid);
+      await changePassword(currentPass, newPass, "coordinators", user?.uid, getAuth().currentUser?.email);
       setSuccess(true);
       setCurrentPass(""); setNewPass(""); setConfirm("");
     } catch (err) {
@@ -1106,30 +1263,63 @@ const ResetPasswordScreen = ({ onBack, user }) => {
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      {success && (
+        <div style={{
+          position: "fixed", inset: 0, zIndex: 9999,
+          background: "rgba(0,0,0,0.45)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+        }}>
+          <div style={{
+            background: "white", borderRadius: "20px",
+            padding: "36px 32px", width: "clamp(280px, 85vw, 380px)",
+            display: "flex", flexDirection: "column", alignItems: "center",
+            gap: "12px", boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
+          }}>
+            <div style={{
+              width: "64px", height: "64px", borderRadius: "50%",
+              background: "#e8f5e9", display: "flex",
+              alignItems: "center", justifyContent: "center", marginBottom: "4px",
+            }}>
+              <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#2d7a2d" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10"/>
+                <polyline points="9 12 11 14 15 10"/>
+              </svg>
+            </div>
+            <p style={{
+              fontFamily: "'Kufam', sans-serif", fontWeight: 700,
+              fontSize: "1.15rem", color: "#1a1a1a", margin: 0, textAlign: "center",
+            }}>Password Changed!</p>
+            <p style={{
+              fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem",
+              color: "#666", margin: 0, textAlign: "center", lineHeight: 1.5,
+            }}>Your password has been updated successfully. Please log in again with your new password.</p>
+            <button onClick={onBack} style={{
+              width: "100%", padding: "12px", borderRadius: "30px",
+              border: "none", background: "#590101",
+              fontFamily: "'Kufam', sans-serif", fontWeight: 700,
+              fontSize: "0.95rem", cursor: "pointer", color: "white",
+              boxShadow: "0 3px 10px rgba(89,1,1,0.3)", marginTop: "8px",
+            }}>Done</button>
+          </div>
+        </div>
+      )}
       <SectionHeaderBar iconSrc={resetIcon} title="Reset Password" onBack={onBack} />
       <div className="cap-sub-body">
         <div style={{ background: "#e8e8e8", borderRadius: "16px", padding: "24px 28px" }}>
-          {success ? (
-            <div style={{ textAlign: "center", padding: "20px 0" }}>
-              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#2d7a2d" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginBottom: "12px" }}><circle cx="12" cy="12" r="10"/><polyline points="9 12 11 14 15 10"/></svg>
-              <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "1rem", fontWeight: 700, color: "#2d7a2d", marginBottom: "6px" }}>Password Changed!</p>
-              <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#666", marginBottom: "20px" }}>Your password has been updated successfully. Please log in again with your new password.</p>
-              <button onClick={onBack} style={{ background: darkRed, color: "white", border: "none", borderRadius: "20px", padding: "10px 32px", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.95rem", cursor: "pointer" }}>Done</button>
-            </div>
-          ) : (
+          {!success && (
             <>
               <label style={{ ...labelStyle, color: "#111" }}>Current Password:</label>
-              <PasswordInput value={currentPass} onChange={e => { setCurrentPass(e.target.value); setErrors(p => ({ ...p, currentPass: "" })); }} />
+              <PasswordInput value={currentPass} onChange={e => { setCurrentPass(e.target.value); setErrors(p => ({ ...p, currentPass: "" })); }} onKeyDown={handleKeyDown} />
               {errors.currentPass && <p style={{ color: "red", fontSize: "0.78rem", fontFamily: "'Kufam', sans-serif", marginBottom: "8px" }}>{errors.currentPass}</p>}
 
               <hr style={{ border: "none", borderTop: "1px solid #ccc", margin: "14px 0" }} />
 
               <label style={{ ...labelStyle, color: "#111" }}>New Password:</label>
-              <PasswordInput value={newPass} onChange={e => { setNewPass(e.target.value); setErrors(p => ({ ...p, newPass: "" })); }} />
+              <PasswordInput value={newPass} onChange={e => { setNewPass(e.target.value); setErrors(p => ({ ...p, newPass: "" })); }} onKeyDown={handleKeyDown} />
               {errors.newPass && <p style={{ color: "red", fontSize: "0.78rem", fontFamily: "'Kufam', sans-serif", marginBottom: "8px" }}>{errors.newPass}</p>}
 
               <label style={{ ...labelStyle, color: "#111" }}>Confirm New Password:</label>
-              <PasswordInput value={confirm} onChange={e => { setConfirm(e.target.value); setErrors(p => ({ ...p, confirm: "" })); }} />
+              <PasswordInput value={confirm} onChange={e => { setConfirm(e.target.value); setErrors(p => ({ ...p, confirm: "" })); }} onKeyDown={handleKeyDown} />
               {errors.confirm && <p style={{ color: "red", fontSize: "0.78rem", fontFamily: "'Kufam', sans-serif", marginBottom: "8px" }}>{errors.confirm}</p>}
 
               {errors.general && <p style={{ color: "red", fontSize: "0.78rem", fontFamily: "'Kufam', sans-serif", marginBottom: "8px" }}>⚠️ {errors.general}</p>}
@@ -1149,9 +1339,7 @@ const ResetPasswordScreen = ({ onBack, user }) => {
 
 // ── Privacy & Security Screen ─────────────────────────────────────────────────
 const PrivacySecurityScreen = ({ onBack, user, onLogout }) => {
-  const [showReset, setShowReset]           = useState(false);
-  const [showTransfer, setShowTransfer]     = useState(false);
-  const [showAddAccount, setShowAddAccount] = useState(false);
+  const [showReset, setShowReset] = useState(false);
 
   if (showReset) return <ResetPasswordScreen onBack={() => setShowReset(false)} user={user} />;
 
@@ -1160,13 +1348,9 @@ const PrivacySecurityScreen = ({ onBack, user, onLogout }) => {
       <SectionHeaderBar iconSrc={privacyIcon} title="Privacy and Security" onBack={onBack} />
       <div className="cap-sub-body">
         <div style={{ background: darkRed, borderRadius: "16px", padding: "16px 20px" }}>
-          <MenuRow iconSrc={resetIcon}      label="Reset Password"   onClick={() => setShowReset(true)} />
-          <MenuRow iconSrc={transferIcon}   label="Transfer Account" onClick={() => setShowTransfer(true)} />
-          <MenuRow iconSrc={addAccountIcon} label="Add Account"      onClick={() => setShowAddAccount(true)} />
+          <MenuRow iconSrc={resetIcon} label="Reset Password" onClick={() => setShowReset(true)} />
         </div>
       </div>
-      {showTransfer   && <TransferAccountModal onClose={() => setShowTransfer(false)} currentUid={user?.uid} currentEmail={user?.email} onLogout={onLogout} />}
-      {showAddAccount && <AddAccountModal      onClose={() => setShowAddAccount(false)} currentUid={user?.uid} />}
     </div>
   );
 };
@@ -1482,6 +1666,45 @@ const TermsScreen = ({ onBack }) => (
 
 // ── Main Screen ───────────────────────────────────────────────────────────────
 
+const CoordinatorSaveSuccessModal = ({ onClose }) => (
+  <div style={{
+    position: "fixed", inset: 0, zIndex: 9999,
+    background: "rgba(0,0,0,0.45)",
+    display: "flex", alignItems: "center", justifyContent: "center",
+  }}>
+    <div style={{
+      background: "white", borderRadius: "20px",
+      padding: "36px 32px", width: "clamp(280px, 85vw, 380px)",
+      display: "flex", flexDirection: "column", alignItems: "center",
+      gap: "12px", boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
+    }}>
+      <div style={{
+        width: "64px", height: "64px", borderRadius: "50%",
+        background: "#e6f7ec", display: "flex",
+        alignItems: "center", justifyContent: "center", marginBottom: "4px",
+      }}>
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none"
+          stroke="#2e7d32" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M20 6L9 17l-5-5"/>
+        </svg>
+      </div>
+      <p style={{
+        fontFamily: "'Kufam', sans-serif", fontWeight: 700,
+        fontSize: "1.15rem", color: "#1a1a1a", margin: 0, textAlign: "center",
+      }}>Saved Successfully!</p>
+      <p style={{
+        fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem",
+        color: "#666", margin: 0, textAlign: "center", lineHeight: 1.5,
+      }}>Your personal information has been updated.</p>
+      <button onClick={onClose} style={{
+        width: "100%", padding: "12px", borderRadius: "30px", marginTop: "8px",
+        background: darkRed, color: "white", border: "none",
+        fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.9rem", cursor: "pointer",
+      }}>OK</button>
+    </div>
+  </div>
+);
+
 const LogoutModal = ({ onConfirm, onCancel }) => (
   <div style={{
     position: "fixed", inset: 0, zIndex: 9999,
@@ -1536,10 +1759,15 @@ const LogoutModal = ({ onConfirm, onCancel }) => (
 
 const CoordinatorAccountProfileScreen = ({ user, onLogout }) => {
   const [view, setView]                     = useState("main");
+  const [showReset, setShowReset]           = useState(false);
   const [showTransfer, setShowTransfer]     = useState(false);
   const [showAddAccount, setShowAddAccount] = useState(false);
   const [profileName, setProfileName]       = useState("");
   const [showLogout, setShowLogout]         = useState(false);
+  // The signed-in coordinator's own department(s) — used to auto-assign the
+  // department when adding or transferring an account, instead of letting
+  // the coordinator pick a different one.
+  const [coordinatorDeptSelections, setCoordinatorDeptSelections] = useState([]);
 
   useEffect(() => {
     const uid = user?.uid || getAuth().currentUser?.uid;
@@ -1548,6 +1776,7 @@ const CoordinatorAccountProfileScreen = ({ user, onLogout }) => {
       if (snap.exists()) {
         const d = snap.data();
         setProfileName(d.name || d.fullName || d.displayName || "");
+        setCoordinatorDeptSelections(d.deptSelections?.length ? d.deptSelections : []);
       }
     });
     return () => unsub();
@@ -1559,8 +1788,8 @@ const CoordinatorAccountProfileScreen = ({ user, onLogout }) => {
   };
 
   if (view === "personalInfo") return <><ResponsiveStyles /><PersonalInfoScreen user={user} onBack={() => setView("main")} /></>;
-  if (view === "privacy")      return <><ResponsiveStyles /><PrivacySecurityScreen onBack={() => setView("main")} user={user} onLogout={onLogout} /></>;
   if (view === "terms")        return <><ResponsiveStyles /><TermsScreen onBack={() => setView("main")} /></>;
+  if (showReset)                return <><ResponsiveStyles /><ResetPasswordScreen onBack={() => setShowReset(false)} user={user} /></>;
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "#f5f5f5" }}>
@@ -1588,7 +1817,7 @@ const CoordinatorAccountProfileScreen = ({ user, onLogout }) => {
       <div className="cap-body">
         <div className="cap-menu-box">
           <MenuRow iconSrc={personalInfoIcon} label="Personal Information" onClick={() => setView("personalInfo")} />
-          <MenuRow iconSrc={privacyIcon}      label="Privacy & Security"   onClick={() => setView("privacy")} />
+          <MenuRow iconSrc={resetIcon}        label="Reset Password"       onClick={() => setShowReset(true)} />
           <MenuRow iconSrc={termsIcon}        label="Terms & Condition"    onClick={() => setView("terms")} />
           <MenuRow iconSrc={addAccountIcon}   label="Add Account"          onClick={() => setShowAddAccount(true)} />
           <MenuRow iconSrc={transferIcon}     label="Transfer Account"     onClick={() => setShowTransfer(true)} />
@@ -1599,8 +1828,8 @@ const CoordinatorAccountProfileScreen = ({ user, onLogout }) => {
           Log Out
         </button>
 
-        {showTransfer   && <TransferAccountModal onClose={() => setShowTransfer(false)} currentUid={user?.uid} currentEmail={user?.email} onLogout={onLogout} />}
-        {showAddAccount && <AddAccountModal      onClose={() => setShowAddAccount(false)} currentUid={user?.uid} />}
+        {showTransfer   && <TransferAccountModal onClose={() => setShowTransfer(false)} currentUid={user?.uid} currentEmail={user?.email} onLogout={onLogout} coordinatorDeptSelections={coordinatorDeptSelections} />}
+        {showAddAccount && <AddAccountModal      onClose={() => setShowAddAccount(false)} currentUid={user?.uid} onLogout={onLogout} coordinatorDeptSelections={coordinatorDeptSelections} />}
       </div>
     </div>
   );

@@ -646,7 +646,7 @@ const ReportModal = ({ company, onClose, onSubmit, reporter }) => {
                   boxSizing: "border-box",
                 }}
               />
-              <p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.95rem", marginBottom: "10px" }}>Attach File: <span style={{ color: red, fontWeight: 400, fontSize: "0.8rem" }}>(required)</span></p>
+              <p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.95rem", marginBottom: "10px" }}>Attach File:</p>
               <input ref={fileRef} type="file" accept=".png,.pdf" style={{ display: "none" }} onChange={handleFile} />
               {!attachedFile ? (
                 <div onClick={() => fileRef.current.click()} style={{ width: "80px", height: "80px", background: "#e8c8c8", borderRadius: "14px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
@@ -800,12 +800,12 @@ const FilterPanel = ({ selectedIndustries, setSelectedIndustries, citySearch, se
       </div>
       <hr style={{ border: "none", borderTop: "1px solid #eee", margin: "6px 0" }} />
       <div style={{ padding: "4px 12px 10px" }}>
-        <p style={{ fontSize: "0.78rem", fontWeight: "bold", color: darkRed, marginBottom: "6px" }}>Location (City):</p>
+        <p style={{ fontSize: "0.78rem", fontWeight: "bold", color: darkRed, marginBottom: "6px" }}>Location:</p>
         <input
           type="text"
           value={citySearch}
           onChange={e => setCitySearch(e.target.value)}
-          placeholder="e.g. Angeles, Tarlac..."
+          placeholder="e.g. Batangas City, Tarlac, Region III..."
           style={{ width: "100%", padding: "6px 10px", borderRadius: "8px", border: `1px solid ${red}`, fontSize: "0.76rem", fontFamily: "'Kufam', sans-serif", outline: "none", boxSizing: "border-box", color: darkRed }}
         />
       </div>
@@ -887,21 +887,33 @@ const StudentFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onMessa
     const name = (c.companyName || c.company || c.name || "").toLowerCase();
     const industryArr = Array.isArray(c.industry) ? c.industry : (c.industry ? [c.industry] : []);
     const industry = industryArr.join(" ").toLowerCase();
-    const loc = (c.location?.city || c.location || "").toLowerCase();
-    const matchSearch = name.includes(search.toLowerCase()) || industry.includes(search.toLowerCase()) || loc.includes(search.toLowerCase());
+    const locObj = (c.location && typeof c.location === "object") ? c.location : {};
+    // Full location text = everything actually shown on the profile's Location section
+    // (barangay, city, province, region, or a full formatted address), so searching
+    // any part of what the user sees — not just the city — will find it.
+    const fullLocationText = [
+      c.postLocation?.address,
+      locObj.fullAddress,
+      locObj.street,
+      locObj.barangay,
+      locObj.city,
+      locObj.province,
+      locObj.region,
+      typeof c.location === "string" ? c.location : null,
+    ].filter(Boolean).join(", ").toLowerCase();
+    const matchSearch = name.includes(search.toLowerCase()) || industry.includes(search.toLowerCase()) || fullLocationText.includes(search.toLowerCase());
     const matchIndustry = selectedIndustries.length === 0 || industryArr.some(ind => selectedIndustries.includes(ind));
-    const matchCity = !citySearch.trim() || loc.includes(citySearch.trim().toLowerCase()) || (c.postLocation?.address || "").toLowerCase().includes(citySearch.trim().toLowerCase());
+    const matchCity = !citySearch.trim() || fullLocationText.includes(citySearch.trim().toLowerCase());
     return matchSearch && matchIndustry && matchCity;
   });
 
-  const activeBadgeLabel = () => citySearch.trim() ? `City: ${citySearch.trim()}` : null;
+  const activeBadgeLabel = () => citySearch.trim() ? `Location: ${citySearch.trim()}` : null;
   const clearAllFilters = () => { setSelectedIndustries([]); setCitySearch(""); };
 
   const handleReportSubmit = (report) => { 
     onReportSubmit?.(report); 
     setShowReportModal(false); 
     setShowSuccessModal(true); 
-    onNavigateToReports?.(); 
   };
 
   if (view === "profile" && selectedCompany) {
@@ -916,7 +928,9 @@ const StudentFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onMessa
           onApplyNow={() => setShowApplyModal(true)}
         />
         {showReportModal && <ReportModal company={selectedCompany} onClose={() => setShowReportModal(false)} onSubmit={handleReportSubmit} reporter={user} />}
-        {showSuccessModal && <SuccessModal onClose={() => setShowSuccessModal(false)} />}
+        {showSuccessModal && (
+          <SuccessModal onClose={() => { setShowSuccessModal(false); onNavigateToReports?.(); }} />
+        )}
         {showApplyModal && (
           <ApplyModal
             company={selectedCompany}

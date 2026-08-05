@@ -2249,7 +2249,7 @@ const COLLEGES = [
   },
 ];
 
-const SUFFIX_OPTIONS = [];
+const SUFFIX_OPTIONS = ["N/A", "Jr.", "Sr.", "II", "III", "IV", "V"];
 // NOTE: applications are now loaded live from Firestore (see useEffect in StudentApplicationScreen)
 
 // ─── RESPONSIVE STYLES ────────────────────────────────────────────────────────
@@ -2437,8 +2437,8 @@ const ResponsiveStyles = () => (
 
 // ─── VALIDATORS ───────────────────────────────────────────────────────────────
 const NAME_REGEX = /^[A-Za-zÑñ][A-Za-zÑñ\s\-]*$/;
-const MIDDLE_INITIAL_REGEX = /^[A-Z]\.$/;
-const SUFFIX_REGEX = /^(Jr\.|Sr\.|II|III|IV|V|VI|VII|VIII|IX|X)$/;
+const MIDDLE_INITIAL_REGEX = /^([A-Z]\.|N\/A)$/;
+const SUFFIX_REGEX = /^(N\/A|Jr\.|Sr\.|II|III|IV|V|VI|VII|VIII|IX|X)$/;
 const GMAIL_REGEX = /^[a-zA-Z0-9._%+\-]+@gmail\.com$/;
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 const ALLOWED_FILE_TYPES = ["application/pdf", "image/png"];
@@ -2450,8 +2450,10 @@ const appValidators = {
     return "";
   },
   middleInitial: (v) => {
-    if (!v || !v.trim()) return "";
-    if (!/^[A-Z]$/.test(v.trim()) && !MIDDLE_INITIAL_REGEX.test(v.trim())) return "Format: e.g. (A.)";
+    if (!v || !v.trim()) return "Required";
+    const val = v.trim();
+    if (val.toUpperCase() === "N/A") return "";
+    if (!/^[A-Z]$/.test(val) && !MIDDLE_INITIAL_REGEX.test(val)) return "Format: e.g. (A.) or N/A";
     return "";
   },
   lastName: (v) => {
@@ -2460,7 +2462,7 @@ const appValidators = {
     return "";
   },
   suffix: (v) => {
-    if (!v || !v.trim()) return "";
+    if (!v || !v.trim()) return "Required";
     if (!SUFFIX_REGEX.test(v.trim())) return "e.g. Jr. Sr. II III IV";
     return "";
   },
@@ -2478,6 +2480,7 @@ const appValidators = {
     if (!v || !v.trim()) return "Required";
     return "";
   },
+  message: (v) => (!v || !v.trim()) ? "Required" : "",
 };
 
 const formatPhone = (raw) => {
@@ -2743,7 +2746,13 @@ const useApplicationForm = (initial) => {
   const [programTouched, setProgramTouched] = useState(false);
 
   const [message, setMessage]       = useState(initial.message || "");
+  const [messageTouched, setMessageTouched] = useState(false);
+  const messageError = messageTouched ? appValidators.message(message) : "";
+
   const [attachedFiles, setAttachedFiles] = useState(initial.attachedFiles || []);
+  const [filesTouched, setFilesTouched] = useState(false);
+
+  const [majorTouched, setMajorTouched] = useState(false);
 
   const handleLocationChange = (loc) => {
     setRegion(loc.region); setProvince(loc.province); setCity(loc.city);
@@ -2752,7 +2761,11 @@ const useApplicationForm = (initial) => {
   };
   const handleCollegeChange = (val) => { setCollege(val); setProgram(""); setMajor(""); setCollegeTouched(true); };
   const handleProgramChange = (val) => { setProgram(val); setMajor(""); setProgramTouched(true); };
+  const handleMajorChange   = (val) => { setMajor(val); setMajorTouched(true); };
   const handleContactChange = (val) => contact.onChange(formatPhone(val));
+  const handleMessageChange = (val) => { setMessage(val); setMessageTouched(true); };
+  const handleFilesAdd = (files) => { setAttachedFiles(prev => [...(prev || []), ...files]); setFilesTouched(true); };
+  const handleFilesRemove = (idx) => { setAttachedFiles(prev => { const u = [...(prev || [])]; u.splice(idx, 1); return u; }); setFilesTouched(true); };
 
   const collegeData    = COLLEGES.find(c => c.name === college);
   const programOptions = collegeData?.programs.map(p => p.name) ?? [];
@@ -2762,11 +2775,14 @@ const useApplicationForm = (initial) => {
   const regionError  = regionTouched  && !region  ? "Select a region" : "";
   const collegeError = collegeTouched && !college  ? "Required"        : "";
   const programError = programTouched && !program  ? "Required"        : "";
+  const majorError    = majorTouched && majorOptions.length > 0 && !major ? "Required" : "";
+  const filesError    = filesTouched && (!attachedFiles || attachedFiles.length === 0) ? "At least one file is required." : "";
 
   const touchAll = () => {
     firstName.touch(); middleInitial.touch(); lastName.touch(); suffix.touch();
     sex.touch(); contact.touch(); email.touch();
     setRegionTouched(true); setCollegeTouched(true); setProgramTouched(true);
+    setMajorTouched(true); setMessageTouched(true); setFilesTouched(true);
   };
 
   const isValid = () => {
@@ -2778,8 +2794,11 @@ const useApplicationForm = (initial) => {
     if (!region)                                      return false;
     if (!college)                                     return false;
     if (!program)                                     return false;
+    if (majorOptions.length > 0 && !major)            return false;
     if (appValidators.contact(contact.value))         return false;
     if (appValidators.email(email.value))             return false;
+    if (appValidators.message(message))               return false;
+    if (!attachedFiles || attachedFiles.length === 0) return false;
     return true;
   };
 
@@ -2795,9 +2814,10 @@ const useApplicationForm = (initial) => {
   return {
     firstName, middleInitial, lastName, suffix, sex, contact, email,
     region, province, city, barangay, street, regionError, regionTouched,
-    college, program, major, setMajor, collegeError, programError,
+    college, program, major, handleMajorChange, collegeError, programError, majorError,
     programOptions, majorOptions,
-    message, setMessage, attachedFiles, setAttachedFiles,
+    message, handleMessageChange, messageError,
+    attachedFiles, handleFilesAdd, handleFilesRemove, filesError,
     handleLocationChange, handleCollegeChange, handleProgramChange, handleContactChange,
     touchAll, isValid, getFormData,
   };
@@ -2817,7 +2837,7 @@ const FormFields = ({ f, locked = false }) => {
       </div>
       <div>
         <FieldLabel>Middle I.:</FieldLabel>
-        <StyledInput value={f.middleInitial.value} onChange={(v) => f.middleInitial.onChange(v.replace(/[^A-Z.]/g, "").slice(0, 2))} placeholder="M." disabled={locked} hasError={!locked && f.middleInitial.hasError} />
+        <StyledInput value={f.middleInitial.value} onChange={(v) => f.middleInitial.onChange(v.replace(/[^A-Za-z.\/]/g, "").toUpperCase().slice(0, 3))} placeholder="M. or N/A" disabled={locked} hasError={!locked && f.middleInitial.hasError} />
         <FieldError msg={!locked ? f.middleInitial.error : ""} />
       </div>
       <div>
@@ -2827,7 +2847,7 @@ const FormFields = ({ f, locked = false }) => {
       </div>
       <div>
         <FieldLabel>Suffix:</FieldLabel>
-        <StyledSelect value={f.suffix.value} onChange={(v) => f.suffix.onChange(v)} options={SUFFIX_OPTIONS} placeholder="None" disabled={locked} hasError={!locked && f.suffix.hasError} />
+        <StyledSelect value={f.suffix.value} onChange={(v) => f.suffix.onChange(v)} options={SUFFIX_OPTIONS} placeholder="Select Suffix" disabled={locked} hasError={!locked && f.suffix.hasError} />
         <FieldError msg={!locked ? f.suffix.error : ""} />
       </div>
     </div>
@@ -2859,7 +2879,8 @@ const FormFields = ({ f, locked = false }) => {
       </div>
       <div>
         <FieldLabel>Major:</FieldLabel>
-        <StyledSelect value={f.major} onChange={f.setMajor} options={f.majorOptions} placeholder={f.majorOptions.length === 0 ? "N/A" : "Select Major"} disabled={locked || !f.program || f.majorOptions.length === 0} />
+        <StyledSelect value={f.major} onChange={f.handleMajorChange} options={f.majorOptions} placeholder={f.majorOptions.length === 0 ? "N/A" : "Select Major"} disabled={locked || !f.program || f.majorOptions.length === 0} hasError={!locked && !!f.majorError} />
+        <FieldError msg={!locked ? f.majorError : ""} />
       </div>
     </div>
 
@@ -2879,18 +2900,16 @@ const FormFields = ({ f, locked = false }) => {
 
     {/* Message */}
     <div style={{ marginBottom: "4px" }}>
-      <FieldLabel>
-        Application Message:{" "}
-        {!locked && <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.7rem", color: "#888", fontWeight: 400 }}>(optional)</span>}
-      </FieldLabel>
+      <FieldLabel>Application Message:</FieldLabel>
       <textarea
         className="app-textarea"
         value={f.message}
-        onChange={e => f.setMessage(e.target.value)}
+        onChange={e => f.handleMessageChange(e.target.value)}
         placeholder="Write your application message..."
         disabled={locked}
-        style={{ width: "100%", background: locked ? "#e8e8e8" : "white", border: "none", borderRadius: "16px", padding: "10px 14px", fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", color: "#222", outline: "none", boxShadow: "inset 0 1px 3px rgba(0,0,0,0.08)", resize: "none", minHeight: "90px", lineHeight: 1.6, boxSizing: "border-box", overflowY: "auto" }}
+        style={{ width: "100%", background: locked ? "#e8e8e8" : "white", border: (!locked && f.messageError) ? "1.5px solid #c00" : "none", borderRadius: "16px", padding: "10px 14px", fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", color: "#222", outline: "none", boxShadow: "inset 0 1px 3px rgba(0,0,0,0.08)", resize: "none", minHeight: "90px", lineHeight: 1.6, boxSizing: "border-box", overflowY: "auto" }}
       />
+      <FieldError msg={!locked ? f.messageError : ""} />
     </div>
 
     {/* Files */}
@@ -2902,11 +2921,12 @@ const FormFields = ({ f, locked = false }) => {
           const currentSize = (f.attachedFiles || []).reduce((s, file) => s + (file.size || 0), 0);
           const newSize = newFiles.reduce((s, file) => s + file.size, 0);
           if (currentSize + newSize > MAX_FILE_SIZE) { setInfoMsg("Total file size must not exceed 10MB."); return; }
-          f.setAttachedFiles([...(f.attachedFiles || []), ...newFiles]);
+          f.handleFilesAdd(newFiles);
         }}
-        onRemove={(idx) => { const updated = [...(f.attachedFiles || [])]; updated.splice(idx, 1); f.setAttachedFiles(updated); }}
+        onRemove={(idx) => f.handleFilesRemove(idx)}
         disabled={locked}
       />
+      <FieldError msg={!locked ? f.filesError : ""} />
     </div>
     {infoMsg && <InfoModal message={infoMsg} onClose={() => setInfoMsg(null)} />}
   </>
@@ -3116,6 +3136,7 @@ const ViewApplicationModal = ({ application, onClose, onSave }) => {
 
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
+  const [showSuccess, setShowSuccess] = useState(false);
 
   const handleSave = async () => {
     f.touchAll();
@@ -3133,6 +3154,7 @@ const ViewApplicationModal = ({ application, onClose, onSave }) => {
       const finalData = { ...formData, attachedFiles: [...existing, ...newlyUploaded] };
       await onSave?.(application.id, finalData);
       setIsEditing(false);
+      setShowSuccess(true);
     } catch (err) {
       console.error("Failed to save application:", err);
       setSaveError("Something went wrong while saving. Please try again.");
@@ -3233,6 +3255,26 @@ const ViewApplicationModal = ({ application, onClose, onSave }) => {
           )}
         </div>
       </div>
+
+      {showSuccess && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1100, padding: "16px" }}>
+          <div style={{ background: "#d8d8d8", borderRadius: "18px", width: "100%", maxWidth: "360px", padding: "32px 28px 26px", textAlign: "center", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+            <div style={{ width: "64px", height: "64px", borderRadius: "50%", background: "#2d7a2d", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px" }}>
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            </div>
+            <h2 style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.6rem", color: darkRed, letterSpacing: "0.03em", marginBottom: "6px" }}>Application Updated!</h2>
+            <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#555", marginBottom: "22px" }}>
+              Your changes to this application have been saved.
+            </p>
+            <button
+              onClick={() => setShowSuccess(false)}
+              style={{ padding: "10px 40px", borderRadius: "24px", background: darkRed, color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif", fontSize: "1.1rem", cursor: "pointer" }}
+            >
+              OK
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -3385,12 +3427,7 @@ const StudentApplicationScreen = ({ initialCompany, onModalClose, user }) => {
   );
 
   const handleSave = async (id, updatedData) => {
-    try {
-      await updateDoc(doc(db, "applications", id), { ...updatedData });
-    } catch (err) {
-      console.error("Failed to update application:", err);
-    }
-    setViewingApplication(null);
+    await updateDoc(doc(db, "applications", id), { ...updatedData });
   };
 
   const handleView = (app) => {

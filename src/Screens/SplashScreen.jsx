@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { auth, db } from "./firebase";
@@ -68,10 +68,23 @@ const SplashScreen = () => {
     }
   };
 
+  const isInitialAuthCheck = useRef(true);
+
   // ── Restore session after page refresh ────────────────────────────────────
+  // NOTE: onAuthStateChanged fires on EVERY auth change, not just page load —
+  // including the brief sign-in Firebase does internally while AuthService.signIn()
+  // is still validating the selected role. We only want this listener to restore
+  // a session on initial mount; any sign-in attempt made while already on this
+  // screen must be routed exclusively by SignInScreen's own role-checked callbacks
+  // (onSignInCoordinator/onSignInStudent/onSignInCompany), never by this listener,
+  // or a wrong-role sign-in attempt gets briefly (and wrongly) routed to whatever
+  // dashboard matches the account's real role before AuthService signs it back out.
   useEffect(() => {
   const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
-    if (firebaseUser) {
+    const isInitial = isInitialAuthCheck.current;
+    isInitialAuthCheck.current = false;
+
+    if (firebaseUser && isInitial) {
       const collections = ["coordinators", "students", "companies"];
       let userData = null;
       for (const col of collections) {

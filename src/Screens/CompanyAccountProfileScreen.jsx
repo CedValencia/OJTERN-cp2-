@@ -2455,11 +2455,11 @@ const GlobalStyles = () => {
   return null;
 };
 
-const PasswordInput = ({ value, onChange, placeholder = "••••••••" }) => {
+const PasswordInput = ({ value, onChange, placeholder = "••••••••", onKeyDown }) => {
   const [show, setShow] = useState(false);
   return (
     <div style={{ position: "relative", marginBottom: "12px" }}>
-      <input type={show ? "text" : "password"} value={value} onChange={onChange} placeholder={placeholder}
+      <input type={show ? "text" : "password"} value={value} onChange={onChange} onKeyDown={onKeyDown} placeholder={placeholder}
         style={{ ...fieldStyle, paddingRight: "44px" }} />
       <EyeIcon show={show} onClick={() => setShow(s => !s)} />
     </div>
@@ -2686,18 +2686,24 @@ const ResetPasswordScreen = ({ onBack, user, onLogout }) => {
   const [loading, setLoading]         = useState(false);
   const [success, setSuccess]         = useState(false);
 
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter" && !loading) {
+      handleSave();
+    }
+  };
+
   const handleSave = async () => {
     const e = {};
     if (!currentPass) e.currentPass = "Please enter your current password.";
     if (!newPass) e.newPass = "Please enter a new password.";
-    else if (newPass.length < 8) e.newPass = "Minimum 8 characters.";
+    else if (newPass.length < 8) e.newPass = "Password must be at least 8 characters";
     if (newPass !== confirm) e.confirm = "Passwords do not match.";
     setErrors(e);
     if (Object.keys(e).length > 0) return;
     setLoading(true);
     try {
       const uid = user?.uid || getAuth().currentUser?.uid;
-      await changePassword(currentPass, newPass, "companies", uid);
+      await changePassword(currentPass, newPass, "companies", uid, getAuth().currentUser?.email);
       setSuccess(true);
       setCurrentPass(""); setNewPass(""); setConfirm("");
     } catch (err) {
@@ -2717,37 +2723,70 @@ const ResetPasswordScreen = ({ onBack, user, onLogout }) => {
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      {success && (
+        <div style={{
+          position: "fixed", inset: 0, zIndex: 9999,
+          background: "rgba(0,0,0,0.45)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+        }}>
+          <div style={{
+            background: "white", borderRadius: "20px",
+            padding: "36px 32px", width: "clamp(280px, 85vw, 380px)",
+            display: "flex", flexDirection: "column", alignItems: "center",
+            gap: "12px", boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
+          }}>
+            <div style={{
+              width: "64px", height: "64px", borderRadius: "50%",
+              background: "#e8f5e9", display: "flex",
+              alignItems: "center", justifyContent: "center", marginBottom: "4px",
+            }}>
+              <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#2d7a2d" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10"/>
+                <polyline points="9 12 11 14 15 10"/>
+              </svg>
+            </div>
+            <p style={{
+              fontFamily: "'Kufam', sans-serif", fontWeight: 700,
+              fontSize: "1.15rem", color: "#1a1a1a", margin: 0, textAlign: "center",
+            }}>Password Changed!</p>
+            <p style={{
+              fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem",
+              color: "#666", margin: 0, textAlign: "center", lineHeight: 1.5,
+            }}>Your password has been updated successfully. Please log in again with your new password.</p>
+            <button onClick={handleDone} style={{
+              width: "100%", padding: "12px", borderRadius: "30px",
+              border: "none", background: "#590101",
+              fontFamily: "'Kufam', sans-serif", fontWeight: 700,
+              fontSize: "0.95rem", cursor: "pointer", color: "white",
+              boxShadow: "0 3px 10px rgba(89,1,1,0.3)", marginTop: "8px",
+            }}>Done</button>
+          </div>
+        </div>
+      )}
       <SectionHeaderBar iconSrc={resetIcon} title="Reset Password" onBack={onBack} />
       <div className="cap-sub-body">
         <div style={{ background: "#e8e8e8", borderRadius: "16px", padding: "24px 28px" }}>
-          {success ? (
-            <div style={{ textAlign: "center", padding: "20px 0" }}>
-              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#2d7a2d" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ display: "block", margin: "0 auto 12px" }}><circle cx="12" cy="12" r="10"/><polyline points="9 12 11 14 15 10"/></svg>
-              <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "1rem", fontWeight: 700, color: "#2d7a2d", marginBottom: "6px" }}>Password Changed!</p>
-              <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#666", marginBottom: "20px" }}>Your password has been updated. Please log in again with your new password.</p>
-              <button onClick={handleDone} style={{ background: darkRed, color: "white", border: "none", borderRadius: "20px", padding: "10px 32px", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.95rem", cursor: "pointer" }}>Done</button>
-            </div>
-          ) : (
+          {!success && (
             <>
               <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.88rem", color: "#666", marginBottom: "18px" }}>Enter your current password, then your new password below.</p>
 
               <label style={{ ...labelStyle, color: "#111" }}>Current Password:</label>
-              <PasswordInput value={currentPass} onChange={e => { setCurrentPass(e.target.value); setErrors(p => ({ ...p, currentPass: "" })); }} />
+              <PasswordInput value={currentPass} onChange={e => { setCurrentPass(e.target.value); setErrors(p => ({ ...p, currentPass: "" })); }} onKeyDown={handleKeyDown} />
               {errors.currentPass && <p style={{ color: "red", fontSize: "0.78rem", fontFamily: "'Kufam', sans-serif", marginBottom: "8px" }}>{errors.currentPass}</p>}
 
               <label style={{ ...labelStyle, color: "#111" }}>New Password:</label>
-              <PasswordInput value={newPass} onChange={e => { setNewPass(e.target.value); setErrors(p => ({ ...p, newPass: "" })); }} />
+              <PasswordInput value={newPass} onChange={e => { setNewPass(e.target.value); setErrors(p => ({ ...p, newPass: "" })); }} onKeyDown={handleKeyDown} />
               {errors.newPass && <p style={{ color: "red", fontSize: "0.78rem", fontFamily: "'Kufam', sans-serif", marginBottom: "8px" }}>{errors.newPass}</p>}
 
               <label style={{ ...labelStyle, color: "#111" }}>Confirm Password:</label>
-              <PasswordInput value={confirm} onChange={e => { setConfirm(e.target.value); setErrors(p => ({ ...p, confirm: "" })); }} />
+              <PasswordInput value={confirm} onChange={e => { setConfirm(e.target.value); setErrors(p => ({ ...p, confirm: "" })); }} onKeyDown={handleKeyDown} />
               {errors.confirm && <p style={{ color: "red", fontSize: "0.78rem", fontFamily: "'Kufam', sans-serif", marginBottom: "8px" }}>{errors.confirm}</p>}
 
               {errors.general && <p style={{ color: "red", fontSize: "0.78rem", fontFamily: "'Kufam', sans-serif", marginBottom: "8px" }}>⚠️ {errors.general}</p>}
 
               <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "16px" }}>
                 <button onClick={handleSave} disabled={loading} style={{ background: darkRed, color: "white", border: "none", borderRadius: "20px", padding: "12px 40px", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.95rem", cursor: loading ? "not-allowed" : "pointer", opacity: loading ? 0.7 : 1 }}>
-                  {loading ? "Saving…" : "Save Password"}
+                  {loading ? "Saving…" : "Save New Password"}
                 </button>
               </div>
             </>
@@ -3006,7 +3045,12 @@ const PersonalInfoScreen = ({ onBack, user }) => {
     if (!companyName.trim()) e.companyName = "Company name is required.";
     if (industries.length === 0) e.industries = "Select at least one industry.";
     if (!email.trim()) e.email = "Email is required.";
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) e.email = "Invalid email address.";
     if (!location.region) e.location = "Please select a region.";
+    else if (!location.province) e.location = "Please select a province.";
+    else if (!location.city) e.location = "Please select a city/municipality.";
+    else if (!location.barangay) e.location = "Please select a barangay.";
+    // Street address is optional - no validation required
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -3024,7 +3068,7 @@ const PersonalInfoScreen = ({ onBack, user }) => {
         .filter(Boolean).join(", ");
       const newPostLocation = await geocodeAddress(newAddress);
       await Promise.all(postsSnap.docs.map(d => updateDoc(d.ref, {
-        companyName, name: companyName, location, postLocation: newPostLocation,
+        companyName, name: companyName, location, postLocation: newPostLocation, industry: industries,
       })));
       const convsSnap = await getDocs(query(collection(db, "conversations"), where("participants", "array-contains", uid)));
       await Promise.all(convsSnap.docs.map(d => updateDoc(d.ref, { [`participantNames.${uid}`]: companyName })));

@@ -17,7 +17,7 @@ import logo                 from "../icons/ojtern.png";
 import dashboardIcon        from "../icons/dashboard.png";
 import viewIcon             from "../icons/view.png";
 import companyProfileIcon   from "../icons/companyprofile.png";
-import viewCompanyIcon      from "../icons/viewcompany.png";
+import findIcon           from "../icons/find.png";
 import studentListIcon      from "../icons/studentlist.png";
 import studentPlacementIcon from "../icons/studentsplacement.png";
 import companyListIcon      from "../icons/companylist.png";
@@ -202,7 +202,7 @@ const FontImport = () => (
 // ── Nav items ──────────────────────────────────────────────────────────────────
 const navItems = [
   { key: "dashboard",         label: "Dashboard",          icon: dashboardIcon },
-  { key: "viewcompany",       label: "Find Company",      icon: viewCompanyIcon },
+  { key: "findcompany",       label: "Find Company",      icon: findIcon },
   { key: "studentsaccount",      label: "Students Account",      icon: studentListIcon },
   { key: "studentlist", label: "Student List", icon: studentPlacementIcon },
   { key: "companylist",       label: "Company List",       icon: companyListIcon },
@@ -763,8 +763,8 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
 
   const handleViewCompany = (companyId) => {
     setDashboardCompanyId(companyId);
-    setDashboardTarget("viewcompany");
-    navigate("viewcompany");
+    setDashboardTarget("findcompany");
+    navigate("findcompany");
   };
 
   const handleViewRegistered = (companyId) => {
@@ -786,12 +786,12 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
       />
     );
 
-    if (activeNav === "viewcompany") return (
+    if (activeNav === "findcompany") return (
       <CoordinatorViewCompanyScreen
         onReportSubmit={handleReportSubmit}
         onNavigateToReports={() => navigate("reportcompany")}
         onMessageNow={handleMessageNow}
-        initialCompanyId={dashboardTarget === "viewcompany" ? dashboardCompanyId : placementTargetCompanyId}
+        initialCompanyId={dashboardTarget === "findcompany" ? dashboardCompanyId : placementTargetCompanyId}
         onClearInitialCompany={() => {
           setDashboardCompanyId(null);
           setDashboardTarget(null);
@@ -814,7 +814,7 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
         coordinatorColleges={coordinatorColleges}
         onNavigateToCompany={(companyId) => {
           setPlacementTargetCompanyId(companyId);
-          navigate("viewcompany");
+          navigate("findcompany");
         }}
       />
     );
@@ -831,10 +831,8 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
     if (activeNav === "messages") return (
       <CoordinatorMessagesScreen
         user={user}
-        onReportSubmit={(report) => {
-          handleReportSubmit(report);
-          navigate("reportcompany");
-        }}
+        onReportSubmit={handleReportSubmit}
+        onNavigateToReports={() => navigate("reportcompany")}
         openContact={messageTarget}
         onContactOpened={() => setMessageTarget(null)}
       />

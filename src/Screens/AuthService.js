@@ -367,16 +367,22 @@ if (!snap.empty) {
  * @param {"students"|"coordinators"} collectionName
  * @param {string} uid
  */
-export const changePassword = async (currentPassword, newPassword, collectionName, uid) => {
+export const changePassword = async (currentPassword, newPassword, collectionName, uid, email) => {
   const user = auth.currentUser;
 
   if (!user) {
     throw new Error("No user is currently signed in.");
   }
 
+  // Use the email parameter if provided, otherwise fall back to currentUser.email
+  const userEmail = email || user.email;
+  if (!userEmail) {
+    throw new Error("Unable to verify user email. Please try logging in again.");
+  }
+
   // Reauthenticate with the current password before Firebase will allow
   // updatePassword — this was the missing step causing auth/requires-recent-login.
-  const credential = EmailAuthProvider.credential(user.email, currentPassword);
+  const credential = EmailAuthProvider.credential(userEmail, currentPassword);
   try {
     await reauthenticateWithCredential(user, credential);
   } catch (err) {
@@ -386,7 +392,7 @@ export const changePassword = async (currentPassword, newPassword, collectionNam
     // changes, which otherwise shows up in the UI as a cryptic crash.
     console.error("[changePassword] reauthenticate failed:", {
       code: err.code, name: err.name, message: err.message,
-      emailUsed: user.email, passwordLength: currentPassword?.length,
+      emailUsed: userEmail, passwordLength: currentPassword?.length,
     });
     if (
       err.code === "auth/wrong-password" ||
@@ -459,12 +465,17 @@ const createAuthUserIsolated = async (email, password, onCreated) => {
  * Creates a new coordinator account that shares the inviting coordinator's
  * department selections and assigned industries.
  *
- * @param {object} accountData — { name, sex, contact, email, address, password, deptSelections? }
+ * The department is ALWAYS taken from the inviting coordinator's own
+ * Firestore profile — never from the caller — so a coordinator can only
+ * ever add accounts under their own department, regardless of what the
+ * client sends.
+ *
+ * @param {object} accountData — { name, sex, contact, email, address, password }
  * @param {string} inviterUid — the currently logged-in coordinator's UID
  * @returns {Promise<string>} the new coordinator's UID
  */
 export const createCoordinatorAccount = async (accountData, inviterUid) => {
-  const { name, sex, contact, email, address, password, deptSelections } = accountData;
+  const { name, sex, contact, email, address, password } = accountData;
   const normalizedEmail = email.trim().toLowerCase();
 
   // Pull the inviter's current scope so the new coordinator shares it
@@ -490,7 +501,7 @@ export const createCoordinatorAccount = async (accountData, inviterUid) => {
         sex,
         contact,
         address,
-        deptSelections: deptSelections?.length ? deptSelections : (inviterData.deptSelections || []),
+        deptSelections: inviterData.deptSelections || [],
         assignedIndustries: inviterData.assignedIndustries || [],
         passwordChanged: false,
         profileComplete: false,
@@ -515,7 +526,7 @@ export const createCoordinatorAccount = async (accountData, inviterUid) => {
     contact,
     email: normalizedEmail,
     address,
-    deptSelections: deptSelections?.length ? deptSelections : (inviterData.deptSelections || []),
+    deptSelections: inviterData.deptSelections || [],
     assignedIndustries: inviterData.assignedIndustries || [],
     role: "coordinator",
     status: "active",
