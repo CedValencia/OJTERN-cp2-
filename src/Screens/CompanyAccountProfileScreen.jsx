@@ -3102,7 +3102,15 @@ const PersonalInfoScreen = ({ onBack, user }) => {
       {showError   && <SaveErrorModal message={errorMsg} onClose={() => setShowError(false)} />}
       <SectionHeaderBar iconSrc={personalInfoIcon} title="Personal Information" onBack={onBack} />
       <div className="cap-info-body">
-        <div className="cap-info-card">
+        <div
+          className="cap-info-card"
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && e.target.tagName === "INPUT" && editing) {
+              e.preventDefault();
+              handleSave();
+            }
+          }}
+        >
           <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "8px" }}>
             {!editing && (
               <button onClick={() => setEditing(true)} title="Edit"

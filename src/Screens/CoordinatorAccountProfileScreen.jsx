@@ -652,7 +652,7 @@ const AddAccountModal = ({ onClose, currentUid, onLogout, coordinatorDeptSelecti
           <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
             <div>
               <label style={labelStyle}>Name:</label>
-              <input value={name} onChange={e => setName(e.target.value)} placeholder="Full Name" style={{ ...fieldStyle, marginBottom: "2px" }} />
+              <input value={name} onChange={e => setName(e.target.value)} onKeyDown={handleKeyDown} placeholder="Full Name" style={{ ...fieldStyle, marginBottom: "2px" }} />
               {errors.name && <p style={{ color: "red", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif" }}>{errors.name}</p>}
             </div>
             <div>
@@ -679,17 +679,17 @@ const AddAccountModal = ({ onClose, currentUid, onLogout, coordinatorDeptSelecti
             </div>
             <div>
               <label style={labelStyle}>Contact Information:</label>
-              <input value={contact} onChange={e => setContact(e.target.value)} placeholder="+63 000-000-0000" style={{ ...fieldStyle, marginBottom: "2px" }} />
+              <input value={contact} onChange={e => setContact(e.target.value)} onKeyDown={handleKeyDown} placeholder="+63 000-000-0000" style={{ ...fieldStyle, marginBottom: "2px" }} />
               {errors.contact && <p style={{ color: "red", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif" }}>{errors.contact}</p>}
             </div>
             <div>
               <label style={labelStyle}>Email Address:</label>
-              <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="example@email.com" style={{ ...fieldStyle, marginBottom: "2px" }} />
+              <input type="email" value={email} onChange={e => setEmail(e.target.value)} onKeyDown={handleKeyDown} placeholder="example@email.com" style={{ ...fieldStyle, marginBottom: "2px" }} />
               {errors.email && <p style={{ color: "red", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif" }}>{errors.email}</p>}
             </div>
             <div>
               <label style={labelStyle}>Address:</label>
-              <input value={address} onChange={e => setAddress(e.target.value)} placeholder="City, Province" style={{ ...fieldStyle, marginBottom: "2px" }} />
+              <input value={address} onChange={e => setAddress(e.target.value)} onKeyDown={handleKeyDown} placeholder="City, Province" style={{ ...fieldStyle, marginBottom: "2px" }} />
               {errors.address && <p style={{ color: "red", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif" }}>{errors.address}</p>}
             </div>
           </div>
@@ -816,11 +816,11 @@ const TransferAccountModal = ({ onClose, currentUid, currentEmail, onLogout, coo
           </p>
 
           <label style={labelStyle}>Full Name:</label>
-          <input value={name} onChange={e => setName(e.target.value)} placeholder="Full Name" style={{ ...fieldStyle, marginBottom: "2px" }} />
+          <input value={name} onChange={e => setName(e.target.value)} onKeyDown={handleKeyDown} placeholder="Full Name" style={{ ...fieldStyle, marginBottom: "2px" }} />
           {errors.name && <p style={{ color: "red", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif", marginBottom: "6px" }}>{errors.name}</p>}
 
           <label style={labelStyle}>Email Address:</label>
-          <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="example@gmail.com" style={{ ...fieldStyle, marginBottom: "4px" }} />
+          <input type="email" value={email} onChange={e => setEmail(e.target.value)} onKeyDown={handleKeyDown} placeholder="example@gmail.com" style={{ ...fieldStyle, marginBottom: "4px" }} />
           {errors.email && <p style={{ color: "red", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif", marginBottom: "8px" }}>{errors.email}</p>}
 
           <label style={labelStyle}>Set Their Password:</label>
@@ -999,7 +999,15 @@ const PersonalInfoScreen = ({ user, onBack, onSaved, mandatory = false }) => {
       <SectionHeaderBar iconSrc={personalInfoIcon} title={editing ? "Edit Personal Information" : "Personal Information"} onBack={onBack} />
 
       <div className="cap-info-body">
-        <div className="cap-info-card">
+        <div
+          className="cap-info-card"
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && e.target.tagName === "INPUT" && editing) {
+              e.preventDefault();
+              handleSave();
+            }
+          }}
+        >
           {/* Edit button */}
           <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "8px" }}>
             

@@ -162,7 +162,7 @@ const ReportModal = ({ company, onClose, onSubmit }) => {
   };
 
   const handleSubmit = () => {
-    if (!description.trim()) { setInfoMsg("Please write a description."); return; }
+    if (!description.trim()) { setInfoMsg("Please describe your report."); return; }
     if (!attachedFile)        { setInfoMsg("Please attach a file."); return; }
     onSubmit({ company: company.name, companyId: company.id || "", concern: selected?.label || "Others", date: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }), description, attachedFile });
     onClose();
@@ -369,6 +369,12 @@ const ChatView = ({ contact, messages, onSend, onBack, onReport, onDeleteConvers
           const showTime    = idx === 0 || (msgTs - prevTs) > 10 * 60 * 1000;
           const isPopupOpen = popupMsgId === msg.id;
           const hasText     = !!msg.text;
+          // Whether this is the very last message in the thread and it's
+          // mine — Messenger-style, the send status only shows under that
+          // one message, not every message I've sent.
+          const isLastMine  = isMe && idx === messages.length - 1 && !msg.unsent;
+          const otherReadMs = contact.lastRead?.[contact.id]?.seconds ? contact.lastRead[contact.id].seconds * 1000 : 0;
+          const isSeen      = isLastMine && otherReadMs >= msgTs;
 
           const popupMenu = isPopupOpen && !msg.unsent && (
             <div onMouseDown={e => e.stopPropagation()} style={{ position: "absolute", bottom: "calc(100% + 4px)", right: 0, background: "white", borderRadius: "10px", boxShadow: "0 4px 16px rgba(0,0,0,0.18)", zIndex: 100, minWidth: "120px", overflow: "hidden" }}>
@@ -429,6 +435,7 @@ const ChatView = ({ contact, messages, onSend, onBack, onReport, onDeleteConvers
                         );
                       })()}
                       {msg.edited && <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.68rem", color: "#aaa", marginTop: "2px" }}>Edited</span>}
+                      {isLastMine && <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.68rem", color: "#aaa", marginTop: "2px" }}>{isSeen ? "Seen" : "Sent"}</span>}
                     </>
                   )}
                 </div>
@@ -629,6 +636,19 @@ const CompanyMessagesScreen = ({
     markConversationRead(activeContact.convId);
   }, [activeContact, openConversation, markConversationRead]);
 
+  // While the user is sitting inside this conversation, auto-mark new
+  // incoming messages as read the instant they arrive (no need to leave
+  // and re-open the chat). Only fires when the newest message is from the
+  // OTHER participant — sending your own message shouldn't re-trigger this.
+  useEffect(() => {
+    if (!activeContact?.convId) return;
+    const convMsgs = messages[activeContact.convId] || [];
+    const lastMsg  = convMsgs[convMsgs.length - 1];
+    if (lastMsg && lastMsg.senderId && lastMsg.senderId !== user?.uid) {
+      markConversationRead(activeContact.convId);
+    }
+  }, [messages, activeContact, user?.uid, markConversationRead]);
+
   useEffect(() => {
     if (!openContact || !user?.uid || !openContact.id) return;
     (async () => {
@@ -688,6 +708,14 @@ const CompanyMessagesScreen = ({
   const uiMessages = {};
   contacts.forEach(c => { uiMessages[c.id] = messages[c.convId] || []; });
 
+  // `activeContact` is a snapshot taken when the chat was opened. Re-derive
+  // it from the live `contacts` list on every render so fields like
+  // `lastRead` (used for the Seen/Sent indicator) stay fresh as the other
+  // participant reads the conversation.
+  const liveActiveContact = activeContact
+    ? (contacts.find(c => c.convId === activeContact.convId) || activeContact)
+    : null;
+
   if (loading) return (
     <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
       <p style={{ fontFamily: "'Kufam', sans-serif", color: "#aaa" }}>Loading chats…</p>
@@ -697,7 +725,7 @@ const CompanyMessagesScreen = ({
   if (activeContact) {
     return (
       <ChatView
-        contact={activeContact}
+        contact={liveActiveContact}
         messages={uiMessages[activeContact.id] || []}
         onSend={(_, msg) => handleSend(activeContact.convId, msg)}
         onBack={() => setActiveContact(null)}

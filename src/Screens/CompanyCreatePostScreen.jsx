@@ -525,6 +525,44 @@ const MapboxLocationPicker = ({ value, onChange, readOnly }) => {
 };
 
 // ── Post Form Modal ───────────────────────────────────────────────────────────
+// ── Discard-changes confirm modal ──────────────────────────────────────────────
+const ConfirmDiscardModal = ({ onKeepEditing, onDiscard }) => (
+  <div className="post-modal-overlay" style={{ zIndex: 1100 }}>
+    <div style={{ background: "#fff", borderRadius: "18px", maxWidth: "360px", width: "90%", padding: "26px 22px", boxShadow: "0 8px 40px rgba(0,0,0,0.35)", textAlign: "center" }}>
+      <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.4rem", color: darkRed, margin: "0 0 10px" }}>Discard changes?</p>
+      <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem", color: "#333", margin: "0 0 22px", lineHeight: 1.4 }}>
+        All your changes will be lost. Are you sure you want to cancel this change?
+      </p>
+      <div style={{ display: "flex", justifyContent: "center", gap: "10px" }}>
+        <button onClick={onKeepEditing} style={{ padding: "9px 22px", borderRadius: "22px", background: "#e6e6e6", color: "#333", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.85rem", cursor: "pointer" }}>
+          Keep Editing
+        </button>
+        <button onClick={onDiscard} style={{ padding: "9px 22px", borderRadius: "22px", background: darkRed, color: "white", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.85rem", cursor: "pointer" }}>
+          Yes, Discard
+        </button>
+      </div>
+    </div>
+  </div>
+);
+
+// ── Saved-successfully modal ───────────────────────────────────────────────────
+const SavedSuccessModal = ({ onClose }) => (
+  <div className="post-modal-overlay" style={{ zIndex: 1100 }}>
+    <div style={{ background: "#fff", borderRadius: "18px", maxWidth: "320px", width: "90%", padding: "30px 22px 24px", boxShadow: "0 8px 40px rgba(0,0,0,0.35)", textAlign: "center" }}>
+      <div style={{ width: "56px", height: "56px", borderRadius: "50%", background: "#e6f7ec", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 14px", fontSize: "1.8rem", color: "#1f9254" }}>
+        ✓
+      </div>
+      <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.4rem", color: darkRed, margin: "0 0 6px" }}>Saved successfully!</p>
+      <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#555", margin: "0 0 20px" }}>
+        Your post has been updated.
+      </p>
+      <button onClick={onClose} style={{ padding: "9px 30px", borderRadius: "22px", background: darkRed, color: "white", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.85rem", cursor: "pointer" }}>
+        OK
+      </button>
+    </div>
+  </div>
+);
+
 const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile }) => {
   const [isEditing, setIsEditing] = useState(mode === "create" || mode === "edit");
 
@@ -561,9 +599,12 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile }) =>
   const [errors, setErrors]                         = useState({});
   const [courseErrors, setCourseErrors]             = useState([]);
   const [workingHoursErrors, setWorkingHoursErrors] = useState([]);
+  const [dirty, setDirty]                           = useState(false);
+  const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
+  const [showSaved, setShowSaved]                   = useState(false);
   const readOnly = !isEditing;
 
-  const set = (field, val) => setForm(f => ({ ...f, [field]: val }));
+  const set = (field, val) => { setForm(f => ({ ...f, [field]: val })); setDirty(true); };
 
   const validateGmail = (val) => {
     if (!val || !val.trim()) return "Email is required.";
@@ -610,7 +651,16 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile }) =>
     if (Object.keys(newErrors).length > 0 || hasWhError || hasCourseError) return;
 
     onSave({ ...form, workingHours: form.workingHoursList.join(", ") });
-    onClose();
+    setDirty(false);
+    setShowSaved(true);
+  };
+
+  const handleCloseClick = () => {
+    if (isEditing && dirty) {
+      setShowDiscardConfirm(true);
+    } else {
+      onClose();
+    }
   };
 
   return (
@@ -772,7 +822,7 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile }) =>
 
         {/* Footer */}
         <div className="post-modal-footer" style={{ background: "#b0b0b0", display: "flex", justifyContent: "flex-end", gap: "10px", borderBottomLeftRadius: "20px", borderBottomRightRadius: "20px", flexShrink: 0 }}>
-          <button onClick={onClose} style={{ padding: "10px 28px", borderRadius: "24px", background: "#555", color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(0.9rem, 2.5vw, 1.1rem)", cursor: "pointer" }}>Close</button>
+          <button onClick={handleCloseClick} style={{ padding: "10px 28px", borderRadius: "24px", background: "#555", color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(0.9rem, 2.5vw, 1.1rem)", cursor: "pointer" }}>Close</button>
           {mode === "view" && !isEditing && (
             <button onClick={() => setIsEditing(true)} style={{ padding: "10px 28px", borderRadius: "24px", background: darkRed, color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(0.9rem, 2.5vw, 1.1rem)", cursor: "pointer" }}>Edit</button>
           )}
@@ -784,6 +834,17 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile }) =>
           )}
         </div>
       </div>
+
+      {showDiscardConfirm && (
+        <ConfirmDiscardModal
+          onKeepEditing={() => setShowDiscardConfirm(false)}
+          onDiscard={() => { setShowDiscardConfirm(false); onClose(); }}
+        />
+      )}
+
+      {showSaved && (
+        <SavedSuccessModal onClose={() => { setShowSaved(false); onClose(); }} />
+      )}
     </div>
   );
 };
@@ -817,7 +878,7 @@ const ThreeDotMenu = ({ isDisabled, onView, onToggleDisable, onDelete }) => {
 };
 
 // ── Post OJT Content ──────────────────────────────────────────────────────────
-const PostOJTContent = ({ user }) => {
+const PostOJTContent = ({ user, openPostId, onPostOpened }) => {
   const [posts, setPosts]     = useState([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal]     = useState(null);
@@ -826,6 +887,17 @@ const PostOJTContent = ({ user }) => {
   const openCreate = () => setModal({ mode: "create", post: null });
   const openView   = (post) => setModal({ mode: "view", post });
   const closeModal = () => setModal(null);
+
+  // Auto-open a specific post's details when navigated here with a target id
+  // (e.g. clicking a "Recent Post" on the dashboard).
+  useEffect(() => {
+    if (!openPostId) return;
+    const target = posts.find(p => p.id === openPostId);
+    if (target) {
+      openView(target);
+      onPostOpened?.();
+    }
+  }, [openPostId, posts, onPostOpened]);
 
   useEffect(() => {
     if (!user?.uid) return;
@@ -959,15 +1031,15 @@ const PostOJTContent = ({ user }) => {
 };
 
 // ── Main Screen ───────────────────────────────────────────────────────────────
-const CompanyCreatePostScreen = ({ embedded = false, user }) => (
+const CompanyCreatePostScreen = ({ embedded = false, user, openPostId, onPostOpened }) => (
   <>
     <GlobalFonts />
     <ResponsiveStyles />
     {embedded
-      ? <PostOJTContent user={user} />
+      ? <PostOJTContent user={user} openPostId={openPostId} onPostOpened={onPostOpened} />
       : (
         <div style={{ display: "flex", flexDirection: "column", height: "100vh", background: "#f0f0f0" }}>
-          <PostOJTContent user={user} />
+          <PostOJTContent user={user} openPostId={openPostId} onPostOpened={onPostOpened} />
         </div>
       )
     }

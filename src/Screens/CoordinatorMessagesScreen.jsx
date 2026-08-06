@@ -186,7 +186,7 @@ const ReportModal = ({ company, onClose, onSubmit }) => {
   };
 
   const handleSubmit = () => {
-    if (!description.trim()) { setInfoMsg("Please write a description."); return; }
+    if (!description.trim()) { setInfoMsg("Please describe your report"); return; }
     if (!attachedFile)        { setInfoMsg("Please attach a file."); return; }
     onSubmit({ company: company.name, companyId: company.id || "", concern: selected?.label || "Others", date: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }), description, attachedFile });
     onClose();
@@ -393,6 +393,9 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onR
           const showTime    = idx === 0 || (msgTs - prevTs) > 10 * 60 * 1000;
           const isPopupOpen = popupMsgId === msg.id;
           const hasText     = !!msg.text;
+          const isLastMine  = isMe && idx === messages.length - 1 && !msg.unsent;
+          const otherReadMs = contact.lastRead?.[contact.id]?.seconds ? contact.lastRead[contact.id].seconds * 1000 : 0;
+          const isSeen      = isLastMine && otherReadMs >= msgTs;
 
           const popupMenu = isPopupOpen && !msg.unsent && (
             <div onMouseDown={e => e.stopPropagation()} style={{ position: "absolute", bottom: "calc(100% + 4px)", right: 0, background: "white", borderRadius: "10px", boxShadow: "0 4px 16px rgba(0,0,0,0.18)", zIndex: 100, minWidth: "120px", overflow: "hidden" }}>
@@ -453,6 +456,7 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onR
                         );
                       })()}
                       {msg.edited && <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.68rem", color: "#aaa", marginTop: "2px" }}>Edited</span>}
+                      {isLastMine && <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.68rem", color: "#aaa", marginTop: "2px" }}>{isSeen ? "Seen" : "Sent"}</span>}
                     </>
                   )}
                 </div>
@@ -655,6 +659,19 @@ const CoordinatorMessagesScreen = ({
     markConversationRead(activeContact.convId);
   }, [activeContact, openConversation, markConversationRead]);
 
+  // While the user is sitting inside this conversation, auto-mark new
+  // incoming messages as read the instant they arrive (no need to leave
+  // and re-open the chat). Only fires when the newest message is from the
+  // OTHER participant — sending your own message shouldn't re-trigger this.
+  useEffect(() => {
+    if (!activeContact?.convId) return;
+    const convMsgs = messages[activeContact.convId] || [];
+    const lastMsg  = convMsgs[convMsgs.length - 1];
+    if (lastMsg && lastMsg.senderId && lastMsg.senderId !== user?.uid) {
+      markConversationRead(activeContact.convId);
+    }
+  }, [messages, activeContact, user?.uid, markConversationRead]);
+
   useEffect(() => {
     if (!openContact || !user?.uid) return;
     (async () => {
@@ -713,6 +730,12 @@ const CoordinatorMessagesScreen = ({
   const uiMessages = {};
   contacts.forEach(c => { uiMessages[c.id] = messages[c.convId] || []; });
 
+  // Re-derive the active contact from the live `contacts` list on every
+  // render so `lastRead` (used for the Seen/Sent indicator) stays fresh.
+  const liveActiveContact = activeContact
+    ? (contacts.find(c => c.convId === activeContact.convId) || activeContact)
+    : null;
+
   if (loading) return (
     <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
       <p style={{ fontFamily: "'Kufam', sans-serif", color: "#aaa" }}>Loading chats…</p>
@@ -723,7 +746,7 @@ const CoordinatorMessagesScreen = ({
     return (
       <>
         <ChatView
-          contact={activeContact}
+          contact={liveActiveContact}
           messages={uiMessages[activeContact.id] || []}
           onSend={(_, msg) => handleSend(activeContact.convId, msg)}
           onBack={() => setActiveContact(null)}

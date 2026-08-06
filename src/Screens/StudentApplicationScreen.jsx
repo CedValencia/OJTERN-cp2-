@@ -3077,7 +3077,15 @@ export const ApplyModal = ({ company, onClose, onSubmit, user }) => {
         </div>
 
         {/* Body */}
-        <div className="sa-modal-body">
+        <div
+          className="sa-modal-body"
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && e.target.tagName === "INPUT" && !alreadyApplied) {
+              e.preventDefault();
+              handleSubmit();
+            }
+          }}
+        >
           {alreadyApplied ? (
             <div style={{ textAlign: "center", padding: "32px 12px" }}>
               <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.2rem", color: darkRed, marginBottom: "8px" }}>
@@ -3175,6 +3183,16 @@ const ViewApplicationModal = ({ application, onClose, onSave }) => {
     ? `${application.data.lastName}, ${application.data.firstName}`
     : "Application";
   const locked = !isEditing;
+  // Students can only edit their application while it's still Pending —
+  // once a coordinator/company has moved it to "In Review" (or beyond),
+  // it's locked from further edits.
+  const canEdit = (application.status || "Pending") === "Pending";
+
+  // If the status flips away from Pending (e.g. a coordinator marks it "In
+  // Review") while the student is mid-edit, kick them out of edit mode.
+  useEffect(() => {
+    if (!canEdit && isEditing) setIsEditing(false);
+  }, [canEdit, isEditing]);
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: "16px" }}>
@@ -3193,7 +3211,15 @@ const ViewApplicationModal = ({ application, onClose, onSave }) => {
         </div>
 
         {/* Status Progress Tracker */}
-        <div className="sa-modal-body">
+        <div
+          className="sa-modal-body"
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && e.target.tagName === "INPUT" && isEditing && !saving) {
+              e.preventDefault();
+              handleSave();
+            }
+          }}
+        >
           {(() => {
             const STATUS_STEPS = ["Pending", "In Review", "To Interview", "Accepted"];
             const STATUS_COLORS = { "Pending": "#c8a800", "In Review": "#353A8D", "To Interview": "#7C2889", "Accepted": "#2d7a2d", "Declined": darkRed };
@@ -3250,8 +3276,12 @@ const ViewApplicationModal = ({ application, onClose, onSave }) => {
               <button onClick={() => setIsEditing(false)} disabled={saving} style={{ padding: "10px 28px", borderRadius: "24px", background: "#555",   color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif", fontSize: "1.1rem", cursor: saving ? "not-allowed" : "pointer", opacity: saving ? 0.7 : 1 }}>CANCEL</button>
               <button onClick={handleSave} disabled={saving} style={{ padding: "10px 28px", borderRadius: "24px", background: darkRed, color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif", fontSize: "1.1rem", cursor: saving ? "not-allowed" : "pointer", opacity: saving ? 0.7 : 1 }}>{saving ? "SAVING..." : "SAVE"}</button>
             </>
-          ) : (
+          ) : canEdit ? (
             <button onClick={() => setIsEditing(true)} style={{ padding: "10px 28px", borderRadius: "24px", background: "#444", color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif", fontSize: "1.1rem", cursor: "pointer" }}>EDIT</button>
+          ) : (
+            <p style={{ margin: 0, fontFamily: "'Kufam', sans-serif", fontSize: "0.78rem", color: "#888", display: "flex", alignItems: "center", gap: "6px" }}>
+              🔒 Editing is only available while your application is Pending.
+            </p>
           )}
         </div>
       </div>
@@ -3384,7 +3414,7 @@ const ApplicationRow = ({ application, onView, onDelete }) => {
 };
 
 // ─── MAIN APPLICATION SCREEN ──────────────────────────────────────────────────
-const StudentApplicationScreen = ({ initialCompany, onModalClose, user }) => {
+const StudentApplicationScreen = ({ initialCompany, onModalClose, user, openApplicationId, onApplicationOpened }) => {
   const [search, setSearch]                     = useState("");
   const [showApply, setShowApply]               = useState(!!initialCompany);
   const [applyCompany, setApplyCompany]         = useState(initialCompany || null);
@@ -3422,9 +3452,30 @@ const StudentApplicationScreen = ({ initialCompany, onModalClose, user }) => {
     return () => unsubscribe();
   }, [user?.uid]);
 
+  // Keep the open modal's application in sync with live Firestore data —
+  // if the status changes (e.g. a coordinator moves it to "In Review")
+  // while the student has it open, the edit lock should update immediately.
+  useEffect(() => {
+    if (!viewingApplication) return;
+    const fresh = applications.find(a => a.id === viewingApplication.id);
+    if (fresh && fresh !== viewingApplication) setViewingApplication(fresh);
+  }, [applications, viewingApplication]);
+
   const filteredApplications = applications.filter(app =>
     app.company.toLowerCase().includes(search.toLowerCase())
   );
+
+  // Auto-open a specific application's details when navigated here with a
+  // target id (e.g. clicking a "Recent Application" on the dashboard).
+  useEffect(() => {
+    if (!openApplicationId) return;
+    const target = applications.find(a => a.id === openApplicationId);
+    if (target) {
+      setViewingApplication(target);
+      setViewKey(k => k + 1);
+      onApplicationOpened?.();
+    }
+  }, [openApplicationId, applications, onApplicationOpened]);
 
   const handleSave = async (id, updatedData) => {
     await updateDoc(doc(db, "applications", id), { ...updatedData });

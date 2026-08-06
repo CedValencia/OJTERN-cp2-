@@ -343,7 +343,7 @@ const recommendedCompanies = allPosts.slice(0, 5);
               <div
                 key={i}
                 className="app-row"
-                onClick={() => onNavigate("application")}
+                onClick={() => onNavigate("application", a.id)}
                 style={{
                   display: "flex", alignItems: "center", justifyContent: "space-between",
                   background: "#d8d8d8", borderRadius: "8px", padding: "7px 10px",
@@ -454,6 +454,7 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
   const [initialCompanyId, setInitialCompanyId] = useState(null);
   const [applyCompany, setApplyCompany]         = useState(null);
   const [pendingContact, setPendingContact]     = useState(null);
+  const [pendingApplicationId, setPendingApplicationId] = useState(null);
   const [showChangePass, setShowChangePass]     = useState(!user?.passwordChanged);
   const [currentPass, setCurrentPass] = useState("");
   const [newPass, setNewPass]                   = useState("");
@@ -462,6 +463,7 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
   const [passLoading, setPassLoading]           = useState(false);
   const [showNew, setShowNew]                   = useState(false);
   const [showConfirm, setShowConfirm]           = useState(false);
+  const [showCurrent, setShowCurrent]           = useState(false);
 
   const handleChangePassword = async () => {
   setPassError("");
@@ -517,12 +519,20 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
     try { localStorage.setItem(`recentVisited_${user.uid}`, JSON.stringify(recentVisited)); } catch {}
   }, [recentVisited, user?.uid]);
 
-  const navigate = (key) => { setActiveNav(key); setDrawerOpen(false); };
+  const navigate = (key, id = null) => {
+    setActiveNav(key);
+    setDrawerOpen(false);
+    if (id && key === "application") setPendingApplicationId(id);
+  };
 
   // Always keep sessionStorage in sync with activeNav
   useEffect(() => {
   sessionStorage.setItem("ojtern_student_nav", activeNav);
 }, [activeNav]);
+
+  useEffect(() => {
+    if (activeNav !== "application") setPendingApplicationId(null);
+  }, [activeNav]);
 
  const renderContent = () => {
     if (activeNav === "dashboard") {
@@ -571,7 +581,13 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
     );
 
     if (activeNav === "application") return (
-      <StudentApplicationScreen initialCompany={applyCompany} onModalClose={() => setApplyCompany(null)} user={user} />
+      <StudentApplicationScreen
+        initialCompany={applyCompany}
+        onModalClose={() => setApplyCompany(null)}
+        user={user}
+        openApplicationId={pendingApplicationId}
+        onApplicationOpened={() => setPendingApplicationId(null)}
+      />
     );
 
     if (activeNav === "messages") return (
@@ -653,11 +669,24 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
                     </div>
                   ) : (
                     notifications.map(n => (
-                      <div key={n.id} style={{
-                        padding: "10px 14px", borderBottom: "1px solid #f2f2f2",
-                        background: n.read ? "white" : "#fff5f5",
-                        fontFamily: "'Kufam', sans-serif",
-                      }}>
+                      <div
+                        key={n.id}
+                        onClick={() => {
+                          setShowNotifDropdown(false);
+                          if (n.applicationId) navigate("application", n.applicationId);
+                          if (!n.read) {
+                            updateDoc(doc(db, "notifications", n.id), { read: true }).catch(err =>
+                              console.error("Failed to mark notification as read:", err)
+                            );
+                          }
+                        }}
+                        style={{
+                          padding: "10px 14px", borderBottom: "1px solid #f2f2f2",
+                          background: n.read ? "white" : "#fff5f5",
+                          fontFamily: "'Kufam', sans-serif",
+                          cursor: n.applicationId ? "pointer" : "default",
+                        }}
+                      >
                         <p style={{ margin: 0, fontSize: "0.82rem", color: "#333", lineHeight: 1.4 }}>{n.message}</p>
                         <p style={{ margin: "4px 0 0", fontSize: "0.68rem", color: "#999" }}>{formatNotifTime(n.createdAt)}</p>
                       </div>
@@ -726,13 +755,14 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
               </p>
               <div style={{ position: "relative", marginBottom: "10px" }}>
                 <input
-                  type="password"
+                  type={showCurrent ? "text" : "password"}
                   placeholder="Current Password:"
                   value={currentPass}
                   onChange={(e) => {
                     setCurrentPass(e.target.value);
                     setPassError("");
                   }}
+                  onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); handleChangePassword(); } }}
                   style={{
                     width: "100%",
                     padding: "10px 44px 10px 16px",
@@ -746,6 +776,11 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
                     boxSizing: "border-box",
                   }}
                 />
+                <span onClick={() => setShowCurrent(p => !p)} style={{ position: "absolute", right: "14px", top: "50%", transform: "translateY(-50%)", cursor: "pointer" }}>
+                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    {showCurrent ? <><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></> : <><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></>}
+                  </svg>
+                </span>
               </div>
               <div style={{ position: "relative", marginBottom: "10px" }}>
                 <input
@@ -753,6 +788,7 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
                   placeholder="Enter New Password:"
                   value={newPass}
                   onChange={e => { setNewPass(e.target.value); setPassError(""); }}
+                  onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); handleChangePassword(); } }}
                   style={{ width: "100%", padding: "10px 44px 10px 16px", background: "#590101", border: passError ? "1.5px solid red" : "none", borderRadius: "20px", color: "white", fontSize: "0.88rem", fontFamily: "'Kufam', sans-serif", outline: "none", boxSizing: "border-box" }}
                 />
                 <span onClick={() => setShowNew(p => !p)} style={{ position: "absolute", right: "14px", top: "50%", transform: "translateY(-50%)", cursor: "pointer" }}>
@@ -767,6 +803,7 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
                   placeholder="Confirm New Password:"
                   value={confirmPass}
                   onChange={e => { setConfirmPass(e.target.value); setPassError(""); }}
+                  onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); handleChangePassword(); } }}
                   style={{ width: "100%", padding: "10px 44px 10px 16px", background: "#590101", border: passError ? "1.5px solid red" : "none", borderRadius: "20px", color: "white", fontSize: "0.88rem", fontFamily: "'Kufam', sans-serif", outline: "none", boxSizing: "border-box" }}
                 />
                 <span onClick={() => setShowConfirm(p => !p)} style={{ position: "absolute", right: "14px", top: "50%", transform: "translateY(-50%)", cursor: "pointer" }}>

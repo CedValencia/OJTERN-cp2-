@@ -55,6 +55,10 @@ const SEX_OPTIONS = ["Male", "Female"];
 
 const SUFFIX_OPTIONS = ["Jr.", "Sr.", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"];
 
+// Some older/imported records stored a literal "None" or "N/A" instead of
+// leaving the suffix blank — treat those the same as having no suffix.
+const isRealSuffix = (v) => !!v && !["none", "n/a"].includes(String(v).trim().toLowerCase());
+
 const EXCEL_COLUMNS = [
   "Student ID", "Full Name", "Default Password"
 ];
@@ -561,7 +565,7 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
   // and stays live: it recomputes from the current field values while editing,
   // and falls back to the original `initial` data before any edits are made.
   const buildFullName = (last, first, suf) =>
-    last && first ? `${last}, ${first}${suf ? " " + suf : ""}` : null;
+    last && first ? `${last}, ${first}${isRealSuffix(suf) ? " " + suf : ""}` : null;
 
   const fullName =
     buildFullName(lastName.value, firstName.value, suffix.value) ||
@@ -1048,7 +1052,7 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
 
   // ── Save (edit) — updates Firestore doc ───────────────────────────────────
   const handleSave = async (form) => {
-    const fullName = `${form.firstName} ${form.middleInitial ? form.middleInitial + ". " : ""}${form.lastName}${form.suffix ? " " + form.suffix : ""}`;
+    const fullName = `${form.firstName} ${form.middleInitial ? form.middleInitial + ". " : ""}${form.lastName}${isRealSuffix(form.suffix) ? " " + form.suffix : ""}`;
     await updateDoc(doc(db, "students", viewingStudent.id), {
       ...form,
       fullName,
@@ -1214,7 +1218,7 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
               <StudentAvatar />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <span style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 600, fontSize: "0.9rem", color: "#222", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>
-                  {s.firstName} {s.middleInitial ? s.middleInitial + " " : ""}{s.lastName}{s.suffix ? ` ${s.suffix}` : ""}
+                  {s.firstName} {s.middleInitial ? s.middleInitial + " " : ""}{s.lastName}{isRealSuffix(s.suffix) ? ` ${s.suffix}` : ""}
                 </span>
                 <div style={{ display: "flex", gap: "8px", marginTop: "2px", flexWrap: "wrap" }}>
                   <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.72rem", color: "#666" }}>{s.studentId}</span>

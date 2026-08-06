@@ -412,7 +412,7 @@ const DashboardContent = ({ onNavigate, applications = [], posts = [] }) => {
               <div
                 key={i}
                 className="post-row"
-                onClick={() => onNavigate("createpost")}
+                onClick={() => onNavigate("createpost", p.id)}
                 style={{
                   display: "flex", alignItems: "center", justifyContent: "space-between",
                   background: "#d8d8d8", borderRadius: "8px", padding: "9px 12px",
@@ -452,7 +452,7 @@ const DashboardContent = ({ onNavigate, applications = [], posts = [] }) => {
             <div
               key={i}
               className="applicant-row"
-              onClick={() => onNavigate("applicants")}
+              onClick={() => onNavigate("applicants", a.id)}
               style={{
                 display: "flex", alignItems: "center", justifyContent: "space-between",
                 background: "#d8d8d8", borderRadius: "8px", padding: "9px 12px",
@@ -480,19 +480,25 @@ const DashboardContent = ({ onNavigate, applications = [], posts = [] }) => {
   );
 };
 
-// ── Main Company Dashboard ─────────────────────────────────────────────────────
-const CompanyDashboardScreen = ({ user, onLogout }) => {
+// ── MAIN COMPONENT ─────────────────────────────────────────────────────────────
+const CompanyDashboardScreen = ({ user, onLogout, onAuthStateChange }) => {
   const { isMobile, isTablet, isDesktop } = useBreakpoint();
   const showDrawer = isMobile || isTablet;
 
-  const [drawerOpen,     setDrawerOpen]     = useState(false);
-  const [activeNav,      setActiveNav]      = useState(() => sessionStorage.getItem("ojtern_company_nav") || "dashboard");
-  const [applications,   setApplications]   = useState([]);
-  const [posts,          setPosts]          = useState([]);
-  const [pendingContact, setPendingContact] = useState(null);
+  const [activeNav, setActiveNav] = useState(() => {
+    if (typeof window !== "undefined") {
+      return sessionStorage.getItem("ojtern_company_nav") || "dashboard";
+    }
+    return "dashboard";
+  });
 
-  // Keep sessionStorage in sync so a page refresh reopens the same module
-  // instead of always bouncing back to Dashboard.
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [posts, setPosts] = useState([]);
+  const [applications, setApplications] = useState([]);
+  const [pendingContact, setPendingContact] = useState(null);
+  const [pendingApplicantId, setPendingApplicantId] = useState(null);
+  const [pendingPostId, setPendingPostId] = useState(null);
+
   useEffect(() => {
     sessionStorage.setItem("ojtern_company_nav", activeNav);
   }, [activeNav]);
@@ -537,10 +543,11 @@ const CompanyDashboardScreen = ({ user, onLogout }) => {
           [a.firstName, a.middleInitial, a.lastName].filter(Boolean).join(" ") || a.studentName || a.studentFullName || a.name || "A student",
           a.jobTitle || a.postTitle || a.position,
         ].filter(Boolean).join(" — applied for "),
+        applicantId: a.id,
       }))
       .sort((a, b) => b.time - a.time)
       .slice(0, 30)
-      .map((n) => ({ ...n, unread: n.time > lastSeenNotif, onClick: () => { setNotifOpen(false); navigate("applicants"); } }));
+      .map((n) => ({ ...n, unread: n.time > lastSeenNotif, onClick: () => { setNotifOpen(false); navigate("applicants", n.applicantId); } }));
   }, [applications, lastSeenNotif]);
 
   const toggleNotif = () => {
@@ -555,15 +562,35 @@ const CompanyDashboardScreen = ({ user, onLogout }) => {
     });
   };
 
-  const navigate = (key) => { setActiveNav(key); setDrawerOpen(false); };
+  const navigate = (key, id = null) => { 
+    setActiveNav(key); 
+    setDrawerOpen(false);
+    if (id) {
+      if (key === "applicants") setPendingApplicantId(id);
+      if (key === "createpost") setPendingPostId(id);
+    }
+  };
 
   const handleNavigateToMessages = (contact) => {
     setPendingContact(contact);
     navigate("messages");
   };
 
+  const handleNavigateToApplicant = (applicantId) => {
+    setPendingApplicantId(applicantId);
+    navigate("applicants");
+  };
+
   useEffect(() => {
     if (activeNav !== "messages") setPendingContact(null);
+  }, [activeNav]);
+
+  useEffect(() => {
+    if (activeNav !== "applicants") setPendingApplicantId(null);
+  }, [activeNav]);
+
+  useEffect(() => {
+    if (activeNav !== "createpost") setPendingPostId(null);
   }, [activeNav]);
 
   const renderContent = () => {
@@ -571,9 +598,24 @@ const CompanyDashboardScreen = ({ user, onLogout }) => {
       case "dashboard":
         return <DashboardContent onNavigate={navigate} applications={applications} posts={posts} />;
       case "createpost":
-        return <CompanyCreatePostScreen embedded user={user} />;
+        return (
+          <CompanyCreatePostScreen
+            embedded
+            user={user}
+            openPostId={pendingPostId}
+            onPostOpened={() => setPendingPostId(null)}
+          />
+        );
       case "applicants":
-        return <CompanyApplicantsScreen embedded user={user} onNavigateToMessages={handleNavigateToMessages} />;
+        return (
+          <CompanyApplicantsScreen
+            embedded
+            user={user}
+            onNavigateToMessages={handleNavigateToMessages}
+            openApplicantId={pendingApplicantId}
+            onApplicantOpened={() => setPendingApplicantId(null)}
+          />
+        );
       case "messages":
         return (
           <CompanyMessageScreen

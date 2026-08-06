@@ -627,7 +627,15 @@ const PersonalInfoScreen = ({ onBack, user }) => {
       <SectionHeaderBar iconSrc={personalInfoIcon} title={editing ? "Edit Personal Information" : "Personal Information"} onBack={onBack} />
 
       <div className="sap-info-body">
-        <div className="sap-info-card">
+        <div
+          className="sap-info-card"
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && e.target.tagName === "INPUT" && editing) {
+              e.preventDefault();
+              handleSave();
+            }
+          }}
+        >
 
           {!editing && (
             <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "12px" }}>

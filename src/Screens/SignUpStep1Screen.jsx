@@ -599,6 +599,13 @@ const SignUpStep1Screen = ({ onContinue, onGoSignIn, initialData }) => {
       </p>
     ) : null;
 
+  const handleFormKeyDown = (e) => {
+    if (e.key === "Enter" && e.target.tagName === "INPUT") {
+      e.preventDefault();
+      handleContinue();
+    }
+  };
+
   return (
     <>
       <ResponsiveStyles />
@@ -616,7 +623,7 @@ const SignUpStep1Screen = ({ onContinue, onGoSignIn, initialData }) => {
           </div>
 
           {/* Form body */}
-          <div className="su1-form-body">
+          <div className="su1-form-body" onKeyDown={handleFormKeyDown}>
             <p style={{ fontFamily: "'Jua', sans-serif", textAlign: "center", fontSize: "0.88rem", color: "#555", marginBottom: "2px" }}>Step 1 of 2</p>
             <p style={{ fontFamily: "'Jua', sans-serif", textAlign: "center", fontSize: "1.05rem", fontWeight: "700", color: "#1a1a1a", marginBottom: "10px" }}>Create Your Account</p>
             <hr style={{ border: "none", borderTop: "1.5px solid #ddd", marginBottom: "10px" }} />

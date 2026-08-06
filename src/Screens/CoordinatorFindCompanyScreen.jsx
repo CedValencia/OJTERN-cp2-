@@ -374,7 +374,7 @@ const ReportModal = ({ company, onClose, onSubmit, reporter }) => {
   };
 
   const handleSubmit = async () => {
-    if (!description.trim()) { setAlertMsg("Please write a description."); return; }
+    if (!description.trim()) { setAlertMsg("Please describe your report"); return; }
     if (!attachedFile)        { setAlertMsg("Please attach a file."); return; }
     setSubmitting(true);
     setSubmitError("");

@@ -303,6 +303,7 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid }) => {
   const [status, setStatus]               = useState(report?.status || "pending");
   const [working, setWorking]             = useState(false);
   const [resolvingPanel, setResolvingPanel] = useState(false);
+  const [confirmingDismiss, setConfirmingDismiss] = useState(false);
   const [selectedAction, setSelectedAction] = useState(null);
   const [resolutionNotes, setResolutionNotes] = useState("");
   const [savedAction, setSavedAction]         = useState(report?.resolutionAction || "");
@@ -335,6 +336,7 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid }) => {
         { targetId: report.id, targetName: report.company }
       ).catch(err => console.error("Failed to log activity:", err));
       setStatus("dismissed");
+      setConfirmingDismiss(false);
     } catch (err) {
       console.error("Failed to dismiss report:", err);
     } finally {
@@ -489,61 +491,6 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid }) => {
                 )}
               </>
             )}
-            {resolvingPanel && (
-              <div style={{ background: "#fdf1f1", border: `1.5px solid ${red}`, borderRadius: "12px", padding: "16px", marginBottom: "16px" }}>
-                <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.1rem", color: darkRed, marginBottom: "10px" }}>
-                  What action was taken?
-                </p>
-                <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "16px" }}>
-                  {availableActions.map(action => {
-                    const meta = RESOLUTION_ACTION_META[action];
-                    const isSelected = selectedAction === action;
-                    return (
-                      <div
-                        key={action}
-                        onClick={() => setSelectedAction(action)}
-                        style={{
-                          display: "flex", alignItems: "center", gap: "10px",
-                          padding: "9px 12px", borderRadius: "10px", cursor: "pointer",
-                          border: `2px solid ${isSelected ? red : "#e5e5e5"}`,
-                          background: isSelected ? "white" : "#fbfbfb",
-                        }}
-                      >
-                        <span style={{ fontSize: "1rem" }}>{meta.icon}</span>
-                        <div style={{ flex: 1 }}>
-                          <p style={{ fontFamily: "'Jua', sans-serif", fontSize: "0.85rem", color: "#1a1a1a" }}>{action}</p>
-                          <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.7rem", color: "#888" }}>{meta.desc}</p>
-                        </div>
-                        <div style={{
-                          width: "16px", height: "16px", borderRadius: "50%", flexShrink: 0,
-                          border: `2px solid ${isSelected ? red : "#bbb"}`,
-                          background: isSelected ? red : "transparent",
-                          display: "flex", alignItems: "center", justifyContent: "center",
-                        }}>
-                          {isSelected && <div style={{ width: "5px", height: "5px", borderRadius: "50%", background: "white" }} />}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                <p style={{ fontFamily: "'Jua', sans-serif", fontSize: "0.9rem", color: "#1a1a1a", marginBottom: "6px" }}>
-                  How was this resolved?
-                </p>
-                <textarea
-                  value={resolutionNotes}
-                  onChange={e => setResolutionNotes(e.target.value)}
-                  placeholder="Describe the resolution — what was found, what the company was told, what happens next..."
-                  style={{
-                    width: "100%", minHeight: "80px", borderRadius: "10px",
-                    border: "1.5px solid #ddd", padding: "10px 12px",
-                    fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", color: "#1a1a1a",
-                    resize: "vertical", outline: "none",
-                  }}
-                />
-              </div>
-            )}
-
             {status !== "pending" && savedAction && (
               <div style={{ background: "#f2f8f2", borderRadius: "10px", padding: "12px 14px", marginBottom: "16px", display: "flex", gap: "10px", alignItems: "flex-start" }}>
                 <span style={{ fontSize: "1rem" }}>{RESOLUTION_ACTION_META[savedAction]?.icon}</span>
@@ -560,50 +507,26 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid }) => {
             padding: "14px 20px", borderTop: "1px solid #eee",
           }}>
             {status === "pending" ? (
-              resolvingPanel ? (
-                <>
-                  <button
-                    onClick={() => { setResolvingPanel(false); setSelectedAction(null); setResolutionNotes(""); }}
-                    disabled={working}
-                    style={{
-                      padding: "9px 22px", borderRadius: "22px", background: "white",
-                      color: "#666", border: "1.5px solid #ccc", fontFamily: "'Jersey 25', sans-serif",
-                      fontSize: "1rem", cursor: working ? "not-allowed" : "pointer",
-                    }}
-                  >CANCEL</button>
-                  <button
-                    onClick={handleConfirmResolve}
-                    disabled={working || !canConfirmResolve}
-                    style={{
-                      padding: "9px 22px", borderRadius: "22px",
-                      background: canConfirmResolve ? "#2a7a2a" : "#ccc",
-                      color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif",
-                      fontSize: "1rem", cursor: (working || !canConfirmResolve) ? "not-allowed" : "pointer",
-                    }}
-                  >CONFIRM RESOLUTION</button>
-                </>
-              ) : (
-                <>
-                  <button
-                    onClick={handleDismiss}
-                    disabled={working}
-                    style={{
-                      padding: "9px 22px", borderRadius: "22px", background: "#666",
-                      color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif",
-                      fontSize: "1rem", cursor: working ? "not-allowed" : "pointer", opacity: working ? 0.7 : 1,
-                    }}
-                  >DISMISS</button>
-                  <button
-                    onClick={() => setResolvingPanel(true)}
-                    disabled={working}
-                    style={{
-                      padding: "9px 22px", borderRadius: "22px", background: "#2a7a2a",
-                      color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif",
-                      fontSize: "1rem", cursor: working ? "not-allowed" : "pointer", opacity: working ? 0.7 : 1,
-                    }}
-                  >RESOLVE</button>
-                </>
-              )
+              <>
+                <button
+                  onClick={() => setConfirmingDismiss(true)}
+                  disabled={working}
+                  style={{
+                    padding: "9px 22px", borderRadius: "22px", background: "#666",
+                    color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif",
+                    fontSize: "1rem", cursor: working ? "not-allowed" : "pointer", opacity: working ? 0.7 : 1,
+                  }}
+                >DISMISS</button>
+                <button
+                  onClick={() => setResolvingPanel(true)}
+                  disabled={working}
+                  style={{
+                    padding: "9px 22px", borderRadius: "22px", background: "#2a7a2a",
+                    color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif",
+                    fontSize: "1rem", cursor: working ? "not-allowed" : "pointer", opacity: working ? 0.7 : 1,
+                  }}
+                >RESOLVE</button>
+              </>
             ) : (
               <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.8rem", color: "#888", margin: 0 }}>
                 This report has been {status} and can no longer be changed.
@@ -616,9 +539,182 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid }) => {
       {lightbox && isImage && (
         <ImageLightbox src={file.url} name={file.name} onClose={() => setLightbox(false)} />
       )}
+
+      {resolvingPanel && (
+        <ResolveActionModal
+          availableActions={availableActions}
+          selectedAction={selectedAction}
+          setSelectedAction={setSelectedAction}
+          resolutionNotes={resolutionNotes}
+          setResolutionNotes={setResolutionNotes}
+          working={working}
+          canConfirm={canConfirmResolve}
+          onCancel={() => { setResolvingPanel(false); setSelectedAction(null); setResolutionNotes(""); }}
+          onConfirm={handleConfirmResolve}
+        />
+      )}
+
+      {confirmingDismiss && (
+        <ConfirmModal
+          title="Dismiss Report?"
+          message="Are you sure you want to dismiss this report? This action cannot be undone."
+          confirmLabel="DISMISS"
+          working={working}
+          onCancel={() => setConfirmingDismiss(false)}
+          onConfirm={handleDismiss}
+        />
+      )}
     </>
   );
 };
+
+// ── Generic confirm dialog (e.g. "are you sure?") ─────────────────────────────
+const ConfirmModal = ({ title, message, confirmLabel = "CONFIRM", working, onCancel, onConfirm }) => (
+  <div style={{
+    position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)",
+    display: "flex", alignItems: "center", justifyContent: "center",
+    zIndex: 1200, padding: "16px",
+  }}>
+    <div style={{
+      background: "white", borderRadius: "18px", width: "100%", maxWidth: "380px",
+      overflow: "hidden", boxShadow: "0 24px 70px rgba(0,0,0,0.35)",
+    }}>
+      <div style={{ padding: "26px 24px 8px" }}>
+        <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.3rem", color: darkRed, marginBottom: "8px" }}>
+          {title}
+        </p>
+        <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#555", lineHeight: 1.5 }}>
+          {message}
+        </p>
+      </div>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", padding: "18px 22px" }}>
+        <button
+          onClick={onCancel}
+          disabled={working}
+          style={{
+            padding: "9px 22px", borderRadius: "22px", background: "white",
+            color: "#666", border: "1.5px solid #ccc", fontFamily: "'Jersey 25', sans-serif",
+            fontSize: "1rem", cursor: working ? "not-allowed" : "pointer",
+          }}
+        >CANCEL</button>
+        <button
+          onClick={onConfirm}
+          disabled={working}
+          style={{
+            padding: "9px 22px", borderRadius: "22px", background: "#666",
+            color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif",
+            fontSize: "1rem", cursor: working ? "not-allowed" : "pointer", opacity: working ? 0.7 : 1,
+          }}
+        >{working ? "..." : confirmLabel}</button>
+      </div>
+    </div>
+  </div>
+);
+
+// ── Resolve Action Modal (separate overlay, opened from RESOLVE) ─────────────
+const ResolveActionModal = ({
+  availableActions, selectedAction, setSelectedAction,
+  resolutionNotes, setResolutionNotes, working, canConfirm,
+  onCancel, onConfirm,
+}) => (
+  <div style={{
+    position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)",
+    display: "flex", alignItems: "center", justifyContent: "center",
+    zIndex: 1100, padding: "16px",
+  }}>
+    <div style={{
+      background: "white", borderRadius: "18px", width: "100%", maxWidth: "480px",
+      maxHeight: "88vh", display: "flex", flexDirection: "column", overflow: "hidden",
+      boxShadow: "0 24px 70px rgba(0,0,0,0.35)",
+    }}>
+      <div style={{ background: red, padding: "16px 22px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <span style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.4rem", color: "white", letterSpacing: "0.03em" }}>Resolve Report</span>
+        <button
+          onClick={onCancel}
+          disabled={working}
+          style={{ background: "white", border: "none", borderRadius: "50%", width: "26px", height: "26px", cursor: working ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.9rem", color: darkRed, flexShrink: 0 }}
+        >✕</button>
+      </div>
+
+      <div style={{ padding: "20px 22px", overflowY: "auto", flex: 1 }}>
+        <div style={{ background: "#fdf1f1", border: `1.5px solid ${red}`, borderRadius: "12px", padding: "16px" }}>
+          <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.1rem", color: darkRed, marginBottom: "10px" }}>
+            What action was taken?
+          </p>
+          <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "16px" }}>
+            {availableActions.map(action => {
+              const meta = RESOLUTION_ACTION_META[action];
+              const isSelected = selectedAction === action;
+              return (
+                <div
+                  key={action}
+                  onClick={() => setSelectedAction(action)}
+                  style={{
+                    display: "flex", alignItems: "center", gap: "10px",
+                    padding: "9px 12px", borderRadius: "10px", cursor: "pointer",
+                    border: `2px solid ${isSelected ? red : "#e5e5e5"}`,
+                    background: isSelected ? "white" : "#fbfbfb",
+                  }}
+                >
+                  <span style={{ fontSize: "1rem" }}>{meta.icon}</span>
+                  <div style={{ flex: 1 }}>
+                    <p style={{ fontFamily: "'Jua', sans-serif", fontSize: "0.85rem", color: "#1a1a1a" }}>{action}</p>
+                    <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.7rem", color: "#888" }}>{meta.desc}</p>
+                  </div>
+                  <div style={{
+                    width: "16px", height: "16px", borderRadius: "50%", flexShrink: 0,
+                    border: `2px solid ${isSelected ? red : "#bbb"}`,
+                    background: isSelected ? red : "transparent",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                  }}>
+                    {isSelected && <div style={{ width: "5px", height: "5px", borderRadius: "50%", background: "white" }} />}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <p style={{ fontFamily: "'Jua', sans-serif", fontSize: "0.9rem", color: "#1a1a1a", marginBottom: "6px" }}>
+            How was this resolved?
+          </p>
+          <textarea
+            value={resolutionNotes}
+            onChange={e => setResolutionNotes(e.target.value)}
+            placeholder="Describe the resolution — what was found, what the company was told, what happens next..."
+            style={{
+              width: "100%", minHeight: "80px", borderRadius: "10px",
+              border: "1.5px solid #ddd", padding: "10px 12px",
+              fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", color: "#1a1a1a",
+              resize: "vertical", outline: "none", background: "white",
+            }}
+          />
+        </div>
+      </div>
+
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", padding: "14px 20px", borderTop: "1px solid #eee" }}>
+        <button
+          onClick={onCancel}
+          disabled={working}
+          style={{
+            padding: "9px 22px", borderRadius: "22px", background: "white",
+            color: "#666", border: "1.5px solid #ccc", fontFamily: "'Jersey 25', sans-serif",
+            fontSize: "1rem", cursor: working ? "not-allowed" : "pointer",
+          }}
+        >CANCEL</button>
+        <button
+          onClick={onConfirm}
+          disabled={working || !canConfirm}
+          style={{
+            padding: "9px 22px", borderRadius: "22px",
+            background: canConfirm ? "#2a7a2a" : "#ccc",
+            color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif",
+            fontSize: "1rem", cursor: (working || !canConfirm) ? "not-allowed" : "pointer",
+          }}
+        >CONFIRM RESOLUTION</button>
+      </div>
+    </div>
+  </div>
+);
 
 // ── Empty State ───────────────────────────────────────────────────────────────
 const EmptyState = () => (

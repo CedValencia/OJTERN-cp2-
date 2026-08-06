@@ -656,6 +656,8 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
       id: `company_${c.id}`,
       message: `${c.companyName || c.name || "A company"} registered and is awaiting review.`,
       createdAt: c.createdAt,
+      kind: "company",
+      companyId: c.id,
     }));
     const fromReports = scopedReports
       .filter(r => (r.status || "pending") === "pending")
@@ -663,6 +665,8 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
         id: `report_${r.id}`,
         message: `New report submitted for ${r.company}.`,
         createdAt: r.createdAt,
+        kind: "report",
+        reportId: r.id,
       }));
     return [...fromCompanies, ...fromReports].sort(
       (a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0)
@@ -771,6 +775,20 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
     setDashboardCompanyId(companyId);
     setDashboardTarget("companylist");
     navigate("companylist");
+  };
+
+  // Routes a notification tap to the right screen: a pending company
+  // registration opens that company in the Company List (where it can be
+  // reviewed/approved), a report opens its detail modal via ReportCompany.
+  const handleNotificationClick = (n) => {
+    setShowNotifDropdown(false);
+    if (n.kind === "company" && n.companyId) {
+      handleViewRegistered(n.companyId);
+    } else if (n.kind === "report" && n.reportId) {
+      const report = scopedReports.find(r => r.id === n.reportId);
+      navigate("reportcompany");
+      if (report) setViewingReport(report);
+    }
   };
 
   const renderContent = () => {
@@ -967,7 +985,11 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
                       </div>
                     ) : (
                       coordinatorNotifications.map(n => (
-                        <div key={n.id} style={{ padding: "10px 14px", borderBottom: "1px solid #f2f2f2", fontFamily: "'Kufam', sans-serif" }}>
+                        <div
+                          key={n.id}
+                          onClick={() => handleNotificationClick(n)}
+                          style={{ padding: "10px 14px", borderBottom: "1px solid #f2f2f2", fontFamily: "'Kufam', sans-serif", cursor: "pointer" }}
+                        >
                           <p style={{ margin: 0, fontSize: "0.82rem", color: "#333", lineHeight: 1.4 }}>{n.message}</p>
                           <p style={{ margin: "4px 0 0", fontSize: "0.68rem", color: "#999" }}>{formatActivityTime(n.createdAt)}</p>
                         </div>
@@ -1099,6 +1121,7 @@ const ChangePasswordModal = ({ show, currentPass, setCurrentPass, newPass, setNe
           <div style={{ position: "relative", marginBottom: "10px" }}>
             <input type={showCurrent ? "text" : "password"} placeholder="Enter Current Password:" value={currentPass}
               onChange={e => { setCurrentPass(e.target.value); setPassError(""); }}
+              onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); handleChangePassword(); } }}
               style={inputStyle(passError)} />
             <EyeBtn show={showCurrent} onToggle={() => setShowCurrent(p => !p)} />
           </div>
@@ -1110,6 +1133,7 @@ const ChangePasswordModal = ({ show, currentPass, setCurrentPass, newPass, setNe
           <div style={{ position: "relative", marginBottom: "10px" }}>
             <input type={showNew ? "text" : "password"} placeholder="Enter New Password:" value={newPass}
               onChange={e => { setNewPass(e.target.value); setPassError(""); }}
+              onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); handleChangePassword(); } }}
               style={inputStyle(passError)} />
             <EyeBtn show={showNew} onToggle={() => setShowNew(p => !p)} />
           </div>
@@ -1119,6 +1143,7 @@ const ChangePasswordModal = ({ show, currentPass, setCurrentPass, newPass, setNe
           <div style={{ position: "relative", marginBottom: "4px" }}>
             <input type={showConfirm ? "text" : "password"} placeholder="Confirm New Password:" value={confirmPass}
               onChange={e => { setConfirmPass(e.target.value); setPassError(""); }}
+              onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); handleChangePassword(); } }}
               style={inputStyle(passError)} />
             <EyeBtn show={showConfirm} onToggle={() => setShowConfirm(p => !p)} />
           </div>

@@ -633,7 +633,7 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
           )}
 
           <p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.85rem", color: "#888", margin: "4px 0 8px" }}>
-            Not Yet Accepted Students {notAcceptedStudents.length > 0 && `(${notAcceptedStudents.length})`}
+             Students with no applications {notAcceptedStudents.length > 0 && `(${notAcceptedStudents.length})`}
           </p>
           {notAcceptedStudents.length > 0 ? (
             <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
