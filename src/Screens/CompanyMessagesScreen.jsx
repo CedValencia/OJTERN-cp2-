@@ -314,7 +314,9 @@ const ChatView = ({ contact, messages, onSend, onBack, onReport, onDeleteConvers
     longPressTimer.current = setTimeout(() => { setPopupMsgId(prev => prev === msg.id ? null : msg.id); setEditingId(null); }, 500);
   };
   const cancelLongPress = () => { if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; } };
-  const startEdit       = (msg)   => { if (!msg.text) return; setEditingId(msg.id); setEditText(msg.text); setPopupMsgId(null); };
+  const EDIT_WINDOW_MS  = 15 * 60 * 1000; // messages older than this can no longer be edited
+  const canEditMsg      = (msg) => !!msg.text && (Date.now() - (msg.ts || 0)) < EDIT_WINDOW_MS;
+  const startEdit       = (msg)   => { if (!canEditMsg(msg)) return; setEditingId(msg.id); setEditText(msg.text); setPopupMsgId(null); };
   const saveEdit        = (msgId) => { if (!editText.trim()) return; onSend(contact.id, { __edit: true, id: msgId, text: editText.trim() }); setEditingId(null); setEditText(""); };
   const handleUnsent    = (msgId) => { setUnsendTarget(msgId); setPopupMsgId(null); };
   const confirmUnsend   = () => { onSend(contact.id, { __unsent: true, id: unsendTarget }); setUnsendTarget(null); };
@@ -369,6 +371,7 @@ const ChatView = ({ contact, messages, onSend, onBack, onReport, onDeleteConvers
           const showTime    = idx === 0 || (msgTs - prevTs) > 10 * 60 * 1000;
           const isPopupOpen = popupMsgId === msg.id;
           const hasText     = !!msg.text;
+          const canEdit     = canEditMsg(msg);
           // Whether this is the very last message in the thread and it's
           // mine — Messenger-style, the send status only shows under that
           // one message, not every message I've sent.
@@ -378,7 +381,7 @@ const ChatView = ({ contact, messages, onSend, onBack, onReport, onDeleteConvers
 
           const popupMenu = isPopupOpen && !msg.unsent && (
             <div onMouseDown={e => e.stopPropagation()} style={{ position: "absolute", bottom: "calc(100% + 4px)", right: 0, background: "white", borderRadius: "10px", boxShadow: "0 4px 16px rgba(0,0,0,0.18)", zIndex: 100, minWidth: "120px", overflow: "hidden" }}>
-              {hasText && <div onClick={() => startEdit(msg)} style={{ padding: "10px 16px", fontFamily: "'Kufam', sans-serif", fontSize: "0.88rem", color: "#222", cursor: "pointer", borderBottom: "1px solid #f0f0f0" }} onMouseEnter={e => e.currentTarget.style.background = "#f5f5f5"} onMouseLeave={e => e.currentTarget.style.background = "white"}>Edit</div>}
+              {canEdit && <div onClick={() => startEdit(msg)} style={{ padding: "10px 16px", fontFamily: "'Kufam', sans-serif", fontSize: "0.88rem", color: "#222", cursor: "pointer", borderBottom: "1px solid #f0f0f0" }} onMouseEnter={e => e.currentTarget.style.background = "#f5f5f5"} onMouseLeave={e => e.currentTarget.style.background = "white"}>Edit</div>}
               <div onClick={() => handleUnsent(msg.id)} style={{ padding: "10px 16px", fontFamily: "'Kufam', sans-serif", fontSize: "0.88rem", color: red, fontWeight: 700, cursor: "pointer" }} onMouseEnter={e => e.currentTarget.style.background = "#fff0f0"} onMouseLeave={e => e.currentTarget.style.background = "white"}>Unsend</div>
             </div>
           );
@@ -635,19 +638,6 @@ const CompanyMessagesScreen = ({
     openConversation(activeContact.convId);
     markConversationRead(activeContact.convId);
   }, [activeContact, openConversation, markConversationRead]);
-
-  // While the user is sitting inside this conversation, auto-mark new
-  // incoming messages as read the instant they arrive (no need to leave
-  // and re-open the chat). Only fires when the newest message is from the
-  // OTHER participant — sending your own message shouldn't re-trigger this.
-  useEffect(() => {
-    if (!activeContact?.convId) return;
-    const convMsgs = messages[activeContact.convId] || [];
-    const lastMsg  = convMsgs[convMsgs.length - 1];
-    if (lastMsg && lastMsg.senderId && lastMsg.senderId !== user?.uid) {
-      markConversationRead(activeContact.convId);
-    }
-  }, [messages, activeContact, user?.uid, markConversationRead]);
 
   useEffect(() => {
     if (!openContact || !user?.uid || !openContact.id) return;

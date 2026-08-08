@@ -1,85 +1,100 @@
-// functions/index.js
-// Deploy with: firebase deploy --only functions
+const { onDocumentUpdated, onDocumentDeleted } = require("firebase-functions/v2/firestore");
+const admin = require("firebase-admin");
+const nodemailer = require("nodemailer");
 
-const { onCall, HttpsError } = require("firebase-functions/v2/https");
-const { initializeApp }      = require("firebase-admin/app");
-const { getAuth }            = require("firebase-admin/auth");
-const { getFirestore, FieldValue } = require("firebase-admin/firestore");
+admin.initializeApp();
 
-initializeApp();
+const transporter = nodemailer.createTransport({
+  service: "gmail",
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASSWORD,
+  },
+});
 
-/**
- * approveCompany — called by coordinator when they click "Accept"
- *
- * What it does:
- *  1. Fetches the pending company doc from Firestore
- *  2. Creates a Firebase Auth account using the stored email + password
- *  3. Updates the Firestore doc:
- *       - uid        → new Auth UID
- *       - status     → "approved"
- *       - approvedBy → coordinatorUid
- *       - approvedAt → now
- *       - password   → deleted (no longer needed)
- *  4. Re-saves the doc under the new UID as the document ID
- *     (so signIn can look up companies/{uid})
- */
-exports.approveCompany = onCall(async (request) => {
-  const { companyId, coordinatorUid } = request.data;
+// Email on company approval
+exports.sendApprovalEmail = onDocumentUpdated(
+  { document: "companies/{companyId}", region: "asia-southeast1" },
+  async (event) => {
+    const newData = event.data.after.data();
+    const oldData = event.data.before.data();
 
-  if (!companyId || !coordinatorUid) {
-    throw new HttpsError("invalid-argument", "Missing companyId or coordinatorUid.");
-  }
+    if (oldData.status !== "approved" && newData.status === "approved") {
+      const mailOptions = {
+        from: process.env.EMAIL_USER,
+        to: newData.email,
+        subject: "OJTern - Your Registration is Approved! ✅",
+        html: `
+          <h2>Welcome to OJTern!</h2>
+          <p>Hi <strong>${newData.companyName}</strong>,</p>
+          <p>Your company registration has been <strong>APPROVED</strong> by our coordinator.</p>
+          <p>You can now:</p>
+          <ul>
+            <li>Log in to your company dashboard</li>
+            <li>Post OJT positions</li>
+            <li>View student applications</li>
+          </ul>
+          <p><a href="https://ojtern.app/login">Click here to sign in</a></p>
+          <br/>
+          <p>Best regards,<br/>OJTern Team</p>
+        `,
+      };
 
-  const db   = getFirestore();
-  const auth = getAuth();
-
-  // 1. Get the pending company doc
-  const companyRef  = db.collection("companies").doc(companyId);
-  const companySnap = await companyRef.get();
-
-  if (!companySnap.exists) {
-    throw new HttpsError("not-found", "Company not found.");
-  }
-
-  const companyData = companySnap.data();
-
-  if (companyData.status !== "pending") {
-    throw new HttpsError("failed-precondition", "Company is not pending approval.");
-  }
-
-  // 2. Create Firebase Auth account
-  let userRecord;
-  try {
-    userRecord = await auth.createUser({
-      email:    companyData.email,
-      password: companyData.password,
-    });
-  } catch (err) {
-    if (err.code === "auth/email-already-exists") {
-      // Auth account already exists (e.g. approved twice) — fetch the existing one
-      userRecord = await auth.getUserByEmail(companyData.email);
-    } else {
-      throw new HttpsError("internal", `Failed to create Auth account: ${err.message}`);
+      try {
+        await transporter.sendMail(mailOptions);
+        console.log(`Approval email sent to ${newData.email}`);
+      } catch (error) {
+        console.error("Email send failed:", error);
+      }
     }
   }
+);
 
-  const newUid = userRecord.uid;
+// Email on company rejection
+exports.sendRejectionEmail = onDocumentUpdated(
+  { document: "companies/{companyId}", region: "asia-southeast1" },
+  async (event) => {
+    const newData = event.data.after.data();
+    const oldData = event.data.before.data();
 
-  // 3. Create a new Firestore doc with the Auth UID as the document ID
-  const newDocRef = db.collection("companies").doc(newUid);
-  await newDocRef.set({
-    ...companyData,
-    uid:        newUid,
-    status:     "approved",
-    approvedBy: coordinatorUid,
-    approvedAt: FieldValue.serverTimestamp(),
-    password:   FieldValue.delete(), // remove stored password
-  });
+    if (oldData.status !== "rejected" && newData.status === "rejected") {
+      const mailOptions = {
+        from: process.env.EMAIL_USER,
+        to: newData.email,
+        subject: "OJTern - Registration Status Update",
+        html: `
+          <h2>Registration Not Approved</h2>
+          <p>Hi <strong>${newData.companyName}</strong>,</p>
+          <p>Your registration was not approved.</p>
+          <p><strong>Reason:</strong> ${newData.rejectionReason || "Please contact support."}</p>
+        `,
+      };
 
-  // 4. Delete the old pending doc (which had an auto-generated ID)
-  if (companyId !== newUid) {
-    await companyRef.delete();
+      try {
+        await transporter.sendMail(mailOptions);
+        console.log(`Rejection email sent to ${newData.email}`);
+      } catch (error) {
+        console.error("Email send failed:", error);
+      }
+    }
   }
+);
 
-  return { success: true, uid: newUid };
-});
+// Delete Firebase Auth account when student document is deleted
+exports.deleteStudentAuthOnDocDelete = onDocumentDeleted(
+  { document: "students/{studentId}", region: "us-central1" },
+  async (event) => {
+    const studentId = event.params.studentId;
+    const deletedData = event.data.data();
+
+    // Adjust this depending on how you store the Auth UID in the student doc
+    const uid = deletedData.uid || studentId;
+
+    try {
+      await admin.auth().deleteUser(uid);
+      console.log(`Deleted Auth account for student: ${uid}`);
+    } catch (error) {
+      console.error(`Failed to delete Auth account for ${uid}:`, error);
+    }
+  }
+);

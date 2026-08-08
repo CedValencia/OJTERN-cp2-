@@ -13,6 +13,7 @@
     "@testing-library/user-event": "^13.5.0",
     "cloudinary": "^2.10.0",
     "firebase": "^12.16.0",
+    "firebase-functions": "^7.3.2",
     "mapbox-gl": "^3.24.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",

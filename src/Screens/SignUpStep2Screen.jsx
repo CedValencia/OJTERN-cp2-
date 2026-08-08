@@ -300,6 +300,7 @@ const SignUpStep2Screen = ({ onBack, onGoSignIn, onSubmitSuccess, step1Data }) =
   const [error, setError]           = useState("");
   const [expanded, setExpanded]     = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [showSuccess, setShowSuccess] = useState(false);
   const [showTerms, setShowTerms]   = useState(false);
 
   const MAX_TOTAL_MB = 10;
@@ -363,7 +364,7 @@ const SignUpStep2Screen = ({ onBack, onGoSignIn, onSubmitSuccess, step1Data }) =
       return;
     }
     if (files.length === 0) {
-      setError("Please upload at least one verification document.");
+      setError("You must upload at least one image or files of your company's proof of verification before submitting.");
       return;
     }
     if (!step1Data) {
@@ -392,7 +393,7 @@ const SignUpStep2Screen = ({ onBack, onGoSignIn, onSubmitSuccess, step1Data }) =
 
       await registerCompany(normalizedStep1Data, uploadedUrls);
 
-      onSubmitSuccess();
+      setShowSuccess(true);
     } catch (err) {
       if (err.code === "auth/email-already-in-use") {
         setError("This email is already registered. Please sign in instead.");
@@ -613,6 +614,48 @@ const SignUpStep2Screen = ({ onBack, onGoSignIn, onSubmitSuccess, step1Data }) =
           </div>
         </div>
       </div>
+
+      {showSuccess && (
+        <div style={{
+          position: "fixed", inset: 0, zIndex: 9999,
+          background: "rgba(0,0,0,0.55)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          padding: "16px",
+        }}>
+          <div style={{
+            background: "white", borderRadius: "20px",
+            padding: "36px 28px", width: "clamp(280px, 85vw, 370px)",
+            display: "flex", flexDirection: "column", alignItems: "center",
+            gap: "12px", boxShadow: "0 8px 32px rgba(0,0,0,0.25)",
+          }}>
+            <div style={{
+              width: "64px", height: "64px", borderRadius: "50%",
+              background: "#e8f5e9", display: "flex",
+              alignItems: "center", justifyContent: "center", marginBottom: "4px",
+            }}>
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none"
+                stroke="#2d7a2d" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="20 6 9 17 4 12"/>
+              </svg>
+            </div>
+            <p style={{ fontFamily: "'Jua', sans-serif", fontWeight: 700, fontSize: "1.1rem", color: "#1a1a1a", margin: 0, textAlign: "center" }}>
+              Your submission has been received and is pending approval.
+            </p>
+            <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.88rem", color: "#666", margin: 0, textAlign: "center", lineHeight: 1.5 }}>
+              Wait for the Coordinator's approval. Thank you!
+            </p>
+            <button
+              onClick={() => { setShowSuccess(false); onSubmitSuccess(); }}
+              style={{
+                marginTop: "8px", width: "100%", padding: "12px", borderRadius: "30px",
+                border: "none", background: darkRed, color: "white",
+                fontFamily: "'Jua', sans-serif", fontSize: "1rem",
+                letterSpacing: "0.05em", textTransform: "uppercase", cursor: "pointer",
+              }}
+            >Ok</button>
+          </div>
+        </div>
+      )}
     </>
   );
 };

@@ -468,7 +468,64 @@ const MapThumbnail = ({ lat, lng }) => {
 };
 
 // ── Company Profile View ──────────────────────────────────────────────────────
+// ── Generic confirm dialog (e.g. "are you sure?") ─────────────────────────────
+const ConfirmModal = ({ title, message, confirmLabel = "CONFIRM", working, onCancel, onConfirm }) => (
+  <div style={{
+    position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)",
+    display: "flex", alignItems: "center", justifyContent: "center",
+    zIndex: 1200, padding: "16px",
+  }}>
+    <div style={{
+      background: "white", borderRadius: "18px", width: "100%", maxWidth: "380px",
+      overflow: "hidden", boxShadow: "0 24px 70px rgba(0,0,0,0.35)",
+    }}>
+      <div style={{ padding: "26px 24px 8px" }}>
+        <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.3rem", color: darkRed, marginBottom: "8px" }}>
+          {title}
+        </p>
+        <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#555", lineHeight: 1.5 }}>
+          {message}
+        </p>
+      </div>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", padding: "18px 22px" }}>
+        <button
+          onClick={onCancel}
+          disabled={working}
+          style={{
+            padding: "9px 22px", borderRadius: "22px", background: "white",
+            color: "#666", border: "1.5px solid #ccc", fontFamily: "'Jersey 25', sans-serif",
+            fontSize: "1rem", cursor: working ? "not-allowed" : "pointer",
+          }}
+        >CANCEL</button>
+        <button
+          onClick={onConfirm}
+          disabled={working}
+          style={{
+            padding: "9px 22px", borderRadius: "22px", background: darkRed,
+            color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif",
+            fontSize: "1rem", cursor: working ? "not-allowed" : "pointer", opacity: working ? 0.7 : 1,
+          }}
+        >{working ? "..." : confirmLabel}</button>
+      </div>
+    </div>
+  </div>
+);
+
 const CompanyProfileView = ({ company, onBack, onAccept, onDeny }) => {
+  const [confirmingAction, setConfirmingAction] = useState(null); // "accept" | "decline" | null
+  const [working, setWorking] = useState(false);
+
+  const runConfirmedAction = async () => {
+    setWorking(true);
+    try {
+      if (confirmingAction === "accept") await onAccept(company.id);
+      else if (confirmingAction === "decline") await onDeny(company.id);
+    } finally {
+      setWorking(false);
+      setConfirmingAction(null);
+    }
+  };
+
   const locationLines = [
     company.region   ? { label: "Region",           value: company.region }   : null,
     company.province ? { label: "Province",          value: company.province } : null,
@@ -554,15 +611,30 @@ const CompanyProfileView = ({ company, onBack, onAccept, onDeny }) => {
         {/* Accept / Decline buttons (review only) */}
         {company.status === "pending" && (
           <div className="clist-action-row">
-            <button onClick={() => onDeny(company.id)} style={{ padding: "12px 32px", borderRadius: "24px", background: darkRed, color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(1rem, 3vw, 1.2rem)", cursor: "pointer", letterSpacing: "0.04em" }}>
+            <button onClick={() => setConfirmingAction("decline")} style={{ padding: "12px 32px", borderRadius: "24px", background: darkRed, color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(1rem, 3vw, 1.2rem)", cursor: "pointer", letterSpacing: "0.04em" }}>
               Decline
             </button>
-            <button onClick={() => onAccept(company.id)} style={{ padding: "12px 32px", borderRadius: "24px", background: darkRed, color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(1rem, 3vw, 1.2rem)", cursor: "pointer", letterSpacing: "0.04em" }}>
+            <button onClick={() => setConfirmingAction("accept")} style={{ padding: "12px 32px", borderRadius: "24px", background: darkRed, color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(1rem, 3vw, 1.2rem)", cursor: "pointer", letterSpacing: "0.04em" }}>
               Accept
             </button>
           </div>
         )}
       </div>
+
+      {confirmingAction && (
+        <ConfirmModal
+          title={confirmingAction === "accept" ? "Accept Company?" : "Decline Company?"}
+          message={
+            confirmingAction === "accept"
+              ? `Are you sure you want to accept ${company.companyName || company.name || "this company"}?`
+              : `Are you sure you want to decline ${company.companyName || company.name || "this company"}?`
+          }
+          confirmLabel={confirmingAction === "accept" ? "ACCEPT" : "DECLINE"}
+          working={working}
+          onCancel={() => setConfirmingAction(null)}
+          onConfirm={runConfirmedAction}
+        />
+      )}
     </div>
   );
 };

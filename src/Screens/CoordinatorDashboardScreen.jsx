@@ -635,43 +635,42 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
     return `${diffDay}d ago`;
   };
 
-  // ── Notifications: pending company registrations (scoped to this
-  //    coordinator's industries) + reports still awaiting action ────────────
-  const [pendingCompanies, setPendingCompanies]                  = useState([]);
+  // ── Notifications: company registrations (scoped to this coordinator's
+  //    industries) + reports — kept as a persistent history log rather than
+  //    an "action needed" queue, so items stay listed after being
+  //    approved/declined/resolved instead of disappearing. ────────────────
+  const [scopedCompanies, setScopedCompanies]                    = useState([]);
   useEffect(() => {
-    if (coordinatorIndustries.length === 0) { setPendingCompanies([]); return; }
+    if (coordinatorIndustries.length === 0) { setScopedCompanies([]); return; }
     const q = query(
       collection(db, "companies"),
-      where("status", "==", "pending"),
       where("industry", "array-contains-any", coordinatorIndustries.slice(0, 30))
     );
     const unsub = onSnapshot(q, (snap) => {
-      setPendingCompanies(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    }, (err) => console.error("Failed to load pending companies:", err));
+      setScopedCompanies(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    }, (err) => console.error("Failed to load companies for notifications:", err));
     return unsub;
   }, [coordinatorIndustries]);
 
   const coordinatorNotifications = React.useMemo(() => {
-    const fromCompanies = pendingCompanies.map(c => ({
+    const fromCompanies = scopedCompanies.map(c => ({
       id: `company_${c.id}`,
       message: `${c.companyName || c.name || "A company"} registered and is awaiting review.`,
       createdAt: c.createdAt,
       kind: "company",
       companyId: c.id,
     }));
-    const fromReports = scopedReports
-      .filter(r => (r.status || "pending") === "pending")
-      .map(r => ({
-        id: `report_${r.id}`,
-        message: `New report submitted for ${r.company}.`,
-        createdAt: r.createdAt,
-        kind: "report",
-        reportId: r.id,
-      }));
-    return [...fromCompanies, ...fromReports].sort(
-      (a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0)
-    );
-  }, [pendingCompanies, scopedReports]);
+    const fromReports = scopedReports.map(r => ({
+      id: `report_${r.id}`,
+      message: `New report submitted for ${r.company}.`,
+      createdAt: r.createdAt,
+      kind: "report",
+      reportId: r.id,
+    }));
+    return [...fromCompanies, ...fromReports]
+      .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0))
+      .slice(0, 30);
+  }, [scopedCompanies, scopedReports]);
 
   const [showNotifDropdown, setShowNotifDropdown]                = useState(false);
   const [lastSeenNotifAt, setLastSeenNotifAt]                    = useState(() =>

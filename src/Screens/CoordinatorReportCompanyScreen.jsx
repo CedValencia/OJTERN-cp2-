@@ -281,12 +281,12 @@ const PdfIcon = () => (
 // Each report category (report.concern) has a sensible set of actions a
 // coordinator can take. "Others" is the fallback for any concern not listed.
 const ACTIONS_BY_CONCERN = {
-  "Fraud and Scam":         ["Block Company", "Suspend Account", "Warning Issued", "Refer to Authorities"],
-  "Discrimination":         ["Warning Issued", "Require Correction", "Suspend Account", "Block Company"],
-  "Sexual Harassment":      ["Suspend Account", "Block Company", "Refer to Authorities"],
-  "Harmful Misinformation": ["Require Correction", "Warning Issued", "Suspend Account"],
-  "Workplace Misconduct":   ["Warning Issued", "Settlement / Mediation", "Suspend Account", "Block Company"],
-  "Others":                 ["Warning Issued", "Settlement / Mediation", "Suspend Account", "Block Company"],
+  "Fraud and Scam":         ["Block Company", "Suspend Account", "Warning Issued", "Others"],
+  "Discrimination":         ["Warning Issued", "Require Correction", "Suspend Account", "Block Company", "Others"],
+  "Sexual Harassment":      ["Suspend Account", "Block Company", "Others"],
+  "Harmful Misinformation": ["Require Correction", "Warning Issued", "Suspend Account", "Others"],
+  "Workplace Misconduct":   ["Warning Issued", "Settlement / Mediation", "Suspend Account", "Block Company", "Others"],
+  "Others":                 ["Warning Issued", "Settlement / Mediation", "Suspend Account", "Block Company", "Others"],
 };
 
 const RESOLUTION_ACTION_META = {
@@ -295,7 +295,7 @@ const RESOLUTION_ACTION_META = {
   "Warning Issued":         { icon: "⚠️", desc: "Formal notice sent; account stays active." },
   "Settlement / Mediation": { icon: "🤝", desc: "Both parties agreed on a resolution." },
   "Require Correction":     { icon: "✏️", desc: "Company must edit or remove the flagged content." },
-  "Refer to Authorities":   { icon: "🏛", desc: "Escalated to school administration or relevant authority." },
+  "Others":                 { icon: "📝", desc: "Action taken not covered by the options above." },
 };
 
 export const ReportDetailModal = ({ report, onClose, coordinatorUid }) => {
@@ -305,6 +305,7 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid }) => {
   const [resolvingPanel, setResolvingPanel] = useState(false);
   const [confirmingDismiss, setConfirmingDismiss] = useState(false);
   const [selectedAction, setSelectedAction] = useState(null);
+  const [otherActionText, setOtherActionText] = useState("");
   const [resolutionNotes, setResolutionNotes] = useState("");
   const [savedAction, setSavedAction]         = useState(report?.resolutionAction || "");
   const [savedNotes, setSavedNotes]           = useState(report?.resolutionNotes || "");
@@ -318,7 +319,9 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid }) => {
 
   const badge = REPORT_STATUS_BADGE[status] || REPORT_STATUS_BADGE.pending;
   const availableActions = ACTIONS_BY_CONCERN[report.concern] || ACTIONS_BY_CONCERN["Others"];
-  const canConfirmResolve = selectedAction && resolutionNotes.trim().length > 0;
+  const canConfirmResolve = selectedAction
+    && resolutionNotes.trim().length > 0
+    && (selectedAction !== "Others" || otherActionText.trim().length > 0);
 
   const handleDismiss = async () => {
     if (working || status !== "pending") return;
@@ -347,10 +350,11 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid }) => {
   const handleConfirmResolve = async () => {
     if (working || status !== "pending" || !canConfirmResolve) return;
     setWorking(true);
+    const finalAction = selectedAction === "Others" ? otherActionText.trim() : selectedAction;
     try {
       await updateDoc(doc(db, "reports", report.id), {
         status:           "resolved",
-        resolutionAction: selectedAction,
+        resolutionAction: finalAction,
         resolutionNotes:  resolutionNotes.trim(),
         resolvedBy:       coordinatorUid || "",
         resolvedAt:       serverTimestamp(),
@@ -358,10 +362,10 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid }) => {
       logActivity(
         coordinatorUid,
         "report_resolved",
-        `Resolved report on ${report.company} (${selectedAction})`,
+        `Resolved report on ${report.company} (${finalAction})`,
         { targetId: report.id, targetName: report.company }
       ).catch(err => console.error("Failed to log activity:", err));
-      setSavedAction(selectedAction);
+      setSavedAction(finalAction);
       setSavedNotes(resolutionNotes.trim());
       setStatus("resolved");
       setResolvingPanel(false);
@@ -493,7 +497,7 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid }) => {
             )}
             {status !== "pending" && savedAction && (
               <div style={{ background: "#f2f8f2", borderRadius: "10px", padding: "12px 14px", marginBottom: "16px", display: "flex", gap: "10px", alignItems: "flex-start" }}>
-                <span style={{ fontSize: "1rem" }}>{RESOLUTION_ACTION_META[savedAction]?.icon}</span>
+                <span style={{ fontSize: "1rem" }}>{RESOLUTION_ACTION_META[savedAction]?.icon || "📝"}</span>
                 <div>
                   <p style={{ fontFamily: "'Jua', sans-serif", fontSize: "0.85rem", color: "#2a7a2a" }}>{savedAction}</p>
                   <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.8rem", color: "#555", marginTop: "2px" }}>{savedNotes}</p>
@@ -545,11 +549,13 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid }) => {
           availableActions={availableActions}
           selectedAction={selectedAction}
           setSelectedAction={setSelectedAction}
+          otherActionText={otherActionText}
+          setOtherActionText={setOtherActionText}
           resolutionNotes={resolutionNotes}
           setResolutionNotes={setResolutionNotes}
           working={working}
           canConfirm={canConfirmResolve}
-          onCancel={() => { setResolvingPanel(false); setSelectedAction(null); setResolutionNotes(""); }}
+          onCancel={() => { setResolvingPanel(false); setSelectedAction(null); setOtherActionText(""); setResolutionNotes(""); }}
           onConfirm={handleConfirmResolve}
         />
       )}
@@ -614,6 +620,7 @@ const ConfirmModal = ({ title, message, confirmLabel = "CONFIRM", working, onCan
 // ── Resolve Action Modal (separate overlay, opened from RESOLVE) ─────────────
 const ResolveActionModal = ({
   availableActions, selectedAction, setSelectedAction,
+  otherActionText, setOtherActionText,
   resolutionNotes, setResolutionNotes, working, canConfirm,
   onCancel, onConfirm,
 }) => (
@@ -638,7 +645,7 @@ const ResolveActionModal = ({
 
       <div style={{ padding: "20px 22px", overflowY: "auto", flex: 1 }}>
         <div style={{ background: "#fdf1f1", border: `1.5px solid ${red}`, borderRadius: "12px", padding: "16px" }}>
-          <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.1rem", color: darkRed, marginBottom: "10px" }}>
+          <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "1.1rem", color: darkRed, marginBottom: "10px" }}>
             What action was taken?
           </p>
           <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "16px" }}>
@@ -674,13 +681,33 @@ const ResolveActionModal = ({
             })}
           </div>
 
-          <p style={{ fontFamily: "'Jua', sans-serif", fontSize: "0.9rem", color: "#1a1a1a", marginBottom: "6px" }}>
+          {selectedAction === "Others" && (
+            <div style={{ marginBottom: "16px" }}>
+              <p style={{ fontFamily: "'Jua', sans-serif", fontSize: "0.9rem", color: "#1a1a1a", marginBottom: "6px" }}>
+                Specify the action taken
+              </p>
+              <input
+                type="text"
+                value={otherActionText}
+                onChange={e => setOtherActionText(e.target.value)}
+                placeholder=""
+                style={{
+                  width: "100%", borderRadius: "10px",
+                  border: "1.5px solid #ddd", padding: "10px 12px",
+                  fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", color: "#1a1a1a",
+                  outline: "none", background: "white", boxSizing: "border-box",
+                }}
+              />
+            </div>
+          )}
+
+          <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem", color: "#1a1a1a", marginBottom: "6px" }}>
             How was this resolved?
           </p>
           <textarea
             value={resolutionNotes}
             onChange={e => setResolutionNotes(e.target.value)}
-            placeholder="Describe the resolution — what was found, what the company was told, what happens next..."
+            placeholder="Describe the resolution"
             style={{
               width: "100%", minHeight: "80px", borderRadius: "10px",
               border: "1.5px solid #ddd", padding: "10px 12px",
