@@ -19,6 +19,7 @@ import {
   getDoc,
   setDoc,
   updateDoc,
+  deleteDoc,
   collection,
   query,
   where,
@@ -482,38 +483,11 @@ export const createCoordinatorAccount = async (accountData, inviterUid) => {
   const inviterSnap = await getDoc(doc(db, "coordinators", inviterUid));
   const inviterData = inviterSnap.exists() ? inviterSnap.data() : {};
 
-  // Check if this email already exists in coordinators collection
+  // Check if this email already exists in coordinators collection.
+  // Transferred-out accounts are now fully deleted (see transferCoordinatorAccount),
+  // so any doc found here is a currently active coordinator — always a conflict.
   const dupSnap = await getDocs(query(collection(db, "coordinators"), where("email", "==", normalizedEmail)));
-
   if (!dupSnap.empty) {
-    const existing = dupSnap.docs[0].data();
-    const existingUid = dupSnap.docs[0].id;
-
-    // If the account was previously transferred, reactivate it
-    if (existing.status === "transferred") {
-      // Update the password in Firebase Auth using isolated app
-      await createAuthUserIsolated(normalizedEmail, password, async () => {});
-
-      // Reactivate the Firestore doc
-      await updateDoc(doc(db, "coordinators", existingUid), {
-        status: "active",
-        name: name.trim(),
-        sex,
-        contact,
-        address,
-        deptSelections: inviterData.deptSelections || [],
-        assignedIndustries: inviterData.assignedIndustries || [],
-        passwordChanged: false,
-        profileComplete: false,
-        reactivatedBy: inviterUid,
-        reactivatedAt: serverTimestamp(),
-        transferredTo: null,
-        transferredAt: null,
-      });
-      return existingUid;
-    }
-
-    // Active account already exists — block
     throw new Error("An active account with that email already exists.");
   }
 
@@ -555,7 +529,10 @@ export const createCoordinatorAccount = async (accountData, inviterUid) => {
  * @returns {Promise<string>} the new coordinator's UID
  */
 export const transferCoordinatorAccount = async (currentUid, currentEmail, currentPassword, newAccountData) => {
-  // 1. Re-authenticate the current coordinator before doing anything irreversible
+  // 1. Re-authenticate the current coordinator before doing anything irreversible.
+  // This also makes `auth.currentUser` the current coordinator on the MAIN auth
+  // instance, which is what lets step 5 below delete their own Auth account
+  // directly (a user can always delete themselves — no admin needed).
   const { user: reauthedUser } = await signInWithEmailAndPassword(auth, currentEmail.trim().toLowerCase(), currentPassword);
 
   // 2. Load the current coordinator's scope to carry over
@@ -563,69 +540,55 @@ export const transferCoordinatorAccount = async (currentUid, currentEmail, curre
   if (!currentSnap.exists()) throw new Error("Current coordinator profile not found.");
   const currentData = currentSnap.data();
 
-  // 3. Handle new coordinator account — may be a fresh email or a previously transferred one
+  // 3. New coordinator account — must be a brand-new email. Since transferred-out
+  // accounts are now fully deleted (see step 5), there is no "reactivate a
+  // transferred stub" case anymore: any existing doc with this email is a
+  // currently active coordinator, which is always a conflict.
   const { name, email, password } = newAccountData;
   const normalizedEmail = email.trim().toLowerCase();
 
   const dupSnap = await getDocs(query(collection(db, "coordinators"), where("email", "==", normalizedEmail)));
-
-  let newUid;
-
   if (!dupSnap.empty) {
-    const existing = dupSnap.docs[0].data();
-    const existingUid = dupSnap.docs[0].id;
-
-    // Allow reactivation of a previously transferred coordinator
-    if (existing.status === "transferred") {
-      // Reset their password in Firebase Auth via isolated app
-      await createAuthUserIsolated(normalizedEmail, password, async () => {});
-
-      await updateDoc(doc(db, "coordinators", existingUid), {
-        status: "active",
-        name: name.trim(),
-        deptSelections: currentData.deptSelections || [],
-        assignedIndustries: currentData.assignedIndustries || [],
-        passwordChanged: false,
-        profileComplete: false,
-        transferredFrom: currentUid,
-        transferredTo: null,
-        transferredAt: null,
-        reactivatedAt: serverTimestamp(),
-      });
-      newUid = existingUid;
-    } else {
-      throw new Error("An active account with that email already exists.");
-    }
-  } else {
-    // Fresh email — create new Firebase Auth + Firestore doc
-    newUid = await createAuthUserIsolated(normalizedEmail, password);
-    await setDoc(doc(db, "coordinators", newUid), {
-      uid: newUid,
-      name: name.trim(),
-      email: normalizedEmail,
-      sex: "",
-      contact: "",
-      address: "",
-      deptSelections: currentData.deptSelections || [],
-      assignedIndustries: currentData.assignedIndustries || [],
-      role: "coordinator",
-      status: "active",
-      passwordChanged: false,
-      profileComplete: false,
-      transferredFrom: currentUid,
-      createdAt: serverTimestamp(),
-    });
+    throw new Error("An active account with that email already exists.");
   }
 
-  // 4. Revoke the current account's access
-  await updateDoc(doc(db, "coordinators", currentUid), {
-    status: "transferred",
-    transferredTo: newUid,
-    transferredAt: serverTimestamp(),
+  const newUid = await createAuthUserIsolated(normalizedEmail, password);
+  await setDoc(doc(db, "coordinators", newUid), {
+    uid: newUid,
+    name: name.trim(),
+    email: normalizedEmail,
+    sex: "",
+    contact: "",
+    address: "",
+    deptSelections: currentData.deptSelections || [],
+    assignedIndustries: currentData.assignedIndustries || [],
+    role: "coordinator",
+    status: "active",
+    passwordChanged: false,
+    profileComplete: false,
+    transferredFrom: currentUid,
+    createdAt: serverTimestamp(),
   });
 
-  // 5. Auto-logout the current coordinator — they have no access anymore
-  await signOut(auth);
+  // 4. Fully delete the current coordinator's Firestore document — not just
+  // flag it. This frees up their email immediately (no lingering doc to
+  // collide with later, whether they sign up as a company/student/coordinator
+  // again). Deleting this doc also fires the deleteCoordinatorAuthOnDocDelete
+  // Cloud Function as a safety-net cleanup of the Auth account server-side.
+  await deleteDoc(doc(db, "coordinators", currentUid));
+
+  // 5. Delete the current coordinator's own Firebase Auth account directly.
+  // This is the client SDK's "delete the currently signed-in user" call — it
+  // does NOT require Admin SDK privileges because reauthedUser is deleting
+  // themselves, and it also immediately signs them out, so the old email is
+  // free to be reused (by a new sign-up, or by this same person again) right
+  // away rather than waiting on the Cloud Function trigger to propagate.
+  await reauthedUser.delete().catch((err) => {
+    // If this ever fails (e.g. a stale token), the Firestore doc is already
+    // gone and the deleteCoordinatorAuthOnDocDelete Cloud Function will still
+    // clean up the Auth account shortly after as a fallback.
+    console.error("[transferCoordinatorAccount] Auth self-delete failed, relying on Cloud Function fallback:", err);
+  });
 
   return newUid;
 };

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { collection, onSnapshot, query, where, orderBy, limit, doc, updateDoc } from "firebase/firestore";
 import { db } from "./firebase";
-import { changePassword } from "./AuthService";
+import { changePassword, logOut } from "./AuthService";
 
 import StudentFindCompanyScreen, { useOjtPosts } from "./StudentFindCompanyScreen";
 import StudentApplicationScreen from "./StudentApplicationScreen";
@@ -161,7 +161,6 @@ const navItems = [
   { key: "application",    label: "Application",     icon: applicationIcon },
   { key: "messages",       label: "Messages",        icon: messagesIcon },
   { key: "accountprofile", label: "Account Profile", icon: accountProfileIcon },
-  { key: "about",          label: "About",           icon: aboutIcon },
 ];
 
 // ── Shared sub-components ──────────────────────────────────────────────────────
@@ -220,7 +219,7 @@ const EmptyListPlaceholder = ({ label = "No data available" }) => (
 );
 
 // ── Sidebar nav list ───────────────────────────────────────────────────────────
-const SidebarNavList = ({ activeNav, onNavigate }) => (
+const SidebarNavList = ({ activeNav, onNavigate, onLogout }) => (
   <>
     {navItems.map((item) => (
       <div
@@ -241,7 +240,79 @@ const SidebarNavList = ({ activeNav, onNavigate }) => (
         </span>
       </div>
     ))}
+
+    {onLogout && (
+      <>
+        <div style={{ flex: 1 }} />
+        <div
+          onClick={onLogout}
+          style={{
+            display: "flex", alignItems: "center", gap: "14px",
+            padding: "15px 20px", cursor: "pointer",
+            minHeight: "56px", borderTop: "1px solid #ccc",
+          }}
+        >
+          <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#8B0000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+            <polyline points="16 17 21 12 16 7"/>
+            <line x1="21" y1="12" x2="9" y2="12"/>
+          </svg>
+          <span style={{ fontFamily: "'Jersey 25'", fontSize: "1.3rem", color: "#8B0000", fontWeight: "400" }}>
+            Log Out
+          </span>
+        </div>
+      </>
+    )}
   </>
+);
+
+// ── Logout Confirmation Modal ──────────────────────────────────────────────
+const LogoutConfirmModal = ({ onConfirm, onCancel }) => (
+  <div style={{
+    position: "fixed", inset: 0, zIndex: 9999,
+    background: "rgba(0,0,0,0.45)",
+    display: "flex", alignItems: "center", justifyContent: "center",
+    padding: "16px",
+  }}>
+    <div style={{
+      background: "white", borderRadius: "20px",
+      padding: "36px 32px", width: "clamp(280px, 85vw, 380px)",
+      display: "flex", flexDirection: "column", alignItems: "center",
+      gap: "12px", boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
+    }}>
+      <div style={{
+        width: "64px", height: "64px", borderRadius: "50%",
+        background: "#fde8e8", display: "flex",
+        alignItems: "center", justifyContent: "center", marginBottom: "4px",
+      }}>
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none"
+          stroke="#8B0000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+          <polyline points="16 17 21 12 16 7"/>
+          <line x1="21" y1="12" x2="9" y2="12"/>
+        </svg>
+      </div>
+      <p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "1.15rem", color: "#1a1a1a", margin: 0, textAlign: "center" }}>Log Out</p>
+      <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem", color: "#666", margin: 0, textAlign: "center", lineHeight: 1.5 }}>
+        Are you sure you want to log out of your account?
+      </p>
+      <div style={{ display: "flex", gap: "12px", width: "100%", marginTop: "8px" }}>
+        <button onClick={onCancel} style={{
+          flex: 1, padding: "12px", borderRadius: "30px",
+          border: "1.5px solid #ccc", background: "white",
+          fontFamily: "'Kufam', sans-serif", fontWeight: 600,
+          fontSize: "0.95rem", cursor: "pointer", color: "#555",
+        }}>Cancel</button>
+        <button onClick={onConfirm} style={{
+          flex: 1, padding: "12px", borderRadius: "30px",
+          border: "none", background: "#8B0000",
+          fontFamily: "'Kufam', sans-serif", fontWeight: 700,
+          fontSize: "0.95rem", cursor: "pointer", color: "white",
+          boxShadow: "0 3px 10px rgba(139,0,0,0.3)",
+        }}>Log Out</button>
+      </div>
+    </div>
+  </div>
 );
 
 // ── Dashboard Content ──────────────────────────────────────────────────────────
@@ -377,6 +448,23 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
   const showDrawer = isMobile || isTablet;
 
   const [drawerOpen, setDrawerOpen]             = useState(false);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+
+  const handleLogoutClick = () => {
+    setDrawerOpen(false);
+    setShowLogoutConfirm(true);
+  };
+
+  const handleLogoutConfirm = async () => {
+    setShowLogoutConfirm(false);
+    try {
+      await logOut();
+    } catch (err) {
+      console.error("Logout failed:", err);
+    } finally {
+      onLogout?.();
+    }
+  };
   const [activeNav, setActiveNav] = useState(() => sessionStorage.getItem("ojtern_student_nav") || "dashboard");
   const [recentVisited, setRecentVisited] = useState(() => {
     if (!user?.uid) return [];
@@ -607,6 +695,12 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
   return (
     <>
       <FontImport />
+      {showLogoutConfirm && (
+        <LogoutConfirmModal
+          onConfirm={handleLogoutConfirm}
+          onCancel={() => setShowLogoutConfirm(false)}
+        />
+      )}
       <div style={{ width: "100vw", height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
 
         {/* ── Top Navbar ── */}
@@ -632,69 +726,79 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
               </span>
             )}
           </div>
-          <div style={{ position: "relative" }}>
-            <div style={{ cursor: "pointer", padding: "8px", position: "relative" }} onClick={handleToggleNotifDropdown}>
-              <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
-                <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
-              </svg>
-              {unreadCount > 0 && (
-                <span style={{
-                  position: "absolute", top: "4px", right: "4px",
-                  background: "#e63946", color: "white", borderRadius: "50%",
-                  minWidth: "16px", height: "16px", fontSize: "0.65rem",
-                  fontFamily: "'Kufam', sans-serif", fontWeight: "bold",
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  padding: "0 3px", lineHeight: 1,
-                }}>
-                  {unreadCount > 9 ? "9+" : unreadCount}
-                </span>
+          <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+            <div style={{ position: "relative" }}>
+              <div style={{ cursor: "pointer", padding: "8px", position: "relative" }} onClick={handleToggleNotifDropdown}>
+                <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+                  <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+                </svg>
+                {unreadCount > 0 && (
+                  <span style={{
+                    position: "absolute", top: "4px", right: "4px",
+                    background: "#e63946", color: "white", borderRadius: "50%",
+                    minWidth: "16px", height: "16px", fontSize: "0.65rem",
+                    fontFamily: "'Kufam', sans-serif", fontWeight: "bold",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    padding: "0 3px", lineHeight: 1,
+                  }}>
+                    {unreadCount > 9 ? "9+" : unreadCount}
+                  </span>
+                )}
+              </div>
+
+              {showNotifDropdown && (
+                <>
+                  <div style={{ position: "fixed", inset: 0, zIndex: 40 }} onClick={() => setShowNotifDropdown(false)} />
+                  <div style={{
+                    position: "absolute", top: "48px", right: 0, width: "320px", maxHeight: "400px",
+                    overflowY: "auto", background: "white", border: `1px solid ${darkRed}`,
+                    borderRadius: "10px", boxShadow: "0 8px 24px rgba(0,0,0,0.18)", zIndex: 50,
+                  }}>
+                    <div style={{ padding: "12px 14px", borderBottom: "1px solid #eee", fontFamily: "'Jersey 25', sans-serif", fontSize: "1.05rem", color: darkRed }}>
+                      Notifications
+                    </div>
+                    {notifications.length === 0 ? (
+                      <div style={{ padding: "24px 14px", textAlign: "center", fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", color: "#888" }}>
+                        No notifications yet.
+                      </div>
+                    ) : (
+                      notifications.map(n => (
+                        <div
+                          key={n.id}
+                          onClick={() => {
+                            setShowNotifDropdown(false);
+                            if (n.applicationId) navigate("application", n.applicationId);
+                            if (!n.read) {
+                              updateDoc(doc(db, "notifications", n.id), { read: true }).catch(err =>
+                                console.error("Failed to mark notification as read:", err)
+                              );
+                            }
+                          }}
+                          style={{
+                            padding: "10px 14px", borderBottom: "1px solid #f2f2f2",
+                            background: n.read ? "white" : "#fff5f5",
+                            fontFamily: "'Kufam', sans-serif",
+                            cursor: n.applicationId ? "pointer" : "default",
+                          }}
+                        >
+                          <p style={{ margin: 0, fontSize: "0.82rem", color: "#333", lineHeight: 1.4 }}>{n.message}</p>
+                          <p style={{ margin: "4px 0 0", fontSize: "0.68rem", color: "#999" }}>{formatNotifTime(n.createdAt)}</p>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </>
               )}
             </div>
 
-            {showNotifDropdown && (
-              <>
-                <div style={{ position: "fixed", inset: 0, zIndex: 40 }} onClick={() => setShowNotifDropdown(false)} />
-                <div style={{
-                  position: "absolute", top: "48px", right: 0, width: "320px", maxHeight: "400px",
-                  overflowY: "auto", background: "white", border: `1px solid ${darkRed}`,
-                  borderRadius: "10px", boxShadow: "0 8px 24px rgba(0,0,0,0.18)", zIndex: 50,
-                }}>
-                  <div style={{ padding: "12px 14px", borderBottom: "1px solid #eee", fontFamily: "'Jersey 25', sans-serif", fontSize: "1.05rem", color: darkRed }}>
-                    Notifications
-                  </div>
-                  {notifications.length === 0 ? (
-                    <div style={{ padding: "24px 14px", textAlign: "center", fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", color: "#888" }}>
-                      No notifications yet.
-                    </div>
-                  ) : (
-                    notifications.map(n => (
-                      <div
-                        key={n.id}
-                        onClick={() => {
-                          setShowNotifDropdown(false);
-                          if (n.applicationId) navigate("application", n.applicationId);
-                          if (!n.read) {
-                            updateDoc(doc(db, "notifications", n.id), { read: true }).catch(err =>
-                              console.error("Failed to mark notification as read:", err)
-                            );
-                          }
-                        }}
-                        style={{
-                          padding: "10px 14px", borderBottom: "1px solid #f2f2f2",
-                          background: n.read ? "white" : "#fff5f5",
-                          fontFamily: "'Kufam', sans-serif",
-                          cursor: n.applicationId ? "pointer" : "default",
-                        }}
-                      >
-                        <p style={{ margin: 0, fontSize: "0.82rem", color: "#333", lineHeight: 1.4 }}>{n.message}</p>
-                        <p style={{ margin: "4px 0 0", fontSize: "0.68rem", color: "#999" }}>{formatNotifTime(n.createdAt)}</p>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </>
-            )}
+            <div style={{ cursor: "pointer", padding: "8px" }} onClick={() => navigate("about")} title="About">
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="9"/>
+                <path d="M12 8h.01"/>
+                <path d="M11 12h1v4h1"/>
+              </svg>
+            </div>
           </div>
         </div>
 
@@ -704,7 +808,7 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
           {/* Desktop static sidebar */}
           {isDesktop && (
             <div className="ssidebar-static">
-              <SidebarNavList activeNav={activeNav} onNavigate={navigate} />
+              <SidebarNavList activeNav={activeNav} onNavigate={navigate} onLogout={handleLogoutClick} />
             </div>
           )}
 
@@ -721,7 +825,7 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
                   <img src={logo} alt="OJTern" style={{ width: "36px", height: "36px", objectFit: "contain" }} />
                   <span style={{ fontFamily: "'Monomaniac One', sans-serif", fontSize: "1.2rem", color: "white" }}>OJTern</span>
                 </div>
-                <SidebarNavList activeNav={activeNav} onNavigate={navigate} />
+                <SidebarNavList activeNav={activeNav} onNavigate={navigate} onLogout={handleLogoutClick} />
               </div>
             </>
           )}

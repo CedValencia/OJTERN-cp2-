@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { db } from "./firebase";
+import { logOut } from "./AuthService";
 
 import CompanyCreatePostScreen        from "./CompanyCreatePostScreen";
 import CompanyApplicantsScreen     from "./CompanyApplicantsScreen";
@@ -171,11 +172,10 @@ const navItems = [
   { key: "applicants",     label: "Applicants",      icon: applicantsIcon },
   { key: "messages",       label: "Messages",        icon: messagesIcon },
   { key: "accountprofile", label: "Account Profile", icon: accountProfileIcon },
-  { key: "about",          label: "About",           icon: aboutIcon },
 ];
 
 // ── Sidebar nav list (reused in static & drawer) ───────────────────────────────
-const SidebarNav = ({ activeNav, onNavigate }) => (
+const SidebarNav = ({ activeNav, onNavigate, onLogout }) => (
   <>
     {navItems.map((item) => (
       <div
@@ -198,7 +198,79 @@ const SidebarNav = ({ activeNav, onNavigate }) => (
         </span>
       </div>
     ))}
+
+    {onLogout && (
+      <>
+        <div style={{ flex: 1 }} />
+        <div
+          onClick={onLogout}
+          style={{
+            display: "flex", alignItems: "center", gap: "14px",
+            padding: "15px 20px", cursor: "pointer",
+            minHeight: "56px", borderTop: "1px solid #ccc",
+          }}
+        >
+          <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#8B0000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+            <polyline points="16 17 21 12 16 7"/>
+            <line x1="21" y1="12" x2="9" y2="12"/>
+          </svg>
+          <span style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.3rem", color: "#8B0000" }}>
+            Log Out
+          </span>
+        </div>
+      </>
+    )}
   </>
+);
+
+// ── Logout Confirmation Modal ──────────────────────────────────────────────
+const LogoutConfirmModal = ({ onConfirm, onCancel }) => (
+  <div style={{
+    position: "fixed", inset: 0, zIndex: 9999,
+    background: "rgba(0,0,0,0.45)",
+    display: "flex", alignItems: "center", justifyContent: "center",
+    padding: "16px",
+  }}>
+    <div style={{
+      background: "white", borderRadius: "20px",
+      padding: "36px 32px", width: "clamp(280px, 85vw, 380px)",
+      display: "flex", flexDirection: "column", alignItems: "center",
+      gap: "12px", boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
+    }}>
+      <div style={{
+        width: "64px", height: "64px", borderRadius: "50%",
+        background: "#fde8e8", display: "flex",
+        alignItems: "center", justifyContent: "center", marginBottom: "4px",
+      }}>
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none"
+          stroke="#8B0000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+          <polyline points="16 17 21 12 16 7"/>
+          <line x1="21" y1="12" x2="9" y2="12"/>
+        </svg>
+      </div>
+      <p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "1.15rem", color: "#1a1a1a", margin: 0, textAlign: "center" }}>Log Out</p>
+      <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem", color: "#666", margin: 0, textAlign: "center", lineHeight: 1.5 }}>
+        Are you sure you want to log out of your account?
+      </p>
+      <div style={{ display: "flex", gap: "12px", width: "100%", marginTop: "8px" }}>
+        <button onClick={onCancel} style={{
+          flex: 1, padding: "12px", borderRadius: "30px",
+          border: "1.5px solid #ccc", background: "white",
+          fontFamily: "'Kufam', sans-serif", fontWeight: 600,
+          fontSize: "0.95rem", cursor: "pointer", color: "#555",
+        }}>Cancel</button>
+        <button onClick={onConfirm} style={{
+          flex: 1, padding: "12px", borderRadius: "30px",
+          border: "none", background: "#8B0000",
+          fontFamily: "'Kufam', sans-serif", fontWeight: 700,
+          fontSize: "0.95rem", cursor: "pointer", color: "white",
+          boxShadow: "0 3px 10px rgba(139,0,0,0.3)",
+        }}>Log Out</button>
+      </div>
+    </div>
+  </div>
 );
 
 // ── Stat card ──────────────────────────────────────────────────────────────────
@@ -493,6 +565,23 @@ const CompanyDashboardScreen = ({ user, onLogout, onAuthStateChange }) => {
   });
 
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+
+  const handleLogoutClick = () => {
+    setDrawerOpen(false);
+    setShowLogoutConfirm(true);
+  };
+
+  const handleLogoutConfirm = async () => {
+    setShowLogoutConfirm(false);
+    try {
+      await logOut();
+    } catch (err) {
+      console.error("Logout failed:", err);
+    } finally {
+      onLogout?.();
+    }
+  };
   const [posts, setPosts] = useState([]);
   const [applications, setApplications] = useState([]);
   const [pendingContact, setPendingContact] = useState(null);
@@ -638,6 +727,12 @@ const CompanyDashboardScreen = ({ user, onLogout, onAuthStateChange }) => {
   return (
     <>
       <FontImport />
+      {showLogoutConfirm && (
+        <LogoutConfirmModal
+          onConfirm={handleLogoutConfirm}
+          onCancel={() => setShowLogoutConfirm(false)}
+        />
+      )}
       <div style={{ width: "100vw", height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
 
         {/* ── Top Navbar ── */}
@@ -672,7 +767,16 @@ const CompanyDashboardScreen = ({ user, onLogout, onAuthStateChange }) => {
               </span>
             )}
           </div>
-          <NotificationBell items={notifications} open={notifOpen} onToggle={toggleNotif} />
+          <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+            <NotificationBell items={notifications} open={notifOpen} onToggle={toggleNotif} />
+            <div style={{ cursor: "pointer", padding: "8px" }} onClick={() => navigate("about")} title="About">
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="9"/>
+                <path d="M12 8h.01"/>
+                <path d="M11 12h1v4h1"/>
+              </svg>
+            </div>
+          </div>
         </div>
 
         {/* ── Body ── */}
@@ -681,7 +785,7 @@ const CompanyDashboardScreen = ({ user, onLogout, onAuthStateChange }) => {
           {/* Desktop static sidebar */}
           {isDesktop && (
             <div className="csidebar-static">
-              <SidebarNav activeNav={activeNav} onNavigate={navigate} />
+              <SidebarNav activeNav={activeNav} onNavigate={navigate} onLogout={handleLogoutClick} />
             </div>
           )}
 
@@ -702,7 +806,7 @@ const CompanyDashboardScreen = ({ user, onLogout, onAuthStateChange }) => {
                   <img src={logo} alt="OJTern" style={{ width: "36px", height: "36px", objectFit: "contain" }} />
                   <span style={{ fontFamily: "'Monomaniac One', sans-serif", fontSize: "1.2rem", color: "white" }}>OJTern</span>
                 </div>
-                <SidebarNav activeNav={activeNav} onNavigate={navigate} />
+                <SidebarNav activeNav={activeNav} onNavigate={navigate} onLogout={handleLogoutClick} />
               </div>
             </>
           )}

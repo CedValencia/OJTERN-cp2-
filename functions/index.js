@@ -98,3 +98,26 @@ exports.deleteStudentAuthOnDocDelete = onDocumentDeleted(
     }
   }
 );
+
+// Delete Firebase Auth account when a coordinator document is deleted.
+// This is a server-side safety net for the "Transfer Account" flow — the
+// client already deletes its own Auth account directly on transfer, but if
+// that step ever fails (stale token, network drop, etc.), this trigger still
+// cleans up the Auth account so the old email is guaranteed to be freed.
+exports.deleteCoordinatorAuthOnDocDelete = onDocumentDeleted(
+  { document: "coordinators/{coordinatorId}", region: "us-central1" },
+  async (event) => {
+    const coordinatorId = event.params.coordinatorId;
+    const deletedData = event.data.data();
+    const uid = deletedData.uid || coordinatorId;
+
+    try {
+      await admin.auth().deleteUser(uid);
+      console.log(`Deleted Auth account for coordinator: ${uid}`);
+    } catch (error) {
+      // Expected to fail harmlessly if the client already deleted this
+      // Auth account itself in transferCoordinatorAccount.
+      console.error(`Failed to delete Auth account for ${uid}:`, error);
+    }
+  }
+);

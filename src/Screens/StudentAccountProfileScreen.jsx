@@ -1374,61 +1374,8 @@ const InfoModal = ({ message, onClose }) => (
   </div>
 );
 
-const LogoutModal = ({ onConfirm, onCancel }) => (
-  <div style={{
-    position: "fixed", inset: 0, zIndex: 9999,
-    background: "rgba(0,0,0,0.45)",
-    display: "flex", alignItems: "center", justifyContent: "center",
-  }}>
-    <div style={{
-      background: "white", borderRadius: "20px",
-      padding: "36px 32px", width: "clamp(280px, 85vw, 380px)",
-      display: "flex", flexDirection: "column", alignItems: "center",
-      gap: "12px", boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
-    }}>
-      {/* Icon */}
-      <div style={{
-        width: "64px", height: "64px", borderRadius: "50%",
-        background: "#fde8e8", display: "flex",
-        alignItems: "center", justifyContent: "center", marginBottom: "4px",
-      }}>
-        <svg width="30" height="30" viewBox="0 0 24 24" fill="none"
-          stroke="#8B0000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
-          <polyline points="16 17 21 12 16 7"/>
-          <line x1="21" y1="12" x2="9" y2="12"/>
-        </svg>
-      </div>
-      <p style={{
-        fontFamily: "'Kufam', sans-serif", fontWeight: 700,
-        fontSize: "1.15rem", color: "#1a1a1a", margin: 0, textAlign: "center",
-      }}>Log Out</p>
-      <p style={{
-        fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem",
-        color: "#666", margin: 0, textAlign: "center", lineHeight: 1.5,
-      }}>Are you sure you want to log out of your account?</p>
-      <div style={{ display: "flex", gap: "12px", width: "100%", marginTop: "8px" }}>
-        <button onClick={onCancel} style={{
-          flex: 1, padding: "12px", borderRadius: "30px",
-          border: "1.5px solid #ccc", background: "white",
-          fontFamily: "'Kufam', sans-serif", fontWeight: 600,
-          fontSize: "0.95rem", cursor: "pointer", color: "#555",
-        }}>Cancel</button>
-        <button onClick={onConfirm} style={{
-          flex: 1, padding: "12px", borderRadius: "30px",
-          border: "none", background: "#8B0000",
-          fontFamily: "'Kufam', sans-serif", fontWeight: 700,
-          fontSize: "0.95rem", cursor: "pointer", color: "white",
-          boxShadow: "0 3px 10px rgba(139,0,0,0.3)",
-        }}>Log Out</button>
-      </div>
-    </div>
-  </div>
-);
-
 const StudentAccountProfileScreen = ({ user, onLogout }) => {
   const [view, setView] = useState("main");
-  const [showLogout, setShowLogout] = useState(false);
   const [profileName, setProfileName] = useState("");
 
   React.useEffect(() => {
@@ -1446,14 +1393,8 @@ const StudentAccountProfileScreen = ({ user, onLogout }) => {
 if (view === "privacy")      return <><ResponsiveStyles /><GlobalStyles /><PrivacySecurityScreen onBack={() => setView("main")} user={user} onLogout={onLogout} /></>;
 if (view === "terms")        return <><ResponsiveStyles /><GlobalStyles /><TermsScreen           onBack={() => setView("main")} /></>;
 
-  const handleLogoutConfirm = async () => {
-    await signOut(getAuth());
-    if (onLogout) onLogout();
-  };
-
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "#f5f5f5" }}>
-      {showLogout && <LogoutModal onConfirm={handleLogoutConfirm} onCancel={() => setShowLogout(false)} />}
       <ResponsiveStyles />
       <GlobalStyles />
 
@@ -1514,24 +1455,6 @@ if (view === "terms")        return <><ResponsiveStyles /><GlobalStyles /><Terms
           <MenuRow iconSrc={privacyIcon}      label="Reset Password"   onClick={() => setView("privacy")} />
           <MenuRow iconSrc={termsIcon}        label="Terms & Condition"    onClick={() => setView("terms")} />
         </div>
-
-        <button
-          onClick={() => setShowLogout(true)}
-          style={{
-            background: "#320000",
-            color: "white",
-            border: "none",
-            borderRadius: "30px",
-            padding: "14px clamp(28px, 8vw, 52px)",
-            fontFamily: "'Jua'",
-            fontSize: "clamp(1rem, 4vw, 1.2rem)",
-            cursor: "pointer",
-            letterSpacing: "0.03em",
-            boxShadow: "0 4px 10px rgba(0,0,0,0.3)",
-          }}
-        >
-          Log Out
-        </button>
       </div>
     </div>
   );
