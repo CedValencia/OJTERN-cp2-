@@ -2466,6 +2466,8 @@ const LocationMapPreview = ({ address, onResolved }) => {
   const [mapReady, setMapReady] = useState(!!window.mapboxgl);
   const [mapError, setMapError] = useState(false);
   const [geocoding, setGeocoding] = useState(false);
+  const [coords, setCoords]       = useState({ lat: null, lng: null });
+  const [showZoom, setShowZoom]   = useState(false);
 
   useEffect(() => {
     if (window.mapboxgl) { setMapReady(true); return; }
@@ -2491,18 +2493,6 @@ const LocationMapPreview = ({ address, onResolved }) => {
         zoom:      5,
       });
       mapRef.current.addControl(new window.mapboxgl.NavigationControl({ showCompass: false }), "top-right");
-
-      // Tap-to-zoom: a single tap/click zooms in a couple of levels centered
-      // on wherever was tapped, capped at 18 so it doesn't over-zoom. Makes
-      // the small preview map easier to explore on mobile without needing
-      // a pinch gesture.
-      mapRef.current.on("click", (e) => {
-        mapRef.current.easeTo({
-          center:   e.lngLat,
-          zoom:     Math.min(mapRef.current.getZoom() + 2, 18),
-          duration: 450,
-        });
-      });
     } catch (_) {
       setMapError(true);
     }
@@ -2526,6 +2516,7 @@ const LocationMapPreview = ({ address, onResolved }) => {
           .addTo(mapRef.current);
       }
       onResolved?.({ address, lat, lng });
+      setCoords({ lat, lng });
     }, 500);
     return () => clearTimeout(debounceRef.current);
   }, [address, mapReady]);
@@ -2548,6 +2539,74 @@ const LocationMapPreview = ({ address, onResolved }) => {
           Locating…
         </span>
       )}
+      {coords.lat != null && (
+        <button
+          onClick={() => setShowZoom(true)}
+          title="Click to view fullscreen"
+          style={{
+            position: "absolute", bottom: "10px", left: "50%", transform: "translateX(-50%)",
+            background: "rgba(0,0,0,0.6)", color: "white", border: "none", borderRadius: "16px",
+            padding: "4px 12px", fontSize: "0.72rem", fontFamily: "'Kufam', sans-serif",
+            cursor: "pointer", display: "flex", alignItems: "center", gap: "4px", zIndex: 5,
+          }}
+        >
+          🔍 Click to zoom
+        </button>
+      )}
+      {showZoom && <MapZoomModal lat={coords.lat} lng={coords.lng} onClose={() => setShowZoom(false)} />}
+    </div>
+  );
+};
+
+// ── Fullscreen map modal, opened via "Click to zoom" ───────────────────────
+const MapZoomModal = ({ lat, lng, onClose }) => {
+  const mapContainerRef = useRef(null);
+  const mapRef          = useRef(null);
+
+  useEffect(() => {
+    const loadMap = () => {
+      if (!mapContainerRef.current || mapRef.current) return;
+      window.mapboxgl.accessToken = MAPBOX_TOKEN;
+      mapRef.current = new window.mapboxgl.Map({
+        container: mapContainerRef.current,
+        style:     "mapbox://styles/mapbox/streets-v12",
+        center:    [lng, lat],
+        zoom:      15,
+      });
+      mapRef.current.addControl(new window.mapboxgl.NavigationControl(), "top-right");
+      new window.mapboxgl.Marker({ color: "#8B0000" }).setLngLat([lng, lat]).addTo(mapRef.current);
+    };
+
+    if (window.mapboxgl) { loadMap(); return; }
+    const link = document.createElement("link");
+    link.rel  = "stylesheet";
+    link.href = "https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.css";
+    document.head.appendChild(link);
+    const script = document.createElement("script");
+    script.src = "https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.js";
+    script.onload = loadMap;
+    document.head.appendChild(script);
+
+    return () => { if (mapRef.current) { mapRef.current.remove(); mapRef.current = null; } };
+  }, [lat, lng]);
+
+  return (
+    <div
+      onClick={onClose}
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: "16px" }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{ width: "min(92vw, 800px)", height: "min(85vh, 560px)", borderRadius: "16px", overflow: "hidden", position: "relative", boxShadow: "0 8px 32px rgba(0,0,0,0.4)" }}
+      >
+        <div ref={mapContainerRef} style={{ width: "100%", height: "100%" }} />
+        <button
+          onClick={onClose}
+          style={{ position: "absolute", top: "12px", left: "12px", zIndex: 10, background: "#8B0000", color: "white", border: "none", borderRadius: "20px", padding: "6px 16px", fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", cursor: "pointer", boxShadow: "0 2px 8px rgba(0,0,0,0.3)" }}
+        >
+          ✕ Close
+        </button>
+      </div>
     </div>
   );
 };
