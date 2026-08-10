@@ -9,6 +9,7 @@ const MAPBOX_TOKEN = "pk.eyJ1IjoibWFraWlpaS0iLCJhIjoiY21wbTgybHVmMmc1ZzJycTFuZXR
 const MapboxStaticView = ({ lat, lng, address }) => {
   const mapContainer = useRef(null);
   const mapRef       = useRef(null);
+  const [showZoom, setShowZoom] = useState(false);
 
   useEffect(() => {
     if (!mapContainer.current || mapRef.current) return;
@@ -43,14 +44,84 @@ const MapboxStaticView = ({ lat, lng, address }) => {
 
   if (!lat || !lng) {
     return (
-      <div style={{ width: "100%", minHeight: "200px", borderRadius: "14px", background: "#d0d8e0", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "6px" }}>
+      <div style={{ width: "100%", height: "100%", minHeight: "200px", borderRadius: "14px", background: "#d0d8e0", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "6px" }}>
         <svg width="30" height="36" viewBox="0 0 24 30" fill="#8B0000"><path d="M12 0C7.58 0 4 3.58 4 8c0 5.25 8 16 8 16s8-10.75 8-16c0-4.42-3.58-8-8-8zm0 11c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3z"/></svg>
         <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.75rem", color: "#555", textAlign: "center", padding: "0 12px" }}>{address || "No location set"}</span>
       </div>
     );
   }
 
-  return <div ref={mapContainer} style={{ width: "100%", height: "300px", borderRadius: "14px", overflow: "hidden" }} />;
+  return (
+    <div style={{ position: "relative", width: "100%", height: "100%" }}>
+      <div ref={mapContainer} style={{ width: "100%", height: "100%", borderRadius: "14px", overflow: "hidden" }} />
+      <button
+        onClick={() => setShowZoom(true)}
+        title="Click to view fullscreen"
+        style={{
+          position: "absolute", bottom: "10px", left: "50%", transform: "translateX(-50%)",
+          background: "rgba(0,0,0,0.6)", color: "white", border: "none", borderRadius: "16px",
+          padding: "4px 12px", fontSize: "0.72rem", fontFamily: "'Kufam', sans-serif",
+          cursor: "pointer", display: "flex", alignItems: "center", gap: "4px", zIndex: 5,
+        }}
+      >
+        🔍 Click to zoom
+      </button>
+      {showZoom && <MapZoomModal lat={lat} lng={lng} onClose={() => setShowZoom(false)} />}
+    </div>
+  );
+};
+
+// ── Fullscreen map modal, opened via "Click to zoom" ───────────────────────────
+const MapZoomModal = ({ lat, lng, onClose }) => {
+  const mapContainerRef = useRef(null);
+  const mapRef          = useRef(null);
+
+  useEffect(() => {
+    const loadMap = () => {
+      if (!mapContainerRef.current || mapRef.current) return;
+      window.mapboxgl.accessToken = MAPBOX_TOKEN;
+      mapRef.current = new window.mapboxgl.Map({
+        container: mapContainerRef.current,
+        style:     "mapbox://styles/mapbox/streets-v12",
+        center:    [lng, lat],
+        zoom:      15,
+      });
+      mapRef.current.addControl(new window.mapboxgl.NavigationControl(), "top-right");
+      new window.mapboxgl.Marker({ color: "#8B0000" }).setLngLat([lng, lat]).addTo(mapRef.current);
+    };
+
+    if (window.mapboxgl) { loadMap(); return; }
+    const link = document.createElement("link");
+    link.rel  = "stylesheet";
+    link.href = "https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.css";
+    document.head.appendChild(link);
+    const script = document.createElement("script");
+    script.src = "https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.js";
+    script.onload = loadMap;
+    document.head.appendChild(script);
+
+    return () => { if (mapRef.current) { mapRef.current.remove(); mapRef.current = null; } };
+  }, [lat, lng]);
+
+  return (
+    <div
+      onClick={onClose}
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: "16px" }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{ width: "min(92vw, 800px)", height: "min(85vh, 560px)", borderRadius: "16px", overflow: "hidden", position: "relative", boxShadow: "0 8px 32px rgba(0,0,0,0.4)" }}
+      >
+        <div ref={mapContainerRef} style={{ width: "100%", height: "100%" }} />
+        <button
+          onClick={onClose}
+          style={{ position: "absolute", top: "12px", left: "12px", zIndex: 10, background: "#8B0000", color: "white", border: "none", borderRadius: "20px", padding: "6px 16px", fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", cursor: "pointer", boxShadow: "0 2px 8px rgba(0,0,0,0.3)" }}
+        >
+          ✕ Close
+        </button>
+      </div>
+    </div>
+  );
 };
 
 const CLOUDINARY_CLOUD_NAME    = "doalndt5l";
@@ -58,6 +129,62 @@ const CLOUDINARY_UPLOAD_PRESET = "ojtern_docs";
 
 const red     = "#8B0000";
 const darkRed = "#590101";
+
+// ─── SUCCESS MODAL ────────────────────────────────────────────────────────────
+const SuccessModal = ({ onClose }) => {
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,0.5)",
+        zIndex: 2000,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "16px",
+      }}
+    >
+      <div
+        style={{
+          background: "white",
+          borderRadius: "16px",
+          padding: "32px 24px",
+          textAlign: "center",
+          maxWidth: "360px",
+          boxShadow: "0 8px 32px rgba(0,0,0,0.3)",
+        }}
+      >
+        <div style={{ marginBottom: "16px" }}>
+          <svg width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="#8B0000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ margin: "0 auto" }}>
+            <polyline points="20 6 9 17 4 12" />
+          </svg>
+        </div>
+        <h3 style={{ fontFamily: "'Kufam', sans-serif", fontSize: "1.3rem", color: "#333", marginBottom: "8px" }}>Report Submitted Successfully</h3>
+        <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.95rem", color: "#666", marginBottom: "24px" }}>Thank you for reporting. Our team will review your report shortly.</p>
+        <button
+          onClick={onClose}
+          style={{
+            background: "#8B0000",
+            color: "white",
+            border: "none",
+            borderRadius: "8px",
+            padding: "10px 32px",
+            fontFamily: "'Kufam', sans-serif",
+            fontSize: "1rem",
+            fontWeight: "600",
+            cursor: "pointer",
+            transition: "background 0.2s ease",
+          }}
+          onMouseEnter={(e) => (e.target.style.background = "#590101")}
+          onMouseLeave={(e) => (e.target.style.background = "#8B0000")}
+        >
+          Okay
+        </button>
+      </div>
+    </div>
+  );
+};
 
 // ── Location data (unused — replaced by free-text city search in FilterPanel) ─
 const REGIONS = [];
@@ -162,11 +289,12 @@ const ResponsiveStyles = () => (
 
     /* Map placeholder: full width on mobile */
     .coord-map-box {
-      width: 180px;
+      width: 320px;
+      height: 260px;
       flex-shrink: 0;
     }
     @media (max-width: 640px) {
-      .coord-map-box { width: 100%; min-height: 100px; }
+      .coord-map-box { width: 100%; height: 240px; }
     }
 
     /* Profile bottom bar */
@@ -246,7 +374,7 @@ const ReportModal = ({ company, onClose, onSubmit, reporter }) => {
   };
 
   const handleSubmit = async () => {
-    if (!description.trim()) { setAlertMsg("Please write a description."); return; }
+    if (!description.trim()) { setAlertMsg("Please describe your report"); return; }
     if (!attachedFile)        { setAlertMsg("Please attach a file."); return; }
     setSubmitting(true);
     setSubmitError("");
@@ -328,7 +456,7 @@ const ReportModal = ({ company, onClose, onSubmit, reporter }) => {
                 placeholder="Describe the issue..."
                 style={{ width: "100%", minHeight: "100px", border: "none", borderBottom: `2px solid ${red}`, outline: "none", fontFamily: "'Kufam', sans-serif", fontSize: "0.88rem", resize: "none", background: "transparent", color: "#222", marginBottom: "20px" }}
               />
-              <p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.95rem", marginBottom: "10px" }}>Attach File: <span style={{ color: red, fontWeight: 400, fontSize: "0.8rem" }}>(required)</span></p>
+              <p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.95rem", marginBottom: "10px" }}>Attach File:</p>
               <input ref={fileRef} type="file" accept=".png,.pdf" style={{ display: "none" }} onChange={handleFile} />
               {!attachedFile ? (
                 <div onClick={() => fileRef.current.click()} style={{ width: "80px", height: "80px", background: "#e8c8c8", borderRadius: "14px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
@@ -406,7 +534,7 @@ const CompanyProfile = ({ company, onBack, onReport, onMessageNow }) => {
             </div>
             <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "clamp(0.8rem, 2vw, 0.88rem)", color: "#444", lineHeight: 1.7 }}>{company.description}</p>
           </div>
-          <div className="coord-map-box" style={{ borderRadius: "14px", overflow: "hidden", minHeight: "130px" }}>
+          <div className="coord-map-box" style={{ borderRadius: "14px", overflow: "hidden" }}>
             <MapboxStaticView
               lat={company.postLocation?.lat || company.location?.lat}
               lng={company.postLocation?.lng || company.location?.lng}
@@ -510,12 +638,12 @@ const FilterPanel = ({ selectedIndustries, setSelectedIndustries, citySearch, se
       <hr style={{ border: "none", borderTop: "1px solid #eee", margin: "6px 0" }} />
 
       <div style={{ padding: "4px 12px 10px" }}>
-        <p style={{ fontSize: "0.78rem", fontWeight: "bold", color: darkRed, marginBottom: "6px" }}>Location (City):</p>
+        <p style={{ fontSize: "0.78rem", fontWeight: "bold", color: darkRed, marginBottom: "6px" }}>Location:</p>
         <input
           type="text"
           value={citySearch}
           onChange={e => setCitySearch(e.target.value)}
-          placeholder="e.g. Angeles, Tarlac..."
+          placeholder="e.g. Batangas City, Tarlac, Region III..."
           style={{ width: "100%", padding: "6px 10px", borderRadius: "8px", border: `1px solid ${red}`, fontSize: "0.76rem", fontFamily: "'Kufam', sans-serif", outline: "none", boxSizing: "border-box", color: darkRed }}
         />
       </div>
@@ -571,7 +699,7 @@ const CompanyCard = ({ company, onViewProfile }) => {
           onClick={() => isActive && onViewProfile(company)}
           style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.8rem", color: isActive ? red : "#aaa", fontWeight: "bold", cursor: isActive ? "pointer" : "default", display: "flex", alignItems: "center", gap: "4px", flexShrink: 0 }}
         >
-          View Profile
+          View Post
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
         </span>
       </div>
@@ -587,6 +715,7 @@ const CoordinatorFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onM
   const [view, setView]                       = useState("list");
   const [selectedCompany, setSelectedCompany] = useState(null);
   const [showReportModal, setShowReportModal] = useState(false);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [search, setSearch]                   = useState("");
   const [showFilter, setShowFilter]           = useState(false);
   const [selectedIndustries, setSelectedIndustries] = useState([]);
@@ -616,25 +745,37 @@ const CoordinatorFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onM
   const hasFilter = selectedIndustries.length > 0 || citySearch.trim();
 
   const filtered = companies.filter(c => {
-    const name = (c.company || c.name || "").toLowerCase();
+    const name = (c.companyName || c.company || c.name || "").toLowerCase();
     const industryArr = Array.isArray(c.industry) ? c.industry : (c.industry ? [c.industry] : []);
     const industry = industryArr.join(" ").toLowerCase();
-    const loc = (c.location?.city || c.location || "").toLowerCase();
-    const matchSearch   = name.includes(search.toLowerCase()) || industry.includes(search.toLowerCase()) || loc.includes(search.toLowerCase());
+    const locObj = (c.location && typeof c.location === "object") ? c.location : {};
+    // Full location text = everything actually shown on the profile's Location section
+    // (barangay, city, province, region, or a full formatted address), so searching
+    // any part of what the user sees — not just the city — will find it.
+    const fullLocationText = [
+      c.postLocation?.address,
+      locObj.fullAddress,
+      locObj.street,
+      locObj.barangay,
+      locObj.city,
+      locObj.province,
+      locObj.region,
+      typeof c.location === "string" ? c.location : null,
+    ].filter(Boolean).join(", ").toLowerCase();
+    const matchSearch   = name.includes(search.toLowerCase()) || industry.includes(search.toLowerCase()) || fullLocationText.includes(search.toLowerCase());
     const matchIndustry = selectedIndustries.length === 0 || industryArr.some(ind => selectedIndustries.includes(ind));
-    const matchCity     = !citySearch.trim() || (c.location?.city || c.location?.fullAddress || c.location || "").toLowerCase().includes(citySearch.trim().toLowerCase());
+    const matchCity     = !citySearch.trim() || fullLocationText.includes(citySearch.trim().toLowerCase());
     return matchSearch && matchIndustry && matchCity;
   });
 
-  const activeBadgeLabel = () => citySearch.trim() ? `City: ${citySearch.trim()}` : null;
+  const activeBadgeLabel = () => citySearch.trim() ? `Location: ${citySearch.trim()}` : null;
 
   const clearAllFilters = () => { setSelectedIndustries([]); setCitySearch(""); };
 
   const handleReportSubmit = (report) => {
     if (onReportSubmit) onReportSubmit(report);
     setShowReportModal(false);
-    setView("list");
-    if (onNavigateToReports) onNavigateToReports();
+    setShowSuccessModal(true);
   };
 
   if (view === "profile" && selectedCompany) {
@@ -649,6 +790,9 @@ const CoordinatorFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onM
         />
         {showReportModal && (
           <ReportModal company={selectedCompany} onClose={() => setShowReportModal(false)} onSubmit={handleReportSubmit} reporter={coordinator} />
+        )}
+        {showSuccessModal && (
+          <SuccessModal onClose={() => { setShowSuccessModal(false); if (onNavigateToReports) onNavigateToReports(); }} />
         )}
       </>
     );

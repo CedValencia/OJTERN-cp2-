@@ -17,7 +17,7 @@ import logo                 from "../icons/ojtern.png";
 import dashboardIcon        from "../icons/dashboard.png";
 import viewIcon             from "../icons/view.png";
 import companyProfileIcon   from "../icons/companyprofile.png";
-import viewCompanyIcon      from "../icons/viewcompany.png";
+import findIcon           from "../icons/find.png";
 import studentListIcon      from "../icons/studentlist.png";
 import studentPlacementIcon from "../icons/studentsplacement.png";
 import companyListIcon      from "../icons/companylist.png";
@@ -202,14 +202,13 @@ const FontImport = () => (
 // ── Nav items ──────────────────────────────────────────────────────────────────
 const navItems = [
   { key: "dashboard",         label: "Dashboard",          icon: dashboardIcon },
-  { key: "viewcompany",       label: "Find Company",      icon: viewCompanyIcon },
+  { key: "findcompany",       label: "Find Company",      icon: findIcon },
   { key: "studentsaccount",      label: "Students Account",      icon: studentListIcon },
   { key: "studentlist", label: "Student List", icon: studentPlacementIcon },
   { key: "companylist",       label: "Company List",       icon: companyListIcon },
   { key: "reportcompany",     label: "Report Company",     icon: reportCompanyIcon },
   { key: "messages",          label: "Messages",           icon: messagesIcon },
   { key: "accountprofile",    label: "Account Profile",    icon: accountProfileIcon },
-  { key: "about",             label: "About",              icon: aboutIcon },
 ];
 
 // ── Shared sub-components ──────────────────────────────────────────────────────
@@ -233,7 +232,7 @@ const EmptyListPlaceholder = ({ label = "No data available" }) => (
 );
 
 // ── Sidebar nav list (reused in static & drawer) ───────────────────────────────
-const SidebarNav = ({ activeNav, onNavigate }) => (
+const SidebarNav = ({ activeNav, onNavigate, onLogout }) => (
   <>
     {navItems.map((item) => (
       <div
@@ -254,7 +253,79 @@ const SidebarNav = ({ activeNav, onNavigate }) => (
         </span>
       </div>
     ))}
+
+    {onLogout && (
+      <>
+        <div style={{ flex: 1 }} />
+        <div
+          onClick={onLogout}
+          style={{
+            display: "flex", alignItems: "center", gap: "14px",
+            padding: "15px 20px", cursor: "pointer",
+            minHeight: "56px", borderTop: "1px solid #ccc",
+          }}
+        >
+          <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#8B0000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+            <polyline points="16 17 21 12 16 7"/>
+            <line x1="21" y1="12" x2="9" y2="12"/>
+          </svg>
+          <span style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.3rem", color: "#8B0000" }}>
+            Log Out
+          </span>
+        </div>
+      </>
+    )}
   </>
+);
+
+// ── Logout Confirmation Modal ──────────────────────────────────────────────
+const LogoutConfirmModal = ({ onConfirm, onCancel }) => (
+  <div style={{
+    position: "fixed", inset: 0, zIndex: 9999,
+    background: "rgba(0,0,0,0.45)",
+    display: "flex", alignItems: "center", justifyContent: "center",
+    padding: "16px",
+  }}>
+    <div style={{
+      background: "white", borderRadius: "20px",
+      padding: "36px 32px", width: "clamp(280px, 85vw, 380px)",
+      display: "flex", flexDirection: "column", alignItems: "center",
+      gap: "12px", boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
+    }}>
+      <div style={{
+        width: "64px", height: "64px", borderRadius: "50%",
+        background: "#fde8e8", display: "flex",
+        alignItems: "center", justifyContent: "center", marginBottom: "4px",
+      }}>
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none"
+          stroke="#8B0000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+          <polyline points="16 17 21 12 16 7"/>
+          <line x1="21" y1="12" x2="9" y2="12"/>
+        </svg>
+      </div>
+      <p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "1.15rem", color: "#1a1a1a", margin: 0, textAlign: "center" }}>Log Out</p>
+      <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem", color: "#666", margin: 0, textAlign: "center", lineHeight: 1.5 }}>
+        Are you sure you want to log out of your account?
+      </p>
+      <div style={{ display: "flex", gap: "12px", width: "100%", marginTop: "8px" }}>
+        <button onClick={onCancel} style={{
+          flex: 1, padding: "12px", borderRadius: "30px",
+          border: "1.5px solid #ccc", background: "white",
+          fontFamily: "'Kufam', sans-serif", fontWeight: 600,
+          fontSize: "0.95rem", cursor: "pointer", color: "#555",
+        }}>Cancel</button>
+        <button onClick={onConfirm} style={{
+          flex: 1, padding: "12px", borderRadius: "30px",
+          border: "none", background: "#8B0000",
+          fontFamily: "'Kufam', sans-serif", fontWeight: 700,
+          fontSize: "0.95rem", cursor: "pointer", color: "white",
+          boxShadow: "0 3px 10px rgba(139,0,0,0.3)",
+        }}>Log Out</button>
+      </div>
+    </div>
+  </div>
 );
 
 // ── Company row ────────────────────────────────────────────────────────────────
@@ -531,6 +602,23 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
   );
 
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+
+  const handleLogoutClick = () => {
+    setDrawerOpen(false);
+    setShowLogoutConfirm(true);
+  };
+
+  const handleLogoutConfirm = async () => {
+    setShowLogoutConfirm(false);
+    try {
+      await logOut();
+    } catch (err) {
+      console.error("Logout failed:", err);
+    } finally {
+      onLogout?.();
+    }
+  };
   const [recentVisited, setRecentVisited] = useState(() => {
     if (!user?.uid) return [];
     try {
@@ -635,39 +723,42 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
     return `${diffDay}d ago`;
   };
 
-  // ── Notifications: pending company registrations (scoped to this
-  //    coordinator's industries) + reports still awaiting action ────────────
-  const [pendingCompanies, setPendingCompanies]                  = useState([]);
+  // ── Notifications: company registrations (scoped to this coordinator's
+  //    industries) + reports — kept as a persistent history log rather than
+  //    an "action needed" queue, so items stay listed after being
+  //    approved/declined/resolved instead of disappearing. ────────────────
+  const [scopedCompanies, setScopedCompanies]                    = useState([]);
   useEffect(() => {
-    if (coordinatorIndustries.length === 0) { setPendingCompanies([]); return; }
+    if (coordinatorIndustries.length === 0) { setScopedCompanies([]); return; }
     const q = query(
       collection(db, "companies"),
-      where("status", "==", "pending"),
       where("industry", "array-contains-any", coordinatorIndustries.slice(0, 30))
     );
     const unsub = onSnapshot(q, (snap) => {
-      setPendingCompanies(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    }, (err) => console.error("Failed to load pending companies:", err));
+      setScopedCompanies(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    }, (err) => console.error("Failed to load companies for notifications:", err));
     return unsub;
   }, [coordinatorIndustries]);
 
   const coordinatorNotifications = React.useMemo(() => {
-    const fromCompanies = pendingCompanies.map(c => ({
+    const fromCompanies = scopedCompanies.map(c => ({
       id: `company_${c.id}`,
       message: `${c.companyName || c.name || "A company"} registered and is awaiting review.`,
       createdAt: c.createdAt,
+      kind: "company",
+      companyId: c.id,
     }));
-    const fromReports = scopedReports
-      .filter(r => (r.status || "pending") === "pending")
-      .map(r => ({
-        id: `report_${r.id}`,
-        message: `New report submitted for ${r.company}.`,
-        createdAt: r.createdAt,
-      }));
-    return [...fromCompanies, ...fromReports].sort(
-      (a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0)
-    );
-  }, [pendingCompanies, scopedReports]);
+    const fromReports = scopedReports.map(r => ({
+      id: `report_${r.id}`,
+      message: `New report submitted for ${r.company}.`,
+      createdAt: r.createdAt,
+      kind: "report",
+      reportId: r.id,
+    }));
+    return [...fromCompanies, ...fromReports]
+      .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0))
+      .slice(0, 30);
+  }, [scopedCompanies, scopedReports]);
 
   const [showNotifDropdown, setShowNotifDropdown]                = useState(false);
   const [lastSeenNotifAt, setLastSeenNotifAt]                    = useState(() =>
@@ -763,14 +854,28 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
 
   const handleViewCompany = (companyId) => {
     setDashboardCompanyId(companyId);
-    setDashboardTarget("viewcompany");
-    navigate("viewcompany");
+    setDashboardTarget("findcompany");
+    navigate("findcompany");
   };
 
   const handleViewRegistered = (companyId) => {
     setDashboardCompanyId(companyId);
     setDashboardTarget("companylist");
     navigate("companylist");
+  };
+
+  // Routes a notification tap to the right screen: a pending company
+  // registration opens that company in the Company List (where it can be
+  // reviewed/approved), a report opens its detail modal via ReportCompany.
+  const handleNotificationClick = (n) => {
+    setShowNotifDropdown(false);
+    if (n.kind === "company" && n.companyId) {
+      handleViewRegistered(n.companyId);
+    } else if (n.kind === "report" && n.reportId) {
+      const report = scopedReports.find(r => r.id === n.reportId);
+      navigate("reportcompany");
+      if (report) setViewingReport(report);
+    }
   };
 
   const renderContent = () => {
@@ -786,12 +891,12 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
       />
     );
 
-    if (activeNav === "viewcompany") return (
+    if (activeNav === "findcompany") return (
       <CoordinatorViewCompanyScreen
         onReportSubmit={handleReportSubmit}
         onNavigateToReports={() => navigate("reportcompany")}
         onMessageNow={handleMessageNow}
-        initialCompanyId={dashboardTarget === "viewcompany" ? dashboardCompanyId : placementTargetCompanyId}
+        initialCompanyId={dashboardTarget === "findcompany" ? dashboardCompanyId : placementTargetCompanyId}
         onClearInitialCompany={() => {
           setDashboardCompanyId(null);
           setDashboardTarget(null);
@@ -814,7 +919,7 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
         coordinatorColleges={coordinatorColleges}
         onNavigateToCompany={(companyId) => {
           setPlacementTargetCompanyId(companyId);
-          navigate("viewcompany");
+          navigate("findcompany");
         }}
       />
     );
@@ -831,10 +936,8 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
     if (activeNav === "messages") return (
       <CoordinatorMessagesScreen
         user={user}
-        onReportSubmit={(report) => {
-          handleReportSubmit(report);
-          navigate("reportcompany");
-        }}
+        onReportSubmit={handleReportSubmit}
+        onNavigateToReports={() => navigate("reportcompany")}
         openContact={messageTarget}
         onContactOpened={() => setMessageTarget(null)}
       />
@@ -856,6 +959,12 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
   return (
     <>
       <FontImport />
+      {showLogoutConfirm && (
+        <LogoutConfirmModal
+          onConfirm={handleLogoutConfirm}
+          onCancel={() => setShowLogoutConfirm(false)}
+        />
+      )}
       <div style={{ width: "100vw", height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
 
         {/* ── Top Navbar ── */}
@@ -969,7 +1078,11 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
                       </div>
                     ) : (
                       coordinatorNotifications.map(n => (
-                        <div key={n.id} style={{ padding: "10px 14px", borderBottom: "1px solid #f2f2f2", fontFamily: "'Kufam', sans-serif" }}>
+                        <div
+                          key={n.id}
+                          onClick={() => handleNotificationClick(n)}
+                          style={{ padding: "10px 14px", borderBottom: "1px solid #f2f2f2", fontFamily: "'Kufam', sans-serif", cursor: "pointer" }}
+                        >
                           <p style={{ margin: 0, fontSize: "0.82rem", color: "#333", lineHeight: 1.4 }}>{n.message}</p>
                           <p style={{ margin: "4px 0 0", fontSize: "0.68rem", color: "#999" }}>{formatActivityTime(n.createdAt)}</p>
                         </div>
@@ -978,6 +1091,15 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
                   </div>
                 </>
               )}
+            </div>
+
+            {/* About */}
+            <div style={{ cursor: "pointer", padding: "8px" }} onClick={() => navigate("about")} title="About">
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="9"/>
+                <path d="M12 8h.01"/>
+                <path d="M11 12h1v4h1"/>
+              </svg>
             </div>
           </div>
         </div>
@@ -988,7 +1110,7 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
           {/* Desktop static sidebar */}
           {isDesktop && (
             <div className="sidebar-static">
-              <SidebarNav activeNav={activeNav} onNavigate={navigate} />
+              <SidebarNav activeNav={activeNav} onNavigate={navigate} onLogout={handleLogoutClick} />
             </div>
           )}
 
@@ -1009,7 +1131,7 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
                   <img src={logo} alt="OJTern" style={{ width: "36px", height: "36px", objectFit: "contain" }} />
                   <span style={{ fontFamily: "'Monomaniac One', sans-serif", fontSize: "1.2rem", color: "white" }}>OJTern</span>
                 </div>
-                <SidebarNav activeNav={activeNav} onNavigate={navigate} />
+                <SidebarNav activeNav={activeNav} onNavigate={navigate} onLogout={handleLogoutClick} />
               </div>
             </>
           )}
@@ -1101,6 +1223,7 @@ const ChangePasswordModal = ({ show, currentPass, setCurrentPass, newPass, setNe
           <div style={{ position: "relative", marginBottom: "10px" }}>
             <input type={showCurrent ? "text" : "password"} placeholder="Enter Current Password:" value={currentPass}
               onChange={e => { setCurrentPass(e.target.value); setPassError(""); }}
+              onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); handleChangePassword(); } }}
               style={inputStyle(passError)} />
             <EyeBtn show={showCurrent} onToggle={() => setShowCurrent(p => !p)} />
           </div>
@@ -1112,6 +1235,7 @@ const ChangePasswordModal = ({ show, currentPass, setCurrentPass, newPass, setNe
           <div style={{ position: "relative", marginBottom: "10px" }}>
             <input type={showNew ? "text" : "password"} placeholder="Enter New Password:" value={newPass}
               onChange={e => { setNewPass(e.target.value); setPassError(""); }}
+              onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); handleChangePassword(); } }}
               style={inputStyle(passError)} />
             <EyeBtn show={showNew} onToggle={() => setShowNew(p => !p)} />
           </div>
@@ -1121,6 +1245,7 @@ const ChangePasswordModal = ({ show, currentPass, setCurrentPass, newPass, setNe
           <div style={{ position: "relative", marginBottom: "4px" }}>
             <input type={showConfirm ? "text" : "password"} placeholder="Confirm New Password:" value={confirmPass}
               onChange={e => { setConfirmPass(e.target.value); setPassError(""); }}
+              onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); handleChangePassword(); } }}
               style={inputStyle(passError)} />
             <EyeBtn show={showConfirm} onToggle={() => setShowConfirm(p => !p)} />
           </div>

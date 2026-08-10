@@ -216,7 +216,7 @@ const PlacementModal = ({ student, onClose, onNavigateToCompany, companies }) =>
 
   const companyId = application?.companyId || student.companyId || null;
   const company   = companyId ? companies.find(c => c.id === companyId) : null;
-  const fullName = `${student.firstName} ${student.middleInitial ? student.middleInitial + " " : ""}${student.lastName}${student.suffix ? " " + student.suffix : ""}`;
+  const fullName = `${student.firstName} ${student.middleInitial ? student.middleInitial + " " : ""}${student.lastName}${student.suffix && student.suffix !== "None" && student.suffix !== "N/A" ? " " + student.suffix : ""}`;
 
   const handleVisitCompany = () => {
     onClose();
@@ -446,6 +446,7 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
   const [students, setStudents]     = useState([]);
   const [companies, setCompanies]   = useState([]);
   const [loadingStudents, setLoadingStudents] = useState(true);
+  const [acceptedStudentIds, setAcceptedStudentIds] = useState(new Set());
 
   // ── Load students — scoped to this coordinator's own department(s). ──────
   // NOTE: needs a Firestore composite index (college + createdAt) the first
@@ -474,6 +475,15 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
     return () => unsub();
   }, []);
 
+  // ── Track which students have an Accepted application, to split the list ──
+  useEffect(() => {
+    const q = query(collection(db, "applications"), where("status", "==", "Accepted"));
+    const unsub = onSnapshot(q, snap => {
+      setAcceptedStudentIds(new Set(snap.docs.map(d => d.data().studentId).filter(Boolean)));
+    });
+    return () => unsub();
+  }, []);
+
 
   useEffect(() => {
     const handler = (e) => {
@@ -496,6 +506,48 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
     const matchSpec    = !filters.specialization || s.major === filters.specialization;
     return matchSearch && matchSex && matchSection && matchCollege && matchProgram && matchSpec;
   });
+
+  const acceptedStudents    = filtered.filter(s => acceptedStudentIds.has(s.id));
+  const notAcceptedStudents = filtered.filter(s => !acceptedStudentIds.has(s.id));
+
+  const renderStudentRow = (student) => {
+    const fullName = `${student.firstName} ${student.middleInitial ? student.middleInitial + " " : ""}${student.lastName}${student.suffix && student.suffix !== "None" && student.suffix !== "N/A" ? " " + student.suffix : ""}`;
+    return (
+      <div
+        key={student.id}
+        className="placement-row"
+        onClick={() => setViewingStudent(student)}
+        style={{ background: "#dadada", borderRadius: "50px", padding: "8px 14px 8px 8px", display: "flex", alignItems: "center", gap: "14px", transition: "background 0.15s", cursor: "pointer" }}
+      >
+        <StudentAvatar size={42} />
+        <div style={{ width: "1px", height: "32px", background: "rgba(0,0,0,0.12)", flexShrink: 0 }} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 600, fontSize: "0.92rem", color: "#222", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{fullName}</p>
+          {/* Meta line — reflects: Student ID, College, Program, Year & Section, Sex */}
+          <div className="sp-row-meta">
+            <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.71rem", color: "#777", whiteSpace: "nowrap", flexShrink: 0 }}>{student.studentId}</span>
+            {student.college && (
+              <>
+                <span style={{ color: "#ccc", fontSize: "0.7rem", flexShrink: 0 }}>•</span>
+                <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.71rem", color: "#777", whiteSpace: "nowrap", flexShrink: 0 }}>{student.college}</span>
+              </>
+            )}
+            {student.program && (
+              <>
+                <span style={{ color: "#ccc", fontSize: "0.7rem", flexShrink: 0 }}>•</span>
+                <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.71rem", color: "#777", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0, maxWidth: "160px" }}>{student.program}</span>
+              </>
+            )}
+            <span style={{ color: "#ccc", fontSize: "0.7rem", flexShrink: 0 }}>•</span>
+            <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.71rem", color: "#777", whiteSpace: "nowrap", flexShrink: 0 }}>{student.yearSection}</span>
+            <span style={{ color: "#ccc", fontSize: "0.7rem", flexShrink: 0 }}>•</span>
+            <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.71rem", color: "#777", whiteSpace: "nowrap", flexShrink: 0 }}>{student.sex}</span>
+          </div>
+        </div>
+        <ViewIcon onClick={(e) => { e.stopPropagation(); setViewingStudent(student); }} />
+      </div>
+    );
+  };
 
   return (
     <>
@@ -565,44 +617,35 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
 
         {/* Student list */}
         <div className="sp-list-area">
-          {filtered.map(student => {
-            const fullName = `${student.firstName} ${student.middleInitial ? student.middleInitial + " " : ""}${student.lastName}${student.suffix ? " " + student.suffix : ""}`;
-            return (
-              <div
-                key={student.id}
-                className="placement-row"
-                onClick={() => setViewingStudent(student)}
-                style={{ background: "#dadada", borderRadius: "50px", padding: "8px 14px 8px 8px", display: "flex", alignItems: "center", gap: "14px", transition: "background 0.15s", cursor: "pointer" }}
-              >
-                <StudentAvatar size={42} />
-                <div style={{ width: "1px", height: "32px", background: "rgba(0,0,0,0.12)", flexShrink: 0 }} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 600, fontSize: "0.92rem", color: "#222", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{fullName}</p>
-                  {/* Meta line — reflects: Student ID, College, Program, Year & Section, Sex */}
-                  <div className="sp-row-meta">
-                    <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.71rem", color: "#777", whiteSpace: "nowrap", flexShrink: 0 }}>{student.studentId}</span>
-                    {student.college && (
-                      <>
-                        <span style={{ color: "#ccc", fontSize: "0.7rem", flexShrink: 0 }}>•</span>
-                        <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.71rem", color: "#777", whiteSpace: "nowrap", flexShrink: 0 }}>{student.college}</span>
-                      </>
-                    )}
-                    {student.program && (
-                      <>
-                        <span style={{ color: "#ccc", fontSize: "0.7rem", flexShrink: 0 }}>•</span>
-                        <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.71rem", color: "#777", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0, maxWidth: "160px" }}>{student.program}</span>
-                      </>
-                    )}
-                    <span style={{ color: "#ccc", fontSize: "0.7rem", flexShrink: 0 }}>•</span>
-                    <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.71rem", color: "#777", whiteSpace: "nowrap", flexShrink: 0 }}>{student.yearSection}</span>
-                    <span style={{ color: "#ccc", fontSize: "0.7rem", flexShrink: 0 }}>•</span>
-                    <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.71rem", color: "#777", whiteSpace: "nowrap", flexShrink: 0 }}>{student.sex}</span>
-                  </div>
-                </div>
-                <ViewIcon onClick={(e) => { e.stopPropagation(); setViewingStudent(student); }} />
-              </div>
-            );
-          })}
+          <p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.85rem", color: darkRed, margin: "4px 0 8px" }}>
+            Accepted Students {acceptedStudents.length > 0 && `(${acceptedStudents.length})`}
+          </p>
+          {acceptedStudents.length > 0 ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "18px" }}>
+              {acceptedStudents.map(renderStudentRow)}
+            </div>
+          ) : (
+            !loadingStudents && (
+              <p style={{ textAlign: "center", color: "#aaa", fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", padding: "10px 0 18px" }}>
+                No accepted students yet.
+              </p>
+            )
+          )}
+
+          <p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.85rem", color: "#888", margin: "4px 0 8px" }}>
+             Students with no applications {notAcceptedStudents.length > 0 && `(${notAcceptedStudents.length})`}
+          </p>
+          {notAcceptedStudents.length > 0 ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+              {notAcceptedStudents.map(renderStudentRow)}
+            </div>
+          ) : (
+            !loadingStudents && (
+              <p style={{ textAlign: "center", color: "#aaa", fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", padding: "10px 0" }}>
+                None — everyone's accepted!
+              </p>
+            )
+          )}
 
           {filtered.length === 0 && (
             <div style={{ textAlign: "center", padding: "60px", color: "#aaa", fontFamily: "'Kufam', sans-serif", fontSize: "0.95rem" }}>

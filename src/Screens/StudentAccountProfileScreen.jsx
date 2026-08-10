@@ -294,7 +294,7 @@ const GlobalStyles = () => {
 
 
 // ─── PasswordInput Component ──────────────────────────────────────────────────
-const PasswordInput = ({ value, onChange, placeholder = "••••••••" }) => {
+const PasswordInput = ({ value, onChange, placeholder = "••••••••", onKeyDown }) => {
   const [show, setShow] = useState(false);
   return (
     <div style={{ position: "relative", marginBottom: "12px" }}>
@@ -302,6 +302,7 @@ const PasswordInput = ({ value, onChange, placeholder = "•••••••�
         type={show ? "text" : "password"}
         value={value}
         onChange={onChange}
+        onKeyDown={onKeyDown}
         placeholder={placeholder}
         style={{ ...fieldStyle, paddingRight: "44px" }}
       />
@@ -374,6 +375,7 @@ const MenuRow = ({ iconSrc, label, onClick }) => (
 // ─── PersonalInfoScreen Component ─────────────────────────────────────────────
 const PersonalInfoScreen = ({ onBack, user }) => {
   const [editing, setEditing] = useState(false);
+  const [showSaveSuccess, setShowSaveSuccess] = useState(false);
   const editingRef = useRef(false);
   useEffect(() => { editingRef.current = editing; }, [editing]);
   const [loading, setLoading] = useState(true);
@@ -478,7 +480,7 @@ const PersonalInfoScreen = ({ onBack, user }) => {
   };
 
   const validateMiddleInitial = (v) => {
-    if (!v) return "";
+    if (!v) return "Required";
     if (!/^[A-Z]\.$/.test(v)) return "Format: e.g. (A.)";
     return "";
   };
@@ -500,8 +502,13 @@ const PersonalInfoScreen = ({ onBack, user }) => {
     if (!form.lastName.trim())  e.lastName  = "Last name is required.";
     const miErr = validateMiddleInitial(form.middleInitial);
     if (miErr) e.middleInitial = miErr;
+    if (!form.suffix) e.suffix = "Required.";
+    if (!form.yearSection) e.yearSection = "Required.";
+    if (!form.sex) e.sex = "Required.";
     const ageErr = validateAge(form.age);
     if (ageErr) e.age = ageErr;
+    if (!form.email.trim()) e.email = "Email is required.";
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) e.email = "Invalid email address.";
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -515,7 +522,7 @@ const PersonalInfoScreen = ({ onBack, user }) => {
         middleInitial:  form.middleInitial,
         firstName:      form.firstName,
         suffix:         form.suffix,
-        fullName: form.firstName + " " + (form.middleInitial ? form.middleInitial + " " : "") + form.lastName + (form.suffix ? " " + form.suffix : ""),
+        fullName: form.firstName + " " + (form.middleInitial ? form.middleInitial + " " : "") + form.lastName + (form.suffix && form.suffix !== "None" ? " " + form.suffix : ""),
         college:        form.collegeCode,
         program:        form.programCode,
         yearSection:    form.yearSection,
@@ -523,6 +530,7 @@ const PersonalInfoScreen = ({ onBack, user }) => {
         age:            Number(form.age),
         email:          form.email,
       });
+      setShowSaveSuccess(true);
     } catch (err) {
       console.error("Failed to save profile:", err);
     }
@@ -619,7 +627,15 @@ const PersonalInfoScreen = ({ onBack, user }) => {
       <SectionHeaderBar iconSrc={personalInfoIcon} title={editing ? "Edit Personal Information" : "Personal Information"} onBack={onBack} />
 
       <div className="sap-info-body">
-        <div className="sap-info-card">
+        <div
+          className="sap-info-card"
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && e.target.tagName === "INPUT" && editing) {
+              e.preventDefault();
+              handleSave();
+            }
+          }}
+        >
 
           {!editing && (
             <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "12px" }}>
@@ -714,14 +730,25 @@ const PersonalInfoScreen = ({ onBack, user }) => {
           <div style={rowStyle}>
             {fieldLabel("Suffix")}
             {editing ? (
-              <input
-                value={form.suffix}
-                onChange={e => setField("suffix", e.target.value)}
-                placeholder="Jr. / Sr. / III"
-                style={inlineInputStyle}
-              />
+              <>
+                <select
+                  value={form.suffix}
+                  onChange={e => { setField("suffix", e.target.value); setErrors(p => ({ ...p, suffix: "" })); }}
+                  style={errors.suffix ? selectErrorStyle : selectStyle}
+                >
+                  <option value="" style={{ color: "#333" }}>Select</option>
+                  <option value="None" style={{ color: "#333" }}>None</option>
+                  <option value="Jr." style={{ color: "#333" }}>Jr.</option>
+                  <option value="Sr." style={{ color: "#333" }}>Sr.</option>
+                  <option value="II" style={{ color: "#333" }}>II</option>
+                  <option value="III" style={{ color: "#333" }}>III</option>
+                  <option value="IV" style={{ color: "#333" }}>IV</option>
+                  <option value="V" style={{ color: "#333" }}>V</option>
+                </select>
+                {errText(errors.suffix)}
+              </>
             ) : (
-              <span style={valueStyle}>{form.suffix || "—"}</span>
+              <span style={valueStyle}>{form.suffix && form.suffix !== "None" ? form.suffix : "—"}</span>
             )}
           </div>
 
@@ -868,6 +895,10 @@ const PersonalInfoScreen = ({ onBack, user }) => {
 
         </div>
       </div>
+
+      {showSaveSuccess && (
+        <StudentSaveSuccessModal onClose={() => setShowSaveSuccess(false)} />
+      )}
     </div>
   );
 };
@@ -971,9 +1002,15 @@ const ResetStep3 = ({ onDone }) => {
   const [errors, setErrors]   = useState({});
   const [showSuccess, setShowSuccess] = useState(false);
 
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter") {
+      handleSend();
+    }
+  };
+
   const handleSend = () => {
     const e = {};
-    if (newPass.length < 8)   e.newPass = "Minimum 8 characters.";
+    if (newPass.length < 8)   e.newPass = "Password must be at least 8 characters";
     if (newPass !== confirm)  e.confirm  = "Passwords do not match.";
     setErrors(e);
     if (Object.keys(e).length === 0) { setShowSuccess(true); }
@@ -986,10 +1023,10 @@ const ResetStep3 = ({ onDone }) => {
       </p>
       <hr style={{ borderColor: "#ccc", marginBottom: "18px" }} />
       <label style={{ ...labelStyle, color: "#111" }}>New Password:</label>
-      <PasswordInput value={newPass} onChange={e => setNewPass(e.target.value)} />
+      <PasswordInput value={newPass} onChange={e => setNewPass(e.target.value)} onKeyDown={handleKeyDown} />
       {errors.newPass && <p style={{ color: "red", fontSize: "0.78rem", fontFamily: "'Kufam', sans-serif", marginBottom: "8px" }}>{errors.newPass}</p>}
       <label style={{ ...labelStyle, color: "#111" }}>Confirm Password:</label>
-      <PasswordInput value={confirm} onChange={e => setConfirm(e.target.value)} />
+      <PasswordInput value={confirm} onChange={e => setConfirm(e.target.value)} onKeyDown={handleKeyDown} />
       {errors.confirm && <p style={{ color: "red", fontSize: "0.78rem", fontFamily: "'Kufam', sans-serif", marginBottom: "8px" }}>{errors.confirm}</p>}
       <div style={{ display: "flex", justifyContent: "flex-start", marginTop: "8px" }}>
         <button onClick={handleSend} style={{ background: darkRed, color: "white", border: "none", borderRadius: "20px", padding: "12px 40px", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.95rem", cursor: "pointer" }}>
@@ -1011,17 +1048,23 @@ const ResetPasswordScreen = ({ onBack, user, onLogout }) => {
   const [loading, setLoading]         = useState(false);
   const [success, setSuccess]         = useState(false);
 
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter" && !loading) {
+      handleSave();
+    }
+  };
+
   const handleSave = async () => {
     const e = {};
     if (!currentPass) e.currentPass = "Please enter your current password.";
     if (!newPass) e.newPass = "Please enter a new password.";
-    else if (newPass.length < 8) e.newPass = "Minimum 8 characters.";
+    else if (newPass.length < 8) e.newPass = "Password must be at least 8 characters.";
     if (newPass !== confirm) e.confirm = "Passwords do not match.";
     setErrors(e);
     if (Object.keys(e).length > 0) return;
     setLoading(true);
     try {
-      await changePassword(currentPass, newPass, "students", user?.uid);
+      await changePassword(currentPass, newPass, "students", user?.uid, getAuth().currentUser?.email);
       setSuccess(true);
       setCurrentPass(""); setNewPass(""); setConfirm("");
     } catch (err) {
@@ -1041,37 +1084,70 @@ const ResetPasswordScreen = ({ onBack, user, onLogout }) => {
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      {success && (
+        <div style={{
+          position: "fixed", inset: 0, zIndex: 9999,
+          background: "rgba(0,0,0,0.45)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+        }}>
+          <div style={{
+            background: "white", borderRadius: "20px",
+            padding: "36px 32px", width: "clamp(280px, 85vw, 380px)",
+            display: "flex", flexDirection: "column", alignItems: "center",
+            gap: "12px", boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
+          }}>
+            <div style={{
+              width: "64px", height: "64px", borderRadius: "50%",
+              background: "#e8f5e9", display: "flex",
+              alignItems: "center", justifyContent: "center", marginBottom: "4px",
+            }}>
+              <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#2d7a2d" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10"/>
+                <polyline points="9 12 11 14 15 10"/>
+              </svg>
+            </div>
+            <p style={{
+              fontFamily: "'Kufam', sans-serif", fontWeight: 700,
+              fontSize: "1.15rem", color: "#1a1a1a", margin: 0, textAlign: "center",
+            }}>Password Changed!</p>
+            <p style={{
+              fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem",
+              color: "#666", margin: 0, textAlign: "center", lineHeight: 1.5,
+            }}>Your password has been updated successfully. Please log in again with your new password.</p>
+            <button onClick={handleDone} style={{
+              width: "100%", padding: "12px", borderRadius: "30px",
+              border: "none", background: "#590101",
+              fontFamily: "'Kufam', sans-serif", fontWeight: 700,
+              fontSize: "0.95rem", cursor: "pointer", color: "white",
+              boxShadow: "0 3px 10px rgba(89,1,1,0.3)", marginTop: "8px",
+            }}>Done</button>
+          </div>
+        </div>
+      )}
       <SectionHeaderBar iconSrc={resetIcon} title="Reset Password" onBack={onBack} />
       <div className="sap-sub-body">
         <div style={{ background: "#e8e8e8", borderRadius: "16px", padding: "24px 28px" }}>
-          {success ? (
-            <div style={{ textAlign: "center", padding: "20px 0" }}>
-              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#2d7a2d" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ display: "block", margin: "0 auto 12px" }}><circle cx="12" cy="12" r="10"/><polyline points="9 12 11 14 15 10"/></svg>
-              <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "1rem", fontWeight: 700, color: "#2d7a2d", marginBottom: "6px" }}>Password Changed!</p>
-              <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#666", marginBottom: "20px" }}>Your password has been updated. Please log in again with your new password.</p>
-              <button onClick={handleDone} style={{ background: darkRed, color: "white", border: "none", borderRadius: "20px", padding: "10px 32px", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.95rem", cursor: "pointer" }}>Done</button>
-            </div>
-          ) : (
+          {!success && (
             <>
               <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.88rem", color: "#666", marginBottom: "18px" }}>Enter your current password, then your new password below.</p>
 
               <label style={{ ...labelStyle, color: "#111" }}>Current Password:</label>
-              <PasswordInput value={currentPass} onChange={e => { setCurrentPass(e.target.value); setErrors(p => ({ ...p, currentPass: "" })); }} />
+              <PasswordInput value={currentPass} onChange={e => { setCurrentPass(e.target.value); setErrors(p => ({ ...p, currentPass: "" })); }} onKeyDown={handleKeyDown} />
               {errors.currentPass && <p style={{ color: "red", fontSize: "0.78rem", fontFamily: "'Kufam', sans-serif", marginBottom: "8px" }}>{errors.currentPass}</p>}
 
               <label style={{ ...labelStyle, color: "#111" }}>New Password:</label>
-              <PasswordInput value={newPass} onChange={e => { setNewPass(e.target.value); setErrors(p => ({ ...p, newPass: "" })); }} />
+              <PasswordInput value={newPass} onChange={e => { setNewPass(e.target.value); setErrors(p => ({ ...p, newPass: "" })); }} onKeyDown={handleKeyDown} />
               {errors.newPass && <p style={{ color: "red", fontSize: "0.78rem", fontFamily: "'Kufam', sans-serif", marginBottom: "8px" }}>{errors.newPass}</p>}
 
               <label style={{ ...labelStyle, color: "#111" }}>Confirm Password:</label>
-              <PasswordInput value={confirm} onChange={e => { setConfirm(e.target.value); setErrors(p => ({ ...p, confirm: "" })); }} />
+              <PasswordInput value={confirm} onChange={e => { setConfirm(e.target.value); setErrors(p => ({ ...p, confirm: "" })); }} onKeyDown={handleKeyDown} />
               {errors.confirm && <p style={{ color: "red", fontSize: "0.78rem", fontFamily: "'Kufam', sans-serif", marginBottom: "8px" }}>{errors.confirm}</p>}
 
               {errors.general && <p style={{ color: "red", fontSize: "0.78rem", fontFamily: "'Kufam', sans-serif", marginBottom: "8px" }}>⚠️ {errors.general}</p>}
 
               <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "16px" }}>
                 <button onClick={handleSave} disabled={loading} style={{ background: darkRed, color: "white", border: "none", borderRadius: "20px", padding: "12px 40px", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.95rem", cursor: loading ? "not-allowed" : "pointer", opacity: loading ? 0.7 : 1 }}>
-                  {loading ? "Saving…" : "Save Password"}
+                  {loading ? "Saving…" : "Save New Password"}
                 </button>
               </div>
             </>
@@ -1216,6 +1292,46 @@ const TermsScreen = ({ onBack }) => (
 
 // ─── StudentAccountProfileScreen Component ────────────────────────────────────
 
+const StudentSaveSuccessModal = ({ onClose }) => (
+  <div style={{
+    position: "fixed", inset: 0, zIndex: 9999,
+    background: "rgba(0,0,0,0.45)",
+    display: "flex", alignItems: "center", justifyContent: "center",
+    padding: "16px",
+  }}>
+    <div style={{
+      background: "white", borderRadius: "20px",
+      padding: "36px 32px", width: "clamp(280px, 85vw, 360px)",
+      display: "flex", flexDirection: "column", alignItems: "center",
+      gap: "12px", boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
+    }}>
+      <div style={{
+        width: "64px", height: "64px", borderRadius: "50%",
+        background: "#e8f5e9", display: "flex",
+        alignItems: "center", justifyContent: "center", marginBottom: "4px",
+      }}>
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none"
+          stroke="#2d7a2d" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="20 6 9 17 4 12"/>
+        </svg>
+      </div>
+      <p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "1.15rem", color: "#1a1a1a", margin: 0 }}>
+        Saved Successfully!
+      </p>
+      <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem", color: "#666", margin: 0, textAlign: "center", lineHeight: 1.5 }}>
+        Your profile information has been updated.
+      </p>
+      <button onClick={onClose} style={{
+        marginTop: "8px", width: "100%", padding: "12px", borderRadius: "30px",
+        border: "none", background: "#8B0000",
+        fontFamily: "'Kufam', sans-serif", fontWeight: 700,
+        fontSize: "0.95rem", cursor: "pointer", color: "white",
+        boxShadow: "0 3px 10px rgba(139,0,0,0.3)",
+      }}>Done</button>
+    </div>
+  </div>
+);
+
 const InfoModal = ({ message, onClose }) => (
   <div style={{
     position: "fixed", inset: 0, zIndex: 9999,
@@ -1258,61 +1374,8 @@ const InfoModal = ({ message, onClose }) => (
   </div>
 );
 
-const LogoutModal = ({ onConfirm, onCancel }) => (
-  <div style={{
-    position: "fixed", inset: 0, zIndex: 9999,
-    background: "rgba(0,0,0,0.45)",
-    display: "flex", alignItems: "center", justifyContent: "center",
-  }}>
-    <div style={{
-      background: "white", borderRadius: "20px",
-      padding: "36px 32px", width: "clamp(280px, 85vw, 380px)",
-      display: "flex", flexDirection: "column", alignItems: "center",
-      gap: "12px", boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
-    }}>
-      {/* Icon */}
-      <div style={{
-        width: "64px", height: "64px", borderRadius: "50%",
-        background: "#fde8e8", display: "flex",
-        alignItems: "center", justifyContent: "center", marginBottom: "4px",
-      }}>
-        <svg width="30" height="30" viewBox="0 0 24 24" fill="none"
-          stroke="#8B0000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
-          <polyline points="16 17 21 12 16 7"/>
-          <line x1="21" y1="12" x2="9" y2="12"/>
-        </svg>
-      </div>
-      <p style={{
-        fontFamily: "'Kufam', sans-serif", fontWeight: 700,
-        fontSize: "1.15rem", color: "#1a1a1a", margin: 0, textAlign: "center",
-      }}>Log Out</p>
-      <p style={{
-        fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem",
-        color: "#666", margin: 0, textAlign: "center", lineHeight: 1.5,
-      }}>Are you sure you want to log out of your account?</p>
-      <div style={{ display: "flex", gap: "12px", width: "100%", marginTop: "8px" }}>
-        <button onClick={onCancel} style={{
-          flex: 1, padding: "12px", borderRadius: "30px",
-          border: "1.5px solid #ccc", background: "white",
-          fontFamily: "'Kufam', sans-serif", fontWeight: 600,
-          fontSize: "0.95rem", cursor: "pointer", color: "#555",
-        }}>Cancel</button>
-        <button onClick={onConfirm} style={{
-          flex: 1, padding: "12px", borderRadius: "30px",
-          border: "none", background: "#8B0000",
-          fontFamily: "'Kufam', sans-serif", fontWeight: 700,
-          fontSize: "0.95rem", cursor: "pointer", color: "white",
-          boxShadow: "0 3px 10px rgba(139,0,0,0.3)",
-        }}>Log Out</button>
-      </div>
-    </div>
-  </div>
-);
-
 const StudentAccountProfileScreen = ({ user, onLogout }) => {
   const [view, setView] = useState("main");
-  const [showLogout, setShowLogout] = useState(false);
   const [profileName, setProfileName] = useState("");
 
   React.useEffect(() => {
@@ -1330,14 +1393,8 @@ const StudentAccountProfileScreen = ({ user, onLogout }) => {
 if (view === "privacy")      return <><ResponsiveStyles /><GlobalStyles /><PrivacySecurityScreen onBack={() => setView("main")} user={user} onLogout={onLogout} /></>;
 if (view === "terms")        return <><ResponsiveStyles /><GlobalStyles /><TermsScreen           onBack={() => setView("main")} /></>;
 
-  const handleLogoutConfirm = async () => {
-    await signOut(getAuth());
-    if (onLogout) onLogout();
-  };
-
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "#f5f5f5" }}>
-      {showLogout && <LogoutModal onConfirm={handleLogoutConfirm} onCancel={() => setShowLogout(false)} />}
       <ResponsiveStyles />
       <GlobalStyles />
 
@@ -1398,24 +1455,6 @@ if (view === "terms")        return <><ResponsiveStyles /><GlobalStyles /><Terms
           <MenuRow iconSrc={privacyIcon}      label="Reset Password"   onClick={() => setView("privacy")} />
           <MenuRow iconSrc={termsIcon}        label="Terms & Condition"    onClick={() => setView("terms")} />
         </div>
-
-        <button
-          onClick={() => setShowLogout(true)}
-          style={{
-            background: "#320000",
-            color: "white",
-            border: "none",
-            borderRadius: "30px",
-            padding: "14px clamp(28px, 8vw, 52px)",
-            fontFamily: "'Jua'",
-            fontSize: "clamp(1rem, 4vw, 1.2rem)",
-            cursor: "pointer",
-            letterSpacing: "0.03em",
-            boxShadow: "0 4px 10px rgba(0,0,0,0.3)",
-          }}
-        >
-          Log Out
-        </button>
       </div>
     </div>
   );

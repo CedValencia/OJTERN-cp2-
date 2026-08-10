@@ -525,8 +525,53 @@ const MapboxLocationPicker = ({ value, onChange, readOnly }) => {
 };
 
 // ── Post Form Modal ───────────────────────────────────────────────────────────
-const PostFormModal = ({ post, mode, onClose, onSave, user }) => {
+// ── Discard-changes confirm modal ──────────────────────────────────────────────
+const ConfirmDiscardModal = ({ onKeepEditing, onDiscard }) => (
+  <div className="post-modal-overlay" style={{ zIndex: 1100 }}>
+    <div style={{ background: "#fff", borderRadius: "18px", maxWidth: "360px", width: "90%", padding: "26px 22px", boxShadow: "0 8px 40px rgba(0,0,0,0.35)", textAlign: "center" }}>
+      <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.4rem", color: darkRed, margin: "0 0 10px" }}>Discard changes?</p>
+      <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem", color: "#333", margin: "0 0 22px", lineHeight: 1.4 }}>
+        All your changes will be lost. Are you sure you want to cancel this change?
+      </p>
+      <div style={{ display: "flex", justifyContent: "center", gap: "10px" }}>
+        <button onClick={onKeepEditing} style={{ padding: "9px 22px", borderRadius: "22px", background: "#e6e6e6", color: "#333", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.85rem", cursor: "pointer" }}>
+          Keep Editing
+        </button>
+        <button onClick={onDiscard} style={{ padding: "9px 22px", borderRadius: "22px", background: darkRed, color: "white", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.85rem", cursor: "pointer" }}>
+          Yes, Discard
+        </button>
+      </div>
+    </div>
+  </div>
+);
+
+// ── Saved-successfully modal ───────────────────────────────────────────────────
+const SavedSuccessModal = ({ onClose }) => (
+  <div className="post-modal-overlay" style={{ zIndex: 1100 }}>
+    <div style={{ background: "#fff", borderRadius: "18px", maxWidth: "320px", width: "90%", padding: "30px 22px 24px", boxShadow: "0 8px 40px rgba(0,0,0,0.35)", textAlign: "center" }}>
+      <div style={{ width: "56px", height: "56px", borderRadius: "50%", background: "#e6f7ec", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 14px", fontSize: "1.8rem", color: "#1f9254" }}>
+        ✓
+      </div>
+      <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.4rem", color: darkRed, margin: "0 0 6px" }}>Saved successfully!</p>
+      <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#555", margin: "0 0 20px" }}>
+        Your post has been updated.
+      </p>
+      <button onClick={onClose} style={{ padding: "9px 30px", borderRadius: "22px", background: darkRed, color: "white", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.85rem", cursor: "pointer" }}>
+        OK
+      </button>
+    </div>
+  </div>
+);
+
+const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile }) => {
   const [isEditing, setIsEditing] = useState(mode === "create" || mode === "edit");
+
+  // The post's location is fixed to whatever the company has set in their
+  // Account Profile — it is never typed/edited from this form. Build the
+  // display address the same way PersonalInfoScreen does.
+  const profileLoc = companyProfile?.location || {};
+  const fixedAddress = [profileLoc.street, profileLoc.barangay, profileLoc.city, profileLoc.province, profileLoc.region]
+    .filter(Boolean).join(", ");
 
   const [form, setForm] = useState({
     benefits:         post?.benefits         || "",
@@ -538,15 +583,28 @@ const PostFormModal = ({ post, mode, onClose, onSave, user }) => {
     slot:             post?.slot ?? 1,
     phone:            post?.phone || "+63 ",
     contactEmail:     post?.contactEmail || "",
-    postLocation:     post?.postLocation || { address: "", lat: null, lng: null },
+    postLocation:     post?.postLocation || { address: fixedAddress, lat: null, lng: null },
   });
+
+  // Keep postLocation's address in lockstep with the company profile even if
+  // the profile changes while this modal is open, or if the post predates
+  // this fixed-location behavior and still has a stale/empty address.
+  useEffect(() => {
+    if (fixedAddress && form.postLocation?.address !== fixedAddress) {
+      setForm(f => ({ ...f, postLocation: { ...f.postLocation, address: fixedAddress } }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fixedAddress]);
 
   const [errors, setErrors]                         = useState({});
   const [courseErrors, setCourseErrors]             = useState([]);
   const [workingHoursErrors, setWorkingHoursErrors] = useState([]);
+  const [dirty, setDirty]                           = useState(false);
+  const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
+  const [showSaved, setShowSaved]                   = useState(false);
   const readOnly = !isEditing;
 
-  const set = (field, val) => setForm(f => ({ ...f, [field]: val }));
+  const set = (field, val) => { setForm(f => ({ ...f, [field]: val })); setDirty(true); };
 
   const validateGmail = (val) => {
     if (!val || !val.trim()) return "Email is required.";
@@ -593,7 +651,16 @@ const PostFormModal = ({ post, mode, onClose, onSave, user }) => {
     if (Object.keys(newErrors).length > 0 || hasWhError || hasCourseError) return;
 
     onSave({ ...form, workingHours: form.workingHoursList.join(", ") });
-    onClose();
+    setDirty(false);
+    setShowSaved(true);
+  };
+
+  const handleCloseClick = () => {
+    if (isEditing && dirty) {
+      setShowDiscardConfirm(true);
+    } else {
+      onClose();
+    }
   };
 
   return (
@@ -628,14 +695,29 @@ const PostFormModal = ({ post, mode, onClose, onSave, user }) => {
               <FieldError msg={errors.requirements} />
             </div>
 
-            {/* Location + Mapbox Map */}
+            {/* Location + Mapbox Map (fixed to Account Profile location — not editable here) */}
             <div style={{ width: "100%" }}>
               <FieldLabel>Location:</FieldLabel>
-              <MapboxLocationPicker
-                value={form.postLocation?.address || ""}
-                onChange={(loc) => set("postLocation", loc)}
-                readOnly={readOnly}
-              />
+              {fixedAddress ? (
+                <>
+                  <div style={{ ...pillInputReadonly, marginBottom: "8px", display: "flex", alignItems: "center", boxSizing: "border-box" }}>
+                    📍 {fixedAddress}
+                  </div>
+                  <MapboxLocationPicker
+                    key={fixedAddress}
+                    value={fixedAddress}
+                    onChange={(loc) => set("postLocation", loc)}
+                    readOnly={true}
+                  />
+                </>
+              ) : (
+                <div style={{ background: "#f0e0e0", border: `1px dashed ${darkRed}`, borderRadius: "14px", padding: "14px 16px", fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", color: darkRed }}>
+                  No location set yet. Please set your company location first.
+                </div>
+              )}
+              <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.7rem", color: "#888", margin: "4px 0 0" }}>
+                This follows your company's location.
+              </p>
             </div>
           </div>
 
@@ -740,7 +822,7 @@ const PostFormModal = ({ post, mode, onClose, onSave, user }) => {
 
         {/* Footer */}
         <div className="post-modal-footer" style={{ background: "#b0b0b0", display: "flex", justifyContent: "flex-end", gap: "10px", borderBottomLeftRadius: "20px", borderBottomRightRadius: "20px", flexShrink: 0 }}>
-          <button onClick={onClose} style={{ padding: "10px 28px", borderRadius: "24px", background: "#555", color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(0.9rem, 2.5vw, 1.1rem)", cursor: "pointer" }}>Close</button>
+          <button onClick={handleCloseClick} style={{ padding: "10px 28px", borderRadius: "24px", background: "#555", color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(0.9rem, 2.5vw, 1.1rem)", cursor: "pointer" }}>Close</button>
           {mode === "view" && !isEditing && (
             <button onClick={() => setIsEditing(true)} style={{ padding: "10px 28px", borderRadius: "24px", background: darkRed, color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(0.9rem, 2.5vw, 1.1rem)", cursor: "pointer" }}>Edit</button>
           )}
@@ -752,6 +834,17 @@ const PostFormModal = ({ post, mode, onClose, onSave, user }) => {
           )}
         </div>
       </div>
+
+      {showDiscardConfirm && (
+        <ConfirmDiscardModal
+          onKeepEditing={() => setShowDiscardConfirm(false)}
+          onDiscard={() => { setShowDiscardConfirm(false); onClose(); }}
+        />
+      )}
+
+      {showSaved && (
+        <SavedSuccessModal onClose={() => { setShowSaved(false); onClose(); }} />
+      )}
     </div>
   );
 };
@@ -785,7 +878,7 @@ const ThreeDotMenu = ({ isDisabled, onView, onToggleDisable, onDelete }) => {
 };
 
 // ── Post OJT Content ──────────────────────────────────────────────────────────
-const PostOJTContent = ({ user }) => {
+const PostOJTContent = ({ user, openPostId, onPostOpened }) => {
   const [posts, setPosts]     = useState([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal]     = useState(null);
@@ -794,6 +887,17 @@ const PostOJTContent = ({ user }) => {
   const openCreate = () => setModal({ mode: "create", post: null });
   const openView   = (post) => setModal({ mode: "view", post });
   const closeModal = () => setModal(null);
+
+  // Auto-open a specific post's details when navigated here with a target id
+  // (e.g. clicking a "Recent Post" on the dashboard).
+  useEffect(() => {
+    if (!openPostId) return;
+    const target = posts.find(p => p.id === openPostId);
+    if (target) {
+      openView(target);
+      onPostOpened?.();
+    }
+  }, [openPostId, posts, onPostOpened]);
 
   useEffect(() => {
     if (!user?.uid) return;
@@ -919,6 +1023,7 @@ const PostOJTContent = ({ user }) => {
           onClose={closeModal}
           onSave={handleSave}
           user={user}
+          companyProfile={companyProfile}
         />
       )}
     </div>
@@ -926,15 +1031,15 @@ const PostOJTContent = ({ user }) => {
 };
 
 // ── Main Screen ───────────────────────────────────────────────────────────────
-const CompanyCreatePostScreen = ({ embedded = false, user }) => (
+const CompanyCreatePostScreen = ({ embedded = false, user, openPostId, onPostOpened }) => (
   <>
     <GlobalFonts />
     <ResponsiveStyles />
     {embedded
-      ? <PostOJTContent user={user} />
+      ? <PostOJTContent user={user} openPostId={openPostId} onPostOpened={onPostOpened} />
       : (
         <div style={{ display: "flex", flexDirection: "column", height: "100vh", background: "#f0f0f0" }}>
-          <PostOJTContent user={user} />
+          <PostOJTContent user={user} openPostId={openPostId} onPostOpened={onPostOpened} />
         </div>
       )
     }

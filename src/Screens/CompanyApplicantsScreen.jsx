@@ -459,6 +459,24 @@ const AttachedFileChip = ({ file }) => {
   );
 };
 
+// ── Status-saved confirmation modal ─────────────────────────────────────────────
+const StatusSavedModal = ({ onClose }) => (
+  <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2100, padding: "16px" }}>
+    <div style={{ background: "#fff", borderRadius: "18px", maxWidth: "320px", width: "90%", padding: "30px 22px 24px", boxShadow: "0 8px 40px rgba(0,0,0,0.35)", textAlign: "center" }}>
+      <div style={{ width: "56px", height: "56px", borderRadius: "50%", background: "#e6f7ec", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 14px", fontSize: "1.8rem", color: "#1f9254" }}>
+        ✓
+      </div>
+      <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.4rem", color: darkRed, margin: "0 0 6px" }}>Status saved successfully!</p>
+      <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#555", margin: "0 0 20px" }}>
+        The applicant has been notified of this update.
+      </p>
+      <button onClick={onClose} style={{ padding: "9px 30px", borderRadius: "22px", background: darkRed, color: "white", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.85rem", cursor: "pointer" }}>
+        OK
+      </button>
+    </div>
+  </div>
+);
+
 // ── Status Description Popup ──────────────────────────────────────────────────
 const StatusDescriptionPopup = ({ status, onClose, onSend }) => {
   const [description, setDescription] = useState("");
@@ -474,8 +492,15 @@ const StatusDescriptionPopup = ({ status, onClose, onSend }) => {
         </div>
         <div style={{ margin: "16px 28px 0", borderTop: "2px solid #ccc" }} />
         <div className="ca-popup-body">
-          <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.3rem", fontWeight: "500", color: "#1a1a1a", marginBottom: "10px" }}>Write a description:</p>
+          <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.3rem", fontWeight: "500", color: "#1a1a1a", marginBottom: "10px" }}>Write a message:</p>
           <textarea value={description} onChange={e => setDescription(e.target.value)} placeholder="Write your message to the applicant..."
+            onKeyDown={e => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                onSend(description);
+                onClose();
+              }
+            }}
             style={{ width: "100%", minHeight: "90px", border: "none", outline: "none", background: "transparent", fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem", color: "#222", resize: "none", lineHeight: 1.6 }} />
         </div>
         <div className="ca-popup-footer">
@@ -495,6 +520,7 @@ const PersonalDetailsModal = ({ applicant, onClose, onStatusChange, onMessage })
   const collegeChips  = [applicant.college, applicant.program, applicant.major].filter(Boolean);
   const [pendingStatus, setPendingStatus] = useState(null);
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [showStatusSaved, setShowStatusSaved] = useState(false);
 
   return (
     <>
@@ -613,8 +639,16 @@ const PersonalDetailsModal = ({ applicant, onClose, onStatusChange, onMessage })
         <StatusDescriptionPopup
           status={pendingStatus}
           onClose={() => setPendingStatus(null)}
-          onSend={() => { onStatusChange(applicant.id, pendingStatus); setPendingStatus(null); }}
+          onSend={(description) => {
+            onStatusChange(applicant.id, pendingStatus, description);
+            setPendingStatus(null);
+            setShowStatusSaved(true);
+          }}
         />
+      )}
+
+      {showStatusSaved && (
+        <StatusSavedModal onClose={() => setShowStatusSaved(false)} />
       )}
     </>
   );
@@ -844,7 +878,7 @@ const FilterPanel = ({
 };
 
 // ── Main Screen ────────────────────────────────────────────────────────────────
-const CompanyApplicantsScreen = ({ embedded = false, onNavigateToMessages, user }) => {
+const CompanyApplicantsScreen = ({ embedded = false, onNavigateToMessages, user, openApplicantId, onApplicantOpened }) => {
   const [applicants, setApplicants] = useState([]);
 
   // Fetch applications for this company from Firestore
@@ -870,6 +904,17 @@ const CompanyApplicantsScreen = ({ embedded = false, onNavigateToMessages, user 
   const [selectedCity, setSelectedCity]         = useState("");
   const [selectedBarangay, setSelectedBarangay] = useState("");
   const [activeNav, setActiveNav]               = useState("Applicants");
+
+  // Auto-open personal details when navigated here with a specific applicant
+  // (e.g. clicking a "Recent Applicant" on the dashboard).
+  useEffect(() => {
+    if (!openApplicantId) return;
+    const target = applicants.find(a => a.id === openApplicantId);
+    if (target) {
+      setViewingApplicant(target);
+      onApplicantOpened?.();
+    }
+  }, [openApplicantId, applicants, onApplicantOpened]);
 
   const filterRef = useRef(null);
 
@@ -916,7 +961,7 @@ const CompanyApplicantsScreen = ({ embedded = false, onNavigateToMessages, user 
     "Declined":      "has been declined",
   };
 
-  const handleStatusChange = async (id, newStatus) => {
+  const handleStatusChange = async (id, newStatus, description = "") => {
     const current = applicants.find(a => a.id === id);
     // Accepted/Declined are final — no further changes.
     if (current?.status === "Accepted" || current?.status === "Declined") {
@@ -929,12 +974,13 @@ const CompanyApplicantsScreen = ({ embedded = false, onNavigateToMessages, user 
       console.warn(`Blocked status change: cannot revert from ${current?.status} back to ${newStatus}.`);
       return;
     }
+    const note = (description || "").trim();
     // Optimistic local update
-    setApplicants(prev => prev.map(a => a.id === id ? { ...a, status: newStatus } : a));
-    if (viewingApplicant?.id === id) setViewingApplicant(prev => ({ ...prev, status: newStatus }));
+    setApplicants(prev => prev.map(a => a.id === id ? { ...a, status: newStatus, statusNote: note } : a));
+    if (viewingApplicant?.id === id) setViewingApplicant(prev => ({ ...prev, status: newStatus, statusNote: note }));
     // Persist to Firestore
     try {
-      await updateDoc(doc(db, "applications", id), { status: newStatus });
+      await updateDoc(doc(db, "applications", id), { status: newStatus, statusNote: note });
 
       // When a student is accepted, the specific post they applied to has
       // one fewer open slot. Uses a transaction (not a plain increment) so
@@ -957,9 +1003,11 @@ const CompanyApplicantsScreen = ({ embedded = false, onNavigateToMessages, user 
       // Notify the student about this status change
       if (current?.studentId) {
         const statusText = STATUS_NOTIF_TEXT[newStatus] || `is now ${newStatus.toLowerCase()}`;
+        const baseMessage = `Your application on ${current.companyName || "the company"} ${statusText}.`;
         await addDoc(collection(db, "notifications"), {
           studentId:     current.studentId,
-          message:       `Your application on ${current.companyName || "the company"} ${statusText}.`,
+          message:       note ? `${baseMessage} Message from the company: "${note}"` : baseMessage,
+          companyNote:   note,
           type:          "application_status",
           applicationId: id,
           companyName:   current.companyName || "",

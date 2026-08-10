@@ -13,6 +13,7 @@ const MAPBOX_TOKEN = "pk.eyJ1IjoibWFraWlpaS0iLCJhIjoiY21wbTgybHVmMmc1ZzJycTFuZXR
 const MapboxStaticView = ({ lat, lng, address }) => {
   const mapContainer = useRef(null);
   const mapRef       = useRef(null);
+  const [showZoom, setShowZoom] = useState(false);
 
   useEffect(() => {
     if (!mapContainer.current || mapRef.current) return;
@@ -47,193 +48,145 @@ const MapboxStaticView = ({ lat, lng, address }) => {
 
   if (!lat || !lng) {
     return (
-      <div style={{ width: "100%", minHeight: "200px", borderRadius: "14px", background: "#d0d8e0", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "6px" }}>
+      <div style={{ width: "100%", height: "100%", minHeight: "200px", borderRadius: "14px", background: "#d0d8e0", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "6px" }}>
         <svg width="30" height="36" viewBox="0 0 24 30" fill="#8B0000"><path d="M12 0C7.58 0 4 3.58 4 8c0 5.25 8 16 8 16s8-10.75 8-16c0-4.42-3.58-8-8-8zm0 11c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3z"/></svg>
         <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.75rem", color: "#555", textAlign: "center", padding: "0 12px" }}>{address || "No location set"}</span>
       </div>
     );
   }
 
-  return <div ref={mapContainer} style={{ width: "100%", height: "300px", borderRadius: "14px", overflow: "hidden" }} />;
+  return (
+    <div style={{ position: "relative", width: "100%", height: "100%" }}>
+      <div ref={mapContainer} style={{ width: "100%", height: "100%", borderRadius: "14px", overflow: "hidden" }} />
+      <button
+        onClick={() => setShowZoom(true)}
+        title="Click to view fullscreen"
+        style={{
+          position: "absolute", bottom: "10px", left: "50%", transform: "translateX(-50%)",
+          background: "rgba(0,0,0,0.6)", color: "white", border: "none", borderRadius: "16px",
+          padding: "4px 12px", fontSize: "0.72rem", fontFamily: "'Kufam', sans-serif",
+          cursor: "pointer", display: "flex", alignItems: "center", gap: "4px", zIndex: 5,
+        }}
+      >
+        🔍 Click to zoom
+      </button>
+      {showZoom && <MapZoomModal lat={lat} lng={lng} onClose={() => setShowZoom(false)} />}
+    </div>
+  );
+};
+
+// ── Fullscreen map modal, opened via "Click to zoom" ───────────────────────────
+const MapZoomModal = ({ lat, lng, onClose }) => {
+  const mapContainerRef = useRef(null);
+  const mapRef          = useRef(null);
+
+  useEffect(() => {
+    const loadMap = () => {
+      if (!mapContainerRef.current || mapRef.current) return;
+      window.mapboxgl.accessToken = MAPBOX_TOKEN;
+      mapRef.current = new window.mapboxgl.Map({
+        container: mapContainerRef.current,
+        style:     "mapbox://styles/mapbox/streets-v12",
+        center:    [lng, lat],
+        zoom:      15,
+      });
+      mapRef.current.addControl(new window.mapboxgl.NavigationControl(), "top-right");
+      new window.mapboxgl.Marker({ color: "#8B0000" }).setLngLat([lng, lat]).addTo(mapRef.current);
+    };
+
+    if (window.mapboxgl) { loadMap(); return; }
+    const link = document.createElement("link");
+    link.rel  = "stylesheet";
+    link.href = "https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.css";
+    document.head.appendChild(link);
+    const script = document.createElement("script");
+    script.src = "https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.js";
+    script.onload = loadMap;
+    document.head.appendChild(script);
+
+    return () => { if (mapRef.current) { mapRef.current.remove(); mapRef.current = null; } };
+  }, [lat, lng]);
+
+  return (
+    <div
+      onClick={onClose}
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: "16px" }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{ width: "min(92vw, 800px)", height: "min(85vh, 560px)", borderRadius: "16px", overflow: "hidden", position: "relative", boxShadow: "0 8px 32px rgba(0,0,0,0.4)" }}
+      >
+        <div ref={mapContainerRef} style={{ width: "100%", height: "100%" }} />
+        <button
+          onClick={onClose}
+          style={{ position: "absolute", top: "12px", left: "12px", zIndex: 10, background: "#8B0000", color: "white", border: "none", borderRadius: "20px", padding: "6px 16px", fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", cursor: "pointer", boxShadow: "0 2px 8px rgba(0,0,0,0.3)" }}
+        >
+          ✕ Close
+        </button>
+      </div>
+    </div>
+  );
 };
 
 // ─── COLORS ───────────────────────────────────────────────────────────────────
 const red     = "#8B0000";
 const darkRed = "#590101";
 
-// ─── REGIONS ─────────────────────────────────────────────────────────────────
-// TODO: Populate from backend — list of regions > provinces > cities > barangays
-const REGIONS = [
-  {
-    name: "Region I – Ilocos Region",
-    provinces: [
-      { name: "Ilocos Norte", cities: ["Laoag","Batac","Adams","Bacarra","Badoc","Bangui","Banna","Burgos","Carasi","Currimao","Dingras","Dumalneg","Marcos","Nueva Era","Pagudpud","Paoay","Pasuquin","Piddig","Pinili","San Nicolas","Sarrat","Solsona","Vintar"] },
-      { name: "Ilocos Sur", cities: ["Vigan","Candon","Alilem","Banayoyo","Bantay","Burgos","Cabugao","Caoayan","Cervantes","Galimuyod","Gregorio del Pilar","Lidlidda","Magsingal","Nagbukel","Narvacan","Quirino","Salcedo","San Emilio","San Esteban","San Ildefonso","San Juan","San Vicente","Santa","Santa Catalina","Santa Cruz","Santa Lucia","Santa Maria","Santiago","Sigay","Sinait","Sugpon","Suyo","Tagudin"] },
-      { name: "La Union", cities: ["San Fernando","Agoo","Aringay","Bacnotan","Bagulin","Balaoan","Bangar","Bauang","Burgos","Caba","Luna","Naguilian","Pugo","Rosario","San Gabriel","San Juan","Santo Tomas","Santol","Sudipen","Tubao"] },
-      { name: "Pangasinan", cities: ["Dagupan","San Carlos","Urdaneta","Alaminos","Agno","Aguilar","Alcala","Anda","Asingan","Balungao","Bani","Basista","Bautista","Bayambang","Binalonan","Binmaley","Bolinao","Bugallon","Burgos","Calasiao","Dasol","Infanta","Labrador","Laoac","Lingayen","Mabini","Malasiqui","Manaoag","Mangaldan","Mangatarem","Mapandan","Natividad","Pozorrubio","Rosales","San Fabian","San Jacinto","San Manuel","San Nicolas","San Quintin","Santa Barbara","Santa Maria","Santo Tomas","Sison","Sual","Tayug","Umingan","Urbiztondo","Villasis"] },
-    ]
-  },
-  {
-    name: "Region II – Cagayan Valley",
-    provinces: [
-      { name: "Batanes", cities: ["Basco","Itbayat","Ivana","Mahatao","Sabtang","Uyugan"] },
-      { name: "Cagayan", cities: ["Tuguegarao","Abulug","Alcala","Allacapan","Amulung","Aparri","Baggao","Ballesteros","Buguey","Calayan","Camalaniugan","Claveria","Enrile","Gattaran","Gonzaga","Iguig","Lal-lo","Lasam","Pamplona","Peñablanca","Piat","Rizal","Sanchez-Mira","Santa Ana","Santa Praxedes","Santa Teresita","Santo Nino","Solana","Tuao"] },
-      { name: "Isabela", cities: ["Ilagan","Cauayan","Santiago","Alicia","Angadanan","Aurora","Benito Soliven","Burgos","Cabagan","Cabatuan","Cordon","Delfin Albano","Dinapigue","Divilacan","Echague","Gamu","Jones","Luna","Maconacon","Mallig","Naguilian","Palanan","Quezon","Quirino","Ramon","Reina Mercedes","Roxas","San Agustin","San Guillermo","San Isidro","San Manuel","San Mariano","San Mateo","San Pablo","Santa Maria","Santo Tomas","Tumauini"] },
-      { name: "Nueva Vizcaya", cities: ["Bayombong","Bambang","Aritao","Bagabag","Diadi","Dupax del Norte","Dupax del Sur","Kasibu","Kayapa","Quezon","Santa Fe","Solano","Villaverde"] },
-      { name: "Quirino", cities: ["Cabarroguis","Aglipay","Diffun","Maddela","Nagtipunan","Saguday"] },
-    ]
-  },
-  {
-    name: "Region III – Central Luzon",
-    provinces: [
-      { name: "Aurora", cities: ["Baler","Casiguran","Dilasag","Dinalungan","Dingalan","Dipaculao","Maria Aurora","San Luis"] },
-      { name: "Bataan", cities: ["Balanga","Abucay","Bagac","Dinalupihan","Hermosa","Limay","Mariveles","Morong","Orani","Orion","Pilar","Samal"] },
-      { name: "Bulacan", cities: ["Malolos","Meycauayan","San Jose del Monte","Angat","Balagtas","Baliuag","Bocaue","Bulakan","Bustos","Calumpit","Doña Remedios Trinidad","Guiguinto","Hagonoy","Marilao","Norzagaray","Obando","Pandi","Paombong","Plaridel","Pulilan","San Ildefonso","San Miguel","San Rafael","Santa Maria"] },
-      { name: "Nueva Ecija", cities: ["Cabanatuan","Gapan","Muñoz","Palayan","San Jose","Aliaga","Bongabon","Cabiao","Carranglan","Cuyapo","Gabaldon","General Mamerto Natividad","General Tinio","Guimba","Jaen","Laur","Licab","Llanera","Lupao","Nampicuan","Pantabangan","Peñaranda","Quezon","Rizal","San Antonio","San Isidro","San Leonardo","Santa Rosa","Santo Domingo","Science City of Muñoz","Talavera","Talugtug","Zaragoza"] },
-      { name: "Pampanga", cities: ["Angeles","San Fernando","Apalit","Arayat","Bacolor","Candaba","Floridablanca","Guagua","Lubao","Mabalacat","Macabebe","Magalang","Masantol","Mexico","Minalin","Porac","San Luis","San Simon","Santa Ana","Santa Rita","Santo Tomas","Sasmuan"] },
-      { name: "Tarlac", cities: ["Tarlac City","Anao","Bamban","Camiling","Capas","Concepcion","Gerona","La Paz","Mayantoc","Moncada","Paniqui","Pura","Ramos","San Clemente","San Jose","San Manuel","Santa Ignacia","Victoria"] },
-      { name: "Zambales", cities: ["Olongapo","Botolan","Cabangan","Candelaria","Castillejos","Iba","Masinloc","Palauig","San Antonio","San Felipe","San Marcelino","San Narciso","Santa Cruz","Subic"] },
-    ]
-  },
-  {
-    name: "Region IV-A – CALABARZON",
-    provinces: [
-      { name: "Batangas", cities: ["Batangas City","Lipa","Tanauan","Agoncillo","Alitagtag","Balayan","Balete","Bauan","Calaca","Calatagan","Cuenca","Ibaan","Laurel","Lemery","Lian","Lobo","Mabini","Malvar","Mataas na Kahoy","Nasugbu","Padre Garcia","Rosario","San Jose","San Juan","San Luis","San Nicolas","San Pascual","Santa Teresita","Santo Tomas","Taal","Talisay","Taysan","Tingloy","Tuy"] },
-      { name: "Cavite", cities: ["Cavite City","Bacoor","Dasmariñas","General Trias","Imus","Tagaytay","Trece Martires","Alfonso","Amadeo","Carmona","General Mariano Alvarez","Indang","Kawit","Magallanes","Maragondon","Mendez","Naic","Noveleta","Rosario","Silang","Tanza","Ternate"] },
-      { name: "Laguna", cities: ["San Pablo","Biñan","Calamba","Santa Rosa","Cabuyao","San Pedro","Alaminos","Bay","Calauan","Cavinti","Famy","Kalayaan","Liliw","Los Baños","Luisiana","Lumban","Mabitac","Magdalena","Majayjay","Nagcarlan","Paete","Pagsanjan","Pakil","Pangil","Pila","Rizal","Santa Cruz","Santa Maria","Siniloan","Victoria"] },
-      { name: "Quezon", cities: ["Lucena","Tayabas","Agdangan","Alabat","Atimonan","Buenavista","Burdeos","Calauag","Candelaria","Catanauan","Dolores","General Luna","General Nakar","Guinayangan","Gumaca","Infanta","Jomalig","Lopez","Lucban","Macalelon","Mauban","Mulanay","Padre Burgos","Pagbilao","Panukulan","Patnanungan","Perez","Pitogo","Plaridel","Polillo","Quezon","Real","Sampaloc","San Andres","San Antonio","San Francisco","San Narciso","Sariaya","Tagkawayan","Tiaong","Unisan"] },
-      { name: "Rizal", cities: ["Antipolo","Angono","Baras","Binangonan","Cainta","Cardona","Jala-Jala","Montalban","Morong","Navotas","Pateros","Pililla","Rodriguez","San Mateo","Taytay","Teresa"] },
-    ]
-  },
-  {
-    name: "Region IV-B – MIMAROPA",
-    provinces: [
-      { name: "Marinduque", cities: ["Boac","Buenavista","Gasan","Mogpog","Santa Cruz","Torrijos"] },
-      { name: "Occidental Mindoro", cities: ["Mamburao","Abra de Ilog","Calintaan","Looc","Lubang","Magsaysay","Paluan","Rizal","Sablayan","San Jose","Santa Cruz"] },
-      { name: "Oriental Mindoro", cities: ["Calapan","Baco","Bansud","Bongabong","Bulalacao","Gloria","Mansalay","Naujan","Pinamalayan","Pola","Puerto Galera","Roxas","San Teodoro","Socorro","Victoria"] },
-      { name: "Palawan", cities: ["Puerto Princesa","Aborlan","Agutaya","Araceli","Balabac","Bataraza","Brooke's Point","Busuanga","Cagayancillo","Coron","Culion","Cuyo","Dumaran","El Nido","Kalayaan","Linapacan","Magsaysay","Narra","Quezon","Rizal","Roxas","San Vicente","Sofronio Española","Taytay"] },
-      { name: "Romblon", cities: ["Romblon","Alcantara","Banton","Cajidiocan","Calatrava","Concepcion","Corcuera","Ferrol","Looc","Magdiwang","Odiongan","San Agustin","San Andres","San Fernando","Santa Fe","Santa Maria"] },
-    ]
-  },
-  {
-    name: "Region V – Bicol Region",
-    provinces: [
-      { name: "Albay", cities: ["Legazpi","Ligao","Tabaco","Bacacay","Camalig","Daraga","Guinobatan","Jovellar","Libon","Malilipot","Malinao","Manito","Oas","Pio Duran","Polangui","Rapu-Rapu","Santo Domingo","Tiwi"] },
-      { name: "Camarines Norte", cities: ["Daet","Basud","Capalonga","Jose Panganiban","Labo","Mercedes","Paracale","San Lorenzo Ruiz","San Vicente","Santa Elena","Talisay","Vinzons"] },
-      { name: "Camarines Sur", cities: ["Naga","Iriga","Baao","Balatan","Bato","Bombon","Buhi","Bula","Cabusao","Calabanga","Camaligan","Canaman","Caramoan","Del Gallego","Gainza","Garchitorena","Goa","Lagonoy","Libmanan","Lupi","Magarao","Milaor","Minalabac","Nabua","Ocampo","Pamplona","Pasacao","Pili","Presentacion","Ragay","Sagñay","San Fernando","San Jose","Sipocot","Siruma","Tigaon","Tinambac"] },
-      { name: "Catanduanes", cities: ["Virac","Bagamanoc","Baras","Bato","Caramoran","Gigmoto","Pandan","Panganiban","San Andres","San Miguel","Viga"] },
-      { name: "Masbate", cities: ["Masbate City","Aroroy","Baleno","Balud","Batuan","Cataingan","Cawayan","Claveria","Dimasalang","Esperanza","Mandaon","Milagros","Mobo","Monreal","Palanas","Pio V. Corpuz","Placer","San Fernando","San Jacinto","San Pascual","Uson"] },
-      { name: "Sorsogon", cities: ["Sorsogon City","Barcelona","Bulan","Bulusan","Casiguran","Castilla","Donsol","Gubat","Irosin","Juban","Magallanes","Matnog","Pilar","Prieto Diaz","Santa Magdalena"] },
-    ]
-  },
-  {
-    name: "Region VI – Western Visayas",
-    provinces: [
-      { name: "Aklan", cities: ["Kalibo","Altavas","Balete","Banga","Batan","Buruanga","Ibajay","Lezo","Libacao","Madalag","Makato","Malay","Malinao","Nabas","New Washington","Numancia","Tangalan"] },
-      { name: "Antique", cities: ["San Jose de Buenavista","Anini-y","Barbaza","Belison","Bugasong","Caluya","Culasi","Hamtic","Laua-an","Libertad","Pandan","Patnongon","San Remigio","Sebaste","Sibalom","Tibiao","Tobias Fornier","Valderrama"] },
-      { name: "Capiz", cities: ["Roxas City","Cuartero","Dao","Dumalag","Dumarao","Ivisan","Jamindan","Ma-ayon","Mambusao","Panay","Panitan","Pilar","Pontevedra","President Roxas","Sapian","Sigma","Tapaz"] },
-      { name: "Guimaras", cities: ["Jordan","Buenavista","Nueva Valencia","San Lorenzo","Sibunag"] },
-      { name: "Iloilo", cities: ["Iloilo City","Passi","Ajuy","Alimodian","Anilao","Badiangan","Balasan","Banate","Barotac Nuevo","Barotac Viejo","Batad","Bingawan","Cabatuan","Calinog","Carles","Concepcion","Dingle","Dueñas","Dumangas","Estancia","Guimbal","Igbaras","Janiuay","Lambunao","Leganes","Lemery","Leon","Maasin","Miagao","Mina","New Lucena","Oton","Pavia","Pototan","San Dionisio","San Enrique","San Joaquin","San Miguel","San Rafael","Santa Barbara","Sara","Tigbauan","Tubungan","Zarraga"] },
-      { name: "Negros Occidental", cities: ["Bacolod","Bago","Cadiz","Escalante","Himamaylan","Kabankalan","La Carlota","Sagay","San Carlos","Silay","Sipalay","Talisay","Victorias","Binalbagan","Calatrava","Candoni","Cauayan","Enrique B. Magalona","Hinigaran","Hinoba-an","Ilog","Isabela","La Castellana","Manapla","Moises Padilla","Murcia","Pontevedra","Pulupandan","Salvador Benedicto","San Enrique","Toboso","Valladolid"] },
-    ]
-  },
-  {
-    name: "Region VII – Central Visayas",
-    provinces: [
-      { name: "Bohol", cities: ["Tagbilaran","Alburquerque","Alicia","Anda","Antequera","Baclayon","Balilihan","Batuan","Bien Unido","Bilar","Buenavista","Calape","Candijay","Carmen","Catigbian","Clarin","Corella","Cortes","Dagohoy","Danao","Dauis","Dimiao","Duero","Garcia Hernandez","Getafe","Guindulman","Inabanga","Jagna","Jetafe","Lila","Loay","Loboc","Loon","Mabini","Maribojoc","Panglao","Pilar","President Carlos P. Garcia","Sagbayan","San Isidro","San Miguel","Sevilla","Sierra Bullones","Sikatuna","Talibon","Trinidad","Tubigon","Ubay","Valencia"] },
-      { name: "Cebu", cities: ["Cebu City","Mandaue","Lapu-Lapu","Toledo","Danao","Carcar","Talisay","Bogo","Naga","Alcantara","Alcoy","Alegria","Aloguinsan","Argao","Asturias","Badian","Balamban","Bantayan","Barili","Boljoon","Borbon","Carmen","Catmon","Compostela","Consolacion","Cordova","Daanbantayan","Dalaguete","Dumanjug","Ginatilan","Liloan","Madridejos","Malabuyoc","Medellin","Minglanilla","Moalboal","Oslob","Pilar","Pinamungajan","Poro","Ronda","Samboan","San Fernando","San Francisco","San Remigio","Santa Fe","Santander","Sibonga","Sogod","Tabogon","Tabuelan","Tuburan","Tudela"] },
-      { name: "Negros Oriental", cities: ["Dumaguete","Bais","Bayawan","Canlaon","Guihulngan","Tanjay","Amlan","Ayungon","Bacong","Basay","Bindoy","Dauin","Jimalalud","La Libertad","Mabinay","Manjuyod","Pamplona","San Jose","Santa Catalina","Siaton","Sibulan","Tayasan","Valencia","Vallehermoso","Zamboanguita"] },
-      { name: "Siquijor", cities: ["Siquijor","Enrique Villanueva","Larena","Lazi","Maria","San Juan"] },
-    ]
-  },
-  {
-    name: "Region VIII – Eastern Visayas",
-    provinces: [
-      { name: "Biliran", cities: ["Naval","Almeria","Biliran","Cabucgayan","Caibiran","Culaba","Kawayan","Maripipi"] },
-      { name: "Eastern Samar", cities: ["Borongan","Arteche","Balangiga","Balangkayan","Can-avid","Dolores","General MacArthur","Giporlos","Guiuan","Hernani","Jipapad","Lawaan","Llorente","Maslog","Maydolong","Mercedes","Oras","Quinapondan","Salcedo","San Julian","San Policarpo","Sulat","Taft"] },
-      { name: "Leyte", cities: ["Tacloban","Baybay","Ormoc","Alangalang","Albuera","Babatngon","Burauen","Calubian","Capoocan","Carigara","Dagami","Dulag","Hilongos","Hindang","Inopacan","Isabel","Jaro","Javier","Julita","Kananga","La Paz","Leyte","MacArthur","Mahaplag","Matag-ob","Matalom","Mayorga","Merida","Palo","Palompon","Pastrana","San Isidro","San Miguel","Santa Fe","Tabango","Tabontabon","Tanauan","Tolosa","Tunga","Villaba"] },
-      { name: "Northern Samar", cities: ["Catarman","Allen","Biri","Bobon","Capul","Catubig","Gamay","Laoang","Lapinig","Las Navas","Lavezares","Lope de Vega","Mapanas","Mondragon","Palapag","Pambujan","Rosario","San Antonio","San Isidro","San Jose","San Roque","San Vicente","Silvino Lobos","Victoria"] },
-      { name: "Samar", cities: ["Catbalogan","Basey","Calbayog","Calbiga","Daram","Gandara","Hinabangan","Jiabong","Marabut","Matuguinao","Motiong","Paranas","Pinabacdao","San Jorge","San Jose de Buan","San Sebastian","Santa Margarita","Santa Rita","Santo Niño","Tagapul-an","Talalora","Tarangnan","Villareal","Zumarraga"] },
-      { name: "Southern Leyte", cities: ["Maasin","Anahawan","Bontoc","Hinunangan","Hinundayan","Libagon","Liloan","Limasawa","Macrohon","Malitbog","Padre Burgos","Pintuyan","Saint Bernard","San Francisco","San Juan","San Ricardo","Silago","Sogod","Tomas Oppus"] },
-    ]
-  },
-  {
-    name: "Region IX – Zamboanga Peninsula",
-    provinces: [
-      { name: "Zamboanga del Norte", cities: ["Dipolog","Dapitan","Baliguian","Godod","Gutalac","Jose Dalman","Kalawit","Katipunan","La Libertad","Labason","Liloy","Manukan","Mutia","Piñan","Polanco","President Manuel A. Roxas","Rizal","Salug","San Miguel","San Pablo","Sergio Osmeña Sr.","Siayan","Sibuco","Sibutad","Sindangan","Siocon","Sirawai","Tampilisan"] },
-      { name: "Zamboanga del Sur", cities: ["Pagadian","Zamboanga City","Aurora","Bayog","Dimataling","Dinas","Dumalinao","Dumingag","Guipos","Josefina","Kumalarang","Labangan","Lakewood","Lapuyan","Mahayag","Margosatubig","Midsalip","Molave","Ramon Magsaysay","San Miguel","San Pablo","Tabina","Tambulig","Tigbao","Tukuran","Vincenzo A. Sagun"] },
-      { name: "Zamboanga Sibugay", cities: ["Ipil","Alicia","Buug","Diplahan","Imelda","Kabasalan","Mabuhay","Malangas","Naga","Olutanga","Payao","Roseller T. Lim","Siay","Talusan","Titay","Tungawan"] },
-    ]
-  },
-  {
-    name: "Region X – Northern Mindanao",
-    provinces: [
-      { name: "Bukidnon", cities: ["Malaybalay","Valencia","Baungon","Cabanglasan","Damulog","Dangcagan","Don Carlos","Impasug-ong","Kadingilan","Kalilangan","Kibawe","Kitaotao","Lantapan","Libona","Malitbog","Manolo Fortich","Maramag","Pangantucan","Quezon","San Fernando","Sumilao","Talakag"] },
-      { name: "Camiguin", cities: ["Mambajao","Catarman","Guinsiliban","Mahinog","Sagay"] },
-      { name: "Lanao del Norte", cities: ["Iligan","Bacolod","Baloi","Baroy","Kapatagan","Kauswagan","Kolambugan","Lala","Linamon","Magsaysay","Maigo","Munai","Nunungan","Pantao Ragat","Pantar","Poona Piagapo","Salvador","Sapad","Sultan Naga Dimaporo","Tagoloan","Tangkal","Tubod"] },
-      { name: "Misamis Occidental", cities: ["Oroquieta","Ozamiz","Tangub","Aloran","Baliangao","Bonifacio","Calamba","Clarin","Concepcion","Don Victoriano Chiongbian","Jimenez","Lopez Jaena","Panaon","Plaridel","Sapang Dalaga","Sinacaban","Tudela"] },
-      { name: "Misamis Oriental", cities: ["Cagayan de Oro","Gingoog","Alubijid","Balingasag","Balingoan","Binuangan","Claveria","El Salvador","Gitagum","Initao","Jasaan","Kinoguitan","Lagonglong","Laguindingan","Libertad","Lugait","Magsaysay","Manticao","Medina","Naawan","Opol","Salay","Sugbongcogon","Tagoloan","Talisayan","Villanueva"] },
-    ]
-  },
-  {
-    name: "Region XI – Davao Region",
-    provinces: [
-      { name: "Davao de Oro", cities: ["Nabunturan","Compostela","Laak","Mabini","Maco","Maragusan","Mawab","Monkayo","Montevista","New Bataan","Pantukan"] },
-      { name: "Davao del Norte", cities: ["Tagum","Panabo","Samal","Asuncion","Braulio E. Dujali","Carmen","Kapalong","New Corella","San Isidro","Santo Tomas","Talaingod"] },
-      { name: "Davao del Sur", cities: ["Digos","Bansalan","Don Marcelino","Hagonoy","Jose Abad Santos","Kiblawan","Magsaysay","Malalag","Matanao","Padada","Santa Cruz","Sulop"] },
-      { name: "Davao Occidental", cities: ["Malita","Don Marcelino","Jose Abad Santos","Sarangani","Santa Maria"] },
-      { name: "Davao Oriental", cities: ["Mati","Baganga","Banaybanay","Boston","Caraga","Cateel","Governor Generoso","Lupon","Manay","San Isidro","Tarragona"] },
-    ]
-  },
-  {
-    name: "Region XII – SOCCSKSARGEN",
-    provinces: [
-      { name: "Cotabato", cities: ["Kidapawan","Alamada","Aleosan","Antipas","Arakan","Banisilan","Carmen","Kabacan","Libungan","Magpet","Makilala","Matalam","Midsayap","Mlang","Pigkawayan","Pikit","President Roxas","Tulunan"] },
-      { name: "Sarangani", cities: ["Alabel","Glan","Kiamba","Maasim","Maitum","Malapatan","Malungon"] },
-      { name: "South Cotabato", cities: ["Koronadal","General Santos","Banga","Lake Sebu","Norala","Polomolok","Santo Niño","Surallah","T'boli","Tampakan","Tantangan","Tupi"] },
-      { name: "Sultan Kudarat", cities: ["Isulan","Tacurong","Bagumbayan","Columbio","Esperanza","Kalamansig","Lambayong","Lebak","Lutayan","Palimbang","President Quirino","Senator Ninoy Aquino"] },
-    ]
-  },
-  {
-    name: "Region XIII – Caraga",
-    provinces: [
-      { name: "Agusan del Norte", cities: ["Butuan","Cabadbaran","Buenavista","Carmen","Jabonga","Kitcharao","Las Nieves","Magallanes","Nasipit","Remedios T. Romualdez","Santiago","Tubay"] },
-      { name: "Agusan del Sur", cities: ["Prosperidad","Bayugan","Bunawan","Esperanza","La Paz","Loreto","Rosario","San Francisco","San Luis","Santa Josefa","Sibagat","Talacogon","Trento","Veruela"] },
-      { name: "Dinagat Islands", cities: ["San Jose","Basilisa","Cagdianao","Dinagat","Libjo","Loreto","Tubajon"] },
-      { name: "Surigao del Norte", cities: ["Surigao City","Alegria","Bacuag","Burgos","Claver","Dapa","Del Carmen","General Luna","Gigaquit","Mainit","Malimono","Pilar","Placer","San Benito","San Francisco","San Isidro","Santa Monica","Sison","Socorro","Tagana-an","Tubod"] },
-      { name: "Surigao del Sur", cities: ["Tandag","Bislig","Barobo","Bayabas","Cagwait","Cantilan","Carmen","Carrascal","Cortes","Hinatuan","Lanuza","Lianga","Lingig","Madrid","Marihatag","San Agustin","San Miguel","Tago","Tagbina"] },
-    ]
-  },
-  {
-    name: "CAR – Cordillera Administrative Region",
-    provinces: [
-      { name: "Abra", cities: ["Bangued","Boliney","Bucay","Bucloc","Daguioman","Danglas","Dolores","La Paz","Lacub","Lagayan","Langiden","Licuan-Baay","Luba","Malibcong","Manabo","Peñarrubia","Pidigan","Pilar","Sallapadan","San Isidro","San Juan","San Quintin","Tayum","Tineg","Tubo","Villaviciosa"] },
-      { name: "Apayao", cities: ["Calanasan","Conner","Flora","Kabugao","Luna","Pudtol","Santa Marcela"] },
-      { name: "Benguet", cities: ["La Trinidad","Baguio","Atok","Bakun","Bokod","Buguias","Itogon","Kabayan","Kapangan","Kibungan","La Trinidad","Mankayan","Sablan","Tuba","Tublay"] },
-      { name: "Ifugao", cities: ["Lagawe","Alfonso Lista","Aguinaldo","Asipulo","Banaue","Hingyon","Hungduan","Kiangan","Lamut","Mayoyao","Tinoc"] },
-      { name: "Kalinga", cities: ["Tabuk","Balbalan","Lubuagan","Pasil","Pinukpuk","Rizal","Tanudan","Tinglayan"] },
-      { name: "Mountain Province", cities: ["Bontoc","Bauko","Besao","Natonin","Paracelis","Sabangan","Sadanga","Tadian"] },
-    ]
-  },
-  {
-    name: "NCR – National Capital Region",
-    provinces: [
-      { name: "Metro Manila", cities: ["Manila","Quezon City","Caloocan","Las Piñas","Makati","Malabon","Mandaluyong","Marikina","Muntinlupa","Navotas","Parañaque","Pasay","Pasig","Pateros","San Juan","Taguig","Valenzuela"] },
-    ]
-  },
-  {
-    name: "BARMM – Bangsamoro Autonomous Region",
-    provinces: [
-      { name: "Basilan", cities: ["Isabela City","Akbar","Al-Barka","Hadji Mohammad Ajul","Hadji Muhtamad","Lamitan","Lantawan","Maluso","Sumisip","Tabuan-Lasa","Tipo-Tipo","Tuburan","Ungkaya Pukan"] },
-      { name: "Lanao del Sur", cities: ["Marawi","Bacolod-Kalawi","Balabagan","Balindong","Bayang","Binidayan","Buadiposo-Buntong","Bubong","Bumbaran","Butig","Calanogas","Ditsaan-Ramain","Ganassi","Kapai","Kapatagan","Lumba-Bayabao","Lumbac","Lumbatan","Lumbayanague","Madalum","Madamba","Maguing","Malabang","Marantao","Marogong","Masiu","Mulondo","Pagayawan","Piagapo","Poona Bayabao","Pualas","Saguiaran","Sultan Dumalondong","Tagoloan II","Tamparan","Taraka","Tubaran","Tugaya","Wao"] },
-      { name: "Maguindanao del Norte", cities: ["Datu Odin Sinsuat","Barira","Buldon","Datu Blah T. Sinsuat","Datu Paglas","Dinaig","Kabuntalan","Matanog","Northern Kabuntalan","Parang","Sultan Mastura","Sultan Sa Barongis","Upi"] },
-      { name: "Maguindanao del Sur", cities: ["Buluan","Datu Abdullah Sangki","Datu Anggal Midtimbang","Datu Hoffer Ampatuan","Datu Piang","Datu Salibo","Datu Saudi-Ampatuan","Datu Unsay","Gen. Salipada K. Pendatun","Guindulungan","Mamasapano","Mangudadatu","Pagalungan","Paglat","Pandag","Rajah Buayan","Shariff Aguak","Shariff Saydona Mustapha","South Upi","Sultan Kudarat","Sultan sa Barongis","Talayan","Talitay"] },
-      { name: "Sulu", cities: ["Jolo","Hadji Panglima Tahil","Indanan","Kalingalan Caluang","Lugus","Luuk","Maimbung","Old Panamao","Omar","Pandami","Panglima Estino","Pangutaran","Parang","Pata","Patikul","Siasi","Talipao","Tapul","Tongkil"] },
-      { name: "Tawi-Tawi", cities: ["Bongao","Languyan","Mapun","Panglima Sugala","Sapa-Sapa","Sibutu","Simunul","Sitangkai","South Ubian","Tandubas","Turtle Islands"] },
-    ]
-  },
-];
-
+// ─── SUCCESS MODAL ────────────────────────────────────────────────────────────
+const SuccessModal = ({ onClose }) => {
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,0.5)",
+        zIndex: 2000,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "16px",
+      }}
+    >
+      <div
+        style={{
+          background: "white",
+          borderRadius: "16px",
+          padding: "32px 24px",
+          textAlign: "center",
+          maxWidth: "360px",
+          boxShadow: "0 8px 32px rgba(0,0,0,0.3)",
+        }}
+      >
+        <div style={{ marginBottom: "16px" }}>
+          <svg width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="#8B0000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ margin: "0 auto" }}>
+            <polyline points="20 6 9 17 4 12" />
+          </svg>
+        </div>
+        <h3 style={{ fontFamily: "'Kufam', sans-serif", fontSize: "1.3rem", color: "#333", marginBottom: "8px" }}>Report Submitted Successfully</h3>
+        <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.95rem", color: "#666", marginBottom: "24px" }}>Thank you for reporting. Our team will review your report shortly.</p>
+        <button
+          onClick={onClose}
+          style={{
+            background: "#8B0000",
+            color: "white",
+            border: "none",
+            borderRadius: "8px",
+            padding: "10px 32px",
+            fontFamily: "'Kufam', sans-serif",
+            fontSize: "1rem",
+            fontWeight: "600",
+            cursor: "pointer",
+            transition: "background 0.2s ease",
+          }}
+          onMouseEnter={(e) => (e.target.style.background = "#590101")}
+          onMouseLeave={(e) => (e.target.style.background = "#8B0000")}
+        >
+          Okay
+        </button>
+      </div>
+    </div>
+  );
+};
 
 // ─── INDUSTRIES ───────────────────────────────────────────────────────────────
 const INDUSTRIES = [
@@ -323,11 +276,12 @@ const ResponsiveStyles = () => (
 
     /* Map placeholder: fixed width on desktop, full width on mobile */
     .stud-map-box {
-      width: 180px;
+      width: 320px;
+      height: 260px;
       flex-shrink: 0;
     }
     @media (max-width: 640px) {
-      .stud-map-box { width: 100%; min-height: 100px; }
+      .stud-map-box { width: 100%; height: 240px; }
     }
 
     /* Profile bottom bar padding */
@@ -518,7 +472,7 @@ const ReportModal = ({ company, onClose, onSubmit, reporter }) => {
                   boxSizing: "border-box",
                 }}
               />
-              <p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.95rem", marginBottom: "10px" }}>Attach File: <span style={{ color: red, fontWeight: 400, fontSize: "0.8rem" }}>(required)</span></p>
+              <p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.95rem", marginBottom: "10px" }}>Attach File:</p>
               <input ref={fileRef} type="file" accept=".png,.pdf" style={{ display: "none" }} onChange={handleFile} />
               {!attachedFile ? (
                 <div onClick={() => fileRef.current.click()} style={{ width: "80px", height: "80px", background: "#e8c8c8", borderRadius: "14px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
@@ -581,7 +535,7 @@ const CompanyProfile = ({ company, onBack, onReport, onMessageNow, onApplyNow })
             </div>
             <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "clamp(0.8rem, 2vw, 0.88rem)", color: "#444", lineHeight: 1.7 }}>{company.description}</p>
           </div>
-          <div className="stud-map-box" style={{ borderRadius: "14px", overflow: "hidden", minHeight: "130px" }}>
+          <div className="stud-map-box" style={{ borderRadius: "14px", overflow: "hidden" }}>
             <MapboxStaticView
               lat={company.postLocation?.lat}
               lng={company.postLocation?.lng}
@@ -672,12 +626,12 @@ const FilterPanel = ({ selectedIndustries, setSelectedIndustries, citySearch, se
       </div>
       <hr style={{ border: "none", borderTop: "1px solid #eee", margin: "6px 0" }} />
       <div style={{ padding: "4px 12px 10px" }}>
-        <p style={{ fontSize: "0.78rem", fontWeight: "bold", color: darkRed, marginBottom: "6px" }}>Location (City):</p>
+        <p style={{ fontSize: "0.78rem", fontWeight: "bold", color: darkRed, marginBottom: "6px" }}>Location:</p>
         <input
           type="text"
           value={citySearch}
           onChange={e => setCitySearch(e.target.value)}
-          placeholder="e.g. Angeles, Tarlac..."
+          placeholder="e.g. Batangas City, Tarlac, Region III..."
           style={{ width: "100%", padding: "6px 10px", borderRadius: "8px", border: `1px solid ${red}`, fontSize: "0.76rem", fontFamily: "'Kufam', sans-serif", outline: "none", boxSizing: "border-box", color: darkRed }}
         />
       </div>
@@ -718,7 +672,7 @@ const CompanyCard = ({ company, onViewProfile }) => {
       <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.8rem", color: "#555" }}>Slots Available: {totalSlots}</p>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "8px" }}>
         <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.75rem", color: "#999", fontStyle: "italic" }}>{postedDate ? `Posted ${postedDate}` : ""}</span>
-        <span onClick={() => isActive && onViewProfile(company)} style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.8rem", color: isActive ? red : "#aaa", fontWeight: "bold", cursor: isActive ? "pointer" : "default", display: "flex", alignItems: "center", gap: "4px", flexShrink: 0 }}>View Profile<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></span>
+        <span onClick={() => isActive && onViewProfile(company)} style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.8rem", color: isActive ? red : "#aaa", fontWeight: "bold", cursor: isActive ? "pointer" : "default", display: "flex", alignItems: "center", gap: "4px", flexShrink: 0 }}>View Post<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></span>
       </div>
     </div>
   );
@@ -730,6 +684,7 @@ const StudentFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onMessa
   const [view, setView] = useState("list");
   const [selectedCompany, setSelectedCompany] = useState(null);
   const [showReportModal, setShowReportModal] = useState(false);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [search, setSearch] = useState("");
   const [showFilter, setShowFilter] = useState(false);
   const [selectedIndustries, setSelectedIndustries] = useState([]);
@@ -755,20 +710,37 @@ const StudentFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onMessa
   const hasFilter = selectedIndustries.length > 0 || citySearch.trim();
 
   const filtered = companies.filter(c => {
-    const name = (c.company || c.name || "").toLowerCase();
+    const name = (c.companyName || c.company || c.name || "").toLowerCase();
     const industryArr = Array.isArray(c.industry) ? c.industry : (c.industry ? [c.industry] : []);
     const industry = industryArr.join(" ").toLowerCase();
-    const loc = (c.location?.city || c.location || "").toLowerCase();
-    const matchSearch = name.includes(search.toLowerCase()) || industry.includes(search.toLowerCase()) || loc.includes(search.toLowerCase());
+    const locObj = (c.location && typeof c.location === "object") ? c.location : {};
+    // Full location text = everything actually shown on the profile's Location section
+    // (barangay, city, province, region, or a full formatted address), so searching
+    // any part of what the user sees — not just the city — will find it.
+    const fullLocationText = [
+      c.postLocation?.address,
+      locObj.fullAddress,
+      locObj.street,
+      locObj.barangay,
+      locObj.city,
+      locObj.province,
+      locObj.region,
+      typeof c.location === "string" ? c.location : null,
+    ].filter(Boolean).join(", ").toLowerCase();
+    const matchSearch = name.includes(search.toLowerCase()) || industry.includes(search.toLowerCase()) || fullLocationText.includes(search.toLowerCase());
     const matchIndustry = selectedIndustries.length === 0 || industryArr.some(ind => selectedIndustries.includes(ind));
-    const matchCity = !citySearch.trim() || loc.includes(citySearch.trim().toLowerCase()) || (c.postLocation?.address || "").toLowerCase().includes(citySearch.trim().toLowerCase());
+    const matchCity = !citySearch.trim() || fullLocationText.includes(citySearch.trim().toLowerCase());
     return matchSearch && matchIndustry && matchCity;
   });
 
-  const activeBadgeLabel = () => citySearch.trim() ? `City: ${citySearch.trim()}` : null;
+  const activeBadgeLabel = () => citySearch.trim() ? `Location: ${citySearch.trim()}` : null;
   const clearAllFilters = () => { setSelectedIndustries([]); setCitySearch(""); };
 
-  const handleReportSubmit = (report) => { onReportSubmit?.(report); setShowReportModal(false); setView("list"); onNavigateToReports?.(); };
+  const handleReportSubmit = (report) => { 
+    onReportSubmit?.(report); 
+    setShowReportModal(false); 
+    setShowSuccessModal(true); 
+  };
 
   if (view === "profile" && selectedCompany) {
     return (
@@ -782,6 +754,9 @@ const StudentFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onMessa
           onApplyNow={() => setShowApplyModal(true)}
         />
         {showReportModal && <ReportModal company={selectedCompany} onClose={() => setShowReportModal(false)} onSubmit={handleReportSubmit} reporter={user} />}
+        {showSuccessModal && (
+          <SuccessModal onClose={() => { setShowSuccessModal(false); onNavigateToReports?.(); }} />
+        )}
         {showApplyModal && (
           <ApplyModal
             company={selectedCompany}

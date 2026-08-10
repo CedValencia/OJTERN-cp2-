@@ -15,6 +15,26 @@ const red = "#590101";
 const darkRed = "#590101";
 const fieldBg = "#7A4F4F";
 
+const MAPBOX_TOKEN = "pk.eyJ1IjoibWFraWlpaS0iLCJhIjoiY21wbTgybHVmMmc1ZzJycTFuZXRlb3NoNCJ9.FIpjF2lKTHkbU1e6qrL_Pw";
+
+// Forward-geocode an address string to { address, lat, lng } via Mapbox, so a
+// post's pinned map location can follow the company's profile location.
+async function geocodeAddress(text) {
+  if (!text || !text.trim()) return { address: "", lat: null, lng: null };
+  try {
+    const res = await fetch(
+      `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(text)}.json?access_token=${MAPBOX_TOKEN}&country=PH&limit=1`
+    );
+    const data = await res.json();
+    const feature = data.features?.[0];
+    if (!feature) return { address: text, lat: null, lng: null };
+    const [lng, lat] = feature.center;
+    return { address: text, lat, lng };
+  } catch (_) {
+    return { address: text, lat: null, lng: null };
+  }
+}
+
 // ── Responsive Styles ─────────────────────────────────────────────────────────
 const ResponsiveStyles = () => (
   <style>{`
@@ -2435,11 +2455,11 @@ const GlobalStyles = () => {
   return null;
 };
 
-const PasswordInput = ({ value, onChange, placeholder = "••••••••" }) => {
+const PasswordInput = ({ value, onChange, placeholder = "••••••••", onKeyDown }) => {
   const [show, setShow] = useState(false);
   return (
     <div style={{ position: "relative", marginBottom: "12px" }}>
-      <input type={show ? "text" : "password"} value={value} onChange={onChange} placeholder={placeholder}
+      <input type={show ? "text" : "password"} value={value} onChange={onChange} onKeyDown={onKeyDown} placeholder={placeholder}
         style={{ ...fieldStyle, paddingRight: "44px" }} />
       <EyeIcon show={show} onClick={() => setShow(s => !s)} />
     </div>
@@ -2666,18 +2686,24 @@ const ResetPasswordScreen = ({ onBack, user, onLogout }) => {
   const [loading, setLoading]         = useState(false);
   const [success, setSuccess]         = useState(false);
 
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter" && !loading) {
+      handleSave();
+    }
+  };
+
   const handleSave = async () => {
     const e = {};
     if (!currentPass) e.currentPass = "Please enter your current password.";
     if (!newPass) e.newPass = "Please enter a new password.";
-    else if (newPass.length < 8) e.newPass = "Minimum 8 characters.";
+    else if (newPass.length < 8) e.newPass = "Password must be at least 8 characters";
     if (newPass !== confirm) e.confirm = "Passwords do not match.";
     setErrors(e);
     if (Object.keys(e).length > 0) return;
     setLoading(true);
     try {
       const uid = user?.uid || getAuth().currentUser?.uid;
-      await changePassword(currentPass, newPass, "companies", uid);
+      await changePassword(currentPass, newPass, "companies", uid, getAuth().currentUser?.email);
       setSuccess(true);
       setCurrentPass(""); setNewPass(""); setConfirm("");
     } catch (err) {
@@ -2697,37 +2723,70 @@ const ResetPasswordScreen = ({ onBack, user, onLogout }) => {
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      {success && (
+        <div style={{
+          position: "fixed", inset: 0, zIndex: 9999,
+          background: "rgba(0,0,0,0.45)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+        }}>
+          <div style={{
+            background: "white", borderRadius: "20px",
+            padding: "36px 32px", width: "clamp(280px, 85vw, 380px)",
+            display: "flex", flexDirection: "column", alignItems: "center",
+            gap: "12px", boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
+          }}>
+            <div style={{
+              width: "64px", height: "64px", borderRadius: "50%",
+              background: "#e8f5e9", display: "flex",
+              alignItems: "center", justifyContent: "center", marginBottom: "4px",
+            }}>
+              <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#2d7a2d" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10"/>
+                <polyline points="9 12 11 14 15 10"/>
+              </svg>
+            </div>
+            <p style={{
+              fontFamily: "'Kufam', sans-serif", fontWeight: 700,
+              fontSize: "1.15rem", color: "#1a1a1a", margin: 0, textAlign: "center",
+            }}>Password Changed!</p>
+            <p style={{
+              fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem",
+              color: "#666", margin: 0, textAlign: "center", lineHeight: 1.5,
+            }}>Your password has been updated successfully. Please log in again with your new password.</p>
+            <button onClick={handleDone} style={{
+              width: "100%", padding: "12px", borderRadius: "30px",
+              border: "none", background: "#590101",
+              fontFamily: "'Kufam', sans-serif", fontWeight: 700,
+              fontSize: "0.95rem", cursor: "pointer", color: "white",
+              boxShadow: "0 3px 10px rgba(89,1,1,0.3)", marginTop: "8px",
+            }}>Done</button>
+          </div>
+        </div>
+      )}
       <SectionHeaderBar iconSrc={resetIcon} title="Reset Password" onBack={onBack} />
       <div className="cap-sub-body">
         <div style={{ background: "#e8e8e8", borderRadius: "16px", padding: "24px 28px" }}>
-          {success ? (
-            <div style={{ textAlign: "center", padding: "20px 0" }}>
-              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#2d7a2d" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ display: "block", margin: "0 auto 12px" }}><circle cx="12" cy="12" r="10"/><polyline points="9 12 11 14 15 10"/></svg>
-              <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "1rem", fontWeight: 700, color: "#2d7a2d", marginBottom: "6px" }}>Password Changed!</p>
-              <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#666", marginBottom: "20px" }}>Your password has been updated. Please log in again with your new password.</p>
-              <button onClick={handleDone} style={{ background: darkRed, color: "white", border: "none", borderRadius: "20px", padding: "10px 32px", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.95rem", cursor: "pointer" }}>Done</button>
-            </div>
-          ) : (
+          {!success && (
             <>
               <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.88rem", color: "#666", marginBottom: "18px" }}>Enter your current password, then your new password below.</p>
 
               <label style={{ ...labelStyle, color: "#111" }}>Current Password:</label>
-              <PasswordInput value={currentPass} onChange={e => { setCurrentPass(e.target.value); setErrors(p => ({ ...p, currentPass: "" })); }} />
+              <PasswordInput value={currentPass} onChange={e => { setCurrentPass(e.target.value); setErrors(p => ({ ...p, currentPass: "" })); }} onKeyDown={handleKeyDown} />
               {errors.currentPass && <p style={{ color: "red", fontSize: "0.78rem", fontFamily: "'Kufam', sans-serif", marginBottom: "8px" }}>{errors.currentPass}</p>}
 
               <label style={{ ...labelStyle, color: "#111" }}>New Password:</label>
-              <PasswordInput value={newPass} onChange={e => { setNewPass(e.target.value); setErrors(p => ({ ...p, newPass: "" })); }} />
+              <PasswordInput value={newPass} onChange={e => { setNewPass(e.target.value); setErrors(p => ({ ...p, newPass: "" })); }} onKeyDown={handleKeyDown} />
               {errors.newPass && <p style={{ color: "red", fontSize: "0.78rem", fontFamily: "'Kufam', sans-serif", marginBottom: "8px" }}>{errors.newPass}</p>}
 
               <label style={{ ...labelStyle, color: "#111" }}>Confirm Password:</label>
-              <PasswordInput value={confirm} onChange={e => { setConfirm(e.target.value); setErrors(p => ({ ...p, confirm: "" })); }} />
+              <PasswordInput value={confirm} onChange={e => { setConfirm(e.target.value); setErrors(p => ({ ...p, confirm: "" })); }} onKeyDown={handleKeyDown} />
               {errors.confirm && <p style={{ color: "red", fontSize: "0.78rem", fontFamily: "'Kufam', sans-serif", marginBottom: "8px" }}>{errors.confirm}</p>}
 
               {errors.general && <p style={{ color: "red", fontSize: "0.78rem", fontFamily: "'Kufam', sans-serif", marginBottom: "8px" }}>⚠️ {errors.general}</p>}
 
               <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "16px" }}>
                 <button onClick={handleSave} disabled={loading} style={{ background: darkRed, color: "white", border: "none", borderRadius: "20px", padding: "12px 40px", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.95rem", cursor: loading ? "not-allowed" : "pointer", opacity: loading ? 0.7 : 1 }}>
-                  {loading ? "Saving…" : "Save Password"}
+                  {loading ? "Saving…" : "Save New Password"}
                 </button>
               </div>
             </>
@@ -2856,6 +2915,56 @@ const TermsScreen = ({ onBack }) => (
 );
 
 // ── Save Modals ───────────────────────────────────────────────────────────────
+const DiscardChangesModal = ({ onKeepEditing, onDiscard }) => (
+  <div style={{
+    position: "fixed", inset: 0, zIndex: 9999,
+    background: "rgba(0,0,0,0.45)",
+    display: "flex", alignItems: "center", justifyContent: "center",
+    padding: "16px",
+  }}>
+    <div style={{
+      background: "white", borderRadius: "20px",
+      padding: "36px 32px", width: "clamp(280px, 85vw, 360px)",
+      display: "flex", flexDirection: "column", alignItems: "center",
+      gap: "12px", boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
+    }}>
+      <div style={{
+        width: "64px", height: "64px", borderRadius: "50%",
+        background: "#fdf0e0", display: "flex",
+        alignItems: "center", justifyContent: "center", marginBottom: "4px",
+      }}>
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none"
+          stroke="#b8730a" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+          <line x1="12" y1="9" x2="12" y2="13"/>
+          <line x1="12" y1="17" x2="12.01" y2="17"/>
+        </svg>
+      </div>
+      <p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "1.1rem", color: "#1a1a1a", margin: 0, textAlign: "center" }}>
+        Discard Changes?
+      </p>
+      <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.88rem", color: "#666", margin: 0, textAlign: "center", lineHeight: 1.5 }}>
+        All your changes will be lost. Are you sure you want to cancel this change?
+      </p>
+      <div style={{ display: "flex", gap: "10px", width: "100%", marginTop: "8px" }}>
+        <button onClick={onKeepEditing} style={{
+          flex: 1, padding: "12px", borderRadius: "30px",
+          border: "1.5px solid #8B0000", background: "white",
+          fontFamily: "'Kufam', sans-serif", fontWeight: 700,
+          fontSize: "0.88rem", cursor: "pointer", color: "#8B0000",
+        }}>Keep Editing</button>
+        <button onClick={onDiscard} style={{
+          flex: 1, padding: "12px", borderRadius: "30px",
+          border: "none", background: "#8B0000",
+          fontFamily: "'Kufam', sans-serif", fontWeight: 700,
+          fontSize: "0.88rem", cursor: "pointer", color: "white",
+          boxShadow: "0 3px 10px rgba(139,0,0,0.3)",
+        }}>Yes, Cancel</button>
+      </div>
+    </div>
+  </div>
+);
+
 const SaveSuccessModal = ({ onClose }) => (
   <div style={{
     position: "fixed", inset: 0, zIndex: 9999,
@@ -2952,10 +3061,20 @@ const PersonalInfoScreen = ({ onBack, user }) => {
   const [location, setLocation] = useState({
     region: "", province: "", city: "", barangay: "", street: "",
   });
+  // Preserves { lat, lng, fullAddress } across edits — starts as whatever the
+  // company already had saved (e.g. from Sign-up Step 1), and gets refreshed
+  // by the direct geocodeAddress() call in handleSave whenever this screen
+  // saves a new location.
+  // Without this, saving from this screen would silently wipe out the lat/lng
+  // that Sign-up originally captured, since only region/province/city/
+  // barangay/street were ever read or written back here.
+  const resolvedGeoRef = useRef({ lat: null, lng: null, fullAddress: "" });
   const [email, setEmail]   = useState("");
   const [errors, setErrors] = useState({});
   const [showSuccess, setShowSuccess] = useState(false);
   const [showError, setShowError]     = useState(false);
+  const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
+  const editSnapshotRef = useRef(null);
   const [errorMsg, setErrorMsg]       = useState("");
 
   useEffect(() => {
@@ -2967,13 +3086,20 @@ const PersonalInfoScreen = ({ onBack, user }) => {
         setCompanyName(d.companyName || d.name || "");
         setEmail(d.email || "");
         if (d.industry) setIndustries(Array.isArray(d.industry) ? d.industry : [d.industry]);
-        if (d.location) setLocation({
-          region:   d.location.region   || "",
-          province: d.location.province || "",
-          city:     d.location.city     || "",
-          barangay: d.location.barangay || "",
-          street:   d.location.street   || "",
-        });
+        if (d.location) {
+          setLocation({
+            region:   d.location.region   || "",
+            province: d.location.province || "",
+            city:     d.location.city     || "",
+            barangay: d.location.barangay || "",
+            street:   d.location.street   || "",
+          });
+          resolvedGeoRef.current = {
+            lat: d.location.lat ?? null,
+            lng: d.location.lng ?? null,
+            fullAddress: d.location.fullAddress || "",
+          };
+        }
         if (d.courseSelections) setCourseSelections(d.courseSelections);
       }
       setLoading(false);
@@ -2986,7 +3112,12 @@ const PersonalInfoScreen = ({ onBack, user }) => {
     if (!companyName.trim()) e.companyName = "Company name is required.";
     if (industries.length === 0) e.industries = "Select at least one industry.";
     if (!email.trim()) e.email = "Email is required.";
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) e.email = "Invalid email address.";
     if (!location.region) e.location = "Please select a region.";
+    else if (!location.province) e.location = "Please select a province.";
+    else if (!location.city) e.location = "Please select a city/municipality.";
+    else if (!location.barangay) e.location = "Please select a barangay.";
+    // Street address is optional - no validation required
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -2996,11 +3127,26 @@ const PersonalInfoScreen = ({ onBack, user }) => {
     const uid = user?.uid || getAuth().currentUser?.uid;
     if (!uid) { setErrorMsg("Error: Not logged in."); setShowError(true); return; }
     try {
+      const newAddress = [location.street, location.barangay, location.city, location.province, location.region]
+        .filter(Boolean).join(", ");
+      const newPostLocation = await geocodeAddress(newAddress);
+      // Prefer this fresh geocode; fall back to the live preview map's
+      // last-known-good coords (or the previously saved ones) if this
+      // particular geocode call came back empty (e.g. a transient network
+      // hiccup) — either way we avoid silently wiping lat/lng/fullAddress.
+      const savedLocation = {
+        ...location,
+        fullAddress: newPostLocation.lat != null ? newAddress : (resolvedGeoRef.current.fullAddress || newAddress),
+        lat: newPostLocation.lat ?? resolvedGeoRef.current.lat ?? null,
+        lng: newPostLocation.lng ?? resolvedGeoRef.current.lng ?? null,
+      };
       await updateDoc(doc(db, "companies", uid), {
-        companyName, industry: industries, courseSelections, location, email,
+        companyName, industry: industries, courseSelections, location: savedLocation, email,
       });
       const postsSnap = await getDocs(query(collection(db, "ojt_posts"), where("companyId", "==", uid)));
-      await Promise.all(postsSnap.docs.map(d => updateDoc(d.ref, { companyName, name: companyName })));
+      await Promise.all(postsSnap.docs.map(d => updateDoc(d.ref, {
+        companyName, name: companyName, location: savedLocation, postLocation: newPostLocation, industry: industries,
+      })));
       const convsSnap = await getDocs(query(collection(db, "conversations"), where("participants", "array-contains", uid)));
       await Promise.all(convsSnap.docs.map(d => updateDoc(d.ref, { [`participantNames.${uid}`]: companyName })));
       setEditing(false);
@@ -3031,12 +3177,42 @@ const PersonalInfoScreen = ({ onBack, user }) => {
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
       {showSuccess && <SaveSuccessModal onClose={() => setShowSuccess(false)} />}
       {showError   && <SaveErrorModal message={errorMsg} onClose={() => setShowError(false)} />}
+      {showDiscardConfirm && (
+        <DiscardChangesModal
+          onKeepEditing={() => setShowDiscardConfirm(false)}
+          onDiscard={() => {
+            if (editSnapshotRef.current) {
+              const snap = JSON.parse(editSnapshotRef.current);
+              setCompanyName(snap.companyName);
+              setIndustries(snap.industries);
+              setOtherIndustry(snap.otherIndustry);
+              setCourseSelections(snap.courseSelections);
+              setLocation(snap.location);
+              setEmail(snap.email);
+            }
+            setShowDiscardConfirm(false);
+            setEditing(false);
+            setErrors({});
+          }}
+        />
+      )}
       <SectionHeaderBar iconSrc={personalInfoIcon} title="Personal Information" onBack={onBack} />
       <div className="cap-info-body">
-        <div className="cap-info-card">
+        <div
+          className="cap-info-card"
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && e.target.tagName === "INPUT" && editing) {
+              e.preventDefault();
+              handleSave();
+            }
+          }}
+        >
           <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "8px" }}>
             {!editing && (
-              <button onClick={() => setEditing(true)} title="Edit"
+              <button onClick={() => {
+                editSnapshotRef.current = JSON.stringify({ companyName, industries, otherIndustry, courseSelections, location, email });
+                setEditing(true);
+              }} title="Edit"
                 style={{ width: "32px", height: "32px", borderRadius: "50%", border: "2px solid white", background: "transparent", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
                 <EditIcon size={15} color="white" />
               </button>
@@ -3104,7 +3280,15 @@ const PersonalInfoScreen = ({ onBack, user }) => {
 
           {editing && (
             <div className="cap-save-row">
-              <button onClick={() => { setEditing(false); setErrors({}); }}
+              <button onClick={() => {
+                const current = JSON.stringify({ companyName, industries, otherIndustry, courseSelections, location, email });
+                if (current !== editSnapshotRef.current) {
+                  setShowDiscardConfirm(true);
+                } else {
+                  setEditing(false);
+                  setErrors({});
+                }
+              }}
                 style={{ padding: "6px 18px", borderRadius: "14px", background: "rgba(255,255,255,0.15)", color: "white", border: "1px solid white", fontFamily: "'Kufam', sans-serif", fontSize: "0.78rem", cursor: "pointer" }}>Cancel</button>
               <button onClick={handleSave}
                 style={{ padding: "6px 18px", borderRadius: "14px", background: "white", color: darkRed, border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.78rem", cursor: "pointer" }}>Save Changes</button>
@@ -3116,59 +3300,9 @@ const PersonalInfoScreen = ({ onBack, user }) => {
   );
 };
 
-// ── Logout Modal ──────────────────────────────────────────────────────────────
-const LogoutModal = ({ onConfirm, onCancel }) => (
-  <div style={{
-    position: "fixed", inset: 0, zIndex: 9999,
-    background: "rgba(0,0,0,0.45)",
-    display: "flex", alignItems: "center", justifyContent: "center",
-    padding: "16px",
-  }}>
-    <div style={{
-      background: "white", borderRadius: "20px",
-      padding: "36px 32px", width: "clamp(280px, 85vw, 380px)",
-      display: "flex", flexDirection: "column", alignItems: "center",
-      gap: "12px", boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
-    }}>
-      <div style={{
-        width: "64px", height: "64px", borderRadius: "50%",
-        background: "#fde8e8", display: "flex",
-        alignItems: "center", justifyContent: "center", marginBottom: "4px",
-      }}>
-        <svg width="30" height="30" viewBox="0 0 24 24" fill="none"
-          stroke="#8B0000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
-          <polyline points="16 17 21 12 16 7"/>
-          <line x1="21" y1="12" x2="9" y2="12"/>
-        </svg>
-      </div>
-      <p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "1.15rem", color: "#1a1a1a", margin: 0, textAlign: "center" }}>Log Out</p>
-      <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem", color: "#666", margin: 0, textAlign: "center", lineHeight: 1.5 }}>
-        Are you sure you want to log out of your account?
-      </p>
-      <div style={{ display: "flex", gap: "12px", width: "100%", marginTop: "8px" }}>
-        <button onClick={onCancel} style={{
-          flex: 1, padding: "12px", borderRadius: "30px",
-          border: "1.5px solid #ccc", background: "white",
-          fontFamily: "'Kufam', sans-serif", fontWeight: 600,
-          fontSize: "0.95rem", cursor: "pointer", color: "#555",
-        }}>Cancel</button>
-        <button onClick={onConfirm} style={{
-          flex: 1, padding: "12px", borderRadius: "30px",
-          border: "none", background: "#8B0000",
-          fontFamily: "'Kufam', sans-serif", fontWeight: 700,
-          fontSize: "0.95rem", cursor: "pointer", color: "white",
-          boxShadow: "0 3px 10px rgba(139,0,0,0.3)",
-        }}>Log Out</button>
-      </div>
-    </div>
-  </div>
-);
-
 // ── Main Company Account Profile Screen ───────────────────────────────────────
 const CompanyAccountProfileScreen = ({ user, onLogout }) => {
   const [view, setView]             = useState("main");
-  const [showLogout, setShowLogout] = useState(false);
   const [profileName, setProfileName] = useState("");
 
   useEffect(() => {
@@ -3183,18 +3317,12 @@ const CompanyAccountProfileScreen = ({ user, onLogout }) => {
     return () => unsub();
   }, [user?.uid]);
 
-  const handleLogoutConfirm = async () => {
-    await signOut(getAuth());
-    if (onLogout) onLogout();
-  };
-
   if (view === "personalInfo") return <><ResponsiveStyles /><PersonalInfoScreen onBack={() => setView("main")} user={user} /></>;
   if (view === "privacy")      return <><ResponsiveStyles /><GlobalStyles /><PrivacySecurityScreen onBack={() => setView("main")} user={user} onLogout={onLogout} /></>;
   if (view === "terms")        return <><ResponsiveStyles /><TermsScreen onBack={() => setView("main")} /></>;
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "#f5f5f5" }}>
-      {showLogout && <LogoutModal onConfirm={handleLogoutConfirm} onCancel={() => setShowLogout(false)} />}
       <ResponsiveStyles />
       <GlobalStyles />
 
@@ -3220,11 +3348,6 @@ const CompanyAccountProfileScreen = ({ user, onLogout }) => {
           <MenuRow iconSrc={privacyIcon}      label="Reset Password"       onClick={() => setView("privacy")} />
           <MenuRow iconSrc={termsIcon}        label="Terms & Condition"    onClick={() => setView("terms")} />
         </div>
-
-        <button onClick={() => setShowLogout(true)}
-          style={{ background: "#320000", color: "white", border: "none", borderRadius: "30px", padding: "14px clamp(28px, 8vw, 52px)", fontFamily: "'Jua'", fontSize: "clamp(1rem, 4vw, 1.2rem)", cursor: "pointer", letterSpacing: "0.03em", boxShadow: "0 4px 10px rgba(0,0,0,0.3)" }}>
-          Log Out
-        </button>
       </div>
     </div>
   );
