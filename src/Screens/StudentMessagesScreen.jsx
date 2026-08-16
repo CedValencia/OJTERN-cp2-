@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useLayoutEffect } from "react";
 import userIcon from "../icons/user.png";
 import viewIcon from "../icons/view.png";
 import { useChat } from "./useChat";
@@ -484,8 +484,30 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onR
   const fileRef   = useRef();
   const infoRef   = useRef();
   const isMobile  = useIsMobile();
+  // Tracks the contact.id we've already done the initial "instant landing"
+  // scroll for. Only gets set once messages for that contact have actually
+  // loaded (not just switched to) — Firestore delivers messages
+  // asynchronously, so switching contact.id and messages populating aren't
+  // the same render.
+  const scrolledContactId = useRef(null);
 
+  // Runs BEFORE the browser paints — jumps straight to the bottom with no
+  // animation the first time a conversation's messages actually load, so the
+  // user never sees it start at the top and scroll down. useLayoutEffect
+  // (not useEffect) is what makes this happen before paint instead of after.
+  useLayoutEffect(() => {
+    if (!contact?.id || !messages || messages.length === 0) return;
+    if (scrolledContactId.current !== contact.id) {
+      bottomRef.current?.scrollIntoView({ behavior: "auto" });
+      scrolledContactId.current = contact.id;
+    }
+  }, [contact?.id, messages]);
+
+  // Smoothly scrolls down for new messages arriving in a conversation
+  // that's already fully loaded (not the initial load itself — that's
+  // handled above, instantly, to avoid the visible top-then-down flash).
   useEffect(() => {
+    if (scrolledContactId.current !== contact?.id) return;
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
@@ -715,7 +737,7 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onR
               }}>
                 {!isMe && <CompanyAvatar size={avatarSize} />}
                 <div style={{
-                  maxWidth: bubbleMaxWidth, display: "flex", flexDirection: "column",
+                  maxWidth: bubbleMaxWidth, minWidth: 0, display: "flex", flexDirection: "column",
                   alignItems: isMe ? "flex-end" : "flex-start", gap: "3px", position: "relative",
                 }}>
                   {msg.unsent ? (
@@ -730,8 +752,11 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onR
                     </div>
                   ) : (
                     <>
+                      {msg.edited && (
+                        <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.68rem", color: "#aaa" }}>Edited</span>
+                      )}
                       {msg.text && (
-                        <div style={{ display: "flex", alignItems: "center", gap: "6px", justifyContent: isMe ? "flex-end" : "flex-start" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "6px", justifyContent: isMe ? "flex-end" : "flex-start", minWidth: 0, maxWidth: "100%" }}>
                           {isMe && (
                             <div style={{ position: "relative" }}>
                               <button
@@ -761,6 +786,7 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onR
                               userSelect: "none",
                               outline: (isPopupOpen || editingId === msg.id) ? `2px solid ${darkRed}` : "none",
                               WebkitUserSelect: "none", WebkitTouchCallout: "none",
+                              minWidth: 0, wordBreak: "break-word", overflowWrap: "break-word",
                             }}
                           >
                             {msg.text}
@@ -802,9 +828,6 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onR
                           </div>
                         );
                       })()}
-                      {msg.edited && (
-                        <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.68rem", color: "#aaa", marginTop: "2px" }}>Edited</span>
-                      )}
                       {isLastMine && (
                         <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.68rem", color: "#aaa", marginTop: "2px" }}>
                           {isSeen ? "Seen" : "Sent"}

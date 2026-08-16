@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
 import { changePassword, logOut, getUserProfile } from "./AuthService";
-import { collection, query, where, orderBy, limit, onSnapshot, doc, updateDoc, getDocs } from "firebase/firestore";
+import { collection, query, where, orderBy, limit, onSnapshot, doc, getDoc, setDoc, updateDoc, getDocs } from "firebase/firestore";
 import { db } from "./firebase";
 import { PersonalInfoScreen, ResponsiveStyles } from "./CoordinatorAccountProfileScreen";
 
@@ -210,6 +211,17 @@ const navItems = [
   { key: "messages",          label: "Messages",           icon: messagesIcon },
   { key: "accountprofile",    label: "Account Profile",    icon: accountProfileIcon },
 ];
+
+// ── URL <-> tab mapping ──────────────────────────────────────────────────────
+// The active tab now lives in the URL (/coordinator/dashboard/<key>) instead of
+// sessionStorage, so the address bar always matches what's on screen and a
+// refresh/back-button/shared link lands on the right tab.
+const BASE_PATH = "/coordinator";
+const getNavKeyFromPath = (pathname) => {
+  const rest = pathname.startsWith(BASE_PATH) ? pathname.slice(BASE_PATH.length) : "";
+  const key = rest.replace(/^\/+|\/+$/g, ""); // strip leading/trailing slashes
+  return key || "dashboard";
+};
 
 // ── Shared sub-components ──────────────────────────────────────────────────────
 const CompanyAvatar = ({ size = 38 }) => (
@@ -619,14 +631,14 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
       onLogout?.();
     }
   };
-  const [recentVisited, setRecentVisited] = useState(() => {
-    if (!user?.uid) return [];
-    try {
-      const stored = localStorage.getItem(`recentVisited_coord_${user.uid}`);
-      return stored ? JSON.parse(stored) : [];
-    } catch { return []; }
-  });
-  const [activeNav, setActiveNav] = useState(() => sessionStorage.getItem("ojtern_coord_nav") || "dashboard");
+  // Recently visited companies now live in Firestore (coordinators/{uid}.recentVisited)
+  // instead of localStorage, so the list follows the account across browsers
+  // and devices instead of being stuck on whichever one was used to visit.
+  const [recentVisited, setRecentVisited] = useState([]);
+  const [recentVisitedLoaded, setRecentVisitedLoaded] = useState(false);
+  const routerNavigate = useNavigate();
+  const location = useLocation();
+  const activeNav = getNavKeyFromPath(location.pathname);
 
   const [reports, setReports]                                   = useState([]);
   const [viewingReport, setViewingReport]                       = useState(null);
@@ -761,9 +773,7 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
   }, [scopedCompanies, scopedReports]);
 
   const [showNotifDropdown, setShowNotifDropdown]                = useState(false);
-  const [lastSeenNotifAt, setLastSeenNotifAt]                    = useState(() =>
-    Number(localStorage.getItem(`ojtern_coord_notif_seen_${user?.uid || ""}`)) || 0
-  );
+  const [lastSeenNotifAt, setLastSeenNotifAt]                    = useState(0);
   const unreadNotifCount = coordinatorNotifications.filter(
     n => (n.createdAt?.seconds || 0) * 1000 > lastSeenNotifAt
   ).length;
@@ -773,8 +783,11 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
       const next = !prev;
       if (next) {
         const now = Date.now();
-        localStorage.setItem(`ojtern_coord_notif_seen_${user?.uid || ""}`, String(now));
         setLastSeenNotifAt(now);
+        if (user?.uid) {
+          setDoc(doc(db, "coordinators", user.uid), { lastSeenNotifAt: now }, { merge: true })
+            .catch((err) => console.error("Failed to save notification seen state:", err));
+        }
       }
       return next;
     });
@@ -820,17 +833,40 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
   // Close drawer when resizing to desktop
   useEffect(() => { if (isDesktop) setDrawerOpen(false); }, [isDesktop]);
 
+  // Load recent visited companies + last-seen notification timestamp from
+  // Firestore once we know who the user is (one read covers both fields).
   useEffect(() => {
-    if (!user?.uid) return;
-    try { localStorage.setItem(`recentVisited_coord_${user.uid}`, JSON.stringify(recentVisited)); } catch {}
-  }, [recentVisited, user?.uid]);
+    if (!user?.uid) { setRecentVisitedLoaded(true); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const snap = await getDoc(doc(db, "coordinators", user.uid));
+        if (cancelled) return;
+        const data = snap.data();
+        setRecentVisited(Array.isArray(data?.recentVisited) ? data.recentVisited : []);
+        setLastSeenNotifAt(Number(data?.lastSeenNotifAt) || 0);
+      } catch (err) {
+        console.error("Failed to load coordinator dashboard preferences:", err);
+      } finally {
+        if (!cancelled) setRecentVisitedLoaded(true);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [user?.uid]);
 
-  const navigate = (key) => { setActiveNav(key); setDrawerOpen(false); };
-
-  // Always keep sessionStorage in sync with activeNav — more reliable than saving only in navigate()
+  // Persist recent visited companies to Firestore. Gated on recentVisitedLoaded
+  // so this doesn't fire with an empty array and wipe out the saved list
+  // before the initial Firestore read above has finished.
   useEffect(() => {
-    sessionStorage.setItem("ojtern_coord_nav", activeNav);
-  }, [activeNav]);
+    if (!user?.uid || !recentVisitedLoaded) return;
+    setDoc(doc(db, "coordinators", user.uid), { recentVisited }, { merge: true })
+      .catch((err) => console.error("Failed to save recent visited companies:", err));
+  }, [recentVisited, user?.uid, recentVisitedLoaded]);
+
+  const navigate = (key) => {
+    setDrawerOpen(false);
+    routerNavigate(`${BASE_PATH}/${key}`);
+  };
 
   const handleReportSubmit = () => {}; // Firestore onSnapshot auto-updates the reports list
 
@@ -974,25 +1010,30 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
           display: "flex", alignItems: "center", justifyContent: "space-between",
           padding: "0 16px", boxShadow: "0 2px 12px rgba(0,0,0,0.25)",
         }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", flex: "1 1 auto", minWidth: 0, overflow: "hidden" }}>
             {/* Hamburger — only on mobile / tablet */}
             {showDrawer && (
-              <button className="hamburger-btn" onClick={() => setDrawerOpen(o => !o)} aria-label="Toggle menu">
+              <button className="hamburger-btn" onClick={() => setDrawerOpen(o => !o)} aria-label="Toggle menu" style={{ flexShrink: 0 }}>
                 <span /><span /><span />
               </button>
             )}
-            <img src={logo} alt="OJTern" style={{ width: "46px", height: "46px", objectFit: "contain" }} />
-            <span style={{ fontFamily: "'Monomaniac One', sans-serif", fontSize: "clamp(1.1rem, 3vw, 1.5rem)", color: "white", letterSpacing: "0.03em" }}>
-              OJTern
-            </span>
+            <button onClick={() => navigate("dashboard")} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: "10px", padding: "0", flexShrink: 0 }}>
+              <img src={logo} alt="OJTern" style={{ width: "46px", height: "46px", objectFit: "contain", flexShrink: 0 }} />
+              <span style={{ fontFamily: "'Monomaniac One', sans-serif", fontSize: "clamp(1.1rem, 3vw, 1.5rem)", color: "white", letterSpacing: "0.03em", flexShrink: 0 }}>
+                OJTern
+              </span>
+            </button>
             {/* Current page label — mobile only */}
             {isMobile && (
-              <span style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1rem", color: "rgba(255,255,255,0.75)", marginLeft: "4px" }}>
+              <span style={{
+                fontFamily: "'Jersey 25', sans-serif", fontSize: "1rem", color: "rgba(255,255,255,0.75)", marginLeft: "4px",
+                whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0,
+              }}>
                 / {currentLabel}
               </span>
             )}
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "4px", flexShrink: 0 }}>
             {/* Activity Log */}
             <div style={{ position: "relative" }}>
               <div style={{ cursor: "pointer", padding: "8px" }} onClick={() => setShowActivityDropdown(prev => !prev)} title="Activity Log">
@@ -1004,7 +1045,11 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
               {showActivityDropdown && (
                 <>
                   <div style={{ position: "fixed", inset: 0, zIndex: 40 }} onClick={() => setShowActivityDropdown(false)} />
-                  <div style={{
+                  <div style={(isMobile || isTablet) ? {
+                    position: "fixed", top: "76px", left: "12px", right: "12px", maxHeight: "70vh",
+                    overflowY: "auto", background: "white", border: `1px solid ${darkRed}`,
+                    borderRadius: "10px", boxShadow: "0 8px 24px rgba(0,0,0,0.18)", zIndex: 50,
+                  } : {
                     position: "absolute", top: "48px", right: 0, width: "min(560px, 90vw)", maxHeight: "420px",
                     overflowY: "auto", background: "white", border: `1px solid ${darkRed}`,
                     borderRadius: "10px", boxShadow: "0 8px 24px rgba(0,0,0,0.18)", zIndex: 50,
@@ -1064,7 +1109,11 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
               {showNotifDropdown && (
                 <>
                   <div style={{ position: "fixed", inset: 0, zIndex: 40 }} onClick={() => setShowNotifDropdown(false)} />
-                  <div style={{
+                  <div style={(isMobile || isTablet) ? {
+                    position: "fixed", top: "76px", left: "12px", right: "12px", maxHeight: "70vh",
+                    overflowY: "auto", background: "white", border: `1px solid ${darkRed}`,
+                    borderRadius: "10px", boxShadow: "0 8px 24px rgba(0,0,0,0.18)", zIndex: 50,
+                  } : {
                     position: "absolute", top: "48px", right: 0, width: "320px", maxHeight: "400px",
                     overflowY: "auto", background: "white", border: `1px solid ${darkRed}`,
                     borderRadius: "10px", boxShadow: "0 8px 24px rgba(0,0,0,0.18)", zIndex: 50,
@@ -1123,14 +1172,15 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
               />
               <div className={`sidebar-drawer ${drawerOpen ? "open" : ""}`}>
                 {/* Drawer header */}
-                <div style={{
+                <button onClick={() => { navigate("dashboard"); setDrawerOpen(false); }} style={{
                   background: `linear-gradient(90deg, ${red} 0%, ${darkRed} 100%)`,
                   padding: "14px 20px", flexShrink: 0,
                   display: "flex", alignItems: "center", gap: "10px",
+                  border: "none", cursor: "pointer", width: "100%", justifyContent: "flex-start",
                 }}>
                   <img src={logo} alt="OJTern" style={{ width: "36px", height: "36px", objectFit: "contain" }} />
                   <span style={{ fontFamily: "'Monomaniac One', sans-serif", fontSize: "1.2rem", color: "white" }}>OJTern</span>
-                </div>
+                </button>
                 <SidebarNav activeNav={activeNav} onNavigate={navigate} onLogout={handleLogoutClick} />
               </div>
             </>

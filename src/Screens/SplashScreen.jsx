@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
+import { useNavigate, useLocation, Routes, Route, Navigate } from "react-router-dom";
 import { auth, db } from "./firebase";
 
 import SignInScreen               from "./SignInScreen";
@@ -13,6 +14,7 @@ import SignUpStep2Screen          from "./SignUpStep2Screen";
 import CoordinatorDashboardScreen from "./CoordinatorDashboardScreen";
 import CompanyDashboardScreen     from "./CompanyDashboardScreen";
 import StudentDashboardScreen     from "./StudentDashboardScreen";
+import CoordinatorFindCompanyScreen from "./CoordinatorFindCompanyScreen";
 
 import logo from "../icons/ojtern.png";
 
@@ -49,24 +51,43 @@ const FontImport = () => (
 );
 
 const SplashScreen = () => {
+  const navigate = useNavigate();
+  const location = useLocation();
   const [animate, setAnimate]         = useState(false);
   const [showRight, setShowRight]     = useState(false);
-  const [view, setView]               = useState("signin");
   const isMobile                      = useIsMobile();
   const [step1Data, setStep1Data]     = useState(null);
   const [resetEmail, setResetEmail]   = useState("");
   const [currentUser, setCurrentUser] = useState(null);
   const [authChecking, setAuthChecking] = useState(true);
 
-  // Helper to change view and persist it so refresh restores same screen
-  const changeView = (v) => {
-    setView(v);
-    if (["coordinator_dashboard","company_dashboard","student_dashboard"].includes(v)) {
-      sessionStorage.setItem("ojtern_view", v);
-    } else {
-      sessionStorage.removeItem("ojtern_view");
-    }
+  // Determine current view based on URL path
+  const getViewFromPath = (path) => {
+    if (path.startsWith("/student")) return "student_dashboard";
+    if (path.startsWith("/coordinator")) return "coordinator_dashboard";
+    if (path.startsWith("/company")) return "company_dashboard";
+    if (path.includes("/signup/step-2")) return "signup2";
+    if (path.includes("/signup")) return "signup1";
+    if (path.includes("/forgot-password/code")) return "forgot_code";
+    if (path.includes("/forgot-password")) return "forgot_password";
+    if (path.includes("/reset-password")) return "reset_password";
+    return "signin";
   };
+
+  const currentView = getViewFromPath(location.pathname);
+
+  // Which account role is allowed to view each dashboard route.
+  const DASHBOARD_ROLE_FOR_VIEW = {
+    coordinator_dashboard: "coordinator",
+    company_dashboard:     "company",
+    student_dashboard:     "student",
+  };
+  const requiredRoleForView = DASHBOARD_ROLE_FOR_VIEW[currentView];
+  // True only once auth has resolved AND the signed-in user's role matches
+  // the dashboard being requested — this is what actually gates the view,
+  // not just the URL the person happened to type in.
+  const isAuthorizedForView = !requiredRoleForView
+    || (!!currentUser && currentUser.role === requiredRoleForView);
 
   const isInitialAuthCheck = useRef(true);
 
@@ -95,14 +116,12 @@ const SplashScreen = () => {
       const badStatuses = ["pending", "rejected", "transferred"];
       if (userData && !badStatuses.includes(userData.status)) {
         setCurrentUser(userData);
-        // Restore the view they were on before refresh
-        const savedView = sessionStorage.getItem("ojtern_view");
-        if (savedView) {
-          setView(savedView);
-        } else {
-          if (userData.role === "coordinator") setView("coordinator_dashboard");
-          else if (userData.role === "student")  setView("student_dashboard");
-          else if (userData.role === "company")  setView("company_dashboard");
+        // Navigate to dashboard if not already on one
+        const onDashboardRoute = ["/coordinator", "/student", "/company"].some(p => location.pathname.startsWith(p));
+        if (!onDashboardRoute) {
+          if (userData.role === "coordinator") navigate("/coordinator/dashboard");
+          else if (userData.role === "student")  navigate("/student/dashboard");
+          else if (userData.role === "company")  navigate("/company/dashboard");
         }
       }
     }
@@ -117,6 +136,27 @@ const SplashScreen = () => {
     return () => { clearTimeout(t1); clearTimeout(t2); };
   }, []);
 
+  // Redirect to /signin if no path is set — but only once we've confirmed
+  // there's no signed-in user. Without the currentUser check, this could
+  // race the session-restore navigate() above: if authChecking flips to
+  // false a beat before location.pathname reflects the dashboard redirect,
+  // this would send an already-authenticated person back to /signin.
+  useEffect(() => {
+    if (location.pathname === "/" && !authChecking && !currentUser) {
+      navigate("/signin", { replace: true });
+    }
+  }, [location.pathname, authChecking, currentUser, navigate]);
+
+  // Guard: kick anyone off a dashboard URL they're not authenticated/authorized
+  // for — e.g. typing /student directly while logged out, or while
+  // logged in as a different role. Runs once auth has finished resolving so
+  // it doesn't fire during the brief window before onAuthStateChanged settles.
+  useEffect(() => {
+    if (!authChecking && requiredRoleForView && !isAuthorizedForView) {
+      navigate("/signin", { replace: true });
+    }
+  }, [authChecking, requiredRoleForView, isAuthorizedForView, navigate]);
+
   // ── Full-screen dashboard views ────────────────────────────────────────────
   if (authChecking) return (
     <div style={{ width: "100vw", height: "100vh", background: "linear-gradient(180deg, #A32424 0%, #320000 100%)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
@@ -125,53 +165,75 @@ const SplashScreen = () => {
     </div>
   );
 
-  if (view === "coordinator_dashboard") return <CoordinatorDashboardScreen user={currentUser} onLogout={() => { sessionStorage.removeItem("ojtern_view"); sessionStorage.removeItem("ojtern_coord_nav"); setCurrentUser(null); setView("signin"); }} />;
-  if (view === "company_dashboard")     return <CompanyDashboardScreen     user={currentUser} onLogout={() => { sessionStorage.removeItem("ojtern_view"); setCurrentUser(null); setView("signin"); }} />;
-  if (view === "student_dashboard")     return <StudentDashboardScreen     user={currentUser} onLogout={() => { sessionStorage.removeItem("ojtern_view"); sessionStorage.removeItem("ojtern_student_nav"); setCurrentUser(null); setView("signin"); }} />;
+  // Someone hit a dashboard URL without being authenticated/authorized for it
+  // — show the same loading splash for the one tick it takes the guard effect
+  // above to redirect to /signin, instead of flashing the dashboard itself.
+  if (requiredRoleForView && !isAuthorizedForView) return (
+    <div style={{ width: "100vw", height: "100vh", background: "linear-gradient(180deg, #A32424 0%, #320000 100%)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+      <img src={logo} alt="OJTern Logo" style={{ width: "120px", height: "120px", objectFit: "contain", marginBottom: "-10px" }} />
+      <div style={{ fontFamily: "'Monomaniac One', sans-serif", fontSize: "3.5rem", color: "white", letterSpacing: "0.03em" }}>OJTern</div>
+    </div>
+  );
+
+  // Dashboard routes
+  if (currentView === "coordinator_dashboard") {
+    return <CoordinatorDashboardScreen user={currentUser} onLogout={() => { 
+      setCurrentUser(null); 
+      navigate("/signin"); 
+    }} />;
+  }
+  if (currentView === "company_dashboard") {
+    return <CompanyDashboardScreen user={currentUser} onLogout={() => { 
+      setCurrentUser(null); 
+      navigate("/signin"); 
+    }} />;
+  }
+  if (currentView === "student_dashboard") {
+    return <StudentDashboardScreen user={currentUser} onLogout={() => { 
+      setCurrentUser(null); 
+      navigate("/signin"); 
+    }} />;
+  }
 
   // ── Right panel content ────────────────────────────────────────────────────
   const rightPanel = (
     <>
-      {view === "signin" && (
+      {currentView === "signin" && (
         <SignInScreen
-          onGoSignUp={() => setView("signup1")}
-          onSignInCoordinator={(userData) => { setCurrentUser(userData); changeView("coordinator_dashboard"); }}
-          onSignInStudent={(userData) => { setCurrentUser(userData); changeView("student_dashboard"); }}
-          onSignInCompany={(userData) => { setCurrentUser(userData); changeView("company_dashboard"); }}
-          onForgotPassword={() => setView("forgot_password")}
+          onGoSignUp={() => navigate("/signup")}
+          onSignInCoordinator={(userData) => { setCurrentUser(userData); navigate("/coordinator/dashboard"); }}
+          onSignInStudent={(userData) => { setCurrentUser(userData); navigate("/student/dashboard"); }}
+          onSignInCompany={(userData) => { setCurrentUser(userData); navigate("/company/dashboard"); }}
+          onForgotPassword={() => navigate("/forgot-password")}
         />
       )}
-      {view === "forgot_password" && (
+      {currentView === "forgot_password" && (
         <ForgotPasswordScreen
-          onSend={(email) => { setResetEmail(email); setView("forgot_code"); }}
-          onBack={() => setView("signin")}
+          onSend={(email) => { setResetEmail(email); navigate("/forgot-password/code"); }}
+          onBack={() => navigate("/signin")}
         />
       )}
-      {view === "forgot_code" && (
+      {currentView === "forgot_code" && (
         <ForgotPasswordCodeScreen
           email={resetEmail}
           onResend={() => {}}
-          onBack={() => setView("signin")}
+          onBack={() => navigate("/signin")}
         />
       )}
 
-      {view === "signup1" && (
+      {currentView === "signup1" && (
         <SignUpStep1Screen
-          // FIX 2a: Save step1Data to parent state, then go to step 2
-          onContinue={(data) => { setStep1Data(data); setView("signup2"); }}
-          onGoSignIn={() => { setStep1Data(null); setView("signin"); }}
-          // FIX 2b: Pass saved data back so fields are restored on Back
+          onContinue={(data) => { setStep1Data(data); navigate("/signup/step-2"); }}
+          onGoSignIn={() => { setStep1Data(null); navigate("/signin"); }}
           initialData={step1Data}
         />
       )}
-      {view === "signup2" && (
+      {currentView === "signup2" && (
         <SignUpStep2Screen
-          // FIX 2c: Pass step1Data as prop so Step 2 can use it
           step1Data={step1Data}
-          // FIX 2d: Going Back does NOT clear step1Data — fields stay filled
-          onBack={() => setView("signup1")}
-          onGoSignIn={() => { setStep1Data(null); setView("signin"); }}
-          onSubmitSuccess={() => { setStep1Data(null); setView("signin"); }}
+          onBack={() => navigate("/signup")}
+          onGoSignIn={() => { setStep1Data(null); navigate("/signin"); }}
+          onSubmitSuccess={() => { setStep1Data(null); navigate("/signin"); }}
         />
       )}
     </>

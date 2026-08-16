@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from "react";
-import { collection, onSnapshot, query, where } from "firebase/firestore";
+import { useNavigate, useLocation } from "react-router-dom";
+import { collection, onSnapshot, query, where, doc, getDoc, setDoc } from "firebase/firestore";
 import { db } from "./firebase";
 import { logOut } from "./AuthService";
 
 import CompanyCreatePostScreen        from "./CompanyCreatePostScreen";
 import CompanyApplicantsScreen     from "./CompanyApplicantsScreen";
 import CompanyMessageScreen        from "./CompanyMessagesScreen";
+import CompanyCoordinatorsScreen   from "./CompanyCoordinatorsScreen";
 import CompanyAccountProfileScreen from "./CompanyAccountProfileScreen";
 import AboutScreen                 from "./AboutScreen";
 
@@ -172,7 +174,19 @@ const navItems = [
   { key: "applicants",     label: "Applicants",      icon: applicantsIcon },
   { key: "messages",       label: "Messages",        icon: messagesIcon },
   { key: "accountprofile", label: "Account Profile", icon: accountProfileIcon },
+  { key: "coordinators",   label: "Coordinators",    icon: userIcon },
 ];
+
+// ── URL <-> tab mapping ──────────────────────────────────────────────────────
+// The active tab now lives in the URL (/company/<key>) instead of
+// sessionStorage, so the address bar always matches what's on screen and a
+// refresh/back-button/shared link lands on the right tab.
+const COMPANY_BASE_PATH = "/company";
+const getCompanyNavKeyFromPath = (pathname) => {
+  const rest = pathname.startsWith(COMPANY_BASE_PATH) ? pathname.slice(COMPANY_BASE_PATH.length) : "";
+  const key = rest.replace(/^\/+|\/+$/g, "");
+  return key || "dashboard";
+};
 
 // ── Sidebar nav list (reused in static & drawer) ───────────────────────────────
 const SidebarNav = ({ activeNav, onNavigate, onLogout }) => (
@@ -557,12 +571,9 @@ const CompanyDashboardScreen = ({ user, onLogout, onAuthStateChange }) => {
   const { isMobile, isTablet, isDesktop } = useBreakpoint();
   const showDrawer = isMobile || isTablet;
 
-  const [activeNav, setActiveNav] = useState(() => {
-    if (typeof window !== "undefined") {
-      return sessionStorage.getItem("ojtern_company_nav") || "dashboard";
-    }
-    return "dashboard";
-  });
+  const routerNavigate = useNavigate();
+  const location = useLocation();
+  const activeNav = getCompanyNavKeyFromPath(location.pathname);
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
@@ -587,10 +598,6 @@ const CompanyDashboardScreen = ({ user, onLogout, onAuthStateChange }) => {
   const [pendingContact, setPendingContact] = useState(null);
   const [pendingApplicantId, setPendingApplicantId] = useState(null);
   const [pendingPostId, setPendingPostId] = useState(null);
-
-  useEffect(() => {
-    sessionStorage.setItem("ojtern_company_nav", activeNav);
-  }, [activeNav]);
 
   // Close drawer when resizing to desktop
   useEffect(() => { if (isDesktop) setDrawerOpen(false); }, [isDesktop]);
@@ -617,10 +624,26 @@ const CompanyDashboardScreen = ({ user, onLogout, onAuthStateChange }) => {
 
   // ── Notifications: new applicants, time-sorted ──────────────────────────────
   const [notifOpen, setNotifOpen] = useState(false);
-  const [lastSeenNotif, setLastSeenNotif] = useState(() => {
-    if (!user?.uid) return 0;
-    return Number(localStorage.getItem(`notif_lastSeen_company_${user.uid}`)) || 0;
-  });
+  // Last-seen notification timestamp now lives in Firestore
+  // (companies/{uid}.lastSeenNotif) instead of localStorage, so "seen" state
+  // follows the account across browsers and devices.
+  const [lastSeenNotif, setLastSeenNotif] = useState(0);
+
+  useEffect(() => {
+    if (!user?.uid) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const snap = await getDoc(doc(db, "companies", user.uid));
+        if (cancelled) return;
+        const data = snap.data();
+        setLastSeenNotif(Number(data?.lastSeenNotif) || 0);
+      } catch (err) {
+        console.error("Failed to load notification seen state:", err);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [user?.uid]);
 
   const notifications = React.useMemo(() => {
     return [...applications]
@@ -645,19 +668,22 @@ const CompanyDashboardScreen = ({ user, onLogout, onAuthStateChange }) => {
       if (next) {
         const now = Date.now();
         setLastSeenNotif(now);
-        if (user?.uid) { try { localStorage.setItem(`notif_lastSeen_company_${user.uid}`, String(now)); } catch {} }
+        if (user?.uid) {
+          setDoc(doc(db, "companies", user.uid), { lastSeenNotif: now }, { merge: true })
+            .catch((err) => console.error("Failed to save notification seen state:", err));
+        }
       }
       return next;
     });
   };
 
   const navigate = (key, id = null) => { 
-    setActiveNav(key); 
     setDrawerOpen(false);
     if (id) {
       if (key === "applicants") setPendingApplicantId(id);
       if (key === "createpost") setPendingPostId(id);
     }
+    routerNavigate(`${COMPANY_BASE_PATH}/${key}`);
   };
 
   const handleNavigateToMessages = (contact) => {
@@ -715,6 +741,14 @@ const CompanyDashboardScreen = ({ user, onLogout, onAuthStateChange }) => {
         );
       case "accountprofile":
         return <CompanyAccountProfileScreen user={user} onLogout={onLogout} />;
+      case "coordinators":
+        return (
+          <CompanyCoordinatorsScreen
+            embedded
+            user={user}
+            onNavigateToMessages={handleNavigateToMessages}
+          />
+        );
       case "about":
         return <AboutScreen />;
       default:
@@ -742,32 +776,35 @@ const CompanyDashboardScreen = ({ user, onLogout, onAuthStateChange }) => {
           display: "flex", alignItems: "center", justifyContent: "space-between",
           padding: "0 16px", boxShadow: "0 2px 12px rgba(0,0,0,0.25)",
         }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", flex: "1 1 auto", minWidth: 0, overflow: "hidden" }}>
             {/* Hamburger — only on mobile / tablet */}
             {showDrawer && (
-              <button className="chamburger-btn" onClick={() => setDrawerOpen(o => !o)} aria-label="Toggle menu">
+              <button className="chamburger-btn" onClick={() => setDrawerOpen(o => !o)} aria-label="Toggle menu" style={{ flexShrink: 0 }}>
                 <span /><span /><span />
               </button>
             )}
-            <img src={logo} alt="OJTern" style={{ width: "46px", height: "46px", objectFit: "contain" }} />
-            <span style={{
-              fontFamily: "'Monomaniac One', sans-serif",
-              fontSize: "clamp(1.1rem, 3vw, 1.5rem)",
-              color: "white", letterSpacing: "0.03em",
-            }}>
-              OJTern
-            </span>
+            <button onClick={() => navigate("dashboard")} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: "10px", padding: "0", flexShrink: 0 }}>
+              <img src={logo} alt="OJTern" style={{ width: "46px", height: "46px", objectFit: "contain", flexShrink: 0 }} />
+              <span style={{
+                fontFamily: "'Monomaniac One', sans-serif",
+                fontSize: "clamp(1.1rem, 3vw, 1.5rem)",
+                color: "white", letterSpacing: "0.03em", flexShrink: 0,
+              }}>
+                OJTern
+              </span>
+            </button>
             {/* Current page label — mobile only */}
             {isMobile && (
               <span style={{
                 fontFamily: "'Jersey 25', sans-serif",
                 fontSize: "1rem", color: "rgba(255,255,255,0.75)", marginLeft: "4px",
+                whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0,
               }}>
                 / {currentLabel}
               </span>
             )}
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "4px", flexShrink: 0 }}>
             <NotificationBell items={notifications} open={notifOpen} onToggle={toggleNotif} />
             <div style={{ cursor: "pointer", padding: "8px" }} onClick={() => navigate("about")} title="About">
               <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -798,14 +835,15 @@ const CompanyDashboardScreen = ({ user, onLogout, onAuthStateChange }) => {
               />
               <div className={`csidebar-drawer ${drawerOpen ? "open" : ""}`}>
                 {/* Drawer header */}
-                <div style={{
+                <button onClick={() => { navigate("dashboard"); setDrawerOpen(false); }} style={{
                   background: `linear-gradient(90deg, ${red} 0%, ${darkRed} 100%)`,
                   padding: "14px 20px", flexShrink: 0,
                   display: "flex", alignItems: "center", gap: "10px",
+                  border: "none", cursor: "pointer", width: "100%", justifyContent: "flex-start",
                 }}>
                   <img src={logo} alt="OJTern" style={{ width: "36px", height: "36px", objectFit: "contain" }} />
                   <span style={{ fontFamily: "'Monomaniac One', sans-serif", fontSize: "1.2rem", color: "white" }}>OJTern</span>
-                </div>
+                </button>
                 <SidebarNav activeNav={activeNav} onNavigate={navigate} onLogout={handleLogoutClick} />
               </div>
             </>

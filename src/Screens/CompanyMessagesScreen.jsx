@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useLayoutEffect } from "react";
 import userIcon from "../icons/user.png";
 import viewIcon from "../icons/view.png";
 import { useChat, resolveUser } from "./useChat";
@@ -251,8 +251,32 @@ const ChatView = ({ contact, messages, onSend, onBack, onReport, onDeleteConvers
   const infoRef        = useRef();
   const longPressTimer = useRef(null);
   const isMobile       = useIsMobile();
+  // Tracks the contact.id we've already done the initial "instant landing"
+  // scroll for. Only gets set once messages for that contact have actually
+  // loaded (not just switched to) — Firestore delivers messages
+  // asynchronously, so switching contact.id and messages populating aren't
+  // the same render.
+  const scrolledContactId = useRef(null);
 
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
+  // Runs BEFORE the browser paints — jumps straight to the bottom with no
+  // animation the first time a conversation's messages actually load, so the
+  // user never sees it start at the top and scroll down. useLayoutEffect
+  // (not useEffect) is what makes this happen before paint instead of after.
+  useLayoutEffect(() => {
+    if (!contact?.id || !messages || messages.length === 0) return;
+    if (scrolledContactId.current !== contact.id) {
+      bottomRef.current?.scrollIntoView({ behavior: "auto" });
+      scrolledContactId.current = contact.id;
+    }
+  }, [contact?.id, messages]);
+
+  // Smoothly scrolls down for new messages arriving in a conversation
+  // that's already fully loaded (not the initial load itself — that's
+  // handled above, instantly, to avoid the visible top-then-down flash).
+  useEffect(() => {
+    if (scrolledContactId.current !== contact?.id) return;
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
 
   useEffect(() => {
     const handler = (e) => {
@@ -349,8 +373,7 @@ const ChatView = ({ contact, messages, onSend, onBack, onReport, onDeleteConvers
           </button>
           {showInfo && (
             <div style={{ position: "absolute", top: "38px", right: 0, background: "white", borderRadius: "10px", boxShadow: "0 4px 20px rgba(0,0,0,0.18)", zIndex: 200, minWidth: "170px", overflow: "hidden" }}>
-              <div onClick={handleDeleteConversation} style={{ padding: "12px 18px", fontFamily: "'Kufam', sans-serif", fontSize: "0.88rem", color: "#222", cursor: "pointer", borderBottom: "1px solid #f0f0f0" }} onMouseEnter={e => e.currentTarget.style.background = "#f5f5f5"} onMouseLeave={e => e.currentTarget.style.background = "white"}>Delete Conversation</div>
-              <div onClick={() => { setShowInfo(false); setShowReport(true); }} style={{ padding: "12px 18px", fontFamily: "'Kufam', sans-serif", fontSize: "0.88rem", color: red, fontWeight: 700, cursor: "pointer" }} onMouseEnter={e => e.currentTarget.style.background = "#fff0f0"} onMouseLeave={e => e.currentTarget.style.background = "white"}>Report</div>
+              <div onClick={handleDeleteConversation} style={{ padding: "12px 18px", fontFamily: "'Kufam', sans-serif", fontSize: "0.88rem", color: "#222", cursor: "pointer" }} onMouseEnter={e => e.currentTarget.style.background = "#f5f5f5"} onMouseLeave={e => e.currentTarget.style.background = "white"}>Delete Conversation</div>
             </div>
           )}
         </div>
@@ -398,6 +421,7 @@ const ChatView = ({ contact, messages, onSend, onBack, onReport, onDeleteConvers
                     <div style={{ background: "transparent", border: "1.5px dashed #bbb", borderRadius: isMe ? "18px 18px 4px 18px" : "18px 18px 18px 4px", padding: "9px 16px", fontFamily: "'Kufam', sans-serif", fontSize: isMobile ? "0.78rem" : "0.82rem", color: "#aaa", fontStyle: "italic", userSelect: "none" }}>Unsent Message</div>
                   ) : (
                     <>
+                      {msg.edited && <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.68rem", color: "#aaa" }}>Edited</span>}
                       {msg.text && (
                         <div style={{ display: "flex", alignItems: "center", gap: "6px", justifyContent: isMe ? "flex-end" : "flex-start" }}>
                           {isMe && (
@@ -437,7 +461,6 @@ const ChatView = ({ contact, messages, onSend, onBack, onReport, onDeleteConvers
                           </div>
                         );
                       })()}
-                      {msg.edited && <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.68rem", color: "#aaa", marginTop: "2px" }}>Edited</span>}
                       {isLastMine && <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.68rem", color: "#aaa", marginTop: "2px" }}>{isSeen ? "Seen" : "Sent"}</span>}
                     </>
                   )}

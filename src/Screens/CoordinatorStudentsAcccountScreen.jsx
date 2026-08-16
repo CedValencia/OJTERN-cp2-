@@ -12,6 +12,23 @@ import {
 
 const red = "#8B0000";
 const darkRed = "#590101";
+
+// Used by FilterPanel to switch to viewport-anchored positioning on narrow
+// screens, instead of positioning relative to the small filter icon button
+// (which caused it to overflow off the left edge of the screen on mobile).
+const useBreakpoint = () => {
+  const [bp, setBp] = useState({ isMobile: false, isTablet: false, isDesktop: true });
+  useEffect(() => {
+    const update = () => {
+      const w = window.innerWidth;
+      setBp({ isMobile: w < 640, isTablet: w >= 640 && w < 1024, isDesktop: w >= 1024 });
+    };
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, []);
+  return bp;
+};
 const black = "#000000";
 
 // ── College / Program / Specialization Data ───────────────────────────────────
@@ -700,7 +717,7 @@ const ALL_COLLEGES = Object.keys(COLLEGE_DATA);
 const ALL_PROGRAMS = [...new Set(Object.values(COLLEGE_DATA).flatMap(c => c.programs || []))];
 
 const validateRow = (row, rowIndex, coordinatorColleges = []) => {
-  const errs = []; const r = rowIndex + 2;
+  const errs = []; const r = rowIndex + 3;
   if (!row.studentId) errs.push(`Row ${r}: Student ID is required`);
   else if (!/^\d{9}$/.test(row.studentId)) errs.push(`Row ${r}: Student ID must be exactly 9 digits`);
   if (!row.lastName) errs.push(`Row ${r}: Last Name is required`);
@@ -750,8 +767,11 @@ const ImportModal = ({ onClose, onImport, coordinatorColleges = [] }) => {
       IMPORT_TEMPLATE_COLUMNS.forEach((expected, i) => { if (headerRow[i] !== expected) headerErrors.push(`Column ${i + 1}: expected "${expected}", found "${headerRow[i] || "(empty)"}"`); });
       if (headerErrors.length > 0) { setPreview({ valid: [], rowErrors: [], headerErrors }); setParsing(false); return; }
       const rowErrors = []; const valid = [];
-      rows.slice(1).forEach((row, i) => {
+      rows.slice(2).forEach((row, i) => {
         if (row.every(c => c === "" || c === null || c === undefined)) return;
+        // Extra safety net: skip any row that still looks like the
+        // template's own "e.g. ..." example row.
+        if (String(row[0] ?? "").trim().toLowerCase().startsWith("e.g.")) return;
         const student = { studentId: String(row[0]||"").trim(), lastName: String(row[1]||"").trim(), middleInitial: String(row[2]||"").trim(), firstName: String(row[3]||"").trim(), college: String(row[4]||"").trim(), program: String(row[5]||"").trim(), major: String(row[6]||"").trim(), specialization: String(row[6]||"").trim(), yearSection: String(row[7]||"").trim(), sex: String(row[8]||"").trim(), age: String(row[9]||"").trim(), email: String(row[10]||"").trim(), password: "" };
         const errs = validateRow(student, i, coordinatorColleges);
         if (errs.length > 0) rowErrors.push(...errs); else valid.push(student);
@@ -845,6 +865,7 @@ const ImportModal = ({ onClose, onImport, coordinatorColleges = [] }) => {
 
 // ── Filter Panel ───────────────────────────────────────────────────────────────
 const FilterPanel = ({ filters, setFilters, filterRef }) => {
+  const { isMobile, isTablet } = useBreakpoint();
   const [expandedCollege, setExpandedCollege] = useState(filters.college || "");
   const allColleges        = COLLEGE_KEYS;
   const allPrograms        = expandedCollege ? (COLLEGE_DATA[expandedCollege]?.programs || []) : [];
@@ -862,8 +883,18 @@ const FilterPanel = ({ filters, setFilters, filterRef }) => {
   const toggleProgram = (prog) => setFilters(prev => ({ ...prev, program: prev.program === prog ? "" : prog, specialization: "" }));
   const locationLevel = !expandedCollege ? "college" : "program";
 
+  const panelStyle = (isMobile || isTablet) ? {
+    position: "fixed", top: "76px", left: "12px", right: "12px", maxHeight: "70vh",
+    background: "white", border: `1.5px solid ${red}`, borderRadius: "10px",
+    boxShadow: "0 6px 24px rgba(0,0,0,0.18)", zIndex: 100, overflowY: "auto", fontFamily: "'Kufam', sans-serif",
+  } : {
+    position: "absolute", top: "48px", right: 0, width: "260px", background: "white",
+    border: `1.5px solid ${red}`, borderRadius: "10px", boxShadow: "0 6px 24px rgba(0,0,0,0.18)",
+    zIndex: 100, overflow: "hidden", fontFamily: "'Kufam', sans-serif",
+  };
+
   return (
-    <div ref={filterRef} style={{ position: "absolute", top: "48px", right: 0, width: "260px", background: "white", border: `1.5px solid ${red}`, borderRadius: "10px", boxShadow: "0 6px 24px rgba(0,0,0,0.18)", zIndex: 100, overflow: "hidden", fontFamily: "'Kufam', sans-serif" }}>
+    <div ref={filterRef} style={panelStyle}>
       <div style={{ padding: "10px 12px 4px" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
           <p style={{ fontSize: "0.78rem", fontWeight: "bold", color: darkRed }}>Sex:</p>

@@ -307,7 +307,7 @@ const ResponsiveStyles = () => (
       margin-bottom: 24px;
       display: flex;
       align-items: center;
-      justify-content: flex-end;
+      justify-content: space-between;
     }
     @media (max-width: 480px) {
       .stud-search-bar { padding: 12px 14px; }
@@ -566,10 +566,10 @@ const CompanyProfile = ({ company, onBack, onReport, onMessageNow, onApplyNow })
 
         <h2 style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(1.2rem, 3vw, 1.5rem)", color: "#111", marginBottom: "8px" }}>Location</h2>
         <div style={{ marginBottom: "20px" }}>
-          {company.postLocation?.address ? (
-            <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "clamp(0.8rem, 2vw, 0.87rem)", color: "#444" }}>{company.postLocation.address}</p>
-          ) : (
+          {locationLines.length > 0 ? (
             locationLines.map((line, i) => <p key={i} style={{ fontFamily: "'Kufam', sans-serif", fontSize: "clamp(0.8rem, 2vw, 0.87rem)", color: "#444", marginBottom: "3px" }}>{line}</p>)
+          ) : (
+            <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "clamp(0.8rem, 2vw, 0.87rem)", color: "#444" }}>{company.postLocation?.address || "No location set"}</p>
           )}
         </div>
 
@@ -646,7 +646,7 @@ const CompanyCard = ({ company, onViewProfile }) => {
   const displayName = company.companyName || company.name || "Unnamed Company";
   const displayIndustry = Array.isArray(company.industry) ? (company.industry.join(", ") || "—") : (company.industry || "—");
   const displayLocation = typeof company.location === "object"
-    ? [company.location?.city, company.location?.province].filter(Boolean).join(", ")
+    ? [company.location?.barangay, company.location?.city, company.location?.province, company.location?.region].filter(Boolean).join(", ")
     : (company.location || "—");
   const _slots = company?.slots || "0/0";
   const totalSlots = company?.slot ?? (typeof _slots === "string" ? parseInt(_slots.split("/")[1]) : 0) ?? 0;
@@ -668,7 +668,7 @@ const CompanyCard = ({ company, onViewProfile }) => {
       </div>
       <h3 style={{ fontFamily: "'Jua', sans-serif", fontSize: isActive ? "1.05rem" : "0.95rem", color: isActive ? "#1a1a1a" : "#555", paddingRight: "60px", lineHeight: 1.3 }}>{displayName}</h3>
       <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.8rem", color: "#555" }}>Industry: {displayIndustry}</p>
-      <p className="stud-card-location" style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.8rem", color: "#555" }}>Location: {displayLocation}, Philippines</p>
+      <p className="stud-card-location" style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.8rem", color: "#555" }}>Location: {displayLocation}</p>
       <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.8rem", color: "#555" }}>Slots Available: {totalSlots}</p>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "8px" }}>
         <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.75rem", color: "#999", fontStyle: "italic" }}>{postedDate ? `Posted ${postedDate}` : ""}</span>
@@ -782,6 +782,8 @@ const StudentFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onMessa
 
         {/* Search + Filter bar */}
         <div className="stud-search-bar" style={{ background: darkRed, borderRadius: "14px" }}>
+          <span style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(1.2rem, 4vw, 1.6rem)", color: "white", letterSpacing: "0.04em" }}>Find Company</span>
+
           <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "8px", background: "white", borderRadius: "24px", padding: "7px 16px" }}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="black" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>

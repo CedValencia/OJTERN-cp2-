@@ -758,7 +758,7 @@ const AboutScreen = ({ onBack }) => {
                 Have questions, feedback, or need help with your account? We'd love
                 to hear from you.
               </p>
-              <a href="mailto:support@ojtern.app" className="about-cta-btn">
+              <a href="mailto:ojtern@gmail.com" className="about-cta-btn">
                 ✉️ Contact Us
               </a>
             </div>
@@ -808,7 +808,7 @@ const AboutScreen = ({ onBack }) => {
             <PrivacyItem heading="6. Your Rights">
               You have the right to access, update, or request deletion of your
               personal data at any time. For any privacy-related concerns, you may
-              contact our support team at support@ojtern.app.
+              contact our support team at ojtern@gmail.com.
             </PrivacyItem>
 
             <PrivacyItem heading="7. Compliance with Philippine Law">
@@ -831,7 +831,7 @@ const AboutScreen = ({ onBack }) => {
 
         {/* Footer */}
         <p className="about-footer-note">
-          © 2026 OJTern. All rights reserved. · support@ojtern.app
+          © 2026 OJTern. All rights reserved. · ojtern@gmail.com
         </p>
 
       </div>

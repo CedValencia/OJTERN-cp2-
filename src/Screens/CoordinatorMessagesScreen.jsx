@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useLayoutEffect } from "react";
 import userIcon from "../icons/user.png";
 import viewIcon from "../icons/view.png";
 import { useChat } from "./useChat";
@@ -275,8 +275,32 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onR
   const infoRef        = useRef();
   const longPressTimer = useRef(null);
   const isMobile       = useIsMobile();
+  // Tracks the contact.id we've already done the initial "instant landing"
+  // scroll for. Only gets set once messages for that contact have actually
+  // loaded (not just switched to) — Firestore delivers messages
+  // asynchronously, so switching contact.id and messages populating aren't
+  // the same render.
+  const scrolledContactId = useRef(null);
 
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
+  // Runs BEFORE the browser paints — jumps straight to the bottom with no
+  // animation the first time a conversation's messages actually load, so the
+  // user never sees it start at the top and scroll down. useLayoutEffect
+  // (not useEffect) is what makes this happen before paint instead of after.
+  useLayoutEffect(() => {
+    if (!contact?.id || !messages || messages.length === 0) return;
+    if (scrolledContactId.current !== contact.id) {
+      bottomRef.current?.scrollIntoView({ behavior: "auto" });
+      scrolledContactId.current = contact.id;
+    }
+  }, [contact?.id, messages]);
+
+  // Smoothly scrolls down for new messages arriving in a conversation
+  // that's already fully loaded (not the initial load itself — that's
+  // handled above, instantly, to avoid the visible top-then-down flash).
+  useEffect(() => {
+    if (scrolledContactId.current !== contact?.id) return;
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
 
   useEffect(() => {
     const handler = (e) => {
@@ -414,13 +438,14 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onR
               )}
               <div style={{ display: "flex", alignItems: "flex-end", gap: isMobile ? "6px" : "10px", justifyContent: isMe ? "flex-end" : "flex-start", marginBottom: "4px" }}>
                 {!isMe && <CompanyAvatar size={avatarSize} />}
-                <div style={{ maxWidth: bubbleMaxWidth, display: "flex", flexDirection: "column", alignItems: isMe ? "flex-end" : "flex-start", gap: "3px", position: "relative" }}>
+                <div style={{ maxWidth: bubbleMaxWidth, minWidth: 0, display: "flex", flexDirection: "column", alignItems: isMe ? "flex-end" : "flex-start", gap: "3px", position: "relative" }}>
                   {msg.unsent ? (
                     <div style={{ background: "transparent", border: "1.5px dashed #bbb", borderRadius: isMe ? "18px 18px 4px 18px" : "18px 18px 18px 4px", padding: "9px 16px", fontFamily: "'Kufam', sans-serif", fontSize: isMobile ? "0.78rem" : "0.82rem", color: "#aaa", fontStyle: "italic", userSelect: "none" }}>Unsent Message</div>
                   ) : (
                     <>
+                      {msg.edited && <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.68rem", color: "#aaa" }}>Edited</span>}
                       {msg.text && (
-                        <div style={{ display: "flex", alignItems: "center", gap: "6px", justifyContent: isMe ? "flex-end" : "flex-start" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "6px", justifyContent: isMe ? "flex-end" : "flex-start", minWidth: 0, maxWidth: "100%" }}>
                           {isMe && (
                             <div style={{ position: "relative" }}>
                               <button onClick={() => setPopupMsgId(prev => prev === msg.id ? null : msg.id)} style={{ background: "none", border: "none", cursor: "pointer", padding: "2px 4px", color: "#aaa", fontSize: "1rem", lineHeight: 1, flexShrink: 0 }}>⋮</button>
@@ -431,7 +456,7 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onR
                             onMouseDown={e => startLongPress(e, msg)} onMouseUp={cancelLongPress} onMouseLeave={cancelLongPress}
                             onTouchStart={e => startLongPress(e, msg)} onTouchEnd={cancelLongPress} onTouchMove={cancelLongPress}
                             onContextMenu={e => e.preventDefault()}
-                            style={{ background: isMe ? darkRed : "#555", color: "white", borderRadius: isMe ? "18px 18px 4px 18px" : "18px 18px 18px 4px", padding: isMobile ? "8px 12px" : "10px 16px", fontFamily: "'Kufam', sans-serif", fontSize: isMobile ? "0.82rem" : "0.88rem", lineHeight: 1.5, cursor: isMe ? "pointer" : "default", userSelect: "none", outline: (isPopupOpen || editingId === msg.id) ? `2px solid ${darkRed}` : "none", WebkitUserSelect: "none", WebkitTouchCallout: "none" }}
+                            style={{ background: isMe ? darkRed : "#555", color: "white", borderRadius: isMe ? "18px 18px 4px 18px" : "18px 18px 18px 4px", padding: isMobile ? "8px 12px" : "10px 16px", fontFamily: "'Kufam', sans-serif", fontSize: isMobile ? "0.82rem" : "0.88rem", lineHeight: 1.5, cursor: isMe ? "pointer" : "default", userSelect: "none", outline: (isPopupOpen || editingId === msg.id) ? `2px solid ${darkRed}` : "none", WebkitUserSelect: "none", WebkitTouchCallout: "none", minWidth: 0, wordBreak: "break-word", overflowWrap: "break-word" }}
                           >
                             {msg.text}
                           </div>
@@ -458,7 +483,6 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onR
                           </div>
                         );
                       })()}
-                      {msg.edited && <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.68rem", color: "#aaa", marginTop: "2px" }}>Edited</span>}
                       {isLastMine && <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.68rem", color: "#aaa", marginTop: "2px" }}>{isSeen ? "Seen" : "Sent"}</span>}
                     </>
                   )}

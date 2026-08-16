@@ -34,7 +34,7 @@ const ResponsiveStyles = () => (
       padding: 14px 20px;
       display: flex;
       align-items: center;
-      justify-content: flex-end;
+      justify-content: space-between;
     }
     @media (max-width: 480px) {
       .clist-search-bar { padding: 10px 12px; }
@@ -162,38 +162,138 @@ const REGISTERED_COMPANIES = [];
 // TODO: Replace with real review data from backend
 const REVIEW_COMPANIES = [];
 
+// ── Force-download helper ────────────────────────────────────────────────────
+// Fetches the file and triggers a real download via a blob link, instead of
+// navigating to/opening the raw file — coordinators should never have file
+// content render directly in the app, they should have to deliberately
+// download and open it themselves.
+const handleDocDownload = async (url, fileName) => {
+  try {
+    const res = await fetch(url);
+    const blob = await res.blob();
+    const blobUrl = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = blobUrl;
+    a.download = fileName || "document";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(blobUrl);
+  } catch (err) {
+    console.error("Download failed, falling back to opening in a new tab:", err);
+    window.open(url, "_blank", "noopener,noreferrer");
+  }
+};
+
+// ── Image Lightbox — same top-bar pattern used in Report Company's viewer ────
+const ImageLightbox = ({ src, name, onClose }) => {
+  useEffect(() => {
+    const handler = (e) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed", inset: 0,
+        background: "rgba(0,0,0,0.88)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        zIndex: 9000, flexDirection: "column",
+      }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          position: "absolute", top: 0, left: 0, right: 0,
+          padding: "14px 20px",
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          background: "rgba(0,0,0,0.5)",
+        }}
+      >
+        <span style={{
+          fontFamily: "'Kufam', sans-serif", fontSize: "0.88rem",
+          color: "rgba(255,255,255,0.8)",
+          maxWidth: "70%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+        }}>
+          {name}
+        </span>
+        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+          <button
+            onClick={() => handleDocDownload(src, name)}
+            style={{
+              background: "rgba(255,255,255,0.15)", border: "none", borderRadius: "8px",
+              padding: "7px 14px", color: "white",
+              fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem",
+              cursor: "pointer", display: "flex", alignItems: "center", gap: "6px",
+            }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="7 10 12 15 17 10"/>
+              <line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+            Download
+          </button>
+          <button
+            onClick={onClose}
+            style={{
+              background: "rgba(255,255,255,0.15)", border: "none", borderRadius: "50%",
+              width: "34px", height: "34px", color: "white", fontSize: "1.1rem",
+              cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+            }}
+          >✕</button>
+        </div>
+      </div>
+
+      <img
+        src={src} alt={name}
+        onClick={e => e.stopPropagation()}
+        style={{
+          maxWidth: "90vw", maxHeight: "80vh",
+          borderRadius: "10px", objectFit: "contain",
+          boxShadow: "0 8px 40px rgba(0,0,0,0.6)",
+        }}
+      />
+    </div>
+  );
+};
+
 // ── Doc Thumbnail — supports Cloudinary URL strings ──────────────────────────
-// `url` is a Cloudinary secure_url string (PDF or image)
+// `url` is a Cloudinary secure_url string (PDF or image). Images open the
+// same ImageLightbox preview used in Report Company's attachment viewer
+// instead of force-downloading immediately on click — PDFs still download
+// straight away since there's no in-app PDF viewer here.
 const DocThumbnail = ({ url, index }) => {
   const isPdf = url.toLowerCase().includes(".pdf") || url.toLowerCase().includes("/raw/");
   const fileName = url.split("/").pop().split("?")[0] || `Document ${index + 1}`;
-  const icon = isPdf ? pdfIcon : null;
+  const [previewOpen, setPreviewOpen] = useState(false);
 
   return (
-    <a
-      href={url}
-      target="_blank"
-      rel="noopener noreferrer"
-      title={`Open ${fileName}`}
-      style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", gap: "4px", textDecoration: "none" }}
-    >
-      <div style={{ position: "relative", width: "72px", height: "82px", borderRadius: "8px", overflow: "hidden", border: "1px solid #ddd", background: "#f5f5f5", display: "flex", alignItems: "center", justifyContent: "center" }}>
-        {isPdf ? (
-          <>
+    <>
+      <button
+        onClick={() => (isPdf ? handleDocDownload(url, fileName) : setPreviewOpen(true))}
+        title={isPdf ? `Download ${fileName}` : `View ${fileName}`}
+        style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", gap: "4px", textDecoration: "none", background: "none", border: "none", cursor: "pointer", padding: 0 }}
+      >
+        <div style={{ position: "relative", width: "72px", height: "82px", borderRadius: "8px", overflow: "hidden", border: "1px solid #ddd", background: "#f5f5f5", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          {isPdf ? (
             <img src={pdfIcon} alt="PDF" style={{ width: "56px", height: "66px", objectFit: "contain" }} />
-            <img src={downloadIcon} alt="Open" style={{ position: "absolute", top: "-4px", right: "-4px", width: "22px", height: "22px", objectFit: "contain" }} />
-          </>
-        ) : (
-          <>
+          ) : (
             <img src={url} alt={fileName} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-            <img src={downloadIcon} alt="Open" style={{ position: "absolute", top: "-4px", right: "-4px", width: "22px", height: "22px", objectFit: "contain" }} />
-          </>
-        )}
-      </div>
-      <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.58rem", color: "#555", textAlign: "center", wordBreak: "break-all", maxWidth: "80px", lineHeight: 1.3, marginTop: "4px" }}>
-        {fileName}
-      </span>
-    </a>
+          )}
+          <img src={downloadIcon} alt="Download" style={{ position: "absolute", top: "-4px", right: "-4px", width: "22px", height: "22px", objectFit: "contain" }} />
+        </div>
+        <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.58rem", color: "#555", textAlign: "center", wordBreak: "break-all", maxWidth: "80px", lineHeight: 1.3, marginTop: "4px" }}>
+          {fileName}
+        </span>
+      </button>
+
+      {previewOpen && !isPdf && (
+        <ImageLightbox src={url} name={fileName} onClose={() => setPreviewOpen(false)} />
+      )}
+    </>
   );
 };
 
@@ -920,6 +1020,8 @@ const CoordinatorCompanyListScreen = ({ coordinatorUid, initialCompanyId, onClea
 
         {/* Search bar */}
         <div className="clist-search-bar" style={{ background: darkRed }}>
+           <span style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(1.2rem, 4vw, 1.6rem)", color: "white", letterSpacing: "0.04em" }}>Company List</span>
+
           <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "8px", background: "white", borderRadius: "24px", padding: "7px 16px" }}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="black" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">

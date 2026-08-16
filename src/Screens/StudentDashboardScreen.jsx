@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
-import { collection, onSnapshot, query, where, orderBy, limit, doc, updateDoc } from "firebase/firestore";
+import { useNavigate, useLocation } from "react-router-dom";
+import { collection, onSnapshot, query, where, orderBy, limit, doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
 import { db } from "./firebase";
 import { changePassword, logOut } from "./AuthService";
 
@@ -219,6 +220,17 @@ const EmptyListPlaceholder = ({ label = "No data available" }) => (
 );
 
 // ── Sidebar nav list ───────────────────────────────────────────────────────────
+// ── URL <-> tab mapping ──────────────────────────────────────────────────────
+// The active tab now lives in the URL (/student/<key>) instead of
+// sessionStorage, so the address bar always matches what's on screen and a
+// refresh/back-button/shared link lands on the right tab.
+const STUDENT_BASE_PATH = "/student";
+const getStudentNavKeyFromPath = (pathname) => {
+  const rest = pathname.startsWith(STUDENT_BASE_PATH) ? pathname.slice(STUDENT_BASE_PATH.length) : "";
+  const key = rest.replace(/^\/+|\/+$/g, "");
+  return key || "dashboard";
+};
+
 const SidebarNavList = ({ activeNav, onNavigate, onLogout }) => (
   <>
     {navItems.map((item) => (
@@ -465,14 +477,14 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
       onLogout?.();
     }
   };
-  const [activeNav, setActiveNav] = useState(() => sessionStorage.getItem("ojtern_student_nav") || "dashboard");
-  const [recentVisited, setRecentVisited] = useState(() => {
-    if (!user?.uid) return [];
-    try {
-      const stored = localStorage.getItem(`recentVisited_${user.uid}`);
-      return stored ? JSON.parse(stored) : [];
-    } catch { return []; }
-  });
+  const routerNavigate = useNavigate();
+  const location = useLocation();
+  const activeNav = getStudentNavKeyFromPath(location.pathname);
+  // Recently visited companies now live in Firestore (students/{uid}.recentVisited)
+  // instead of localStorage, so the list follows the account across browsers
+  // and devices instead of being stuck on whichever one was used to visit.
+  const [recentVisited, setRecentVisited] = useState([]);
+  const [recentVisitedLoaded, setRecentVisitedLoaded] = useState(false);
   const [recentApplications, setRecentApplications] = useState([]);
   const [notifications, setNotifications]         = useState([]);
   const [showNotifDropdown, setShowNotifDropdown]  = useState(false);
@@ -602,21 +614,39 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
 
   useEffect(() => { if (isDesktop) setDrawerOpen(false); }, [isDesktop]);
 
+  // Load recent visited companies from Firestore once we know who the user is.
   useEffect(() => {
-    if (!user?.uid) return;
-    try { localStorage.setItem(`recentVisited_${user.uid}`, JSON.stringify(recentVisited)); } catch {}
-  }, [recentVisited, user?.uid]);
+    if (!user?.uid) { setRecentVisitedLoaded(true); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const snap = await getDoc(doc(db, "students", user.uid));
+        if (cancelled) return;
+        const data = snap.data();
+        setRecentVisited(Array.isArray(data?.recentVisited) ? data.recentVisited : []);
+      } catch (err) {
+        console.error("Failed to load recent visited companies:", err);
+      } finally {
+        if (!cancelled) setRecentVisitedLoaded(true);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [user?.uid]);
+
+  // Persist recent visited companies to Firestore. Gated on recentVisitedLoaded
+  // so this doesn't fire with an empty array and wipe out the saved list
+  // before the initial Firestore read above has finished.
+  useEffect(() => {
+    if (!user?.uid || !recentVisitedLoaded) return;
+    setDoc(doc(db, "students", user.uid), { recentVisited }, { merge: true })
+      .catch((err) => console.error("Failed to save recent visited companies:", err));
+  }, [recentVisited, user?.uid, recentVisitedLoaded]);
 
   const navigate = (key, id = null) => {
-    setActiveNav(key);
     setDrawerOpen(false);
     if (id && key === "application") setPendingApplicationId(id);
+    routerNavigate(`${STUDENT_BASE_PATH}/${key}`);
   };
-
-  // Always keep sessionStorage in sync with activeNav
-  useEffect(() => {
-  sessionStorage.setItem("ojtern_student_nav", activeNav);
-}, [activeNav]);
 
   useEffect(() => {
     if (activeNav !== "application") setPendingApplicationId(null);
@@ -710,23 +740,28 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
           display: "flex", alignItems: "center", justifyContent: "space-between",
           padding: "0 16px", boxShadow: "0 2px 12px rgba(0,0,0,0.25)",
         }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", flex: "1 1 auto", minWidth: 0, overflow: "hidden" }}>
             {showDrawer && (
-              <button className="hamburger-btn" onClick={() => setDrawerOpen(o => !o)} aria-label="Toggle menu">
+              <button className="hamburger-btn" onClick={() => setDrawerOpen(o => !o)} aria-label="Toggle menu" style={{ flexShrink: 0 }}>
                 <span /><span /><span />
               </button>
             )}
-            <img src={logo} alt="OJTern" style={{ width: "46px", height: "46px", objectFit: "contain" }} />
-            <span style={{ fontFamily: "'Monomaniac One', sans-serif", fontSize: "clamp(1.1rem, 3vw, 1.5rem)", color: "white", letterSpacing: "0.03em" }}>
-              OJTern
-            </span>
+            <button onClick={() => navigate("dashboard")} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: "10px", padding: "0", flexShrink: 0 }}>
+              <img src={logo} alt="OJTern" style={{ width: "46px", height: "46px", objectFit: "contain", flexShrink: 0 }} />
+              <span style={{ fontFamily: "'Monomaniac One', sans-serif", fontSize: "clamp(1.1rem, 3vw, 1.5rem)", color: "white", letterSpacing: "0.03em", flexShrink: 0 }}>
+                OJTern
+              </span>
+            </button>
             {isMobile && (
-              <span style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1rem", color: "rgba(255,255,255,0.75)", marginLeft: "4px" }}>
+              <span style={{
+                fontFamily: "'Jersey 25', sans-serif", fontSize: "1rem", color: "rgba(255,255,255,0.75)", marginLeft: "4px",
+                whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0,
+              }}>
                 / {currentLabel}
               </span>
             )}
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "4px", flexShrink: 0 }}>
             <div style={{ position: "relative" }}>
               <div style={{ cursor: "pointer", padding: "8px", position: "relative" }} onClick={handleToggleNotifDropdown}>
                 <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -817,14 +852,15 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
             <>
               <div className={`ssidebar-overlay ${drawerOpen ? "open" : ""}`} onClick={() => setDrawerOpen(false)} />
               <div className={`ssidebar-drawer ${drawerOpen ? "open" : ""}`}>
-                <div style={{
+                <button onClick={() => { navigate("dashboard"); setDrawerOpen(false); }} style={{
                   background: `linear-gradient(90deg, ${red} 0%, ${darkRed} 100%)`,
                   padding: "14px 20px", flexShrink: 0,
                   display: "flex", alignItems: "center", gap: "10px",
+                  border: "none", cursor: "pointer", width: "100%", justifyContent: "flex-start",
                 }}>
                   <img src={logo} alt="OJTern" style={{ width: "36px", height: "36px", objectFit: "contain" }} />
                   <span style={{ fontFamily: "'Monomaniac One', sans-serif", fontSize: "1.2rem", color: "white" }}>OJTern</span>
-                </div>
+                </button>
                 <SidebarNavList activeNav={activeNav} onNavigate={navigate} onLogout={handleLogoutClick} />
               </div>
             </>

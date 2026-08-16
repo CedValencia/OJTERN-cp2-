@@ -120,7 +120,12 @@ export const useChat = (myUid, myName, myRole) => {
         // Skip conversations this user has deleted for themself — the doc
         // still exists (and is still visible to the other participant)
         // until it's revived by a new message. See sendMessage below.
-        .filter(conv => !(conv.deletedFor || []).includes(myUid));
+        .filter(conv => !(conv.deletedFor || []).includes(myUid))
+        // Skip conversations with no lastMessage — only show chats that have
+        // actual messages. This prevents "Message Now" button clicks from
+        // creating chat entries that clutter the list. Conversations are
+        // automatically shown once a message is sent.
+        .filter(conv => conv.lastMessage !== null && conv.lastMessage !== undefined);
 
       // Build contacts list — always use latest name from Firestore collections
       const newContacts = await Promise.all(convList.map(async (conv) => {
@@ -260,11 +265,9 @@ export const useChat = (myUid, myName, myRole) => {
       });
     }
 
-    // Add to local contacts if not already there
-    setContacts(prev => {
-      if (prev.find(c => c.id === otherUid)) return prev;
-      return [...prev, { id: otherUid, name: resolvedOtherName, role: otherRole, convId }];
-    });
+    // NOTE: Do NOT add to contacts here. Conversations should only appear in the chat list
+    // after an actual message has been sent (see sendMessage). Merely opening the message
+    // screen ("Message Now") should not create a visible chat entry.
 
     return convId;
   }, [myUid, myName, myRole]);
