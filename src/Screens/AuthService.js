@@ -28,7 +28,9 @@ import {
   serverTimestamp,
 } from "firebase/firestore";
 
-import { auth, db } from "./firebase";
+import { httpsCallable } from "firebase/functions";
+
+import { auth, db, functions } from "./firebase";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // COMPANY — Sign Up (Step 2 calls this after Cloudinary uploads)
@@ -514,81 +516,117 @@ export const createCoordinatorAccount = async (accountData, inviterUid) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// COORDINATOR — Transfer Account (hand off to a replacement coordinator;
-// the current account permanently loses access once transferred)
+// COORDINATOR — Transfer Account, invitation-based (hand off to a replacement
+// coordinator via an emailed "Accept" link — the current account keeps full
+// access until the invite is actually accepted, instead of losing access the
+// instant the transfer is initiated).
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * Transfers a coordinator's department/industry scope to a brand-new
- * coordinator account, then revokes the current account's access.
- *
- * @param {string} currentUid       — the coordinator initiating the transfer
- * @param {string} currentEmail     — used to re-confirm identity before transferring
- * @param {string} currentPassword  — used to re-confirm identity before transferring
- * @param {object} newAccountData   — { name, email, password }
- * @returns {Promise<string>} the new coordinator's UID
- */
-export const transferCoordinatorAccount = async (currentUid, currentEmail, currentPassword, newAccountData) => {
-  // 1. Re-authenticate the current coordinator before doing anything irreversible.
-  // This also makes `auth.currentUser` the current coordinator on the MAIN auth
-  // instance, which is what lets step 5 below delete their own Auth account
-  // directly (a user can always delete themselves — no admin needed).
-  const { user: reauthedUser } = await signInWithEmailAndPassword(auth, currentEmail.trim().toLowerCase(), currentPassword);
+// Random-enough token for the accept link — not a Firebase Auth credential,
+// just a shared secret the emailed link carries so the accept screen (and
+// the Cloud Functions behind it) can prove "this click came from that email"
+// without needing the invite doc itself to be publicly readable.
+const generateInviteToken = () => {
+  const bytes = new Uint8Array(24);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+};
 
-  // 2. Load the current coordinator's scope to carry over
+/**
+ * Starts a coordinator handoff: re-confirms the current coordinator's
+ * identity, then creates a pending invite doc. A Cloud Function
+ * (sendCoordinatorTransferInviteEmail) picks up the new doc and emails the
+ * new coordinator an "Accept" link — nothing about the current account
+ * changes until that invite is accepted (see acceptCoordinatorTransfer,
+ * called from AcceptTransferScreen).
+ *
+ * @param {string} currentUid
+ * @param {string} currentEmail
+ * @param {string} currentPassword — re-confirms identity before inviting
+ * @param {string} newCoordinatorEmail
+ * @returns {Promise<string>} the new invite's Firestore doc ID
+ */
+export const initiateCoordinatorTransfer = async (currentUid, currentEmail, currentPassword, newCoordinatorEmail) => {
+  // 1. Re-authenticate the current coordinator before doing anything.
+  await signInWithEmailAndPassword(auth, currentEmail.trim().toLowerCase(), currentPassword);
+
+  // 2. Load the current coordinator's scope to carry over to the invite.
   const currentSnap = await getDoc(doc(db, "coordinators", currentUid));
   if (!currentSnap.exists()) throw new Error("Current coordinator profile not found.");
   const currentData = currentSnap.data();
 
-  // 3. New coordinator account — must be a brand-new email. Since transferred-out
-  // accounts are now fully deleted (see step 5), there is no "reactivate a
-  // transferred stub" case anymore: any existing doc with this email is a
-  // currently active coordinator, which is always a conflict.
-  const { name, email, password } = newAccountData;
-  const normalizedEmail = email.trim().toLowerCase();
+  const normalizedFromEmail = currentEmail.trim().toLowerCase();
+  const normalizedToEmail   = newCoordinatorEmail.trim().toLowerCase();
 
-  const dupSnap = await getDocs(query(collection(db, "coordinators"), where("email", "==", normalizedEmail)));
+  if (normalizedToEmail === normalizedFromEmail) {
+    throw new Error("The new coordinator's email must be different from your own.");
+  }
+
+  // 3. The new email must not already belong to an active coordinator.
+  const dupSnap = await getDocs(query(collection(db, "coordinators"), where("email", "==", normalizedToEmail)));
   if (!dupSnap.empty) {
     throw new Error("An active account with that email already exists.");
   }
 
-  const newUid = await createAuthUserIsolated(normalizedEmail, password);
-  await setDoc(doc(db, "coordinators", newUid), {
-    uid: newUid,
-    name: name.trim(),
-    email: normalizedEmail,
-    sex: "",
-    contact: "",
-    address: "",
-    deptSelections: currentData.deptSelections || [],
+  // 4. Cancel any earlier pending invites from this coordinator so only the
+  // latest one is acceptable (avoids two valid "Accept" links floating
+  // around for the same handoff).
+  const pendingSnap = await getDocs(query(
+    collection(db, "coordinatorTransferInvites"),
+    where("fromUid", "==", currentUid),
+    where("status", "==", "pending"),
+  ));
+  await Promise.all(pendingSnap.docs.map((d) => updateDoc(d.ref, { status: "cancelled" })));
+
+  // 5. Create the invite — the Cloud Function trigger sends the email from here.
+  const inviteRef = await addDoc(collection(db, "coordinatorTransferInvites"), {
+    fromUid:            currentUid,
+    fromEmail:          normalizedFromEmail,
+    fromName:           currentData.name || "",
+    toEmail:            normalizedToEmail,
+    deptSelections:     currentData.deptSelections || [],
     assignedIndustries: currentData.assignedIndustries || [],
-    role: "coordinator",
-    status: "active",
-    passwordChanged: false,
-    profileComplete: false,
-    transferredFrom: currentUid,
-    createdAt: serverTimestamp(),
+    token:              generateInviteToken(),
+    status:             "pending",
+    createdAt:          serverTimestamp(),
   });
 
-  // 4. Fully delete the current coordinator's Firestore document — not just
-  // flag it. This frees up their email immediately (no lingering doc to
-  // collide with later, whether they sign up as a company/student/coordinator
-  // again). Deleting this doc also fires the deleteCoordinatorAuthOnDocDelete
-  // Cloud Function as a safety-net cleanup of the Auth account server-side.
-  await deleteDoc(doc(db, "coordinators", currentUid));
+  return inviteRef.id;
+};
 
-  // 5. Delete the current coordinator's own Firebase Auth account directly.
-  // This is the client SDK's "delete the currently signed-in user" call — it
-  // does NOT require Admin SDK privileges because reauthedUser is deleting
-  // themselves, and it also immediately signs them out, so the old email is
-  // free to be reused (by a new sign-up, or by this same person again) right
-  // away rather than waiting on the Cloud Function trigger to propagate.
-  await reauthedUser.delete().catch((err) => {
-    // If this ever fails (e.g. a stale token), the Firestore doc is already
-    // gone and the deleteCoordinatorAuthOnDocDelete Cloud Function will still
-    // clean up the Auth account shortly after as a fallback.
-    console.error("[transferCoordinatorAccount] Auth self-delete failed, relying on Cloud Function fallback:", err);
-  });
+/**
+ * Looks up a pending transfer invite for the Accept screen — validated
+ * server-side by the getCoordinatorTransferInvite Cloud Function, which
+ * checks the token before returning anything. The client never reads
+ * coordinatorTransferInvites directly via Firestore rules; this callable
+ * is the only way to see an invite's details before it's accepted.
+ *
+ * @param {string} inviteId
+ * @param {string} token
+ * @returns {Promise<{ fromName: string, toEmail: string, deptSelections: object[] }>}
+ */
+export const getCoordinatorTransferInvite = async (inviteId, token) => {
+  const call = httpsCallable(functions, "getCoordinatorTransferInvite");
+  const { data } = await call({ inviteId, token });
+  return data;
+};
 
-  return newUid;
+/**
+ * Accepts a coordinator transfer invite: the new coordinator chooses their
+ * own name + password here. Everything — creating the new Auth account +
+ * Firestore profile, marking the invite accepted, and removing the outgoing
+ * coordinator's doc (which cascades into deleteCoordinatorAuthOnDocDelete
+ * cleaning up their Auth account) — happens server-side in the
+ * acceptCoordinatorTransfer Cloud Function using Admin SDK privileges.
+ *
+ * @param {string} inviteId
+ * @param {string} token
+ * @param {string} name
+ * @param {string} password
+ * @returns {Promise<{ uid: string }>}
+ */
+export const acceptCoordinatorTransfer = async (inviteId, token, name, password) => {
+  const call = httpsCallable(functions, "acceptCoordinatorTransfer");
+  const { data } = await call({ inviteId, token, name, password });
+  return data;
 };

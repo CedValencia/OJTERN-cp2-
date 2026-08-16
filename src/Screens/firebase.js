@@ -2,6 +2,7 @@ import { initializeApp, getApps, getApp } from "firebase/app";
 import { initializeFirestore } from "firebase/firestore";
 import { getAuth, browserLocalPersistence, browserSessionPersistence, setPersistence } from "firebase/auth";
 import { getStorage } from "firebase/storage";
+import { getFunctions } from "firebase/functions";
 
 const firebaseConfig = {
     apiKey: "AIzaSyBzTJYm8Au3s-w5y2Vt5vOFwYTTI3WiMJo",
@@ -26,6 +27,9 @@ export const db = initializeFirestore(app, {
   experimentalAutoDetectLongPolling: true,
 });
 export const storage = getStorage(app);
+// Region must match where the Cloud Functions are deployed (see functions/index.js —
+// coordinator-transfer functions use "asia-southeast1"), or calls will 404.
+export const functions = getFunctions(app, "asia-southeast1");
 
 // Session persistence:
 // - In local dev (`npm start`), use session persistence so every dev server

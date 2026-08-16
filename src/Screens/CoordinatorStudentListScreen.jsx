@@ -440,7 +440,7 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
   const [search, setSearch]                 = useState("");
   const [viewingStudent, setViewingStudent] = useState(null);
   const [showFilter, setShowFilter]         = useState(false);
-  const [filters, setFilters]               = useState({ college: "", program: "", specialization: "", sex: "", section: "" });
+  const [filters, setFilters]               = useState({ college: "", program: "", specialization: "", sex: "", section: "", status: "" });
 
   const filterRef = useRef(null);
   const [students, setStudents]     = useState([]);
@@ -504,11 +504,18 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
     const matchCollege = !filters.college || s.college  === filters.college;
     const matchProgram = !filters.program || s.program  === filters.program;
     const matchSpec    = !filters.specialization || s.major === filters.specialization;
-    return matchSearch && matchSex && matchSection && matchCollege && matchProgram && matchSpec;
+    
+    // Status filter
+    let matchStatus = true;
+    if (filters.status === "Accepted") {
+      matchStatus = acceptedStudentIds.has(s.id);
+    } else if (filters.status === "No Applications") {
+      matchStatus = !acceptedStudentIds.has(s.id);
+    }
+    // "All" has no status filter
+    
+    return matchSearch && matchSex && matchSection && matchCollege && matchProgram && matchSpec && matchStatus;
   });
-
-  const acceptedStudents    = filtered.filter(s => acceptedStudentIds.has(s.id));
-  const notAcceptedStudents = filtered.filter(s => !acceptedStudentIds.has(s.id));
 
   const renderStudentRow = (student) => {
     const fullName = `${student.firstName} ${student.middleInitial ? student.middleInitial + " " : ""}${student.lastName}${student.suffix && student.suffix !== "None" && student.suffix !== "N/A" ? " " + student.suffix : ""}`;
@@ -555,8 +562,9 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
       <div style={{ flex: 1, display: "flex", flexDirection: "column", background: "#f0f0f0", overflow: "hidden" }}>
 
         {/* Top bar */}
-        <div className="sp-topbar">
+        <div className="sp-topbar" style={{ justifyContent: "space-between" }}>
           <span style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(1.2rem, 4vw, 1.6rem)", color: "white", letterSpacing: "0.04em" }}>Student List</span>
+          
           <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "8px", background: "white", borderRadius: "24px", padding: "7px 16px" }}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="black" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -591,72 +599,69 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
           </div>
         </div>
 
-        {/* Active filter badges */}
-        {hasFilter && (
-          <div className="sp-filter-badges">
-            <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.78rem", color: "#888" }}>Filters:</span>
-            {filters.sex && (
-              <span style={{ background: "#f0e0e0", color: darkRed, border: `1px solid ${red}`, borderRadius: "20px", padding: "2px 10px", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif", display: "flex", alignItems: "center", gap: "5px" }}>
-                {filters.sex}<span onClick={() => setFilters(prev => ({ ...prev, sex: "" }))} style={{ cursor: "pointer", fontWeight: "bold" }}>×</span>
-              </span>
-            )}
-            {filters.section && (
-              <span style={{ background: "#f0e0e0", color: darkRed, border: `1px solid ${red}`, borderRadius: "20px", padding: "2px 10px", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif", display: "flex", alignItems: "center", gap: "5px" }}>
-                4-{filters.section}<span onClick={() => setFilters(prev => ({ ...prev, section: "" }))} style={{ cursor: "pointer", fontWeight: "bold" }}>×</span>
-              </span>
-            )}
-            {filters.college && (
-              <span style={{ background: "#f0e0e0", color: darkRed, border: `1px solid ${red}`, borderRadius: "20px", padding: "2px 10px", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif", display: "flex", alignItems: "center", gap: "5px" }}>
-                {[filters.college ? (COLLEGE_DATA[filters.college]?.label || filters.college) : "", filters.program, filters.specialization].filter(Boolean).join(" › ")}
-                <span onClick={() => setFilters(prev => ({ ...prev, college: "", program: "", specialization: "" }))} style={{ cursor: "pointer", fontWeight: "bold" }}>×</span>
-              </span>
-            )}
-            <span onClick={() => setFilters({ college: "", program: "", specialization: "", sex: "", section: "" })} style={{ fontSize: "0.74rem", color: red, cursor: "pointer", fontFamily: "'Kufam', sans-serif", textDecoration: "underline" }}>Clear all</span>
-          </div>
-        )}
+        {/* ── Horizontal Status Filter Bar ── */}
+        <div style={{ 
+          background: "#fff", 
+          padding: "12px 20px", 
+          display: "flex", 
+          gap: "10px", 
+          alignItems: "center",
+          flexWrap: "wrap",
+          borderBottom: "1px solid #e0e0e0",
+          flexShrink: 0,
+          overflowX: "auto"
+        }}>
+          {["All", "Accepted", "No Applications yet"].map((statusOption) => {
+            const isActive = statusOption === "All" ? filters.status === "" : filters.status === statusOption;
+            const statusColor = statusOption === "Accepted" ? "#4CAF50" : statusOption === "No Applications yet" ? "#c0392b" : "#666";
+            
+            return (
+              <button
+                key={statusOption}
+                onClick={() => {
+                  setFilters(p => ({
+                    ...p,
+                    status: isActive ? "" : statusOption
+                  }));
+                }}
+                style={{
+                  background: isActive ? statusColor : "transparent",
+                  color: isActive ? "white" : "#666",
+                  border: isActive ? "none" : "1px solid #ddd",
+                  borderRadius: "20px",
+                  padding: "6px 16px",
+                  fontFamily: "'Kufam', sans-serif",
+                  fontSize: "0.85rem",
+                  fontWeight: isActive ? 600 : 400,
+                  cursor: "pointer",
+                  transition: "all 0.2s",
+                  whiteSpace: "nowrap",
+                  flexShrink: 0
+                }}
+                onMouseEnter={e => {
+                  if (!isActive) e.target.style.borderColor = "#999";
+                }}
+                onMouseLeave={e => {
+                  if (!isActive) e.target.style.borderColor = "#ddd";
+                }}
+              >
+                {statusOption}
+              </button>
+            );
+          })}
+        </div>
+
 
         {/* Student list */}
         <div className="sp-list-area">
-          <p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.85rem", color: darkRed, margin: "4px 0 8px" }}>
-            Accepted Students {acceptedStudents.length > 0 && `(${acceptedStudents.length})`}
-          </p>
-          {acceptedStudents.length > 0 ? (
-            <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "18px" }}>
-              {acceptedStudents.map(renderStudentRow)}
-            </div>
-          ) : (
-            !loadingStudents && (
-              <p style={{ textAlign: "center", color: "#aaa", fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", padding: "10px 0 18px" }}>
-                No accepted students yet.
-              </p>
-            )
-          )}
-
-          <p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.85rem", color: "#888", margin: "4px 0 8px" }}>
-             Students with no applications {notAcceptedStudents.length > 0 && `(${notAcceptedStudents.length})`}
-          </p>
-          {notAcceptedStudents.length > 0 ? (
+          {filtered.length > 0 ? (
             <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-              {notAcceptedStudents.map(renderStudentRow)}
+              {filtered.map(renderStudentRow)}
             </div>
           ) : (
-            !loadingStudents && (
-              <p style={{ textAlign: "center", color: "#aaa", fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", padding: "10px 0" }}>
-                None — everyone's accepted!
-              </p>
-            )
-          )}
-
-          {filtered.length === 0 && (
             <div style={{ textAlign: "center", padding: "60px", color: "#aaa", fontFamily: "'Kufam', sans-serif", fontSize: "0.95rem" }}>
               {loadingStudents ? "Loading students..." : students.length === 0 ? "No students yet." : "No students match your search."}
             </div>
-          )}
-
-          {filtered.length > 0 && (
-            <p style={{ textAlign: "center", fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", color: "#aaa", padding: "16px 0" }}>
-              No more recent students!
-            </p>
           )}
         </div>
       </div>

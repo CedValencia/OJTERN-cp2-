@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { doc, onSnapshot, updateDoc } from "firebase/firestore";
 import { getAuth, signOut, reauthenticateWithCredential, EmailAuthProvider, updatePassword } from "firebase/auth";
 import { db } from "./firebase";
-import { createCoordinatorAccount, transferCoordinatorAccount, changePassword } from "./AuthService";
+import { createCoordinatorAccount, initiateCoordinatorTransfer, changePassword } from "./AuthService";
 
 import AccountProfile from "../icons/accountprofile.png";
 import viewIcon from "../icons/view.png";
@@ -738,15 +738,13 @@ const AddAccountModal = ({ onClose, currentUid, onLogout, coordinatorDeptSelecti
 };
 
 // ── Transfer Account Modal ────────────────────────────────────────────────────
-const TransferAccountModal = ({ onClose, currentUid, currentEmail, onLogout, coordinatorDeptSelections = [] }) => {
+const TransferAccountModal = ({ onClose, currentUid, currentEmail, coordinatorDeptSelections = [] }) => {
   const [currentPass, setCurrentPass] = useState("");
-  const [name, setName]               = useState("");
   const [email, setEmail]             = useState("");
-  const [newPass, setNewPass]         = useState("");
-  const [confirmPass, setConfirmPass] = useState("");
   const [errors, setErrors]           = useState({});
   const [submitting, setSubmitting]   = useState(false);
   const [submitError, setSubmitError] = useState("");
+  const [sent, setSent]               = useState(false);
 
   const handleKeyDown = (e) => {
     if (e.key === "Enter" && !submitting) {
@@ -757,10 +755,7 @@ const TransferAccountModal = ({ onClose, currentUid, currentEmail, onLogout, coo
   const validate = () => {
     const e = {};
     if (!currentPass) e.currentPass = "Your current password is required to confirm this transfer.";
-    if (!name.trim()) e.name = "New coordinator's name is required.";
-    if (!email.trim()) e.email = "Email is required.";
-    if (newPass.length < 8) e.newPass = "Password must be at least 8 characters";
-    if (newPass !== confirmPass) e.confirmPass = "Passwords do not match.";
+    if (!email.trim()) e.email = "New coordinator's email is required.";
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -770,17 +765,12 @@ const TransferAccountModal = ({ onClose, currentUid, currentEmail, onLogout, coo
     setSubmitError("");
     setSubmitting(true);
     try {
-      // The receiving coordinator automatically inherits the same
-      // department(s) as the current account — this is a transfer of the
-      // same account/department, not a new assignment.
-      await transferCoordinatorAccount(currentUid, currentEmail, currentPass, {
-        name, email, password: newPass, deptSelections: coordinatorDeptSelections,
-      });
-      // Auto-logout — current coordinator has no more access
-      onClose();
-      onLogout?.();
+      // Only sends an invite — the current account keeps full access until
+      // the invited coordinator actually accepts it via the emailed link.
+      await initiateCoordinatorTransfer(currentUid, currentEmail, currentPass, email);
+      setSent(true);
     } catch (err) {
-      setSubmitError(err.message || "Failed to transfer account.");
+      setSubmitError(err.message || "Failed to send the transfer invitation.");
     } finally {
       setSubmitting(false);
     }
@@ -790,57 +780,64 @@ const TransferAccountModal = ({ onClose, currentUid, currentEmail, onLogout, coo
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: "16px" }}>
       <div className="cap-modal-inner">
         <div className="cap-modal-body">
-          <WarningBanner text="Transfer to another OJT Coordinator account. This action cannot be undone — you will lose access to this account once transferred." />
-          <hr style={{ borderColor: "#eee", marginBottom: "16px" }} />
+          {sent ? (
+            <>
+              <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.3rem", color: red, marginBottom: "12px" }}>Invitation Sent!</p>
+              <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#444", marginBottom: "8px" }}>
+                An email with an "Accept Invitation" link has been sent to <strong>{email.trim().toLowerCase()}</strong>.
+              </p>
+              <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#444" }}>
+                You'll keep access to your account until they open the link and finish setting up theirs — at that point your account will be transferred and you'll be signed out automatically.
+              </p>
+            </>
+          ) : (
+            <>
+              <WarningBanner text="Invite another OJT Coordinator to take over this account. They'll receive an email with an Accept link and set up their own login — your access won't change until they accept." />
+              <hr style={{ borderColor: "#eee", marginBottom: "16px" }} />
 
-          <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.3rem", color: red, marginBottom: "12px" }}>CONFIRM YOUR IDENTITY:</p>
-          <label style={labelStyle}>Your Current Password:</label>
-          <PasswordInput value={currentPass} onChange={e => setCurrentPass(e.target.value)} onKeyDown={handleKeyDown} />
-          {errors.currentPass && <p style={{ color: "red", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif", marginBottom: "6px" }}>{errors.currentPass}</p>}
+              <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.3rem", color: red, marginBottom: "12px" }}>CONFIRM YOUR IDENTITY:</p>
+              <label style={labelStyle}>Your Current Password:</label>
+              <PasswordInput value={currentPass} onChange={e => setCurrentPass(e.target.value)} onKeyDown={handleKeyDown} />
+              {errors.currentPass && <p style={{ color: "red", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif", marginBottom: "6px" }}>{errors.currentPass}</p>}
 
-          <hr style={{ borderColor: "#eee", margin: "16px 0" }} />
+              <hr style={{ borderColor: "#eee", margin: "16px 0" }} />
 
-          <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.3rem", color: red, marginBottom: "12px" }}>NEW COORDINATOR'S DETAILS:</p>
+              <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.3rem", color: red, marginBottom: "12px" }}>NEW COORDINATOR'S EMAIL:</p>
 
-          <label style={labelStyle}>Department / Program:</label>
-          <div style={{ background: fieldBg, borderRadius: "14px", padding: "10px 12px", marginBottom: "6px" }}>
-            <MultiDepartmentPicker
-              selections={coordinatorDeptSelections.length ? coordinatorDeptSelections : [{ department: "", program: "", specialization: "" }]}
-              onChange={() => {}}
-              readOnly={true}
-              errors={[]}
-            />
-          </div>
-          <p style={{ fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif", color: "#777", margin: "-2px 0 8px 4px" }}>
-            The new coordinator will inherit your department automatically.
-          </p>
+              <label style={labelStyle}>Department / Program:</label>
+              <div style={{ background: fieldBg, borderRadius: "14px", padding: "10px 12px", marginBottom: "6px" }}>
+                <MultiDepartmentPicker
+                  selections={coordinatorDeptSelections.length ? coordinatorDeptSelections : [{ department: "", program: "", specialization: "" }]}
+                  onChange={() => {}}
+                  readOnly={true}
+                  errors={[]}
+                />
+              </div>
+              <p style={{ fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif", color: "#777", margin: "-2px 0 8px 4px" }}>
+                The new coordinator will inherit your department automatically.
+              </p>
 
-          <label style={labelStyle}>Full Name:</label>
-          <input value={name} onChange={e => setName(e.target.value)} onKeyDown={handleKeyDown} placeholder="Full Name" style={{ ...fieldStyle, marginBottom: "2px" }} />
-          {errors.name && <p style={{ color: "red", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif", marginBottom: "6px" }}>{errors.name}</p>}
+              <label style={labelStyle}>Email Address:</label>
+              <input type="email" value={email} onChange={e => setEmail(e.target.value)} onKeyDown={handleKeyDown} placeholder="example@gmail.com" style={{ ...fieldStyle, marginBottom: "4px" }} />
+              {errors.email && <p style={{ color: "red", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif", marginBottom: "8px" }}>{errors.email}</p>}
 
-          <label style={labelStyle}>Email Address:</label>
-          <input type="email" value={email} onChange={e => setEmail(e.target.value)} onKeyDown={handleKeyDown} placeholder="example@gmail.com" style={{ ...fieldStyle, marginBottom: "4px" }} />
-          {errors.email && <p style={{ color: "red", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif", marginBottom: "8px" }}>{errors.email}</p>}
-
-          <label style={labelStyle}>Set Their Password:</label>
-          <PasswordInput value={newPass} onChange={e => setNewPass(e.target.value)} onKeyDown={handleKeyDown} />
-          {errors.newPass && <p style={{ color: "red", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif", marginBottom: "6px" }}>{errors.newPass}</p>}
-          <label style={labelStyle}>Confirm Password:</label>
-          <PasswordInput value={confirmPass} onChange={e => setConfirmPass(e.target.value)} onKeyDown={handleKeyDown} />
-          {errors.confirmPass && <p style={{ color: "red", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif", marginBottom: "6px" }}>{errors.confirmPass}</p>}
-
-          {submitError && (
-            <p style={{ color: "red", fontSize: "0.8rem", fontFamily: "'Kufam', sans-serif", textAlign: "center", marginTop: "12px" }}>
-              ⚠️ {submitError}
-            </p>
+              {submitError && (
+                <p style={{ color: "red", fontSize: "0.8rem", fontFamily: "'Kufam', sans-serif", textAlign: "center", marginTop: "12px" }}>
+                  ⚠️ {submitError}
+                </p>
+              )}
+            </>
           )}
         </div>
         <div className="cap-modal-footer">
-          <button onClick={onClose} style={{ padding: "10px 28px", borderRadius: "20px", background: "white", color: darkRed, border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.9rem", cursor: "pointer" }}>Cancel</button>
-          <button onClick={handleSubmit} disabled={submitting} style={{ padding: "10px 28px", borderRadius: "20px", background: "rgba(255,255,255,0.25)", color: "white", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.9rem", cursor: submitting ? "not-allowed" : "pointer", opacity: submitting ? 0.7 : 1 }}>
-            {submitting ? "Transferring…" : "Transfer Account"}
+          <button onClick={onClose} style={{ padding: "10px 28px", borderRadius: "20px", background: "white", color: darkRed, border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.9rem", cursor: "pointer" }}>
+            {sent ? "Close" : "Cancel"}
           </button>
+          {!sent && (
+            <button onClick={handleSubmit} disabled={submitting} style={{ padding: "10px 28px", borderRadius: "20px", background: "rgba(255,255,255,0.25)", color: "white", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.9rem", cursor: submitting ? "not-allowed" : "pointer", opacity: submitting ? 0.7 : 1 }}>
+              {submitting ? "Sending…" : "Send Invitation"}
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -1482,19 +1479,20 @@ const TermsScreen = ({ onBack }) => (
         <h3>5. Coordinator Account Transfer</h3>
         <p>
           The Platform provides a Transfer Account feature to facilitate official changes in
-          coordinatorship. Upon successful transfer:
+          coordinatorship. Initiating a transfer sends an email invitation to the replacement
+          Coordinator; the transfer only takes effect once that invitation is accepted:
         </p>
         <div className="cap-terms-sub">
-          <p>• A new Coordinator account is created;</p>
+          <p>• The replacement Coordinator receives an emailed invitation and sets up their own account to accept it;</p>
           <p>
-            • The replacement Coordinator inherits the transferring Coordinator's assigned
+            • Upon acceptance, the replacement Coordinator inherits the transferring Coordinator's assigned
             department(s), industry scope, and management responsibilities;
           </p>
-          <p>• The original Coordinator immediately and permanently loses access to the Platform; and</p>
-          <p>• The transfer cannot be reversed through the Platform.</p>
+          <p>• The original Coordinator retains full access until the invitation is accepted, at which point they immediately and permanently lose access to the Platform; and</p>
+          <p>• The transfer cannot be reversed through the Platform once accepted.</p>
         </div>
         <p>
-          Before a transfer is completed, the transferring Coordinator must verify their identity by
+          Before a transfer invitation is sent, the transferring Coordinator must verify their identity by
           entering their current password.
         </p>
         <p>
@@ -1772,7 +1770,7 @@ const CoordinatorAccountProfileScreen = ({ user, onLogout }) => {
           <MenuRow iconSrc={transferIcon}     label="Transfer Account"     onClick={() => setShowTransfer(true)} />
         </div>
 
-        {showTransfer   && <TransferAccountModal onClose={() => setShowTransfer(false)} currentUid={user?.uid} currentEmail={user?.email} onLogout={onLogout} coordinatorDeptSelections={coordinatorDeptSelections} />}
+        {showTransfer   && <TransferAccountModal onClose={() => setShowTransfer(false)} currentUid={user?.uid} currentEmail={user?.email} coordinatorDeptSelections={coordinatorDeptSelections} />}
         {showAddAccount && <AddAccountModal      onClose={() => setShowAddAccount(false)} currentUid={user?.uid} onLogout={onLogout} coordinatorDeptSelections={coordinatorDeptSelections} />}
       </div>
     </div>

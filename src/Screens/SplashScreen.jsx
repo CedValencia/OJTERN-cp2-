@@ -15,6 +15,7 @@ import CoordinatorDashboardScreen from "./CoordinatorDashboardScreen";
 import CompanyDashboardScreen     from "./CompanyDashboardScreen";
 import StudentDashboardScreen     from "./StudentDashboardScreen";
 import CoordinatorFindCompanyScreen from "./CoordinatorFindCompanyScreen";
+import AcceptTransferScreen       from "./AcceptTransferScreen";
 
 import logo from "../icons/ojtern.png";
 
@@ -63,6 +64,7 @@ const SplashScreen = () => {
 
   // Determine current view based on URL path
   const getViewFromPath = (path) => {
+    if (path.startsWith("/accept-transfer")) return "accept_transfer";
     if (path.startsWith("/student")) return "student_dashboard";
     if (path.startsWith("/coordinator")) return "coordinator_dashboard";
     if (path.startsWith("/company")) return "company_dashboard";
@@ -158,6 +160,13 @@ const SplashScreen = () => {
   }, [authChecking, requiredRoleForView, isAuthorizedForView, navigate]);
 
   // ── Full-screen dashboard views ────────────────────────────────────────────
+  // Fully public, standalone page — reached via an emailed link. Placed after
+  // all hooks above (Rules of Hooks) but before the authChecking gate below,
+  // since accepting an invite needs no auth check at all.
+  if (currentView === "accept_transfer") {
+    return <AcceptTransferScreen />;
+  }
+
   if (authChecking) return (
     <div style={{ width: "100vw", height: "100vh", background: "linear-gradient(180deg, #A32424 0%, #320000 100%)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
       <img src={logo} alt="OJTern Logo" style={{ width: "120px", height: "120px", objectFit: "contain", marginBottom: "-10px" }} />

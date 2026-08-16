@@ -483,7 +483,7 @@ const DashboardContent = ({ onNavigate, applications = [], posts = [] }) => {
               label="Accepted Applicants"
               value={acceptedApplicants}
               bg="rgba(0,0,0,0.15)"
-              onView={() => onNavigate("applicants")}
+              onView={() => onNavigate("applicants", null, "Accepted")}
             />
           </div>
         </div>
@@ -598,6 +598,7 @@ const CompanyDashboardScreen = ({ user, onLogout, onAuthStateChange }) => {
   const [pendingContact, setPendingContact] = useState(null);
   const [pendingApplicantId, setPendingApplicantId] = useState(null);
   const [pendingPostId, setPendingPostId] = useState(null);
+  const [pendingStatusFilter, setPendingStatusFilter] = useState(null);
 
   // Close drawer when resizing to desktop
   useEffect(() => { if (isDesktop) setDrawerOpen(false); }, [isDesktop]);
@@ -677,12 +678,13 @@ const CompanyDashboardScreen = ({ user, onLogout, onAuthStateChange }) => {
     });
   };
 
-  const navigate = (key, id = null) => { 
+  const navigate = (key, id = null, status = null) => { 
     setDrawerOpen(false);
     if (id) {
       if (key === "applicants") setPendingApplicantId(id);
       if (key === "createpost") setPendingPostId(id);
     }
+    if (status && key === "applicants") setPendingStatusFilter(status);
     routerNavigate(`${COMPANY_BASE_PATH}/${key}`);
   };
 
@@ -708,6 +710,10 @@ const CompanyDashboardScreen = ({ user, onLogout, onAuthStateChange }) => {
     if (activeNav !== "createpost") setPendingPostId(null);
   }, [activeNav]);
 
+  useEffect(() => {
+    if (activeNav !== "applicants") setPendingStatusFilter(null);
+  }, [activeNav]);
+
   const renderContent = () => {
     switch (activeNav) {
       case "dashboard":
@@ -729,6 +735,8 @@ const CompanyDashboardScreen = ({ user, onLogout, onAuthStateChange }) => {
             onNavigateToMessages={handleNavigateToMessages}
             openApplicantId={pendingApplicantId}
             onApplicantOpened={() => setPendingApplicantId(null)}
+            initialStatusFilter={pendingStatusFilter}
+            onStatusFilterApplied={() => setPendingStatusFilter(null)}
           />
         );
       case "messages":
