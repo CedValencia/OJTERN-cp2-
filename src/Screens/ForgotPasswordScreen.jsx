@@ -113,30 +113,27 @@ const ForgotPasswordScreen = ({ onBack, onSend }) => {
   const [sent, setSent]       = useState(false);
 
   const handleSend = async () => {
-    setError("");
-    if (!email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      setError("Please enter a valid email address.");
-      return;
+  setError("");
+  if (!email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    setError("Please enter a valid email address.");
+    return;
+  }
+  setLoading(true);
+  try {
+    await resetPassword(email.trim());
+    setSent(true);
+    onSend?.(email.trim());
+  } catch (err) {
+    if (err.code === "auth/too-many-requests") {
+      setError("Too many attempts. Please wait a moment and try again.");
+    } else {
+      // Magpakita lang ng generic error kapag totoong network error / rate limit
+      setError("Failed to process request. Please try again later.");
     }
-    setLoading(true);
-    try {
-      await resetPassword(email.trim());
-      setSent(true);
-      onSend?.(email.trim());
-    } catch (err) {
-      if (err.code === "auth/user-not-found") {
-        setError("No account found with that email address.");
-      } else if (err.code === "auth/invalid-email") {
-        setError("Invalid email address.");
-      } else if (err.code === "auth/too-many-requests") {
-        setError("Too many attempts. Please wait a moment and try again.");
-      } else {
-        setError(err.message || "Failed to send reset email. Please try again.");
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
+  } finally {
+    setLoading(false);
+  }
+};
 
   return (
     <>

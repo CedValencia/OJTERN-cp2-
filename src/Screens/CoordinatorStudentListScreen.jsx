@@ -199,7 +199,7 @@ const ViewIcon = ({ onClick }) => (
   </div>
 );
 
-const PlacementModal = ({ student, onClose, onNavigateToCompany, companies }) => {
+const PlacementModal = ({ student, onClose, onNavigateToCompany, companies, onMessageStudent }) => {
   const [application, setApplication] = useState(null);
 
   useEffect(() => {
@@ -223,6 +223,11 @@ const PlacementModal = ({ student, onClose, onNavigateToCompany, companies }) =>
     onNavigateToCompany(companyId);
   };
 
+  const handleMessage = () => {
+    onClose();
+    onMessageStudent?.({ id: student.id, name: fullName });
+  };
+
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: "16px" }}>
       <div className="sp-modal-inner">
@@ -232,9 +237,26 @@ const PlacementModal = ({ student, onClose, onNavigateToCompany, companies }) =>
         </div>
 
         <div className="sp-modal-body">
-          <div className="sp-name-pill">
-            <StudentAvatar size={44} />
-            <span style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(1rem, 4vw, 1.35rem)", color: "#222" }}>{fullName}</span>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px" }}>
+            <div className="sp-name-pill" style={{ flex: 1, minWidth: 0 }}>
+              <StudentAvatar size={44} />
+              <span style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(1rem, 4vw, 1.35rem)", color: "#222", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fullName}</span>
+            </div>
+            <button
+              onClick={handleMessage}
+              title={`Message ${fullName}`}
+              style={{
+                display: "flex", alignItems: "center", gap: "6px", flexShrink: 0,
+                background: darkRed, color: "white", border: "none", borderRadius: "20px",
+                padding: "9px 16px", cursor: "pointer",
+                fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.8rem",
+              }}
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+              </svg>
+              Message
+            </button>
           </div>
 
           <div>
@@ -436,7 +458,7 @@ const FilterPanel = ({ filters, setFilters, filterRef }) => {
   );
 };
 
-const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany }) => {
+const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany, onMessageStudent }) => {
   const [search, setSearch]                 = useState("");
   const [viewingStudent, setViewingStudent] = useState(null);
   const [showFilter, setShowFilter]         = useState(false);
@@ -447,6 +469,7 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
   const [companies, setCompanies]   = useState([]);
   const [loadingStudents, setLoadingStudents] = useState(true);
   const [acceptedStudentIds, setAcceptedStudentIds] = useState(new Set());
+  const [appliedStudentIds, setAppliedStudentIds]   = useState(new Set());
 
   // ── Load students — scoped to this coordinator's own department(s). ──────
   // NOTE: needs a Firestore composite index (college + createdAt) the first
@@ -461,8 +484,24 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
       orderBy("createdAt", "desc")
     );
     const unsub = onSnapshot(q, snap => {
-      setStudents(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setStudents(rows);
       setLoadingStudents(false);
+
+      // 🔍 TEMP DEBUG — remove once the duplicate issue is confirmed/resolved.
+      // Logs any studentId (the school ID number, e.g. "201147323") that
+      // appears on more than one Firestore document. If Michael shows up
+      // here with 2+ doc IDs, that confirms a duplicate student record.
+      const byStudentId = {};
+      rows.forEach(r => {
+        if (!r.studentId) return;
+        (byStudentId[r.studentId] ||= []).push(r.id);
+      });
+      Object.entries(byStudentId).forEach(([sid, docIds]) => {
+        if (docIds.length > 1) {
+          console.warn(`[DUPLICATE STUDENT] studentId ${sid} has ${docIds.length} Firestore docs:`, docIds);
+        }
+      });
     }, () => setLoadingStudents(false));
     return () => unsub();
   }, [coordinatorColleges]);
@@ -475,11 +514,22 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
     return () => unsub();
   }, []);
 
-  // ── Track which students have an Accepted application, to split the list ──
   useEffect(() => {
-    const q = query(collection(db, "applications"), where("status", "==", "Accepted"));
+    const q = query(collection(db, "applications"));
     const unsub = onSnapshot(q, snap => {
-      setAcceptedStudentIds(new Set(snap.docs.map(d => d.data().studentId).filter(Boolean)));
+      const accepted = new Set();
+      const applied  = new Set();
+      snap.docs.forEach(d => {
+        const data = d.data();
+        if (!data.studentId) return;
+        applied.add(data.studentId);
+        if (data.status === "Accepted") accepted.add(data.studentId);
+      });
+      setAcceptedStudentIds(accepted);
+      setAppliedStudentIds(applied);
+
+    
+      console.table(snap.docs.map(d => ({ appId: d.id, linkedStudentDocId: d.data().studentId, status: d.data().status })));
     });
     return () => unsub();
   }, []);
@@ -509,8 +559,8 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
     let matchStatus = true;
     if (filters.status === "Accepted") {
       matchStatus = acceptedStudentIds.has(s.id);
-    } else if (filters.status === "No Applications") {
-      matchStatus = !acceptedStudentIds.has(s.id);
+    } else if (filters.status === "No Applications yet") {
+      matchStatus = !appliedStudentIds.has(s.id);
     }
     // "All" has no status filter
     
@@ -621,7 +671,7 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
                 onClick={() => {
                   setFilters(p => ({
                     ...p,
-                    status: isActive ? "" : statusOption
+                    status: statusOption === "All" ? "" : statusOption
                   }));
                 }}
                 style={{
@@ -675,6 +725,7 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
             setViewingStudent(null);
             onNavigateToCompany && onNavigateToCompany(companyId);
           }}
+          onMessageStudent={onMessageStudent}
         />
       )}
     </>

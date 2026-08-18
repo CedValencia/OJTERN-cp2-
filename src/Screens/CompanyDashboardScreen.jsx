@@ -173,8 +173,8 @@ const navItems = [
   { key: "createpost",        label: "Create Post",        icon: postOJTIcon },
   { key: "applicants",     label: "Applicants",      icon: applicantsIcon },
   { key: "messages",       label: "Messages",        icon: messagesIcon },
-  { key: "accountprofile", label: "Account Profile", icon: accountProfileIcon },
   { key: "coordinators",   label: "Coordinators",    icon: userIcon },
+  { key: "accountprofile", label: "Account Profile", icon: accountProfileIcon },
 ];
 
 // ── URL <-> tab mapping ──────────────────────────────────────────────────────

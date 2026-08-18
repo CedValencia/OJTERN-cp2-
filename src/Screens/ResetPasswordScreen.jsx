@@ -1,69 +1,35 @@
-import React, { useState } from "react";
-import { changePassword } from "./AuthService";
+import React, { useState, useEffect } from "react";
+import { useSearchParams, useNavigate } from "react-router-dom";
+import { verifyResetCode, confirmReset } from "./AuthService";
 
-const darkRed = "#320000";
-const red = "#8B0000";
+import logo from "../icons/ojtern.png";
 
-const ResponsiveStyles = () => (
-  <style>{`
-    @import url('https://fonts.googleapis.com/css2?family=Jersey+25&family=Jua&family=Kufam:wght@400;600;700&display=swap');
-    * { box-sizing: border-box; }
-    .rps-wrapper {
-      width: 100%; max-width: 370px; margin: 0 auto;
-      padding: 0 12px; height: 100%;
-      display: flex; flex-direction: column; justify-content: center;
-    }
-    @media (max-width: 400px) { .rps-wrapper { padding: 0 6px; } }
-    .rps-title {
-      font-family: 'Jersey 25', sans-serif; font-size: 2.6rem;
-      font-weight: 400; color: #000; text-align: center;
-      margin-bottom: 20px; line-height: 1.1; text-transform: uppercase;
-    }
-    @media (max-width: 360px) { .rps-title { font-size: 2rem; margin-bottom: 14px; } }
-    .rps-card { border: 2px solid #1a1a1a; border-radius: 24px; overflow: hidden; }
-    .rps-card-header { background: ${red}; padding: 14px; text-align: center; }
-    @media (max-width: 360px) { .rps-card-header { padding: 10px; } }
-    .rps-card-body { padding: 20px 24px 28px; background: white; }
-    @media (max-width: 400px) { .rps-card-body { padding: 16px 14px 22px; } }
-    .rps-input-wrap { position: relative; margin-bottom: 10px; }
-    .rps-input {
-      width: 100%; padding: 10px 44px 10px 16px;
-      background: #590101; border: none; border-radius: 20px;
-      color: white; font-size: 0.88rem;
-      font-family: 'Kufam', sans-serif; outline: none;
-    }
-    .rps-input::placeholder { color: rgba(255,255,255,0.7); }
-    .rps-input.error { border: 1.5px solid #ff6b6b; }
-    @media (max-width: 360px) { .rps-input { font-size: 0.82rem; padding: 9px 40px 9px 14px; } }
-    .rps-eye {
-      position: absolute; right: 14px; top: 50%;
-      transform: translateY(-50%); cursor: pointer;
-      user-select: none; display: flex; align-items: center;
-    }
-    .rps-divider { border: none; border-top: 1.5px solid #ddd; margin: 16px 0; }
-    .rps-btn {
-      background: ${darkRed}; color: white; border: none;
-      border-radius: 24px; padding: 12px 48px;
-      font-family: 'Jua', sans-serif; font-size: 1.1rem;
-      letter-spacing: 0.08em; text-transform: uppercase; cursor: pointer;
-    }
-    .rps-btn:disabled { opacity: 0.65; cursor: not-allowed; }
-    @media (max-width: 400px) { .rps-btn { padding: 10px 36px; font-size: 0.95rem; } }
-    @media (max-width: 360px) { .rps-btn { width: 100%; } }
-  `}</style>
-);
+const red     = "#8B0000";
+const darkRed = "#590101";
+const fieldBg = "#7A4F4F";
+
+const fieldStyle = {
+  width: "100%", padding: "10px 16px",
+  background: fieldBg, border: "none", borderRadius: "20px",
+  color: "white", fontSize: "0.88rem",
+  fontFamily: "'Kufam', sans-serif", outline: "none",
+  boxSizing: "border-box",
+};
+
+const labelStyle = {
+  fontFamily: "'Kufam', sans-serif",
+  fontWeight: 700, fontSize: "0.88rem",
+  color: "#222", marginBottom: "4px", display: "block",
+};
 
 const EyeIcon = ({ show, onClick }) => (
-  <span className="rps-eye" onClick={onClick}>
+  <span onClick={onClick} style={{ position: "absolute", right: "14px", top: "50%", transform: "translateY(-50%)", cursor: "pointer", display: "flex", alignItems: "center" }}>
     {show ? (
-      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
-        fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-        <circle cx="12" cy="12" r="3"/>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
       </svg>
     ) : (
-      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
-        fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
         <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
         <line x1="1" y1="1" x2="23" y2="23"/>
@@ -72,102 +38,226 @@ const EyeIcon = ({ show, onClick }) => (
   </span>
 );
 
-// Props:
-//   user       — currentUser object from Firestore (has uid and role)
-//   onComplete — called after successful password change → redirect to dashboard
-const ResetPasswordScreen = ({ user, onComplete }) => {
-  const [showNew, setShowNew]         = useState(false);
-  const [showConfirm, setShowConfirm] = useState(false);
-  const [newPass, setNewPass]         = useState("");
-  const [confirmPass, setConfirmPass] = useState("");
-  const [error, setError]             = useState("");
-  const [loading, setLoading]         = useState(false);
+// Same rules/component used everywhere else a password gets set
+// (ResetPasswordModal / FirstLoginPasswordModal / AcceptCoordinatorInviteScreen)
+// — kept identical here so the bar is consistent across the whole app.
+const PASSWORD_RULES = [
+  { key: "length",    label: "At least 8 characters",                     test: pwd => pwd.length >= 8 },
+  { key: "uppercase", label: "At least one uppercase letter (A–Z)",       test: pwd => /[A-Z]/.test(pwd) },
+  { key: "lowercase", label: "At least one lowercase letter (a–z)",       test: pwd => /[a-z]/.test(pwd) },
+  { key: "number",    label: "At least one number (0–9)",                 test: pwd => /[0-9]/.test(pwd) },
+  { key: "special",   label: "At least one special character (!@#$%&*_…)", test: pwd => /[!@#$%^&*()\-_=+\[\]{};:'",.<>/?\\|`~]/.test(pwd) },
+  { key: "noSpaces",  label: "No spaces",                                 test: pwd => !/\s/.test(pwd) },
+];
+
+const isPasswordStrong = (pwd) => PASSWORD_RULES.every(rule => rule.test(pwd));
+
+const PasswordChecklist = ({ password }) => {
+  if (!password) return null;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "3px", margin: "2px 0 12px 2px" }}>
+      {PASSWORD_RULES.map(rule => {
+        const passed = rule.test(password);
+        return (
+          <div key={rule.key} style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+            <span style={{ fontSize: "0.78rem", fontWeight: 700, color: passed ? "#2a7a2a" : "#c0392b", width: "12px", flexShrink: 0 }}>
+              {passed ? "✓" : "✗"}
+            </span>
+            <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.74rem", color: passed ? "#2a7a2a" : "#888" }}>
+              {rule.label}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
+// Password field with show/hide toggle and paste/copy/cut disabled (must be
+// typed, not pasted from elsewhere) — same pattern used across the app.
+const PasswordInput = ({ value, onChange, onKeyDown, placeholder = "••••••••" }) => {
+  const [show, setShow] = useState(false);
+  const blockPaste = (e) => e.preventDefault();
+
+  return (
+    <div style={{ position: "relative", marginBottom: "2px" }}>
+      <input
+        type={show ? "text" : "password"}
+        value={value}
+        onChange={onChange}
+        onKeyDown={onKeyDown}
+        onPaste={blockPaste}
+        onCopy={blockPaste}
+        onCut={blockPaste}
+        placeholder={placeholder}
+        style={{ ...fieldStyle, paddingRight: "44px" }}
+      />
+      <EyeIcon show={show} onClick={() => setShow((s) => !s)} />
+    </div>
+  );
+};
+
+// Handles Firebase's emailed password-reset link entirely inside the app —
+// expects ?oobCode=<code> in the URL (Firebase appends this automatically
+// since resetPassword() in AuthService.js sets handleCodeInApp: true with
+// this screen's URL as the continue target). No Firebase-hosted page, no
+// second tab — the whole reset happens here, and "OK" returns to /signin
+// in the same tab the link was opened in.
+const ResetPasswordScreen = () => {
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const oobCode = searchParams.get("oobCode");
+
+  const [status, setStatus]   = useState("loading"); // loading | ready | invalid | success
+  const [email, setEmail]     = useState("");
+  const [loadError, setLoadError] = useState("");
+
+  const [password, setPassword]       = useState("");
+  const [confirmPassword, setConfirm] = useState("");
+  const [errors, setErrors]           = useState({});
+  const [submitting, setSubmitting]   = useState(false);
+  const [submitError, setSubmitError] = useState("");
+
+  useEffect(() => {
+    if (!oobCode) {
+      setStatus("invalid");
+      setLoadError("This password reset link is missing required information.");
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const verifiedEmail = await verifyResetCode(oobCode);
+        if (cancelled) return;
+        setEmail(verifiedEmail);
+        setStatus("ready");
+      } catch (err) {
+        if (cancelled) return;
+        setLoadError("This link is invalid or has expired. Please request a new one.");
+        setStatus("invalid");
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [oobCode]);
+
+  const validate = () => {
+    const e = {};
+    if (!isPasswordStrong(password)) e.password = "Password does not meet all the requirements below.";
+    if (password !== confirmPassword) e.confirmPassword = "Passwords do not match.";
+    setErrors(e);
+    return Object.keys(e).length === 0;
+  };
 
   const handleSubmit = async () => {
-    setError("");
-
-    if (!newPass) { setError("Please enter a new password."); return; }
-    if (newPass.length < 8) { setError("Password must be at least 8 characters."); return; }
-    if (newPass !== confirmPass) { setError("Passwords do not match."); return; }
-
-    setLoading(true);
+    if (!validate()) return;
+    setSubmitError("");
+    setSubmitting(true);
     try {
-      const collectionName = user?.role === "coordinator" ? "coordinators" : "students";
-      await changePassword(newPass, collectionName, user?.uid);
-      onComplete?.();
+      await confirmReset(oobCode, password);
+      setStatus("success");
     } catch (err) {
-      if (err.code === "auth/requires-recent-login") {
-        setError("Session expired. Please sign in again.");
-      } else if (err.code === "auth/weak-password") {
-        setError("Password is too weak. Use at least 8 characters.");
-      } else {
-        setError(err.message || "Failed to change password. Please try again.");
-      }
+      setSubmitError("Failed to reset your password. The link may have expired — please request a new one.");
     } finally {
-      setLoading(false);
+      setSubmitting(false);
     }
   };
 
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter" && !submitting) handleSubmit();
+  };
+
   return (
-    <>
-      <ResponsiveStyles />
-      <div className="rps-wrapper">
+    <div style={{
+      width: "100vw", minHeight: "100vh",
+      background: "linear-gradient(180deg, #A32424 0%, #320000 100%)",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      padding: "24px",
+    }}>
+      <div style={{
+        width: "100%", maxWidth: "440px",
+        background: "white", borderRadius: "18px",
+        padding: "32px 28px", boxSizing: "border-box",
+      }}>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginBottom: "20px" }}>
+          <img src={logo} alt="OJTern Logo" style={{ width: "64px", height: "64px", objectFit: "contain", marginBottom: "4px" }} />
+          <span style={{ fontFamily: "'Monomaniac One', sans-serif", fontSize: "1.6rem", color: darkRed, letterSpacing: "0.03em" }}>OJTern</span>
+        </div>
 
-        <h1 className="rps-title">Change<br />Password</h1>
+        {status === "loading" && (
+          <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem", color: "#555", textAlign: "center" }}>
+            Verifying your reset link…
+          </p>
+        )}
 
-        <div className="rps-card">
-          <div className="rps-card-header">
-            <span style={{ fontFamily: "'Jua', sans-serif", fontSize: "1.4rem", color: "white", letterSpacing: "0.1em", textTransform: "uppercase" }}>
-              Set New Password!
-            </span>
-          </div>
+        {status === "invalid" && (
+          <>
+            <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.3rem", color: red, marginBottom: "8px", textAlign: "center" }}>
+              Invalid or Expired Link
+            </p>
+            <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#555", textAlign: "center", marginBottom: "20px" }}>
+              {loadError}
+            </p>
+            <button
+              onClick={() => navigate("/forgot-password")}
+              style={{ width: "100%", padding: "12px", borderRadius: "20px", background: red, color: "white", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.9rem", cursor: "pointer" }}
+            >
+              Request a New Link
+            </button>
+          </>
+        )}
 
-          <div className="rps-card-body">
+        {status === "success" && (
+          <>
+            <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.3rem", color: red, marginBottom: "8px", textAlign: "center" }}>
+              Password Reset!
+            </p>
+            <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#555", textAlign: "center", marginBottom: "20px" }}>
+              Your password has been changed. You can now sign in with your new password.
+            </p>
+            <button
+              onClick={() => navigate("/signin")}
+              style={{ width: "100%", padding: "12px", borderRadius: "20px", background: red, color: "white", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.9rem", cursor: "pointer" }}
+            >
+              OK
+            </button>
+          </>
+        )}
 
-            <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#555", textAlign: "center", marginBottom: "16px", lineHeight: 1.6 }}>
-              For your security, please change your password before continuing.
+        {status === "ready" && (
+          <>
+            <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.3rem", color: red, marginBottom: "8px", textAlign: "center" }}>
+              Set New Password
+            </p>
+            <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#555", textAlign: "center", marginBottom: "20px" }}>
+              Resetting the password for <strong>{email}</strong>.
             </p>
 
-            <div className="rps-input-wrap">
-              <input
-                type={showNew ? "text" : "password"}
-                placeholder="Enter New Password:"
-                value={newPass}
-                onChange={e => { setNewPass(e.target.value); setError(""); }}
-                className={`rps-input${error ? " error" : ""}`}
-              />
-              <EyeIcon show={showNew} onClick={() => setShowNew(!showNew)} />
-            </div>
+            <label style={labelStyle}>New Password:</label>
+            <PasswordInput value={password} onChange={e => setPassword(e.target.value)} onKeyDown={handleKeyDown} />
+            {errors.password && <p style={{ color: "red", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif", marginBottom: "6px" }}>{errors.password}</p>}
+            <PasswordChecklist password={password} />
 
-            <div className="rps-input-wrap">
-              <input
-                type={showConfirm ? "text" : "password"}
-                placeholder="Confirm New Password:"
-                value={confirmPass}
-                onChange={e => { setConfirmPass(e.target.value); setError(""); }}
-                className={`rps-input${error ? " error" : ""}`}
-              />
-              <EyeIcon show={showConfirm} onClick={() => setShowConfirm(!showConfirm)} />
-            </div>
+            <label style={{ ...labelStyle, marginTop: "10px" }}>Confirm New Password:</label>
+            <PasswordInput value={confirmPassword} onChange={e => setConfirm(e.target.value)} onKeyDown={handleKeyDown} />
+            {errors.confirmPassword && <p style={{ color: "red", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif", marginBottom: "6px" }}>{errors.confirmPassword}</p>}
 
-            {error && (
-              <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.78rem", color: "red", margin: "4px 0 8px 4px" }}>
-                ⚠️ {error}
+            {submitError && (
+              <p style={{ color: "red", fontSize: "0.8rem", fontFamily: "'Kufam', sans-serif", textAlign: "center", marginTop: "12px" }}>
+                ⚠️ {submitError}
               </p>
             )}
 
-            <hr className="rps-divider" />
-
-            <div style={{ textAlign: "center" }}>
-              <button onClick={handleSubmit} disabled={loading} className="rps-btn">
-                {loading ? "Saving…" : "Continue"}
-              </button>
-            </div>
-
-          </div>
-        </div>
+            <button
+              onClick={handleSubmit}
+              disabled={submitting}
+              style={{ width: "100%", padding: "12px", borderRadius: "20px", background: red, color: "white", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.9rem", cursor: submitting ? "not-allowed" : "pointer", opacity: submitting ? 0.7 : 1, marginTop: "18px" }}
+            >
+              {submitting ? "Resetting…" : "Reset Password"}
+            </button>
+          </>
+        )}
       </div>
-    </>
+    </div>
   );
 };
 

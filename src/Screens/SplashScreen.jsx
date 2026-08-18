@@ -8,14 +8,13 @@ import SignInScreen               from "./SignInScreen";
 import ForgotPasswordScreen       from "./ForgotPasswordScreen";
 import ForgotPasswordCodeScreen   from "./ForgotPasswordCodeScreen";
 import ResetPasswordScreen        from "./ResetPasswordScreen";
-import PasswordResetSuccessScreen from "./PasswordResetSuccessScreen";
 import SignUpStep1Screen          from "./SignUpStep1Screen";
 import SignUpStep2Screen          from "./SignUpStep2Screen";
 import CoordinatorDashboardScreen from "./CoordinatorDashboardScreen";
 import CompanyDashboardScreen     from "./CompanyDashboardScreen";
 import StudentDashboardScreen     from "./StudentDashboardScreen";
 import CoordinatorFindCompanyScreen from "./CoordinatorFindCompanyScreen";
-import AcceptTransferScreen       from "./AcceptTransferScreen";
+import AcceptCoordinatorInviteScreen from "./AcceptCoordinatorInviteScreen";
 
 import logo from "../icons/ojtern.png";
 
@@ -64,7 +63,7 @@ const SplashScreen = () => {
 
   // Determine current view based on URL path
   const getViewFromPath = (path) => {
-    if (path.startsWith("/accept-transfer")) return "accept_transfer";
+    if (path.startsWith("/accept-invite")) return "accept_invite";
     if (path.startsWith("/student")) return "student_dashboard";
     if (path.startsWith("/coordinator")) return "coordinator_dashboard";
     if (path.startsWith("/company")) return "company_dashboard";
@@ -72,7 +71,7 @@ const SplashScreen = () => {
     if (path.includes("/signup")) return "signup1";
     if (path.includes("/forgot-password/code")) return "forgot_code";
     if (path.includes("/forgot-password")) return "forgot_password";
-    if (path.includes("/reset-password")) return "reset_password";
+    if (path.startsWith("/reset-password")) return "reset_password";
     return "signin";
   };
 
@@ -118,9 +117,16 @@ const SplashScreen = () => {
       const badStatuses = ["pending", "rejected", "transferred"];
       if (userData && !badStatuses.includes(userData.status)) {
         setCurrentUser(userData);
-        // Navigate to dashboard if not already on one
+        // Navigate to dashboard if not already on one — but never hijack the
+        // Accept Invitation or Reset Password links (used by Transfer/Add
+        // Account and the emailed password-reset flow respectively). Without
+        // this exemption, opening either link in a browser where someone is
+        // still signed in would immediately bounce back to their own
+        // dashboard before that screen ever gets to render, silently
+        // aborting the flow.
         const onDashboardRoute = ["/coordinator", "/student", "/company"].some(p => location.pathname.startsWith(p));
-        if (!onDashboardRoute) {
+        const onPublicStandaloneRoute = ["/accept-invite", "/reset-password"].some(p => location.pathname.startsWith(p));
+        if (!onDashboardRoute && !onPublicStandaloneRoute) {
           if (userData.role === "coordinator") navigate("/coordinator/dashboard");
           else if (userData.role === "student")  navigate("/student/dashboard");
           else if (userData.role === "company")  navigate("/company/dashboard");
@@ -160,11 +166,14 @@ const SplashScreen = () => {
   }, [authChecking, requiredRoleForView, isAuthorizedForView, navigate]);
 
   // ── Full-screen dashboard views ────────────────────────────────────────────
-  // Fully public, standalone page — reached via an emailed link. Placed after
-  // all hooks above (Rules of Hooks) but before the authChecking gate below,
-  // since accepting an invite needs no auth check at all.
-  if (currentView === "accept_transfer") {
-    return <AcceptTransferScreen />;
+  // Fully public, standalone pages — reached via an emailed link. Placed
+  // after all hooks above (Rules of Hooks) but before the authChecking gate
+  // below, since neither needs an auth check to render.
+  if (currentView === "accept_invite") {
+    return <AcceptCoordinatorInviteScreen />;
+  }
+  if (currentView === "reset_password") {
+    return <ResetPasswordScreen />;
   }
 
   if (authChecking) return (

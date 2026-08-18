@@ -143,6 +143,30 @@ const InfoModal = ({ message, onClose }) => {
   );
 };
 
+// ── Report success confirmation ───────────────────────────────────────────────
+const ReportSuccessModal = ({ onClose }) => {
+  const isMobile = useIsMobile();
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 4000, padding: isMobile ? "12px" : "0" }}>
+      <div style={{ background: "white", borderRadius: "16px", padding: "32px 24px", textAlign: "center", maxWidth: "360px", width: "100%", boxShadow: "0 8px 32px rgba(0,0,0,0.3)" }}>
+        <div style={{ marginBottom: "16px" }}>
+          <svg width="60" height="60" viewBox="0 0 24 24" fill="none" stroke={red} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ margin: "0 auto" }}>
+            <polyline points="20 6 9 17 4 12" />
+          </svg>
+        </div>
+        <h3 style={{ fontFamily: "'Kufam', sans-serif", fontSize: "1.3rem", color: "#333", marginBottom: "8px" }}>Report Submitted Successfully</h3>
+        <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.95rem", color: "#666", marginBottom: "24px" }}>Thank you for reporting. Our team will review your report shortly.</p>
+        <button
+          onClick={onClose}
+          style={{ background: red, color: "white", border: "none", borderRadius: "8px", padding: "10px 32px", fontFamily: "'Kufam', sans-serif", fontSize: "1rem", fontWeight: "600", cursor: "pointer" }}
+        >
+          Okay
+        </button>
+      </div>
+    </div>
+  );
+};
+
 // ── ReportModal ───────────────────────────────────────────────────────────────
 const ReportModal = ({ company, onClose, onSubmit }) => {
   const [step, setStep]               = useState(1);
@@ -655,6 +679,8 @@ const CompanyMessagesScreen = ({
   } = useChat(user?.uid, myName, "company");
 
   const [activeContact, setActiveContact] = useState(null);
+  const [showReportSuccess, setShowReportSuccess] = useState(false);
+  const [reportError, setReportError] = useState("");
 
   useEffect(() => {
     if (!activeContact?.convId) return;
@@ -707,10 +733,12 @@ const CompanyMessagesScreen = ({
         reporterRole: "company",
         createdAt:    serverTimestamp(),
       });
+      setShowReportSuccess(true);
+      if (onReportSubmit) onReportSubmit(report);
     } catch (err) {
       console.error("Failed to submit report:", err);
+      setReportError("Failed to submit report. Please try again.");
     }
-    if (onReportSubmit) onReportSubmit(report);
   };
 
   const handleDeleteConversation = async (convId) => {
@@ -737,14 +765,20 @@ const CompanyMessagesScreen = ({
 
   if (activeContact) {
     return (
-      <ChatView
-        contact={liveActiveContact}
-        messages={uiMessages[activeContact.id] || []}
-        onSend={(_, msg) => handleSend(activeContact.convId, msg)}
-        onBack={() => setActiveContact(null)}
-        onReport={handleReport}
-        onDeleteConversation={() => handleDeleteConversation(activeContact.convId)}
-      />
+      <>
+        <ChatView
+          contact={liveActiveContact}
+          messages={uiMessages[activeContact.id] || []}
+          onSend={(_, msg) => handleSend(activeContact.convId, msg)}
+          onBack={() => setActiveContact(null)}
+          onReport={handleReport}
+          onDeleteConversation={() => handleDeleteConversation(activeContact.convId)}
+        />
+        {showReportSuccess && (
+          <ReportSuccessModal onClose={() => setShowReportSuccess(false)} />
+        )}
+        {reportError && <InfoModal message={reportError} onClose={() => setReportError("")} />}
+      </>
     );
   }
 

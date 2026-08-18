@@ -7,6 +7,10 @@ import companyProfileIcon from "../icons/companyprofile.png";
 // ─── COLORS ───────────────────────────────────────────────────────────────────
 const darkRed = "#590101";
 const red = "#8B0000";
+
+// ── Application status colors — kept consistent with CompanyApplicantsScreen's
+//    STATUS_COLORS (bg-only here since the row badge already sets its own text color).
+const APP_STATUS_COLORS = { "Pending": "#c8a800", "In Review": "#353A8D", "To Interview": "#7C2889", "Accepted": "#2d7a2d", "Declined": "#590101" };
 const black = "#000000";
 
 // TODO: Replace with real application data from backend
@@ -3379,6 +3383,11 @@ const ApplicationRow = ({ application, onView, onDelete }) => {
         <div style={{ flex: 1, minWidth: 0 }}>
           <span style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 600, fontSize: "0.9rem", color: "#222", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>{application.company}</span>
         </div>
+        <span style={{
+          flexShrink: 0, fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.68rem",
+          color: "white", background: APP_STATUS_COLORS[application.status] || "#888",
+          borderRadius: "20px", padding: "3px 10px", whiteSpace: "nowrap",
+        }}>{application.status}</span>
         <div ref={menuRef} style={{ position: "relative", flexShrink: 0 }} onClick={e => e.stopPropagation()}>
           <button onClick={() => setShowMenu(!showMenu)} style={{ background: "none", border: "none", cursor: "pointer", padding: "2px 6px", color: "#555", fontSize: "1.1rem", lineHeight: 1 }}>⋮</button>
           {showMenu && (
@@ -3421,6 +3430,7 @@ const StudentApplicationScreen = ({ initialCompany, onModalClose, user, openAppl
   const [viewingApplication, setViewingApplication] = useState(null);
   const [viewKey, setViewKey]                   = useState(0);
   const [applications, setApplications]         = useState([]);
+  const [statusFilter, setStatusFilter]         = useState("All");
 
   useEffect(() => {
     if (!user?.uid) {
@@ -3462,7 +3472,8 @@ const StudentApplicationScreen = ({ initialCompany, onModalClose, user, openAppl
   }, [applications, viewingApplication]);
 
   const filteredApplications = applications.filter(app =>
-    app.company.toLowerCase().includes(search.toLowerCase())
+    app.company.toLowerCase().includes(search.toLowerCase()) &&
+    (statusFilter === "All" || app.status === statusFilter)
   );
 
   // Auto-open a specific application's details when navigated here with a
@@ -3527,6 +3538,49 @@ const StudentApplicationScreen = ({ initialCompany, onModalClose, user, openAppl
           </div>
         </div>
 
+        {/* ── Horizontal Status Filter Bar — same pattern as CompanyApplicantsScreen ── */}
+        <div style={{
+          background: "#fff",
+          padding: "12px 20px",
+          display: "flex",
+          gap: "10px",
+          alignItems: "center",
+          flexWrap: "wrap",
+          borderBottom: "1px solid #e0e0e0",
+          flexShrink: 0,
+          overflowX: "auto",
+        }}>
+          {["All", "Accepted", "Declined", "Pending", "In Review", "To Interview"].map((statusOption) => {
+            const isActive = statusOption === "All" ? statusFilter === "All" : statusFilter === statusOption;
+            const statusColor = statusOption === "All" ? "#666" : APP_STATUS_COLORS[statusOption] || "#999";
+
+            return (
+              <button
+                key={statusOption}
+                onClick={() => setStatusFilter(statusOption)}
+                style={{
+                  background: isActive ? statusColor : "transparent",
+                  color: isActive ? "white" : "#666",
+                  border: isActive ? "none" : "1px solid #ddd",
+                  borderRadius: "20px",
+                  padding: "6px 16px",
+                  fontFamily: "'Kufam', sans-serif",
+                  fontSize: "0.85rem",
+                  fontWeight: isActive ? 600 : 400,
+                  cursor: "pointer",
+                  transition: "all 0.2s",
+                  whiteSpace: "nowrap",
+                  flexShrink: 0,
+                }}
+                onMouseEnter={e => { if (!isActive) e.target.style.borderColor = "#999"; }}
+                onMouseLeave={e => { if (!isActive) e.target.style.borderColor = "#ddd"; }}
+              >
+                {statusOption}
+              </button>
+            );
+          })}
+        </div>
+
         {/* Application rows */}
         <div className="sa-list-area">
           {filteredApplications.map(application => (
@@ -3534,7 +3588,7 @@ const StudentApplicationScreen = ({ initialCompany, onModalClose, user, openAppl
           ))}
           {filteredApplications.length === 0 && (
             <div style={{ textAlign: "center", padding: "60px", color: "#aaa", fontFamily: "'Kufam', sans-serif", fontSize: "0.95rem" }}>
-              No applications found.
+              {applications.length === 0 ? "No applications found." : "No applications match your search or filters."}
             </div>
           )}
           {filteredApplications.length > 0 && (

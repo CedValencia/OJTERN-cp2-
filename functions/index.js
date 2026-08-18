@@ -1,6 +1,8 @@
 const { onDocumentUpdated, onDocumentDeleted, onDocumentCreated } = require("firebase-functions/v2/firestore");
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const admin = require("firebase-admin");
+const { getFirestore, FieldValue } = require("firebase-admin/firestore");
+const { getAuth } = require("firebase-admin/auth");
 const nodemailer = require("nodemailer");
 
 admin.initializeApp();
@@ -92,7 +94,7 @@ exports.deleteStudentAuthOnDocDelete = onDocumentDeleted(
     const uid = deletedData.uid || studentId;
 
     try {
-      await admin.auth().deleteUser(uid);
+      await getAuth().deleteUser(uid);
       console.log(`Deleted Auth account for student: ${uid}`);
     } catch (error) {
       console.error(`Failed to delete Auth account for ${uid}:`, error);
@@ -102,9 +104,10 @@ exports.deleteStudentAuthOnDocDelete = onDocumentDeleted(
 
 // Delete Firebase Auth account when a coordinator document is deleted.
 // For the invitation-based Transfer Account flow, this is the ONLY place the
-// outgoing coordinator's Auth account gets removed — acceptCoordinatorTransfer
-// below deletes their Firestore doc using Admin SDK, which fires this trigger
-// as a follow-up step, keeping that function focused on the handoff itself.
+// outgoing coordinator's Auth account gets removed — acceptCoordinatorInvite
+// below deletes their Firestore doc using Admin SDK (transfer invites only),
+// which fires this trigger as a follow-up step, keeping that function
+// focused on the handoff itself.
 exports.deleteCoordinatorAuthOnDocDelete = onDocumentDeleted(
   { document: "coordinators/{coordinatorId}", region: "us-central1" },
   async (event) => {
@@ -113,7 +116,7 @@ exports.deleteCoordinatorAuthOnDocDelete = onDocumentDeleted(
     const uid = deletedData.uid || coordinatorId;
 
     try {
-      await admin.auth().deleteUser(uid);
+      await getAuth().deleteUser(uid);
       console.log(`Deleted Auth account for coordinator: ${uid}`);
     } catch (error) {
       console.error(`Failed to delete Auth account for ${uid}:`, error);
@@ -122,30 +125,50 @@ exports.deleteCoordinatorAuthOnDocDelete = onDocumentDeleted(
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
-// COORDINATOR TRANSFER — invitation-based handoff
+// COORDINATOR INVITES — invitation-based Transfer Account and Add Account.
+// Both flows share one collection (coordinatorInvites) and these three
+// functions, distinguished by each invite doc's `type`:
+//   - "transfer" — accepting REMOVES the inviting coordinator's account.
+//   - "add"      — accepting creates an additional account; the inviting
+//     coordinator's own account is left completely untouched.
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Fires when the client creates a coordinatorTransferInvites doc
-// (AuthService.js → initiateCoordinatorTransfer). Emails the incoming
-// coordinator an "Accept Invitation" link carrying the invite's doc ID +
-// token — same trigger-on-write pattern as sendApprovalEmail above.
-exports.sendCoordinatorTransferInviteEmail = onDocumentCreated(
-  { document: "coordinatorTransferInvites/{inviteId}", region: "asia-southeast1" },
+const INVITE_COPY = {
+  transfer: {
+    subject: "OJTern - You've Been Invited as OJT Coordinator",
+    heading: "Coordinator Handoff Invitation",
+    body: (invite) => `<strong>${invite.fromName || invite.fromEmail}</strong> is transferring their OJT Coordinator account on OJTern to you.`,
+  },
+  add: {
+    subject: "OJTern - You've Been Invited to Join as OJT Coordinator",
+    heading: "Coordinator Invitation",
+    body: (invite) => `<strong>${invite.fromName || invite.fromEmail}</strong> is inviting you to join OJTern as an additional OJT Coordinator.`,
+  },
+};
+
+// Fires when the client creates a coordinatorInvites doc
+// (AuthService.js → initiateCoordinatorTransfer / initiateCoordinatorAddition).
+// Emails the incoming coordinator an "Accept Invitation" link carrying the
+// invite's doc ID + token — same trigger-on-write pattern as
+// sendApprovalEmail above. Wording adapts to invite.type.
+exports.sendCoordinatorInviteEmail = onDocumentCreated(
+  { document: "coordinatorInvites/{inviteId}", region: "asia-southeast1" },
   async (event) => {
     const invite = event.data.data();
     const inviteId = event.params.inviteId;
     if (!invite || invite.status !== "pending") return;
 
-    const acceptUrl = `https://ojtern.web.app/accept-transfer?id=${inviteId}&token=${invite.token}`;
+    const copy = INVITE_COPY[invite.type] || INVITE_COPY.add;
+    const acceptUrl = `https://ojtern.web.app/accept-invite?id=${inviteId}&token=${invite.token}`;
 
     const mailOptions = {
       from: process.env.EMAIL_USER,
       to: invite.toEmail,
-      subject: "OJTern - You've Been Invited as OJT Coordinator",
+      subject: copy.subject,
       html: `
-        <h2>Coordinator Handoff Invitation</h2>
+        <h2>${copy.heading}</h2>
         <p>Hi,</p>
-        <p><strong>${invite.fromName || invite.fromEmail}</strong> is transferring their OJT Coordinator account on OJTern to you.</p>
+        <p>${copy.body(invite)}</p>
         <p>Click below to accept the invitation and set up your own account:</p>
         <p>
           <a href="${acceptUrl}" style="display:inline-block;padding:12px 24px;background:#8B0000;color:#ffffff;text-decoration:none;border-radius:6px;">
@@ -160,25 +183,25 @@ exports.sendCoordinatorTransferInviteEmail = onDocumentCreated(
 
     try {
       await transporter.sendMail(mailOptions);
-      console.log(`Transfer invite email sent to ${invite.toEmail}`);
+      console.log(`Coordinator invite (${invite.type}) email sent to ${invite.toEmail}`);
     } catch (error) {
-      console.error("Transfer invite email send failed:", error);
+      console.error("Coordinator invite email send failed:", error);
     }
   }
 );
 
 // Called from the Accept Invitation screen to fetch invite details for
-// display (fromName, toEmail, deptSelections) — token-validated server-side
-// so the coordinatorTransferInvites collection never needs to be readable
-// directly by clients via Firestore rules.
-exports.getCoordinatorTransferInvite = onCall({ region: "asia-southeast1" }, async (request) => {
+// display (type, fromName, toEmail, deptSelections) — token-validated
+// server-side so the coordinatorInvites collection never needs to be
+// readable directly by clients via Firestore rules.
+exports.getCoordinatorInvite = onCall({ region: "asia-southeast1" }, async (request) => {
   const { inviteId, token } = request.data || {};
   if (!inviteId || !token) {
     throw new HttpsError("invalid-argument", "Missing invite reference.");
   }
 
-  const db = admin.firestore();
-  const snap = await db.collection("coordinatorTransferInvites").doc(inviteId).get();
+  const db = getFirestore();
+  const snap = await db.collection("coordinatorInvites").doc(inviteId).get();
   if (!snap.exists) {
     throw new HttpsError("not-found", "This invitation was not found.");
   }
@@ -192,6 +215,7 @@ exports.getCoordinatorTransferInvite = onCall({ region: "asia-southeast1" }, asy
   }
 
   return {
+    type: invite.type || "add",
     fromName: invite.fromName || invite.fromEmail,
     toEmail: invite.toEmail,
     deptSelections: invite.deptSelections || [],
@@ -201,10 +225,12 @@ exports.getCoordinatorTransferInvite = onCall({ region: "asia-southeast1" }, asy
 // Called from the Accept Invitation screen once the incoming coordinator has
 // chosen their own name + password. Runs entirely server-side with Admin SDK
 // privileges: creates their Auth account + Firestore profile, marks the
-// invite accepted, then deletes the outgoing coordinator's Firestore doc —
-// which cascades into deleteCoordinatorAuthOnDocDelete above to clean up
-// their Auth account.
-exports.acceptCoordinatorTransfer = onCall({ region: "asia-southeast1" }, async (request) => {
+// invite accepted, and — ONLY for type "transfer" — deletes the outgoing
+// coordinator's Firestore doc, which cascades into
+// deleteCoordinatorAuthOnDocDelete above to clean up their Auth account.
+// For type "add", the inviting coordinator's own doc/account is never
+// touched.
+exports.acceptCoordinatorInvite = onCall({ region: "asia-southeast1" }, async (request) => {
   const { inviteId, token, name, password } = request.data || {};
 
   if (!inviteId || !token || !name || !password) {
@@ -214,8 +240,8 @@ exports.acceptCoordinatorTransfer = onCall({ region: "asia-southeast1" }, async 
     throw new HttpsError("invalid-argument", "Password must be at least 8 characters.");
   }
 
-  const db = admin.firestore();
-  const inviteRef = db.collection("coordinatorTransferInvites").doc(inviteId);
+  const db = getFirestore();
+  const inviteRef = db.collection("coordinatorInvites").doc(inviteId);
   const inviteSnap = await inviteRef.get();
 
   if (!inviteSnap.exists) {
@@ -231,6 +257,7 @@ exports.acceptCoordinatorTransfer = onCall({ region: "asia-southeast1" }, async 
   }
 
   const normalizedEmail = invite.toEmail;
+  const isTransfer = invite.type === "transfer";
 
   // Double-check the email is still free — it could have been taken between
   // when the invite was created and now.
@@ -242,7 +269,7 @@ exports.acceptCoordinatorTransfer = onCall({ region: "asia-southeast1" }, async 
   // Admin SDK user creation doesn't touch any client session — unlike the
   // client SDK's createUserWithEmailAndPassword, nobody gets signed in as
   // this new user as a side effect.
-  const newUser = await admin.auth().createUser({
+  const newUser = await getAuth().createUser({
     email: normalizedEmail,
     password,
     displayName: name.trim(),
@@ -262,25 +289,32 @@ exports.acceptCoordinatorTransfer = onCall({ region: "asia-southeast1" }, async 
       status: "active",
       passwordChanged: true, // they just chose it themselves during accept
       profileComplete: false,
-      transferredFrom: invite.fromUid,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      // Only meaningful for transfer invites; harmless to record for "add"
+      // too as provenance of who invited them.
+      transferredFrom: isTransfer ? invite.fromUid : null,
+      invitedBy: invite.fromUid,
+      createdAt: FieldValue.serverTimestamp(),
     });
   } catch (err) {
     // Roll back the orphaned Auth account if the Firestore write fails.
-    await admin.auth().deleteUser(newUser.uid).catch(() => {});
+    await getAuth().deleteUser(newUser.uid).catch(() => {});
     throw new HttpsError("internal", "Failed to create the new coordinator profile.");
   }
 
   await inviteRef.update({
     status: "accepted",
-    acceptedAt: admin.firestore.FieldValue.serverTimestamp(),
+    acceptedAt: FieldValue.serverTimestamp(),
   });
 
-  // Remove the outgoing coordinator's Firestore doc — this fires
-  // deleteCoordinatorAuthOnDocDelete above to clean up their Auth account.
-  await db.collection("coordinators").doc(invite.fromUid).delete().catch((err) => {
-    console.error(`Failed to remove outgoing coordinator doc ${invite.fromUid}:`, err);
-  });
+  if (isTransfer) {
+    // Remove the outgoing coordinator's Firestore doc — this fires
+    // deleteCoordinatorAuthOnDocDelete above to clean up their Auth account.
+    await db.collection("coordinators").doc(invite.fromUid).delete().catch((err) => {
+      console.error(`Failed to remove outgoing coordinator doc ${invite.fromUid}:`, err);
+    });
+  }
+  // type "add" — nothing further to do; the inviting coordinator keeps
+  // their own account exactly as it was.
 
   return { uid: newUser.uid };
 });

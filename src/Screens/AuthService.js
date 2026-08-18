@@ -8,6 +8,8 @@ import {
   signInWithEmailAndPassword,
   signOut,
   sendPasswordResetEmail,
+  verifyPasswordResetCode,
+  confirmPasswordReset,
   updatePassword,
   reauthenticateWithCredential,
   EmailAuthProvider,
@@ -124,7 +126,7 @@ export const signIn = async (role, emailOrStudentId, password) => {
       err.code === "auth/wrong-password"    ||
       err.code === "auth/invalid-credential"
     ) {
-     throw new Error("Invalid password. Please check and try again.");
+     throw new Error("Invalid credentials. Please check and try again.");
     }
     throw err;
   }
@@ -135,7 +137,7 @@ export const signIn = async (role, emailOrStudentId, password) => {
   const userSnap = await getDoc(doc(db, collectionMap[role], user.uid));
   if (!userSnap.exists()) {
     await signOut(auth);
-    throw new Error("Account not found in the system. Please contact your administrator.");
+    throw new Error("Invalid Credentials. Please check and try again.");
   }
 
   const userData = userSnap.data();
@@ -193,10 +195,36 @@ export const resetPassword = async (email) => {
     if (!snap.empty) { found = true; break; }
   }
 
-  if (!found) throw new Error("No account found with that email address.");
+  if (!found) throw new Error("If an account is associated with this email, you will receive a password reset link shortly");
 
-  await sendPasswordResetEmail(auth, normalized);
+  // The emailed link is handled entirely by Firebase's own hosted reset
+  // page (no custom action URL configured for this project in the Firebase
+  // Console). `url` here only sets the "Continue" destination that
+  // Firebase's page links to once the person has actually set their new
+  // password — send them back to Sign-In. `handleCodeInApp` is left out
+  // (defaults to false) since it doesn't apply when Firebase's own hosted
+  // page is doing the handling, not our app.
+  await sendPasswordResetEmail(auth, normalized, {
+    url: "https://ojtern.web.app/signin",
+  });
 };
+
+/**
+ * Verifies a password-reset oobCode from the emailed link and returns the
+ * email address it belongs to — called by ResetPasswordScreen on mount to
+ * confirm the link is still valid before showing the "set new password" form.
+ * @param {string} oobCode
+ * @returns {Promise<string>} the account email this code was issued for
+ */
+export const verifyResetCode = (oobCode) => verifyPasswordResetCode(auth, oobCode);
+
+/**
+ * Completes a password reset using the oobCode from the emailed link —
+ * called by ResetPasswordScreen once the person submits their new password.
+ * @param {string} oobCode
+ * @param {string} newPassword
+ */
+export const confirmReset = (oobCode, newPassword) => confirmPasswordReset(auth, oobCode, newPassword);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // COORDINATOR — accept / decline a company
@@ -518,8 +546,17 @@ export const createCoordinatorAccount = async (accountData, inviterUid) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // COORDINATOR — Transfer Account, invitation-based (hand off to a replacement
 // coordinator via an emailed "Accept" link — the current account keeps full
-// access until the invite is actually accepted, instead of losing access the
-// instant the transfer is initiated).
+// ─────────────────────────────────────────────────────────────────────────────
+// COORDINATOR — invitation-based flows for Transfer Account and Add Account.
+// Both hand off setup to the incoming coordinator via an emailed "Accept"
+// link instead of the current coordinator choosing the new person's
+// name/password directly. They share one Firestore collection
+// (coordinatorInvites) and one set of Cloud Functions, distinguished by
+// `type`:
+//   - "transfer" — the CURRENT coordinator's account is removed once
+//     accepted (see acceptCoordinatorInvite in functions/index.js).
+//   - "add"      — a new, additional coordinator account is created; the
+//     inviting coordinator keeps their own access throughout.
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Random-enough token for the accept link — not a Firebase Auth credential,
@@ -533,20 +570,13 @@ const generateInviteToken = () => {
 };
 
 /**
- * Starts a coordinator handoff: re-confirms the current coordinator's
+ * Shared implementation behind initiateCoordinatorTransfer and
+ * initiateCoordinatorAddition — re-confirms the current coordinator's
  * identity, then creates a pending invite doc. A Cloud Function
- * (sendCoordinatorTransferInviteEmail) picks up the new doc and emails the
- * new coordinator an "Accept" link — nothing about the current account
- * changes until that invite is accepted (see acceptCoordinatorTransfer,
- * called from AcceptTransferScreen).
- *
- * @param {string} currentUid
- * @param {string} currentEmail
- * @param {string} currentPassword — re-confirms identity before inviting
- * @param {string} newCoordinatorEmail
- * @returns {Promise<string>} the new invite's Firestore doc ID
+ * (sendCoordinatorInviteEmail) picks up the new doc and emails the incoming
+ * coordinator an "Accept" link.
  */
-export const initiateCoordinatorTransfer = async (currentUid, currentEmail, currentPassword, newCoordinatorEmail) => {
+const createCoordinatorInvite = async (type, currentUid, currentEmail, currentPassword, newCoordinatorEmail) => {
   // 1. Re-authenticate the current coordinator before doing anything.
   await signInWithEmailAndPassword(auth, currentEmail.trim().toLowerCase(), currentPassword);
 
@@ -568,18 +598,22 @@ export const initiateCoordinatorTransfer = async (currentUid, currentEmail, curr
     throw new Error("An active account with that email already exists.");
   }
 
-  // 4. Cancel any earlier pending invites from this coordinator so only the
-  // latest one is acceptable (avoids two valid "Accept" links floating
-  // around for the same handoff).
+  // 4. Cancel any earlier pending invites *of the same type* from this
+  // coordinator so only the latest one is acceptable (avoids two valid
+  // "Accept" links floating around for the same handoff/addition). A
+  // pending "add" invite and a pending "transfer" invite from the same
+  // coordinator are unrelated and can coexist.
   const pendingSnap = await getDocs(query(
-    collection(db, "coordinatorTransferInvites"),
+    collection(db, "coordinatorInvites"),
     where("fromUid", "==", currentUid),
+    where("type", "==", type),
     where("status", "==", "pending"),
   ));
   await Promise.all(pendingSnap.docs.map((d) => updateDoc(d.ref, { status: "cancelled" })));
 
   // 5. Create the invite — the Cloud Function trigger sends the email from here.
-  const inviteRef = await addDoc(collection(db, "coordinatorTransferInvites"), {
+  const inviteRef = await addDoc(collection(db, "coordinatorInvites"), {
+    type,
     fromUid:            currentUid,
     fromEmail:          normalizedFromEmail,
     fromName:           currentData.name || "",
@@ -595,29 +629,57 @@ export const initiateCoordinatorTransfer = async (currentUid, currentEmail, curr
 };
 
 /**
- * Looks up a pending transfer invite for the Accept screen — validated
- * server-side by the getCoordinatorTransferInvite Cloud Function, which
+ * Starts a coordinator handoff — the CURRENT account is removed once the
+ * invite is accepted. See createCoordinatorInvite for the shared mechanics.
+ *
+ * @param {string} currentUid
+ * @param {string} currentEmail
+ * @param {string} currentPassword — re-confirms identity before inviting
+ * @param {string} newCoordinatorEmail
+ * @returns {Promise<string>} the new invite's Firestore doc ID
+ */
+export const initiateCoordinatorTransfer = (currentUid, currentEmail, currentPassword, newCoordinatorEmail) =>
+  createCoordinatorInvite("transfer", currentUid, currentEmail, currentPassword, newCoordinatorEmail);
+
+/**
+ * Invites an additional coordinator to join alongside the current one — the
+ * inviting coordinator's own account and access are completely unaffected,
+ * before or after the invite is accepted. See createCoordinatorInvite for
+ * the shared mechanics.
+ *
+ * @param {string} currentUid
+ * @param {string} currentEmail
+ * @param {string} currentPassword — re-confirms identity before inviting
+ * @param {string} newCoordinatorEmail
+ * @returns {Promise<string>} the new invite's Firestore doc ID
+ */
+export const initiateCoordinatorAddition = (currentUid, currentEmail, currentPassword, newCoordinatorEmail) =>
+  createCoordinatorInvite("add", currentUid, currentEmail, currentPassword, newCoordinatorEmail);
+
+/**
+ * Looks up a pending invite (transfer OR add) for the Accept screen —
+ * validated server-side by the getCoordinatorInvite Cloud Function, which
  * checks the token before returning anything. The client never reads
- * coordinatorTransferInvites directly via Firestore rules; this callable
- * is the only way to see an invite's details before it's accepted.
+ * coordinatorInvites directly via Firestore rules; this callable is the
+ * only way to see an invite's details before it's accepted.
  *
  * @param {string} inviteId
  * @param {string} token
- * @returns {Promise<{ fromName: string, toEmail: string, deptSelections: object[] }>}
+ * @returns {Promise<{ type: string, fromName: string, toEmail: string, deptSelections: object[] }>}
  */
-export const getCoordinatorTransferInvite = async (inviteId, token) => {
-  const call = httpsCallable(functions, "getCoordinatorTransferInvite");
+export const getCoordinatorInvite = async (inviteId, token) => {
+  const call = httpsCallable(functions, "getCoordinatorInvite");
   const { data } = await call({ inviteId, token });
   return data;
 };
 
 /**
- * Accepts a coordinator transfer invite: the new coordinator chooses their
- * own name + password here. Everything — creating the new Auth account +
- * Firestore profile, marking the invite accepted, and removing the outgoing
- * coordinator's doc (which cascades into deleteCoordinatorAuthOnDocDelete
- * cleaning up their Auth account) — happens server-side in the
- * acceptCoordinatorTransfer Cloud Function using Admin SDK privileges.
+ * Accepts a coordinator invite (transfer OR add): the incoming coordinator
+ * chooses their own name + password here. Everything — creating the new
+ * Auth account + Firestore profile, marking the invite accepted, and (for
+ * type "transfer" only) removing the outgoing coordinator's doc — happens
+ * server-side in the acceptCoordinatorInvite Cloud Function using Admin SDK
+ * privileges.
  *
  * @param {string} inviteId
  * @param {string} token
@@ -625,8 +687,8 @@ export const getCoordinatorTransferInvite = async (inviteId, token) => {
  * @param {string} password
  * @returns {Promise<{ uid: string }>}
  */
-export const acceptCoordinatorTransfer = async (inviteId, token, name, password) => {
-  const call = httpsCallable(functions, "acceptCoordinatorTransfer");
+export const acceptCoordinatorInvite = async (inviteId, token, name, password) => {
+  const call = httpsCallable(functions, "acceptCoordinatorInvite");
   const { data } = await call({ inviteId, token, name, password });
   return data;
 };

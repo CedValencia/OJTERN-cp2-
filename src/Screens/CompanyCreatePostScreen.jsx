@@ -412,7 +412,7 @@ const MapboxLocationPicker = ({ value, onChange, readOnly }) => {
       mapboxgl.accessToken = MAPBOX_TOKEN;
       const map = new mapboxgl.Map({
         container: mapContainer.current,
-        style: "mapbox://styles/mapbox/streets-v12",
+        style: "mapbox://styles/mapbox/standard-satellite",
         center: [120.9842, 14.5995], // default: Manila
         zoom: 10,
       });

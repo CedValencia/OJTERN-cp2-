@@ -556,6 +556,7 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
   const [pendingContact, setPendingContact]     = useState(null);
   const [pendingApplicationId, setPendingApplicationId] = useState(null);
   const [showChangePass, setShowChangePass]     = useState(!user?.passwordChanged);
+  const [showPassSuccess, setShowPassSuccess]   = useState(false); // ✅ NEW: Success modal state
   const [currentPass, setCurrentPass] = useState("");
   const [newPass, setNewPass]                   = useState("");
   const [confirmPass, setConfirmPass]           = useState("");
@@ -598,8 +599,8 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
       user.uid
     );
 
-    setShowChangePass(false);
-    onLogout();
+    // ✅ FIXED: Show success modal instead of logging out immediately
+    setShowPassSuccess(true);
 
   } catch (err) {
     setPassError(err.message || "Failed to change password.");
@@ -871,8 +872,54 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
         </div>
       </div>
 
+      {/* ── Password Change Success Modal ── */}
+      {showPassSuccess && (
+        <div style={{
+          position: "fixed", inset: 0, zIndex: 9999,
+          background: "rgba(0,0,0,0.45)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          padding: "16px",
+        }}>
+          <div style={{
+            background: "white", borderRadius: "20px",
+            padding: "36px 32px", width: "clamp(280px, 85vw, 380px)",
+            display: "flex", flexDirection: "column", alignItems: "center",
+            gap: "12px", boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
+          }}>
+            <div style={{
+              width: "64px", height: "64px", borderRadius: "50%",
+              background: "#e8f5e9", display: "flex",
+              alignItems: "center", justifyContent: "center", marginBottom: "4px",
+            }}>
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none"
+                stroke="#2d7a2d" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="20 6 9 17 4 12"/>
+              </svg>
+            </div>
+            <p style={{
+              fontFamily: "'Kufam', sans-serif", fontWeight: 700,
+              fontSize: "1.15rem", color: "#1a1a1a", margin: 0, textAlign: "center",
+            }}>Password Changed!</p>
+            <p style={{
+              fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem",
+              color: "#666", margin: 0, textAlign: "center", lineHeight: 1.5,
+            }}>Your password has been updated successfully. Please log in again with your new password.</p>
+            <button onClick={() => {
+              setShowPassSuccess(false);
+              onLogout();
+            }} style={{
+              width: "100%", padding: "12px", borderRadius: "30px",
+              border: "none", background: "#590101",
+              fontFamily: "'Kufam', sans-serif", fontWeight: 700,
+              fontSize: "0.95rem", cursor: "pointer", color: "white",
+              boxShadow: "0 3px 10px rgba(89,1,1,0.3)", marginTop: "8px",
+            }}>Done</button>
+          </div>
+        </div>
+      )}
+
       {/* ── Change Password Modal Overlay ── */}
-      {showChangePass && (
+      {showChangePass && !showPassSuccess && (
         <div style={{
           position: "fixed", inset: 0, zIndex: 9999,
           background: "rgba(0,0,0,0.65)",

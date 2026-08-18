@@ -82,7 +82,7 @@ const MapZoomModal = ({ lat, lng, onClose }) => {
       window.mapboxgl.accessToken = MAPBOX_TOKEN;
       mapRef.current = new window.mapboxgl.Map({
         container: mapContainerRef.current,
-        style:     "mapbox://styles/mapbox/streets-v12",
+        style:     "mapbox://styles/mapbox/standard-satellite",
         center:    [lng, lat],
         zoom:      15,
       });

@@ -204,10 +204,10 @@ const FontImport = () => (
 const navItems = [
   { key: "dashboard",         label: "Dashboard",          icon: dashboardIcon },
   { key: "findcompany",       label: "Find Company",      icon: findIcon },
-  { key: "studentsaccount",      label: "Students Account",      icon: studentListIcon },
   { key: "studentlist", label: "Student List", icon: studentPlacementIcon },
   { key: "companylist",       label: "Company List",       icon: companyListIcon },
-  { key: "reportcompany",     label: "Report Company",     icon: reportCompanyIcon },
+  { key: "reportcompany",     label: "Report List",     icon: reportCompanyIcon },
+   { key: "studentsaccount",      label: "Students Account",      icon: studentListIcon },
   { key: "messages",          label: "Messages",           icon: messagesIcon },
   { key: "accountprofile",    label: "Account Profile",    icon: accountProfileIcon },
 ];
@@ -798,6 +798,7 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
   const [dashboardCompanyId, setDashboardCompanyId]             = useState(null);
   const [dashboardTarget, setDashboardTarget]                   = useState(null);
   const [showChangePass, setShowChangePass] = useState(!user?.passwordChanged);
+  const [showPassSuccess, setShowPassSuccess]   = useState(false);
   const [showEditInfo,   setShowEditInfo]   = useState(!!user?.passwordChanged && !user?.profileComplete);
   const [currentPass, setCurrentPass]       = useState("");
   const [newPass, setNewPass]               = useState("");
@@ -884,6 +885,11 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
     navigate("messages");
   };
 
+  const handleMessageStudent = (student) => {
+    setMessageTarget({ id: student.id, name: student.name, role: "student" });
+    navigate("messages");
+  };
+
   useEffect(() => {
     if (activeNav !== "messages") setMessageTarget(null);
   }, [activeNav]);
@@ -957,6 +963,7 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
           setPlacementTargetCompanyId(companyId);
           navigate("findcompany");
         }}
+        onMessageStudent={handleMessageStudent}
       />
     );
 

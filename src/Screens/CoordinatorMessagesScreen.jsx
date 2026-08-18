@@ -2,21 +2,11 @@ import React, { useState, useRef, useEffect, useLayoutEffect } from "react";
 import userIcon from "../icons/user.png";
 import viewIcon from "../icons/view.png";
 import { useChat } from "./useChat";
-import { uploadFilesToFolder, uploadFileToFolder } from "./CloudinaryService";
-import { collection, addDoc, serverTimestamp } from "firebase/firestore";
+import { uploadFilesToFolder } from "./CloudinaryService";
 import { db } from "./firebase";
 
 const red     = "#8B0000";
 const darkRed = "#590101";
-
-const reportCategories = [
-  { label: "Fraud and Scam",         description: "Job scams are fraudulent schemes where scammers impersonate employers to steal money, personal information, or coerce victims into fake work activities.", details: ["Fake job postings requiring payment", "Identity theft", "Misrepresentation of company"] },
-  { label: "Discrimination",         description: "Discrimination involves unfair treatment based on race, gender, age, religion, disability, or other protected characteristics.",                          details: ["Racial discrimination", "Gender-based bias", "Age discrimination", "Religious intolerance"] },
-  { label: "Sexual Harassment",      description: "Sexual harassment includes any unwelcome sexual advances or other verbal or physical conduct of a sexual nature.",                                       details: ["Unwanted physical contact", "Verbal harassment", "Hostile work environment", "Quid pro quo harassment"] },
-  { label: "Harmful Misinformation", description: "Spreading false information about OJT programs, company practices, or student requirements.",                                                           details: ["False program descriptions", "Fake requirements", "Misleading slot information"] },
-  { label: "Workplace Misconduct",   description: "Behavior that violates company policies or professional standards, including unsafe working conditions.",                                               details: ["Unsafe working conditions", "Violation of OJT agreement", "Forced overtime", "Unpaid work"] },
-  { label: "Others",                 description: "Any other concern not listed above. Please provide a detailed description.",                                                                            details: [] },
-];
 
 // ── useIsMobile ───────────────────────────────────────────────────────────────
 const useIsMobile = () => {
@@ -126,7 +116,6 @@ const ConfirmModal = ({ message, onConfirm, onCancel, confirmLabel = "Yes", canc
   );
 };
 
-// ── ReportModal ───────────────────────────────────────────────────────────────
 // ── InfoModal ─────────────────────────────────────────────────────────────────
 const InfoModal = ({ message, onClose }) => {
   const isMobile = useIsMobile();
@@ -144,122 +133,8 @@ const InfoModal = ({ message, onClose }) => {
   );
 };
 
-// ── Report success confirmation ───────────────────────────────────────────────
-const ReportSuccessModal = ({ onClose }) => {
-  const isMobile = useIsMobile();
-  return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 4000, padding: isMobile ? "12px" : "0" }}>
-      <div style={{ background: "white", borderRadius: "16px", padding: "32px 24px", textAlign: "center", maxWidth: "360px", width: "100%", boxShadow: "0 8px 32px rgba(0,0,0,0.3)" }}>
-        <div style={{ marginBottom: "16px" }}>
-          <svg width="60" height="60" viewBox="0 0 24 24" fill="none" stroke={red} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ margin: "0 auto" }}>
-            <polyline points="20 6 9 17 4 12" />
-          </svg>
-        </div>
-        <h3 style={{ fontFamily: "'Kufam', sans-serif", fontSize: "1.3rem", color: "#333", marginBottom: "8px" }}>Report Submitted Successfully</h3>
-        <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.95rem", color: "#666", marginBottom: "24px" }}>Thank you for reporting. Our team will review your report shortly.</p>
-        <button
-          onClick={onClose}
-          style={{ background: red, color: "white", border: "none", borderRadius: "8px", padding: "10px 32px", fontFamily: "'Kufam', sans-serif", fontSize: "1rem", fontWeight: "600", cursor: "pointer" }}
-        >
-          Okay
-        </button>
-      </div>
-    </div>
-  );
-};
-
-const ReportModal = ({ company, onClose, onSubmit }) => {
-  const [step, setStep]               = useState(1);
-  const [selected, setSelected]       = useState(null);
-  const [description, setDescription] = useState("");
-  const [attachedFile, setAttachedFile] = useState(null);
-  const [infoMsg, setInfoMsg]         = useState(null);
-  const fileRef  = useRef();
-  const isMobile = useIsMobile();
-
-  const handleFile = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    if (!["image/png", "application/pdf"].includes(file.type)) { setInfoMsg("Only PNG and PDF files are allowed."); return; }
-    if (file.size > 10 * 1024 * 1024) { setInfoMsg("File must be under 10MB."); return; }
-    setAttachedFile({ name: file.name, type: file.type, url: URL.createObjectURL(file), file });
-  };
-
-  const handleSubmit = () => {
-    if (!description.trim()) { setInfoMsg("Please describe your report"); return; }
-    if (!attachedFile)        { setInfoMsg("Please attach a file."); return; }
-    onSubmit({ company: company.name, companyId: company.id || "", concern: selected?.label || "Others", date: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }), description, attachedFile });
-    onClose();
-  };
-
-  const cat = reportCategories.find(c => c.label === selected?.label);
-
-  return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2000, padding: isMobile ? "12px" : "0" }}>
-      <div style={{ background: "white", borderRadius: "16px", width: "100%", maxWidth: "520px", maxHeight: isMobile ? "92vh" : "85vh", overflow: "hidden", display: "flex", flexDirection: "column" }}>
-        <div style={{ padding: "14px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "1px solid #eee" }}>
-          <span style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.5rem", color: darkRed }}>Reports:</span>
-          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: "1.3rem", cursor: "pointer", color: "#555" }}>✕</button>
-        </div>
-        <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px" }}>
-          {step === 1 && (
-            <>
-              <p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.95rem", marginBottom: "14px" }}>Please select:</p>
-              {reportCategories.map((cat) => (
-                <div key={cat.label} onClick={() => setSelected(cat)} style={{ display: "flex", alignItems: "center", gap: "12px", padding: "10px 0", cursor: "pointer", borderBottom: "1px solid #f0f0f0" }}>
-                  <div style={{ width: "22px", height: "22px", borderRadius: "50%", border: `2px solid ${red}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, background: selected?.label === cat.label ? red : "white" }}>
-                    {selected?.label === cat.label && <div style={{ width: "8px", height: "8px", borderRadius: "50%", background: "white" }} />}
-                  </div>
-                  <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.93rem", color: "#222" }}>{cat.label}</span>
-                </div>
-              ))}
-            </>
-          )}
-          {step === 2 && cat && (
-            <>
-              <p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "1rem", marginBottom: "6px" }}>{cat.label}</p>
-              <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", color: "#666", marginBottom: "12px" }}>More about this reason:</p>
-              <hr style={{ borderColor: "#eee", marginBottom: "14px" }} />
-              <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#444", lineHeight: 1.7, marginBottom: "14px" }}>{cat.description}</p>
-              {cat.details.length > 0 && (<><p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.88rem", marginBottom: "8px" }}>Common Types:</p><ul style={{ paddingLeft: "18px" }}>{cat.details.map((d, i) => <li key={i} style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.83rem", color: "#555", marginBottom: "4px" }}>{d}</li>)}</ul></>)}
-            </>
-          )}
-          {step === 3 && (
-            <>
-              <p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.95rem", marginBottom: "10px" }}>Write a description:</p>
-              <textarea value={description} onChange={e => setDescription(e.target.value)} placeholder="Describe the issue..."
-                style={{ width: "100%", minHeight: "100px", border: "none", borderBottom: `2px solid ${red}`, outline: "none", fontFamily: "'Kufam', sans-serif", fontSize: "0.88rem", resize: "none", background: "transparent", color: "#222", marginBottom: "20px", boxSizing: "border-box" }} />
-              <p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.95rem", marginBottom: "10px" }}>Attach File:</p>
-              <input ref={fileRef} type="file" accept=".png,.pdf" style={{ display: "none" }} onChange={handleFile} />
-              {!attachedFile ? (
-                <div onClick={() => fileRef.current.click()} style={{ width: "80px", height: "80px", background: "#e8c8c8", borderRadius: "14px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
-                  <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
-                </div>
-              ) : (
-                <div style={{ display: "flex", alignItems: "center", gap: "10px", background: "#f5f5f5", padding: "10px 14px", borderRadius: "8px" }}>
-                  {attachedFile.type.startsWith("image/") ? <img src={attachedFile.url} alt="preview" style={{ width: "50px", height: "50px", objectFit: "cover", borderRadius: "6px" }} /> : <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={red} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>}
-                  <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", color: "#555" }}>{attachedFile.name}</span>
-                  <button onClick={() => setAttachedFile(null)} style={{ marginLeft: "auto", background: "none", border: "none", cursor: "pointer", color: "#aaa", fontSize: "1rem" }}>✕</button>
-                </div>
-              )}
-            </>
-          )}
-        </div>
-        <div style={{ background: darkRed, padding: "12px 20px", display: "flex", justifyContent: "flex-end" }}>
-          {step < 3 ? (
-            <button onClick={() => { if (step === 1 && !selected) { setInfoMsg("Please select a concern."); return; } setStep(step + 1); }} style={{ padding: "8px 20px", borderRadius: "20px", background: "rgba(255,255,255,0.2)", color: "white", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 600, cursor: "pointer", fontSize: "0.85rem" }}>Next {step}/3</button>
-          ) : (
-            <button onClick={handleSubmit} style={{ padding: "8px 20px", borderRadius: "20px", background: "rgba(255,255,255,0.2)", color: "white", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 600, cursor: "pointer", fontSize: "0.85rem" }}>Submit report</button>
-          )}
-        </div>
-      </div>
-      {infoMsg && <InfoModal message={infoMsg} onClose={() => setInfoMsg(null)} />}
-    </div>
-  );
-};
-
 // ── ChatView ──────────────────────────────────────────────────────────────────
-const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onReport }) => {
+const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation }) => {
   const [input, setInput]           = useState("");
   const [attachments, setAttachments] = useState([]);
   const [showInfo, setShowInfo]     = useState(false);
@@ -269,7 +144,6 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onR
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [unsendTarget, setUnsendTarget] = useState(null);
   const [infoMsg, setInfoMsg]       = useState(null);
-  const [showReport, setShowReport] = useState(false);
   const bottomRef      = useRef();
   const fileRef        = useRef();
   const infoRef        = useRef();
@@ -397,8 +271,7 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onR
           </button>
           {showInfo && (
             <div style={{ position: "absolute", top: "38px", right: 0, background: "white", borderRadius: "10px", boxShadow: "0 4px 20px rgba(0,0,0,0.18)", zIndex: 200, minWidth: "170px", overflow: "hidden" }}>
-              <div onClick={handleDeleteConversation} style={{ padding: "12px 18px", fontFamily: "'Kufam', sans-serif", fontSize: "0.88rem", color: "#222", cursor: "pointer", borderBottom: "1px solid #f0f0f0" }} onMouseEnter={e => e.currentTarget.style.background = "#f5f5f5"} onMouseLeave={e => e.currentTarget.style.background = "white"}>Delete Conversation</div>
-              <div onClick={() => { setShowInfo(false); setShowReport(true); }} style={{ padding: "12px 18px", fontFamily: "'Kufam', sans-serif", fontSize: "0.88rem", color: red, fontWeight: 700, cursor: "pointer" }} onMouseEnter={e => e.currentTarget.style.background = "#fff0f0"} onMouseLeave={e => e.currentTarget.style.background = "white"}>Report</div>
+              <div onClick={handleDeleteConversation} style={{ padding: "12px 18px", fontFamily: "'Kufam', sans-serif", fontSize: "0.88rem", color: "#222", cursor: "pointer" }} onMouseEnter={e => e.currentTarget.style.background = "#f5f5f5"} onMouseLeave={e => e.currentTarget.style.background = "white"}>Delete Conversation</div>
             </div>
           )}
         </div>
@@ -552,7 +425,6 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onR
         </>
       )}
 
-      {showReport && <ReportModal company={contact} onClose={() => setShowReport(false)} onSubmit={report => { onReport(report); setShowReport(false); }} />}
       {showDeleteConfirm && <ConfirmModal message="Are you sure to delete the conversation?" onConfirm={confirmDeleteConversation} onCancel={() => setShowDeleteConfirm(false)} />}
       {unsendTarget && <ConfirmModal message="This message will be unsent for everyone in the chat." confirmLabel="Confirm" cancelLabel="Cancel" onConfirm={confirmUnsend} onCancel={() => setUnsendTarget(null)} />}
       {infoMsg && <InfoModal message={infoMsg} onClose={() => setInfoMsg(null)} />}
@@ -664,8 +536,6 @@ const ChatListView = ({ contacts, messages, onOpen, myUid }) => {
 // ── Main CoordinatorMessagesScreen ────────────────────────────────────────────
 const CoordinatorMessagesScreen = ({
   user,               // { uid, name, role: "coordinator" }
-  onReportSubmit,
-  onNavigateToReports,
   openContact,        // { id: uid, name, role }
   onContactOpened,
 }) => {
@@ -677,8 +547,6 @@ const CoordinatorMessagesScreen = ({
   } = useChat(user?.uid, user?.name || "Coordinator", "coordinator");
 
   const [activeContact, setActiveContact] = useState(null);
-  const [showReportSuccess, setShowReportSuccess] = useState(false);
-  const [reportError, setReportError] = useState("");
 
   useEffect(() => {
     if (!activeContact?.convId) return;
@@ -714,33 +582,6 @@ const CoordinatorMessagesScreen = ({
     setActiveContact(null);
   };
 
-  const handleReport = async (report) => {
-    try {
-      let uploadedFile = null;
-      if (report.attachedFile?.file) {
-        uploadedFile = await uploadFileToFolder(report.attachedFile.file, "report_attachments");
-      }
-      await addDoc(collection(db, "reports"), {
-        company:      report.company,
-        companyId:    report.companyId || "",
-        concern:      report.concern,
-        date:         report.date,
-        description:  report.description,
-        attachedFile: uploadedFile ? { name: uploadedFile.name, url: uploadedFile.url, type: report.attachedFile.type } : null,
-        status:       "pending",
-        reporterId:   user?.uid || "",
-        reporterName: user?.name || "Coordinator",
-        reporterRole: "coordinator",
-        createdAt:    serverTimestamp(),
-      });
-      setShowReportSuccess(true);
-      if (onReportSubmit) onReportSubmit(report);
-    } catch (err) {
-      console.error("Failed to submit report:", err);
-      setReportError("Failed to submit report. Please try again.");
-    }
-  };
-
   const uiMessages = {};
   contacts.forEach(c => { uiMessages[c.id] = messages[c.convId] || []; });
 
@@ -758,20 +599,13 @@ const CoordinatorMessagesScreen = ({
 
   if (activeContact) {
     return (
-      <>
-        <ChatView
-          contact={liveActiveContact}
-          messages={uiMessages[activeContact.id] || []}
-          onSend={(_, msg) => handleSend(activeContact.convId, msg)}
-          onBack={() => setActiveContact(null)}
-          onDeleteConversation={() => handleDeleteConversation(activeContact.convId)}
-          onReport={handleReport}
-        />
-        {showReportSuccess && (
-          <ReportSuccessModal onClose={() => { setShowReportSuccess(false); onNavigateToReports?.(); }} />
-        )}
-        {reportError && <InfoModal message={reportError} onClose={() => setReportError("")} />}
-      </>
+      <ChatView
+        contact={liveActiveContact}
+        messages={uiMessages[activeContact.id] || []}
+        onSend={(_, msg) => handleSend(activeContact.convId, msg)}
+        onBack={() => setActiveContact(null)}
+        onDeleteConversation={() => handleDeleteConversation(activeContact.convId)}
+      />
     );
   }
 

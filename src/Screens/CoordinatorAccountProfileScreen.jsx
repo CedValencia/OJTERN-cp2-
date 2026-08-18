@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { doc, onSnapshot, updateDoc } from "firebase/firestore";
 import { getAuth, signOut, reauthenticateWithCredential, EmailAuthProvider, updatePassword } from "firebase/auth";
 import { db } from "./firebase";
-import { createCoordinatorAccount, initiateCoordinatorTransfer, changePassword } from "./AuthService";
+import { initiateCoordinatorTransfer, initiateCoordinatorAddition, changePassword } from "./AuthService";
 
 import AccountProfile from "../icons/accountprofile.png";
 import viewIcon from "../icons/view.png";
@@ -17,6 +17,39 @@ import resetIcon from "../icons/reset.png";
 const red = "#590101";
 const darkRed = "#590101";
 const fieldBg = "#7A4F4F";
+
+// ── Password strength requirements ────────────────────────────────────────────
+const PASSWORD_RULES = [
+  { key: "length",    label: "At least 8 characters",                     test: pwd => pwd.length >= 8 },
+  { key: "uppercase", label: "At least one uppercase letter (A–Z)",       test: pwd => /[A-Z]/.test(pwd) },
+  { key: "lowercase", label: "At least one lowercase letter (a–z)",       test: pwd => /[a-z]/.test(pwd) },
+  { key: "number",    label: "At least one number (0–9)",                 test: pwd => /[0-9]/.test(pwd) },
+  { key: "special",   label: "At least one special character (!@#$%&*_…)", test: pwd => /[!@#$%^&*()\-_=+\[\]{};:'",.<>/?\\|`~]/.test(pwd) },
+  { key: "noSpaces",  label: "No spaces",                                 test: pwd => !/\s/.test(pwd) },
+];
+
+const isPasswordStrong = (pwd) => PASSWORD_RULES.every(rule => rule.test(pwd));
+
+const PasswordChecklist = ({ password }) => {
+  if (!password) return null;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "3px", margin: "2px 0 12px 2px" }}>
+      {PASSWORD_RULES.map(rule => {
+        const passed = rule.test(password);
+        return (
+          <div key={rule.key} style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+            <span style={{ fontSize: "0.78rem", fontWeight: 700, color: passed ? "#2a7a2a" : "#c0392b", width: "12px", flexShrink: 0 }}>
+              {passed ? "✓" : "✗"}
+            </span>
+            <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.74rem", color: passed ? "#2a7a2a" : "#888" }}>
+              {rule.label}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
 
 // ── Responsive Styles ─────────────────────────────────────────────────────────
 const ResponsiveStyles = () => (
@@ -444,9 +477,11 @@ const GlobalStyles = () => {
 
 const PasswordInput = ({ value, onChange, placeholder = "••••••••", onKeyDown }) => {
   const [show, setShow] = useState(false);
+  const blockPaste = (e) => e.preventDefault();
   return (
     <div style={{ position: "relative", marginBottom: "12px" }}>
       <input type={show ? "text" : "password"} value={value} onChange={onChange} onKeyDown={onKeyDown} placeholder={placeholder}
+        onPaste={blockPaste} onCopy={blockPaste} onCut={blockPaste}
         style={{ ...fieldStyle, paddingRight: "44px" }} />
       <EyeIcon show={show} onClick={() => setShow(s => !s)} />
     </div>
@@ -490,118 +525,13 @@ const MenuRow = ({ iconSrc, label, onClick }) => (
 );
 
 // ── Add Account Modal ─────────────────────────────────────────────────────────
-const AddAccountSuccessModal = ({ name, onOk }) => (
-  <div style={{
-    position: "fixed", inset: 0, zIndex: 1100,
-    background: "rgba(0,0,0,0.5)",
-    display: "flex", alignItems: "center", justifyContent: "center", padding: "16px",
-  }}>
-    <div style={{
-      background: "white", borderRadius: "20px",
-      padding: "36px 32px", width: "clamp(280px, 85vw, 380px)",
-      display: "flex", flexDirection: "column", alignItems: "center",
-      gap: "12px", boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
-    }}>
-      <div style={{
-        width: "64px", height: "64px", borderRadius: "50%",
-        background: "#e8f5e9", display: "flex",
-        alignItems: "center", justifyContent: "center", marginBottom: "4px",
-      }}>
-        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#2d7a2d" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-          <polyline points="20 6 9 17 4 12"/>
-        </svg>
-      </div>
-      <p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "1.1rem", color: "#1a1a1a", margin: 0, textAlign: "center" }}>
-        Account Added Successfully!
-      </p>
-      <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.88rem", color: "#666", margin: 0, textAlign: "center", lineHeight: 1.5 }}>
-        Account for {name} has been added successfully. They can now log in and will be prompted to set up their own password.
-      </p>
-      <button onClick={onOk} style={{
-        marginTop: "8px", width: "100%", padding: "12px", borderRadius: "30px",
-        border: "none", background: darkRed, color: "white",
-        fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.95rem", cursor: "pointer",
-      }}>Ok</button>
-    </div>
-  </div>
-);
-
-const END_SESSION_SECONDS = 5;
-
-const EndSessionModal = ({ onDone }) => {
-  const [secondsLeft, setSecondsLeft] = useState(END_SESSION_SECONDS);
-
-  useEffect(() => {
-    if (secondsLeft <= 0) { onDone?.(); return; }
-    const t = setTimeout(() => setSecondsLeft(s => s - 1), 1000);
-    return () => clearTimeout(t);
-  }, [secondsLeft, onDone]);
-
-  return (
-    <div style={{
-      position: "fixed", inset: 0, zIndex: 1200,
-      background: "rgba(0,0,0,0.6)",
-      display: "flex", alignItems: "center", justifyContent: "center", padding: "16px",
-    }}>
-      <div style={{
-        background: "white", borderRadius: "20px",
-        padding: "36px 32px", width: "clamp(280px, 85vw, 360px)",
-        display: "flex", flexDirection: "column", alignItems: "center",
-        gap: "10px", boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
-      }}>
-        <div style={{
-          width: "60px", height: "60px", borderRadius: "50%",
-          background: "#fdecea", display: "flex",
-          alignItems: "center", justifyContent: "center", marginBottom: "4px",
-        }}>
-          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke={red} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
-            <polyline points="16 17 21 12 16 7"/>
-            <line x1="21" y1="12" x2="9" y2="12"/>
-          </svg>
-        </div>
-        <p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "1.1rem", color: "#1a1a1a", margin: 0, textAlign: "center" }}>
-          End Session
-        </p>
-        <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.86rem", color: "#666", margin: 0, textAlign: "center", lineHeight: 1.5 }}>
-          For your security, you'll be logged out now. Logging out in {secondsLeft}s…
-        </p>
-        <button onClick={onDone} style={{
-          marginTop: "8px", width: "100%", padding: "12px", borderRadius: "30px",
-          border: "none", background: darkRed, color: "white",
-          fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.95rem", cursor: "pointer",
-        }}>Log Out Now</button>
-      </div>
-    </div>
-  );
-};
-
-const AddAccountModal = ({ onClose, currentUid, onLogout, coordinatorDeptSelections = [] }) => {
-  const [name, setName]                     = useState("");
-  // Auto-assign the new account to the signed-in coordinator's own
-  // department(s) — the coordinator can no longer pick a different one.
-  const [deptSelections, setDeptSelections] = useState(
-    coordinatorDeptSelections.length ? coordinatorDeptSelections : [{ department: "", program: "", specialization: "" }]
-  );
-  const [sex, setSex]                       = useState("");
-  const [contact, setContact]               = useState("");
-  const [email, setEmail]                   = useState("");
-  const [address, setAddress]               = useState("");
-  const [password, setPassword]             = useState("");
-  const [confirm, setConfirm]               = useState("");
-  const [errors, setErrors]                 = useState({});
-  const [deptErrors, setDeptErrors]         = useState([]);
-  const [submitting, setSubmitting]         = useState(false);
-  const [submitError, setSubmitError]       = useState("");
-  const [showAddedSuccess, setShowAddedSuccess] = useState(false);
-  const [showEndSession, setShowEndSession]     = useState(false);
-
-  // If the coordinator's own department loads in after this modal is
-  // already open (async Firestore snapshot), keep the auto-assigned
-  // department in sync instead of leaving it blank.
-  useEffect(() => {
-    if (coordinatorDeptSelections.length) setDeptSelections(coordinatorDeptSelections);
-  }, [coordinatorDeptSelections]);
+const AddAccountModal = ({ onClose, currentUid, currentEmail, coordinatorDeptSelections = [] }) => {
+  const [currentPass, setCurrentPass] = useState("");
+  const [email, setEmail]             = useState("");
+  const [errors, setErrors]           = useState({});
+  const [submitting, setSubmitting]   = useState(false);
+  const [submitError, setSubmitError] = useState("");
+  const [sent, setSent]               = useState(false);
 
   const handleKeyDown = (e) => {
     if (e.key === "Enter" && !submitting) {
@@ -611,20 +541,8 @@ const AddAccountModal = ({ onClose, currentUid, onLogout, coordinatorDeptSelecti
 
   const validate = () => {
     const e = {};
-    if (!name.trim()) e.name = "Name is required.";
-    if (!sex) e.sex = "Select sex.";
-    if (!contact.match(/^\+63 \d{3}-\d{3}-\d{4}$/)) e.contact = "Format: +63 000-000-0000";
-    if (!email.trim()) e.email = "Email is required.";
-    if (!address.trim()) e.address = "Address is required.";
-    if (password.length < 8) e.password = "Password must be at least 8 characters";
-    if (password !== confirm) e.confirm = "Passwords do not match.";
-
-    // Department is auto-assigned from the signed-in coordinator's own
-    // department, so the only thing that can go wrong here is it not
-    // having loaded yet.
-    if (!deptSelections.length || !deptSelections[0]?.department) {
-      e.department = "Your department could not be determined. Please try again.";
-    }
+    if (!currentPass) e.currentPass = "Your current password is required to confirm this invitation.";
+    if (!email.trim()) e.email = "New coordinator's email is required.";
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -634,10 +552,12 @@ const AddAccountModal = ({ onClose, currentUid, onLogout, coordinatorDeptSelecti
     setSubmitError("");
     setSubmitting(true);
     try {
-      await createCoordinatorAccount({ name, sex, contact, email, address, password, deptSelections }, currentUid);
-      setShowAddedSuccess(true);
+      // Only sends an invite — this account's own access is completely
+      // unaffected, both now and after the invited coordinator accepts.
+      await initiateCoordinatorAddition(currentUid, currentEmail, currentPass, email);
+      setSent(true);
     } catch (err) {
-      setSubmitError(err.message || "Failed to add account.");
+      setSubmitError(err.message || "Failed to send the invitation.");
     } finally {
       setSubmitting(false);
     }
@@ -647,92 +567,66 @@ const AddAccountModal = ({ onClose, currentUid, onLogout, coordinatorDeptSelecti
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: "16px" }}>
       <div className="cap-modal-inner">
         <div className="cap-modal-body">
-          <WarningBanner text="Add new OJT Coordinator account. This action cannot be undone." />
-          <hr style={{ borderColor: "#eee", marginBottom: "16px" }} />
-          <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-            <div>
-              <label style={labelStyle}>Name:</label>
-              <input value={name} onChange={e => setName(e.target.value)} onKeyDown={handleKeyDown} placeholder="Full Name" style={{ ...fieldStyle, marginBottom: "2px" }} />
-              {errors.name && <p style={{ color: "red", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif" }}>{errors.name}</p>}
-            </div>
-            <div>
+          {sent ? (
+            <>
+              <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.3rem", color: red, marginBottom: "12px" }}>Invitation Sent!</p>
+              <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#444", marginBottom: "8px" }}>
+                An email with an "Accept Invitation" link has been sent to <strong>{email.trim().toLowerCase()}</strong>.
+              </p>
+              <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#444" }}>
+                They'll set up their own name and password when they accept. Your own account and access are unaffected.
+              </p>
+            </>
+          ) : (
+            <>
+              <WarningBanner text="Invite an additional OJT Coordinator. They'll receive an email with an Accept link and set up their own login — your own account and access won't change." />
+              <hr style={{ borderColor: "#eee", marginBottom: "16px" }} />
+
+              <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.3rem", color: red, marginBottom: "12px" }}>CONFIRM YOUR IDENTITY:</p>
+              <label style={labelStyle}>Your Current Password:</label>
+              <PasswordInput value={currentPass} onChange={e => setCurrentPass(e.target.value)} onKeyDown={handleKeyDown} />
+              {errors.currentPass && <p style={{ color: "red", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif", marginBottom: "6px" }}>{errors.currentPass}</p>}
+
+              <hr style={{ borderColor: "#eee", margin: "16px 0" }} />
+
+              <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.3rem", color: red, marginBottom: "12px" }}>NEW COORDINATOR'S EMAIL:</p>
+
               <label style={labelStyle}>Department / Program:</label>
-              <div style={{ background: fieldBg, borderRadius: "14px", padding: "10px 12px" }}>
-                <MultiDepartmentPicker selections={deptSelections} onChange={setDeptSelections} readOnly={true} errors={deptErrors} />
+              <div style={{ background: fieldBg, borderRadius: "14px", padding: "10px 12px", marginBottom: "6px" }}>
+                <MultiDepartmentPicker
+                  selections={coordinatorDeptSelections.length ? coordinatorDeptSelections : [{ department: "", program: "", specialization: "" }]}
+                  onChange={() => {}}
+                  readOnly={true}
+                  errors={[]}
+                />
               </div>
-              <p style={{ fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif", color: "#777", margin: "4px 0 0 4px" }}>
+              <p style={{ fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif", color: "#777", margin: "-2px 0 8px 4px" }}>
                 New accounts are automatically added under your own department.
               </p>
-              {errors.department && <p style={{ color: "red", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif" }}>{errors.department}</p>}
-            </div>
-            <div>
-              <label style={labelStyle}>Sex:</label>
-              <div style={{ position: "relative" }}>
-                <select value={sex} onChange={e => setSex(e.target.value)} style={{ ...fieldStyle, appearance: "none", paddingRight: "36px", cursor: "pointer" }}>
-                  <option value="">Select</option>
-                  <option>Male</option>
-                  <option>Female</option>
-                </select>
-                <span style={{ position: "absolute", right: "14px", top: "50%", transform: "translateY(-50%)", color: "white", pointerEvents: "none", fontSize: "0.7rem" }}>▼</span>
-              </div>
-              {errors.sex && <p style={{ color: "red", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif" }}>{errors.sex}</p>}
-            </div>
-            <div>
-              <label style={labelStyle}>Contact Information:</label>
-              <input value={contact} onChange={e => setContact(e.target.value)} onKeyDown={handleKeyDown} placeholder="+63 000-000-0000" style={{ ...fieldStyle, marginBottom: "2px" }} />
-              {errors.contact && <p style={{ color: "red", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif" }}>{errors.contact}</p>}
-            </div>
-            <div>
+
               <label style={labelStyle}>Email Address:</label>
-              <input type="email" value={email} onChange={e => setEmail(e.target.value)} onKeyDown={handleKeyDown} placeholder="example@email.com" style={{ ...fieldStyle, marginBottom: "2px" }} />
-              {errors.email && <p style={{ color: "red", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif" }}>{errors.email}</p>}
-            </div>
-            <div>
-              <label style={labelStyle}>Address:</label>
-              <input value={address} onChange={e => setAddress(e.target.value)} onKeyDown={handleKeyDown} placeholder="City, Province" style={{ ...fieldStyle, marginBottom: "2px" }} />
-              {errors.address && <p style={{ color: "red", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif" }}>{errors.address}</p>}
-            </div>
-          </div>
-          <hr style={{ borderColor: "#eee", margin: "16px 0" }} />
-          <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.3rem", color: red, marginBottom: "12px" }}>SET PASSWORD:</p>
-          <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-            <div>
-              <label style={labelStyle}>Enter Password:</label>
-              <PasswordInput value={password} onChange={e => setPassword(e.target.value)} onKeyDown={handleKeyDown} />
-              {errors.password && <p style={{ color: "red", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif" }}>{errors.password}</p>}
-            </div>
-            <div>
-              <label style={labelStyle}>Confirm Password:</label>
-              <PasswordInput value={confirm} onChange={e => setConfirm(e.target.value)} onKeyDown={handleKeyDown} />
-              {errors.confirm && <p style={{ color: "red", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif" }}>{errors.confirm}</p>}
-            </div>
-          </div>
-          {submitError && (
-            <p style={{ color: "red", fontSize: "0.8rem", fontFamily: "'Kufam', sans-serif", textAlign: "center", marginTop: "12px" }}>
-              ⚠️ {submitError}
-            </p>
+              <input type="email" value={email} onChange={e => setEmail(e.target.value)} onKeyDown={handleKeyDown} placeholder="example@gmail.com" style={{ ...fieldStyle, marginBottom: "4px" }} />
+              {errors.email && <p style={{ color: "red", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif", marginBottom: "8px" }}>{errors.email}</p>}
+
+              {submitError && (
+                <p style={{ color: "red", fontSize: "0.8rem", fontFamily: "'Kufam', sans-serif", textAlign: "center", marginTop: "12px" }}>
+                  ⚠️ {submitError}
+                </p>
+              )}
+            </>
           )}
         </div>
         <div className="cap-modal-footer">
-          <button onClick={onClose} style={{ padding: "10px 28px", borderRadius: "20px", background: "white", color: darkRed, border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.9rem", cursor: "pointer" }}>Cancel</button>
-          <button onClick={handleSubmit} disabled={submitting} style={{ padding: "10px 28px", borderRadius: "20px", background: "rgba(255,255,255,0.25)", color: "white", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.9rem", cursor: submitting ? "not-allowed" : "pointer", opacity: submitting ? 0.7 : 1 }}>
-            {submitting ? "Adding…" : "Add Account"}
+          <button onClick={onClose} style={{ padding: "10px 28px", borderRadius: "20px", background: "white", color: darkRed, border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.9rem", cursor: "pointer" }}>
+            {sent ? "Close" : "Cancel"}
           </button>
+          {!sent && (
+            <button onClick={handleSubmit} disabled={submitting} style={{ padding: "10px 28px", borderRadius: "20px", background: "rgba(255,255,255,0.25)", color: "white", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.9rem", cursor: submitting ? "not-allowed" : "pointer", opacity: submitting ? 0.7 : 1 }}>
+              {submitting ? "Sending…" : "Send Invitation"}
+            </button>
+          )}
         </div>
       </div>
-
-      {showAddedSuccess && (
-        <AddAccountSuccessModal
-          name={name}
-          onOk={() => { setShowAddedSuccess(false); setShowEndSession(true); }}
-        />
-      )}
-
-      {showEndSession && (
-        <EndSessionModal
-          onDone={() => { onClose(); onLogout?.(); }}
-        />
-      )}
     </div>
   );
 };
@@ -875,6 +769,7 @@ const PersonalInfoScreen = ({ user, onBack, onSaved, mandatory = false }) => {
   const [saving, setSaving]     = useState(false);
   const [saveError, setSaveError] = useState("");
   const [showSaveSuccess, setShowSaveSuccess] = useState(false);
+  const [savedPayload, setSavedPayload] = useState(null);
 
   // ── Always reflect the latest Firestore data, not a stale `user` prop ────
   // (Fixes fields resetting to blank when re-opening Edit after a save.)
@@ -960,7 +855,11 @@ const PersonalInfoScreen = ({ user, onBack, onSaved, mandatory = false }) => {
       setEditing(false);
       setErrors({});
       setDeptErrors([]);
-      onSaved?.(payload);
+      // Show the confirmation modal first; only notify the parent (which,
+      // in the mandatory first-login flow, immediately unmounts this
+      // screen) once the coordinator has dismissed it — otherwise the
+      // modal never gets a chance to render.
+      setSavedPayload(payload);
       setShowSaveSuccess(true);
     } catch (err) {
       setSaveError(err.message || "Failed to save your information.");
@@ -1146,7 +1045,7 @@ const PersonalInfoScreen = ({ user, onBack, onSaved, mandatory = false }) => {
       </div>
 
       {showSaveSuccess && (
-        <CoordinatorSaveSuccessModal onClose={() => setShowSaveSuccess(false)} />
+        <CoordinatorSaveSuccessModal onClose={() => { setShowSaveSuccess(false); onSaved?.(savedPayload); }} />
       )}
     </div>
   );
@@ -1221,8 +1120,8 @@ const ResetStep2 = ({ onNext }) => {
   );
 };
 
-// ── Reset Password Screen ─────────────────────────────────────────────────────
-const ResetPasswordScreen = ({ onBack, user }) => {
+// ── Reset Password Modal ──────────────────────────────────────────────────────
+const ResetPasswordModal = ({ onClose, user, onLogout }) => {
   const [currentPass, setCurrentPass] = useState("");
   const [newPass, setNewPass]         = useState("");
   const [confirm, setConfirm]         = useState("");
@@ -1240,7 +1139,7 @@ const ResetPasswordScreen = ({ onBack, user }) => {
     const e = {};
     if (!currentPass)          e.currentPass = "Please enter your current password.";
     if (!newPass)              e.newPass = "Please enter a new password.";
-    else if (newPass.length < 8) e.newPass = "Password must be at least 8 characters";
+    else if (!isPasswordStrong(newPass)) e.newPass = "Password does not meet all the requirements below.";
     if (newPass !== confirm)   e.confirm = "Passwords do not match.";
     setErrors(e);
     if (Object.keys(e).length > 0) return;
@@ -1248,11 +1147,21 @@ const ResetPasswordScreen = ({ onBack, user }) => {
     try {
       const auth = getAuth();
       const currentUser = auth.currentUser;
+      // auth.currentUser can be null here if this tab never established its
+      // own Firebase Auth session (e.g. persistence is per-tab and this tab
+      // was opened/reloaded separately) — reading .email on null crashes,
+      // and every Firestore call would also fail as permission-denied.
+      // Fail with a clear message instead of a raw null-reference error.
+      if (!currentUser) {
+        setErrors({ general: "Your session has expired. Please refresh the page and log in again." });
+        setLoading(false);
+        return;
+      }
       // Re-authenticate with current password first
       const credential = EmailAuthProvider.credential(currentUser.email, currentPass);
       await reauthenticateWithCredential(currentUser, credential);
       // Now change password and update Firestore flag
-      await changePassword(currentPass, newPass, "coordinators", user?.uid, getAuth().currentUser?.email);
+      await changePassword(currentPass, newPass, "coordinators", user?.uid, currentUser?.email);
       setSuccess(true);
       setCurrentPass(""); setNewPass(""); setConfirm("");
     } catch (err) {
@@ -1266,76 +1175,93 @@ const ResetPasswordScreen = ({ onBack, user }) => {
     }
   };
 
-  return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-      {success && (
+  // Password change already signed the user out inside changePassword().
+  // "Done" should route the whole app back to the sign-in screen, not just
+  // close the modal (which no longer has a valid session anyway).
+  const handleDone = () => {
+    if (onLogout) onLogout();
+    else onClose(); // fallback, shouldn't normally happen
+  };
+
+  if (success) {
+    return (
+      <div style={{
+        position: "fixed", inset: 0, zIndex: 9999,
+        background: "rgba(0,0,0,0.45)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        padding: "16px",
+      }}>
         <div style={{
-          position: "fixed", inset: 0, zIndex: 9999,
-          background: "rgba(0,0,0,0.45)",
-          display: "flex", alignItems: "center", justifyContent: "center",
+          background: "white", borderRadius: "20px",
+          padding: "36px 32px", width: "clamp(280px, 85vw, 380px)",
+          display: "flex", flexDirection: "column", alignItems: "center",
+          gap: "12px", boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
         }}>
           <div style={{
-            background: "white", borderRadius: "20px",
-            padding: "36px 32px", width: "clamp(280px, 85vw, 380px)",
-            display: "flex", flexDirection: "column", alignItems: "center",
-            gap: "12px", boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
+            width: "64px", height: "64px", borderRadius: "50%",
+            background: "#e8f5e9", display: "flex",
+            alignItems: "center", justifyContent: "center", marginBottom: "4px",
           }}>
-            <div style={{
-              width: "64px", height: "64px", borderRadius: "50%",
-              background: "#e8f5e9", display: "flex",
-              alignItems: "center", justifyContent: "center", marginBottom: "4px",
-            }}>
-              <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#2d7a2d" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="10"/>
-                <polyline points="9 12 11 14 15 10"/>
-              </svg>
-            </div>
-            <p style={{
-              fontFamily: "'Kufam', sans-serif", fontWeight: 700,
-              fontSize: "1.15rem", color: "#1a1a1a", margin: 0, textAlign: "center",
-            }}>Password Changed!</p>
-            <p style={{
-              fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem",
-              color: "#666", margin: 0, textAlign: "center", lineHeight: 1.5,
-            }}>Your password has been updated successfully. Please log in again with your new password.</p>
-            <button onClick={onBack} style={{
-              width: "100%", padding: "12px", borderRadius: "30px",
-              border: "none", background: "#590101",
-              fontFamily: "'Kufam', sans-serif", fontWeight: 700,
-              fontSize: "0.95rem", cursor: "pointer", color: "white",
-              boxShadow: "0 3px 10px rgba(89,1,1,0.3)", marginTop: "8px",
-            }}>Done</button>
+            <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#2d7a2d" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10"/>
+              <polyline points="9 12 11 14 15 10"/>
+            </svg>
           </div>
+          <p style={{
+            fontFamily: "'Kufam', sans-serif", fontWeight: 700,
+            fontSize: "1.15rem", color: "#1a1a1a", margin: 0, textAlign: "center",
+          }}>Password Changed!</p>
+          <p style={{
+            fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem",
+            color: "#666", margin: 0, textAlign: "center", lineHeight: 1.5,
+          }}>Your password has been updated successfully. Please log in again with your new password.</p>
+          <button onClick={handleDone} style={{
+            width: "100%", padding: "12px", borderRadius: "30px",
+            border: "none", background: "#590101",
+            fontFamily: "'Kufam', sans-serif", fontWeight: 700,
+            fontSize: "0.95rem", cursor: "pointer", color: "white",
+            boxShadow: "0 3px 10px rgba(89,1,1,0.3)", marginTop: "8px",
+          }}>Done</button>
         </div>
-      )}
-      <SectionHeaderBar iconSrc={resetIcon} title="Reset Password" onBack={onBack} />
-      <div className="cap-sub-body">
-        <div style={{ background: "#e8e8e8", borderRadius: "16px", padding: "24px 28px" }}>
-          {!success && (
-            <>
-              <label style={{ ...labelStyle, color: "#111" }}>Current Password:</label>
-              <PasswordInput value={currentPass} onChange={e => { setCurrentPass(e.target.value); setErrors(p => ({ ...p, currentPass: "" })); }} onKeyDown={handleKeyDown} />
-              {errors.currentPass && <p style={{ color: "red", fontSize: "0.78rem", fontFamily: "'Kufam', sans-serif", marginBottom: "8px" }}>{errors.currentPass}</p>}
+      </div>
+    );
+  }
 
-              <hr style={{ border: "none", borderTop: "1px solid #ccc", margin: "14px 0" }} />
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: "16px" }}>
+      <div className="cap-modal-inner">
+        <div className="cap-modal-body">
+          <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.3rem", color: red, marginBottom: "12px" }}>RESET PASSWORD:</p>
 
-              <label style={{ ...labelStyle, color: "#111" }}>New Password:</label>
-              <PasswordInput value={newPass} onChange={e => { setNewPass(e.target.value); setErrors(p => ({ ...p, newPass: "" })); }} onKeyDown={handleKeyDown} />
-              {errors.newPass && <p style={{ color: "red", fontSize: "0.78rem", fontFamily: "'Kufam', sans-serif", marginBottom: "8px" }}>{errors.newPass}</p>}
+          <label style={labelStyle}>Current Password:</label>
+          <PasswordInput value={currentPass} onChange={e => { setCurrentPass(e.target.value); setErrors(p => ({ ...p, currentPass: "" })); }} onKeyDown={handleKeyDown} />
+          {errors.currentPass && <p style={{ color: "red", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif", marginBottom: "6px" }}>{errors.currentPass}</p>}
 
-              <label style={{ ...labelStyle, color: "#111" }}>Confirm New Password:</label>
-              <PasswordInput value={confirm} onChange={e => { setConfirm(e.target.value); setErrors(p => ({ ...p, confirm: "" })); }} onKeyDown={handleKeyDown} />
-              {errors.confirm && <p style={{ color: "red", fontSize: "0.78rem", fontFamily: "'Kufam', sans-serif", marginBottom: "8px" }}>{errors.confirm}</p>}
+          <hr style={{ borderColor: "#eee", margin: "16px 0" }} />
 
-              {errors.general && <p style={{ color: "red", fontSize: "0.78rem", fontFamily: "'Kufam', sans-serif", marginBottom: "8px" }}>⚠️ {errors.general}</p>}
+          <label style={labelStyle}>New Password:</label>
+          <PasswordInput value={newPass} onChange={e => { setNewPass(e.target.value); setErrors(p => ({ ...p, newPass: "" })); }} onKeyDown={handleKeyDown} />
+          {errors.newPass && <p style={{ color: "red", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif", marginBottom: "6px" }}>{errors.newPass}</p>}
 
-              <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "16px" }}>
-                <button onClick={handleSave} disabled={loading} style={{ background: darkRed, color: "white", border: "none", borderRadius: "20px", padding: "12px 40px", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.95rem", cursor: loading ? "not-allowed" : "pointer", opacity: loading ? 0.7 : 1 }}>
-                  {loading ? "Saving…" : "Save Password"}
-                </button>
-              </div>
-            </>
+          <PasswordChecklist password={newPass} />
+
+          <label style={labelStyle}>Confirm New Password:</label>
+          <PasswordInput value={confirm} onChange={e => { setConfirm(e.target.value); setErrors(p => ({ ...p, confirm: "" })); }} onKeyDown={handleKeyDown} />
+          {errors.confirm && <p style={{ color: "red", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif", marginBottom: "6px" }}>{errors.confirm}</p>}
+
+          {errors.general && (
+            <p style={{ color: "red", fontSize: "0.8rem", fontFamily: "'Kufam', sans-serif", textAlign: "center", marginTop: "12px" }}>
+              ⚠️ {errors.general}
+            </p>
           )}
+        </div>
+        <div className="cap-modal-footer">
+          <button onClick={onClose} style={{ padding: "10px 28px", borderRadius: "20px", background: "white", color: darkRed, border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.9rem", cursor: "pointer" }}>
+            Cancel
+          </button>
+          <button onClick={handleSave} disabled={loading} style={{ padding: "10px 28px", borderRadius: "20px", background: "rgba(255,255,255,0.25)", color: "white", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.9rem", cursor: loading ? "not-allowed" : "pointer", opacity: loading ? 0.7 : 1 }}>
+            {loading ? "Saving…" : "Save Password"}
+          </button>
         </div>
       </div>
     </div>
@@ -1346,7 +1272,7 @@ const ResetPasswordScreen = ({ onBack, user }) => {
 const PrivacySecurityScreen = ({ onBack, user, onLogout }) => {
   const [showReset, setShowReset] = useState(false);
 
-  if (showReset) return <ResetPasswordScreen onBack={() => setShowReset(false)} user={user} />;
+  if (showReset) return <ResetPasswordModal onClose={() => setShowReset(false)} user={user} onLogout={onLogout} />;
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
@@ -1429,13 +1355,15 @@ const TermsScreen = ({ onBack }) => (
         <div className="cap-terms-sub">
           <p>• Initial setup by the School or System Administrator; or</p>
           <p>
-            • The "Add Account" feature, which allows an existing Coordinator to create another
-            Coordinator account with the same department(s) and industry scope.
+            • The "Add Account" feature, which lets an existing Coordinator invite another Coordinator
+            with the same department(s) and industry scope. The invited person receives an email and
+            sets up their own name and password to accept — the inviting Coordinator's own account and
+            access are unaffected before and after the invitation is accepted.
           </p>
         </div>
         <p>
-          New Coordinators must also change their temporary password and complete their personal
-          information upon first login.
+          New Coordinators set their own password as part of accepting an invitation, and must
+          complete their personal information upon first login.
         </p>
         <p>
           <strong className="cap-terms-subhead">3.4 Company Accounts.</strong> Companies register through the Platform's
@@ -1672,6 +1600,210 @@ const TermsScreen = ({ onBack }) => (
 
 // ── Main Screen ───────────────────────────────────────────────────────────────
 
+// ── First-Login Mandatory Password Change Modal ───────────────────────────────
+// Shown as a blocking overlay when the coordinator hasn't changed their
+// admin-issued password yet (user.passwordChanged is falsy).
+const FirstLoginPasswordModal = ({ user, onLogout }) => {
+  const [showCurrent, setShowCurrent] = useState(false);
+  const [showNew, setShowNew]         = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [currentPass, setCurrentPass] = useState("");
+  const [newPass, setNewPass]         = useState("");
+  const [confirmPass, setConfirmPass] = useState("");
+  const [passError, setPassError]     = useState("");
+  const [passLoading, setPassLoading] = useState(false);
+  const [passSuccess, setPassSuccess] = useState(false);
+
+  const handleChangePassword = async () => {
+    setPassError("");
+
+    if (!currentPass) { setPassError("Please enter your current password."); return; }
+    if (!newPass) { setPassError("Please enter a new password."); return; }
+    if (!isPasswordStrong(newPass)) { setPassError("Password does not meet all the requirements below."); return; }
+    if (newPass !== confirmPass) { setPassError("Passwords do not match."); return; }
+
+    setPassLoading(true);
+    try {
+      const auth = getAuth();
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        setPassError("Your session has expired. Please refresh the page and log in again.");
+        setPassLoading(false);
+        return;
+      }
+      // Re-authenticate with current (admin-issued) password first
+      const credential = EmailAuthProvider.credential(currentUser.email, currentPass);
+      await reauthenticateWithCredential(currentUser, credential);
+      // Now change password and update Firestore's passwordChanged flag
+      await changePassword(currentPass, newPass, "coordinators", user?.uid, currentUser?.email);
+      // Show confirmation modal first; onLogout is deferred until the
+      // coordinator dismisses it via the "Done" button.
+      setPassSuccess(true);
+      setCurrentPass(""); setNewPass(""); setConfirmPass("");
+    } catch (err) {
+      if (err.code === "auth/wrong-password" || err.code === "auth/invalid-credential") {
+        setPassError("Incorrect current password.");
+      } else {
+        setPassError(err.message || "Failed to change password.");
+      }
+    } finally {
+      setPassLoading(false);
+    }
+  };
+
+  const blockPaste = (e) => e.preventDefault();
+
+  const inputStyle = {
+    width: "100%", padding: "10px 44px 10px 16px",
+    background: "#590101", border: passError ? "1.5px solid red" : "none",
+    borderRadius: "20px", color: "white", fontSize: "0.88rem",
+    fontFamily: "'Kufam', sans-serif", outline: "none",
+  };
+
+  if (passSuccess) {
+    return (
+      <div style={{
+        position: "fixed", inset: 0, zIndex: 9999,
+        background: "rgba(0,0,0,0.65)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        padding: "16px",
+      }}>
+        <div style={{
+          background: "white", borderRadius: "20px",
+          padding: "36px 32px", width: "clamp(280px, 85vw, 380px)",
+          display: "flex", flexDirection: "column", alignItems: "center",
+          gap: "12px", boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
+        }}>
+          <div style={{
+            width: "64px", height: "64px", borderRadius: "50%",
+            background: "#e8f5e9", display: "flex",
+            alignItems: "center", justifyContent: "center", marginBottom: "4px",
+          }}>
+            <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#2d7a2d" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10"/>
+              <polyline points="9 12 11 14 15 10"/>
+            </svg>
+          </div>
+          <p style={{
+            fontFamily: "'Kufam', sans-serif", fontWeight: 700,
+            fontSize: "1.15rem", color: "#1a1a1a", margin: 0, textAlign: "center",
+          }}>Password Changed!</p>
+          <p style={{
+            fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem",
+            color: "#666", margin: 0, textAlign: "center", lineHeight: 1.5,
+          }}>Your password has been updated successfully. Please log in again with your new password.</p>
+          <button onClick={() => onLogout?.()} style={{
+            width: "100%", padding: "12px", borderRadius: "30px",
+            border: "none", background: "#590101",
+            fontFamily: "'Kufam', sans-serif", fontWeight: 700,
+            fontSize: "0.95rem", cursor: "pointer", color: "white",
+            boxShadow: "0 3px 10px rgba(89,1,1,0.3)", marginTop: "8px",
+          }}>Done</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 9999,
+      background: "rgba(0,0,0,0.65)",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      padding: "1rem",
+    }}>
+      <div style={{
+        background: "white", borderRadius: "24px",
+        border: "2px solid #1a1a1a", overflow: "hidden",
+        width: "100%", maxWidth: "370px", boxShadow: "0 8px 32px rgba(0,0,0,0.3)",
+      }}>
+        <div style={{ background: "#8B0000", padding: "14px", textAlign: "center" }}>
+          <span style={{ fontFamily: "'Jua', sans-serif", fontSize: "1.3rem", color: "white", letterSpacing: "0.1em", textTransform: "uppercase" }}>
+            Set New Password!
+          </span>
+        </div>
+        <div style={{ padding: "20px 24px 28px" }}>
+          <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#555", textAlign: "center", marginBottom: "16px", lineHeight: 1.6 }}>
+            For your security, please change your password before continuing.
+          </p>
+
+          <div style={{ position: "relative", marginBottom: "10px" }}>
+            <input
+              type={showCurrent ? "text" : "password"}
+              placeholder="Current Password:"
+              value={currentPass}
+              onChange={e => { setCurrentPass(e.target.value); setPassError(""); }}
+              onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); handleChangePassword(); } }}
+              onPaste={blockPaste}
+              onCopy={blockPaste}
+              onCut={blockPaste}
+              style={inputStyle}
+            />
+            <EyeIcon show={showCurrent} onClick={() => setShowCurrent(v => !v)} />
+          </div>
+
+          <div style={{ position: "relative", marginBottom: "4px" }}>
+            <input
+              type={showNew ? "text" : "password"}
+              placeholder="New Password:"
+              value={newPass}
+              onChange={e => { setNewPass(e.target.value); setPassError(""); }}
+              onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); handleChangePassword(); } }}
+              onPaste={blockPaste}
+              onCopy={blockPaste}
+              onCut={blockPaste}
+              style={inputStyle}
+            />
+            <EyeIcon show={showNew} onClick={() => setShowNew(v => !v)} />
+          </div>
+
+          <PasswordChecklist password={newPass} />
+
+          <div style={{ position: "relative", marginBottom: "4px" }}>
+            <input
+              type={showConfirm ? "text" : "password"}
+              placeholder="Confirm New Password:"
+              value={confirmPass}
+              onChange={e => { setConfirmPass(e.target.value); setPassError(""); }}
+              onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); handleChangePassword(); } }}
+              onPaste={blockPaste}
+              onCopy={blockPaste}
+              onCut={blockPaste}
+              style={inputStyle}
+            />
+            <EyeIcon show={showConfirm} onClick={() => setShowConfirm(v => !v)} />
+          </div>
+
+          {passError && (
+            <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.78rem", color: "red", margin: "4px 0 8px 4px" }}>
+              ⚠️ {passError}
+            </p>
+          )}
+
+          <hr style={{ border: "none", borderTop: "1.5px solid #ddd", margin: "16px 0" }} />
+
+          <div style={{ display: "flex", justifyContent: "center", gap: "12px" }}>
+            <button onClick={handleChangePassword} disabled={passLoading} style={{
+              background: darkRed, color: "white", border: "none", borderRadius: "24px",
+              padding: "12px 40px", fontFamily: "'Jua', sans-serif", fontSize: "1rem",
+              letterSpacing: "0.08em", textTransform: "uppercase",
+              cursor: passLoading ? "not-allowed" : "pointer", opacity: passLoading ? 0.7 : 1,
+            }}>
+              {passLoading ? "Saving…" : "Save"}
+            </button>
+            <button onClick={() => onLogout?.()} style={{
+              background: "#555", color: "white", border: "none", borderRadius: "24px",
+              padding: "12px 32px", fontFamily: "'Jua', sans-serif", fontSize: "1rem",
+              letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer",
+            }}>
+              Log Out
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const CoordinatorSaveSuccessModal = ({ onClose }) => (
   <div style={{
     position: "fixed", inset: 0, zIndex: 9999,
@@ -1737,7 +1869,12 @@ const CoordinatorAccountProfileScreen = ({ user, onLogout }) => {
 
   if (view === "personalInfo") return <><ResponsiveStyles /><PersonalInfoScreen user={user} onBack={() => setView("main")} /></>;
   if (view === "terms")        return <><ResponsiveStyles /><TermsScreen onBack={() => setView("main")} /></>;
-  if (showReset)                return <><ResponsiveStyles /><ResetPasswordScreen onBack={() => setShowReset(false)} user={user} /></>;
+
+  // Mandatory first-login password change — blocks access to the rest of the
+  // account until the coordinator has replaced their admin-issued password.
+  if (!user?.passwordChanged) {
+    return <><ResponsiveStyles /><FirstLoginPasswordModal user={user} onLogout={onLogout} /></>;
+  }
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "#f5f5f5" }}>
@@ -1771,7 +1908,8 @@ const CoordinatorAccountProfileScreen = ({ user, onLogout }) => {
         </div>
 
         {showTransfer   && <TransferAccountModal onClose={() => setShowTransfer(false)} currentUid={user?.uid} currentEmail={user?.email} coordinatorDeptSelections={coordinatorDeptSelections} />}
-        {showAddAccount && <AddAccountModal      onClose={() => setShowAddAccount(false)} currentUid={user?.uid} onLogout={onLogout} coordinatorDeptSelections={coordinatorDeptSelections} />}
+        {showAddAccount && <AddAccountModal      onClose={() => setShowAddAccount(false)} currentUid={user?.uid} currentEmail={user?.email} coordinatorDeptSelections={coordinatorDeptSelections} />}
+        {showReset      && <ResetPasswordModal   onClose={() => setShowReset(false)} user={user} onLogout={onLogout} />}
       </div>
     </div>
   );

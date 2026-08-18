@@ -29,7 +29,7 @@ const MapboxStaticView = ({ lat, lng, address }) => {
       mapboxgl.accessToken = MAPBOX_TOKEN;
       const map = new mapboxgl.Map({
         container: mapContainer.current,
-        style: "mapbox://styles/mapbox/streets-v12",
+        style: "mapbox://styles/mapbox/standard-satellite",
         center: [lng, lat],
         zoom: 15,
         interactive: true,
@@ -86,7 +86,7 @@ const MapZoomModal = ({ lat, lng, onClose }) => {
       window.mapboxgl.accessToken = MAPBOX_TOKEN;
       mapRef.current = new window.mapboxgl.Map({
         container: mapContainerRef.current,
-        style:     "mapbox://styles/mapbox/streets-v12",
+        style:     "mapbox://styles/mapbox/standard-satellite",
         center:    [lng, lat],
         zoom:      15,
       });
