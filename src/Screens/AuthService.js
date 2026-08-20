@@ -197,15 +197,23 @@ export const resetPassword = async (email) => {
 
   if (!found) throw new Error("If an account is associated with this email, you will receive a password reset link shortly");
 
-  // The emailed link is handled entirely by Firebase's own hosted reset
-  // page (no custom action URL configured for this project in the Firebase
-  // Console). `url` here only sets the "Continue" destination that
-  // Firebase's page links to once the person has actually set their new
-  // password — send them back to Sign-In. `handleCodeInApp` is left out
-  // (defaults to false) since it doesn't apply when Firebase's own hosted
-  // page is doing the handling, not our app.
+  // handleCodeInApp: true means the emailed link points at OUR OWN
+  // /reset-password route (with the oobCode as a query param) instead of
+  // Firebase's generic hosted reset page — so the whole flow, including the
+  // final "OK, back to Sign In" step, stays inside OJTern's own UI rather
+  // than bouncing through an unbranded Firebase page (and never opens a
+  // second tab on its own — ResetPasswordScreen navigates back to /signin
+  // in the same tab the link was opened in).
+  //
+  // NOTE: for the link to actually land on /reset-password instead of
+  // Firebase's hosted page, a "Customize action URL" must also be set in
+  // Firebase Console → Authentication → Templates → Password reset, to
+  // https://ojtern.web.app/reset-password. Without that Console setting,
+  // the email link still opens Firebase's own hosted page regardless of
+  // what's passed here.
   await sendPasswordResetEmail(auth, normalized, {
-    url: "https://ojtern.web.app/signin",
+    url: "https://ojtern.web.app/reset-password",
+    handleCodeInApp: true,
   });
 };
 

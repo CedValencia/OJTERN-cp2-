@@ -342,7 +342,7 @@ const ChatView = ({ contact, messages, onSend, onBack, onReport, onDeleteConvers
       setSending(true);
       try {
         const uploaded = await uploadFilesToFolder(attachments.map(a => a.file), "chat_attachments");
-        uploadedAttachments = uploaded.map((u, i) => ({ name: u.name, url: u.url, type: attachments[i].type }));
+        uploadedAttachments = uploaded.map((u, i) => ({ name: u.name, url: u.url, type: attachments[i].type, publicId: u.publicId, resourceType: u.resourceType }));
       } catch (err) {
         console.error("Failed to upload attachments:", err);
         setInfoMsg("Failed to upload attachment(s). Please try again.");

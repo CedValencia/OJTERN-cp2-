@@ -3284,8 +3284,7 @@ const ViewApplicationModal = ({ application, onClose, onSave }) => {
             <button onClick={() => setIsEditing(true)} style={{ padding: "10px 28px", borderRadius: "24px", background: "#444", color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif", fontSize: "1.1rem", cursor: "pointer" }}>EDIT</button>
           ) : (
             <p style={{ margin: 0, fontFamily: "'Kufam', sans-serif", fontSize: "0.78rem", color: "#888", display: "flex", alignItems: "center", gap: "6px" }}>
-              🔒 Editing is only available while your application is Pending.
-            </p>
+            {`Your application is now ${application.status}, you cannot edit your application`}            </p>
           )}
         </div>
       </div>

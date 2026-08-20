@@ -18,7 +18,11 @@
  *     .ts: serverTimestamp
  *     .edited: bool
  *     .unsent: bool
- *     .attachments: [{ name, url, type }, ...] | null
+ *     .attachments: [{ name, url, type, publicId, resourceType }, ...] | null
+ *       — publicId/resourceType are Cloudinary's identifiers for the asset,
+ *       needed to delete it later; unsendMessage sets this to null, which
+ *       the deleteUnsentAttachments Cloud Function (index.js) reads to
+ *       actually remove the file from Cloudinary.
  */
 
 import { useState, useEffect, useCallback, useMemo } from "react";
@@ -312,9 +316,15 @@ export const useChat = (myUid, myName, myRole) => {
 
   // ── Unsend (soft-delete) a message ──────────────────────────────────────
   const unsendMessage = useCallback(async (convId, msgId) => {
+    // Clearing `attachments` here (rather than just flipping `unsent`) does
+    // two things: it stops AttachmentBubble from rendering a file that's
+    // supposed to be gone, and it's what the deleteUnsentAttachments Cloud
+    // Function (index.js) watches for to actually remove the file from
+    // Cloudinary — it reads the PRE-update attachments off this same write.
     await updateDoc(doc(db, "conversations", convId, "messages", msgId), {
-      unsent: true,
-      text:   "",
+      unsent:      true,
+      text:        "",
+      attachments: null,
     });
 
     // The Chats list preview reads conversations/{convId}.lastMessage, which is

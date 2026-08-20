@@ -1,9 +1,11 @@
 const { onDocumentUpdated, onDocumentDeleted, onDocumentCreated } = require("firebase-functions/v2/firestore");
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
+const { defineSecret } = require("firebase-functions/params");
 const admin = require("firebase-admin");
 const { getFirestore, FieldValue } = require("firebase-admin/firestore");
 const { getAuth } = require("firebase-admin/auth");
 const nodemailer = require("nodemailer");
+const cloudinary = require("cloudinary").v2;
 
 admin.initializeApp();
 
@@ -14,6 +16,15 @@ const transporter = nodemailer.createTransport({
     pass: process.env.EMAIL_PASSWORD,
   },
 });
+
+// Cloudinary's destroy API requires an authenticated (signed) request — the
+// API key/secret must never be exposed to clients, which is why this can't
+// be done from CloudinaryService.js in the app itself. Defined as secrets so
+// they're not sitting in plaintext functions config; set them once with:
+//   firebase functions:secrets:set 519716276839678
+//   firebase functions:secrets:set p0GGy-4TjcUZIGHNc3t5HO877Ys
+const cloudinaryApiKey    = defineSecret("CLOUDINARY_API_KEY");
+const cloudinaryApiSecret = defineSecret("CLOUDINARY_API_SECRET");
 
 // Email on company approval
 exports.sendApprovalEmail = onDocumentUpdated(
@@ -318,3 +329,56 @@ exports.acceptCoordinatorInvite = onCall({ region: "asia-southeast1" }, async (r
 
   return { uid: newUser.uid };
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CHAT ATTACHMENT CLEANUP — when a message is unsent, its Cloudinary
+// file(s) should stop existing, not just stop being shown. unsendMessage
+// in useChat.js clears the message's `attachments` field to null as part of
+// the same write that sets `unsent: true` — this trigger reads the
+// PRE-update (`before`) attachments off that write and deletes each one
+// from Cloudinary. Runs after the fact (fire-and-forget from the client's
+// point of view); a failure here just leaves an orphaned file in Cloudinary,
+// it doesn't affect anything the user sees.
+// ─────────────────────────────────────────────────────────────────────────────
+exports.deleteUnsentAttachments = onDocumentUpdated(
+  {
+    document: "conversations/{convId}/messages/{msgId}",
+    region: "asia-southeast1",
+    secrets: [cloudinaryApiKey, cloudinaryApiSecret],
+  },
+  async (event) => {
+    const before = event.data.before.data();
+    const after  = event.data.after.data();
+
+    // Only act on the specific transition unsendMessage performs: wasn't
+    // unsent before, is unsent now, and there were attachments to clean up.
+    // (Guards against re-running on later unrelated edits to the same doc,
+    // since by then `before.attachments` will already be null.)
+    if (before.unsent || !after.unsent) return;
+    const attachments = before.attachments || (before.attachment ? [before.attachment] : []);
+    if (attachments.length === 0) return;
+
+    cloudinary.config({
+      cloud_name: "doalndt5l", // matches CLOUDINARY_CLOUD_NAME in CloudinaryService.js
+      api_key:    cloudinaryApiKey.value(),
+      api_secret: cloudinaryApiSecret.value(),
+    });
+
+    for (const att of attachments) {
+      // Attachments sent before this feature shipped won't have a publicId —
+      // nothing to do for those, they're just orphaned in Cloudinary already.
+      if (!att.publicId) {
+        console.warn(`Skipping Cloudinary cleanup — no publicId on attachment "${att.name}"`);
+        continue;
+      }
+      try {
+        await cloudinary.uploader.destroy(att.publicId, {
+          resource_type: att.resourceType || "image",
+        });
+        console.log(`Deleted Cloudinary asset ${att.publicId}`);
+      } catch (error) {
+        console.error(`Failed to delete Cloudinary asset ${att.publicId}:`, error);
+      }
+    }
+  }
+);

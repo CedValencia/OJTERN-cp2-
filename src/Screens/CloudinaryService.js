@@ -58,7 +58,9 @@ export const uploadFiles = async (files) => {
  * Uploads one file to Cloudinary into a specified folder.
  * @param {File} file — a File object (PDF or PNG)
  * @param {string} folder — Cloudinary folder to upload into
- * @returns {Promise<{name: string, url: string}>} file name and Cloudinary secure_url
+ * @returns {Promise<{name: string, url: string, publicId: string, resourceType: string}>}
+ *   file name, Cloudinary secure_url, and the public_id/resource_type needed
+ *   to delete this asset later (see deleteAsset below).
  * @throws Error with a descriptive message if upload fails
  */
 export const uploadFileToFolder = async (file, folder) => {
@@ -80,7 +82,12 @@ export const uploadFileToFolder = async (file, folder) => {
   }
 
   const data = await res.json();
-  return { name: file.name, url: data.secure_url };
+  return {
+    name:         file.name,
+    url:          data.secure_url,
+    publicId:     data.public_id,
+    resourceType: data.resource_type, // "image" | "raw" | "video" — required by the destroy API
+  };
 };
 
 /**
