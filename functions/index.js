@@ -4,58 +4,112 @@ const { defineSecret } = require("firebase-functions/params");
 const admin = require("firebase-admin");
 const { getFirestore, FieldValue } = require("firebase-admin/firestore");
 const { getAuth } = require("firebase-admin/auth");
-const nodemailer = require("nodemailer");
+const { Resend } = require("resend");
 const cloudinary = require("cloudinary").v2;
 
 admin.initializeApp();
 
-const transporter = nodemailer.createTransport({
-  service: "gmail",
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASSWORD,
-  },
-});
+// ─────────────────────────────────────────────────────────────────────────────
+// EMAIL — migrated off Gmail SMTP (nodemailer `service: "gmail"`) to Resend.
+//
+// Why the old setup hurt deliverability: sending through smtp.gmail.com with
+// a personal/workspace Gmail account as an automated sender runs into
+// Google's own sending limits (~500/day) and abuse heuristics for bulk
+// automated mail — results ranged from Spam placement to the sending account
+// getting throttled or locked outright. It also meant no ability to
+// configure our own SPF/DKIM/DMARC, since we didn't control DNS for
+// gmail.com.
+//
+// Resend sends through a verified ojtern.com subdomain with proper
+// SPF/DKIM/DMARC (see DNS setup docs), which is what lets Gmail attribute
+// the mail to our own domain's reputation instead of a personal inbox's.
+//
+// RESEND_API_KEY is a Firebase secret (not a plain env var) — same pattern
+// already used for the Cloudinary keys below. Set it once with:
+//   firebase functions:secrets:set RESEND_API_KEY
+const resendApiKey = defineSecret("RESEND_API_KEY");
+
+// These two are plain (non-secret) config — not sensitive, just addresses —
+// so they're read straight from env/functions config rather than Secret
+// Manager. Set via `firebase functions:config:set` or your deploy env:
+//   EMAIL_FROM="OJTern <noreply@ojtern.com>"
+//   EMAIL_REPLY_TO="support@ojtern.com"
+// Falls back to sensible defaults if unset so local emulation doesn't crash.
+const EMAIL_FROM      = process.env.EMAIL_FROM || "OJTern <noreply@ojtern.com>";
+const EMAIL_REPLY_TO  = process.env.EMAIL_REPLY_TO || "support@ojtern.com";
+
+// Strips HTML tags for a reasonable plain-text fallback when a caller
+// doesn't hand-write one. Good enough for our simple templates (no tables,
+// no nested markup) — mail clients that skip HTML rendering still get
+// readable text instead of nothing.
+const htmlToText = (html) =>
+  html
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div|li|h[1-6])>/gi, "\n\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+// Shared send helper — every trigger below calls this instead of touching
+// the Resend client directly, so From/Reply-To/text-fallback stay consistent
+// in one place.
+const sendMail = async ({ to, subject, html, text }) => {
+  const resend = new Resend(resendApiKey.value());
+  const { data, error } = await resend.emails.send({
+    from:     EMAIL_FROM,
+    to,
+    reply_to: EMAIL_REPLY_TO,
+    subject,
+    html,
+    text: text || htmlToText(html),
+  });
+  if (error) throw new Error(error.message || "Resend send failed");
+  return data;
+};
 
 // Cloudinary's destroy API requires an authenticated (signed) request — the
 // API key/secret must never be exposed to clients, which is why this can't
 // be done from CloudinaryService.js in the app itself. Defined as secrets so
 // they're not sitting in plaintext functions config; set them once with:
-//   firebase functions:secrets:set 519716276839678
-//   firebase functions:secrets:set p0GGy-4TjcUZIGHNc3t5HO877Ys
+//   firebase functions:secrets:set CLOUDINARY_API_KEY
+//   firebase functions:secrets:set CLOUDINARY_API_SECRET
 const cloudinaryApiKey    = defineSecret("CLOUDINARY_API_KEY");
 const cloudinaryApiSecret = defineSecret("CLOUDINARY_API_SECRET");
 
 // Email on company approval
 exports.sendApprovalEmail = onDocumentUpdated(
-  { document: "companies/{companyId}", region: "asia-southeast1" },
+  { document: "companies/{companyId}", region: "asia-southeast1", secrets: [resendApiKey] },
   async (event) => {
     const newData = event.data.after.data();
     const oldData = event.data.before.data();
 
     if (oldData.status !== "approved" && newData.status === "approved") {
-      const mailOptions = {
-        from: process.env.EMAIL_USER,
-        to: newData.email,
-        subject: "OJTern - Your Registration is Approved! ✅",
-        html: `
-          <h2>Welcome to OJTern!</h2>
-          <p>Hi <strong>${newData.companyName}</strong>,</p>
-          <p>Your company registration has been <strong>APPROVED</strong> by our coordinator.</p>
-          <p>You can now:</p>
-          <ul>
-            <li>Log in to your company dashboard</li>
-            <li>Post OJT positions</li>
-            <li>View student applications</li>
-          </ul>
-          <p><a href="https://ojtern.app/login">Click here to sign in</a></p>
-          <br/>
-          <p>Best regards,<br/>OJTern Team</p>
-        `,
-      };
+      const html = `
+        <h2>Welcome to OJTern!</h2>
+        <p>Hi <strong>${newData.companyName}</strong>,</p>
+        <p>Your company registration has been approved by our coordinator.</p>
+        <p>You can now:</p>
+        <ul>
+          <li>Log in to your company dashboard</li>
+          <li>Post OJT positions</li>
+          <li>View student applications</li>
+        </ul>
+        <p><a href="https://ojtern.app/login">Click here to sign in</a></p>
+        <p>Best regards,<br/>OJTern Team</p>
+      `;
+      const text = `Welcome to OJTern!
+
+Hi ${newData.companyName},
+
+Your company registration has been approved by our coordinator. You can now log in to your company dashboard, post OJT positions, and view student applications.
+
+Sign in: https://ojtern.app/login
+
+Best regards,
+OJTern Team`;
 
       try {
-        await transporter.sendMail(mailOptions);
+        await sendMail({ to: newData.email, subject: "OJTern - Your Registration is Approved", html, text });
         console.log(`Approval email sent to ${newData.email}`);
       } catch (error) {
         console.error("Email send failed:", error);
@@ -66,26 +120,28 @@ exports.sendApprovalEmail = onDocumentUpdated(
 
 // Email on company rejection
 exports.sendRejectionEmail = onDocumentUpdated(
-  { document: "companies/{companyId}", region: "asia-southeast1" },
+  { document: "companies/{companyId}", region: "asia-southeast1", secrets: [resendApiKey] },
   async (event) => {
     const newData = event.data.after.data();
     const oldData = event.data.before.data();
 
     if (oldData.status !== "rejected" && newData.status === "rejected") {
-      const mailOptions = {
-        from: process.env.EMAIL_USER,
-        to: newData.email,
-        subject: "OJTern - Registration Status Update",
-        html: `
-          <h2>Registration Not Approved</h2>
-          <p>Hi <strong>${newData.companyName}</strong>,</p>
-          <p>Your registration was not approved.</p>
-          <p><strong>Reason:</strong> ${newData.rejectionReason || "Please contact support."}</p>
-        `,
-      };
+      const html = `
+        <h2>Registration Not Approved</h2>
+        <p>Hi <strong>${newData.companyName}</strong>,</p>
+        <p>Your registration was not approved.</p>
+        <p><strong>Reason:</strong> ${newData.rejectionReason || "Please contact support."}</p>
+      `;
+      const text = `Registration Not Approved
+
+Hi ${newData.companyName},
+
+Your registration was not approved.
+
+Reason: ${newData.rejectionReason || "Please contact support."}`;
 
       try {
-        await transporter.sendMail(mailOptions);
+        await sendMail({ to: newData.email, subject: "OJTern - Registration Status Update", html, text });
         console.log(`Rejection email sent to ${newData.email}`);
       } catch (error) {
         console.error("Email send failed:", error);
@@ -163,7 +219,7 @@ const INVITE_COPY = {
 // invite's doc ID + token — same trigger-on-write pattern as
 // sendApprovalEmail above. Wording adapts to invite.type.
 exports.sendCoordinatorInviteEmail = onDocumentCreated(
-  { document: "coordinatorInvites/{inviteId}", region: "asia-southeast1" },
+  { document: "coordinatorInvites/{inviteId}", region: "asia-southeast1", secrets: [resendApiKey] },
   async (event) => {
     const invite = event.data.data();
     const inviteId = event.params.inviteId;
@@ -171,29 +227,37 @@ exports.sendCoordinatorInviteEmail = onDocumentCreated(
 
     const copy = INVITE_COPY[invite.type] || INVITE_COPY.add;
     const acceptUrl = `https://ojtern.web.app/accept-invite?id=${inviteId}&token=${invite.token}`;
+    const fromWho = invite.fromName || invite.fromEmail;
 
-    const mailOptions = {
-      from: process.env.EMAIL_USER,
-      to: invite.toEmail,
-      subject: copy.subject,
-      html: `
-        <h2>${copy.heading}</h2>
-        <p>Hi,</p>
-        <p>${copy.body(invite)}</p>
-        <p>Click below to accept the invitation and set up your own account:</p>
-        <p>
-          <a href="${acceptUrl}" style="display:inline-block;padding:12px 24px;background:#8B0000;color:#ffffff;text-decoration:none;border-radius:6px;">
-            Accept Invitation
-          </a>
-        </p>
-        <p>If you weren't expecting this, you can safely ignore this email — no account will be created unless you click the link above and complete setup.</p>
-        <br/>
-        <p>Best regards,<br/>OJTern Team</p>
-      `,
-    };
+    const html = `
+      <h2>${copy.heading}</h2>
+      <p>Hi,</p>
+      <p>${copy.body(invite)}</p>
+      <p>Click below to accept the invitation and set up your own account:</p>
+      <p>
+        <a href="${acceptUrl}" style="display:inline-block;padding:12px 24px;background:#8B0000;color:#ffffff;text-decoration:none;border-radius:6px;">
+          Accept Invitation
+        </a>
+      </p>
+      <p>If you weren't expecting this, you can safely ignore this email — no account will be created unless you click the link above and complete setup.</p>
+      <p>Best regards,<br/>OJTern Team</p>
+    `;
+    const text = `${copy.heading}
+
+Hi,
+
+${fromWho} is ${invite.type === "transfer" ? "transferring their OJT Coordinator account on OJTern to you" : "inviting you to join OJTern as an additional OJT Coordinator"}.
+
+Accept the invitation and set up your account here:
+${acceptUrl}
+
+If you weren't expecting this, you can safely ignore this email — no account will be created unless you click the link above and complete setup.
+
+Best regards,
+OJTern Team`;
 
     try {
-      await transporter.sendMail(mailOptions);
+      await sendMail({ to: invite.toEmail, subject: copy.subject, html, text });
       console.log(`Coordinator invite (${invite.type}) email sent to ${invite.toEmail}`);
     } catch (error) {
       console.error("Coordinator invite email send failed:", error);

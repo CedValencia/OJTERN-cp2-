@@ -403,3 +403,48 @@ export const useChat = (myUid, myName, myRole) => {
     markConversationRead,
   };
 };
+
+// ── useUnreadCount ────────────────────────────────────────────────────────────
+// Lightweight, standalone hook for a "Messages" nav badge — does NOT need the
+// full useChat() (no message-subcollection subscriptions), just the top-level
+// conversation docs, which already carry everything needed:
+//   .lastMessage.senderId / .lastMessage.ts  — who sent the latest message, when
+//   .lastRead.{myUid}                        — this user's persisted "seen up to" marker
+//
+// A conversation counts as unread when its latest message was NOT sent by
+// this user and arrived after this user's own lastRead marker for it
+// (Messenger-style: one badge count per conversation with something new,
+// not a running total of every individual message). Persisted in Firestore
+// via lastRead (see markConversationRead), so it's correct across refreshes
+// and updates live via onSnapshot — no polling required.
+export const useUnreadCount = (myUid) => {
+  const [count, setCount] = useState(0);
+
+  useEffect(() => {
+    if (!myUid) { setCount(0); return; }
+
+    const q = query(
+      collection(db, "conversations"),
+      where("participants", "array-contains", myUid),
+    );
+
+    const unsub = onSnapshot(q, (snap) => {
+      let total = 0;
+      snap.docs.forEach((d) => {
+        const c = d.data();
+        if ((c.deletedFor || []).includes(myUid)) return;
+        if (!c.lastMessage) return;
+        if (c.lastMessage.senderId === myUid) return; // I sent the latest message — nothing new for me
+
+        const lastMsgMs  = c.lastMessage.ts?.seconds ? c.lastMessage.ts.seconds * 1000 : 0;
+        const lastReadMs = c.lastRead?.[myUid]?.seconds ? c.lastRead[myUid].seconds * 1000 : 0;
+        if (lastMsgMs > lastReadMs) total += 1;
+      });
+      setCount(total);
+    }, () => setCount(0));
+
+    return () => unsub();
+  }, [myUid]);
+
+  return count;
+};

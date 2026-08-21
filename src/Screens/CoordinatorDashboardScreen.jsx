@@ -4,6 +4,7 @@ import { changePassword, logOut, getUserProfile } from "./AuthService";
 import { collection, query, where, orderBy, limit, onSnapshot, doc, getDoc, setDoc, updateDoc, getDocs } from "firebase/firestore";
 import { db } from "./firebase";
 import { PersonalInfoScreen, ResponsiveStyles } from "./CoordinatorAccountProfileScreen";
+import { useUnreadCount } from "./useChat";
 
 import CoordinatorStudentsAcccountScreen      from "./CoordinatorStudentsAcccountScreen";
 import CoordinatorStudentListScreen from "./CoordinatorStudentListScreen";
@@ -244,7 +245,7 @@ const EmptyListPlaceholder = ({ label = "No data available" }) => (
 );
 
 // ── Sidebar nav list (reused in static & drawer) ───────────────────────────────
-const SidebarNav = ({ activeNav, onNavigate, onLogout }) => (
+const SidebarNav = ({ activeNav, onNavigate, onLogout, unreadMessages = 0 }) => (
   <>
     {navItems.map((item) => (
       <div
@@ -260,9 +261,20 @@ const SidebarNav = ({ activeNav, onNavigate, onLogout }) => (
       >
         <img src={item.icon} alt={item.label}
           style={{ width: "30px", height: "30px", objectFit: "contain", flexShrink: 0, opacity: activeNav === item.key ? 1 : 0.35 }} />
-        <span style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.3rem", opacity: activeNav === item.key ? 1 : 0.35 }}>
+        <span style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.3rem", opacity: activeNav === item.key ? 1 : 0.35, flex: 1 }}>
           {item.label}
         </span>
+        {item.key === "messages" && unreadMessages > 0 && (
+          <span style={{
+            background: "#8B0000", color: "white", borderRadius: "50%",
+            minWidth: "20px", height: "20px", padding: "0 5px",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontFamily: "'Kufam', sans-serif", fontSize: "0.72rem", fontWeight: 700,
+            flexShrink: 0,
+          }}>
+            {unreadMessages > 99 ? "99+" : unreadMessages}
+          </span>
+        )}
       </div>
     ))}
 
@@ -578,6 +590,11 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
   const { isMobile, isTablet, isDesktop } = useBreakpoint();
   const showDrawer = isMobile || isTablet;
 
+  // Unread-messages badge for the "Messages" nav item — real-time via
+  // Firestore onSnapshot (see useUnreadCount in useChat.js), so it updates
+  // live and stays correct across refreshes.
+  const unreadMessages = useUnreadCount(user?.uid);
+
   // The `user` prop is captured at login and can go stale — e.g. if this
   // coordinator completed their mandatory department/industry setup AFTER
   // that snapshot was taken, `user.deptSelections` here would still be
@@ -658,6 +675,7 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
   // ── Map company name -> industry, so reports (which only store a company
   //    name, not an id) can be scoped to this coordinator's assigned industries ──
   const [companyIndustryMap, setCompanyIndustryMap]              = useState({});
+  const [companyIndustryMapLoaded, setCompanyIndustryMapLoaded]  = useState(false);
   useEffect(() => {
     const unsub = onSnapshot(collection(db, "companies"), (snap) => {
       const map = {};
@@ -667,6 +685,7 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
         if (name) map[name] = Array.isArray(data.industry) ? data.industry : (data.industry ? [data.industry] : []);
       });
       setCompanyIndustryMap(map);
+      setCompanyIndustryMapLoaded(true);
     }, (err) => console.error("Failed to load company industries:", err));
     return unsub;
   }, []);
@@ -674,14 +693,21 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
   // Reports scoped to this coordinator's assigned industries (via the
   // reported company's industry). Used for both the notification dropdown
   // and the full Report Company list.
+  //
+  // Fails CLOSED, not open: a report whose company we can't match to an
+  // industry, or a coordinator with no assigned industries, must be hidden —
+  // never shown to everyone. The only case that legitimately shows
+  // everything is the brief window before the initial company fetch above
+  // resolves (companyIndustryMapLoaded), same reasoning as the activity log.
   const scopedReports = React.useMemo(() => {
-    if (coordinatorIndustries.length === 0) return reports; // fail open until scope is loaded
+    if (!companyIndustryMapLoaded) return reports;
+    if (coordinatorIndustries.length === 0) return [];
     return reports.filter(r => {
       const ind = companyIndustryMap[r.company];
-      if (!ind || ind.length === 0) return true; // unknown company — fail open rather than hide
+      if (!ind || ind.length === 0) return false;
       return ind.some(i => coordinatorIndustries.includes(i));
     });
-  }, [reports, companyIndustryMap, coordinatorIndustries]);
+  }, [reports, companyIndustryMap, companyIndustryMapLoaded, coordinatorIndustries]);
 
 
   // ── Load the shared activity log — every coordinator's actions, newest first ──
@@ -701,6 +727,11 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
   //    activity table can show who did what — and be filtered to only show
   //    coordinators whose scope overlaps with the current coordinator's. ────
   const [coordinatorScopes, setCoordinatorScopes]                = useState({});
+  // Separate from coordinatorScopes itself (an empty {} is indistinguishable
+  // from "still loading" otherwise) — lets the filter below tell "haven't
+  // fetched yet" apart from "fetched, and this coordinator genuinely has no
+  // department assigned", which must NOT be treated the same way.
+  const [scopesLoaded, setScopesLoaded]                          = useState(false);
   useEffect(() => {
     getDocs(collection(db, "coordinators")).then(snap => {
       const namesMap = {};
@@ -712,16 +743,27 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
       });
       setCoordinatorNames(namesMap);
       setCoordinatorScopes(scopesMap);
+      setScopesLoaded(true);
     }).catch(err => console.error("Failed to load coordinator names:", err));
   }, []);
 
   // Only show activity from coordinators whose department/college scope
   // overlaps with the current coordinator's own scope.
-  const visibleActivity = recentActivity.filter(entry => {
-    const actorColleges = coordinatorScopes[entry.coordinatorUid] || [];
-    if (coordinatorColleges.length === 0 || actorColleges.length === 0) return true; // fail open until scopes are loaded
-    return actorColleges.some(c => coordinatorColleges.includes(c));
-  });
+  //
+  // Fails CLOSED, not open: an empty scope — for either the viewer or the
+  // coordinator who performed the action — must hide the entry, never show
+  // it to everyone. Department activity is exactly what this filter exists
+  // to keep private, so "we don't know their department" should never
+  // default to "show it anyway". The one legitimate reason to show
+  // everything is the brief window before the initial fetch above resolves,
+  // which is tracked separately via scopesLoaded.
+  const visibleActivity = !scopesLoaded
+    ? recentActivity
+    : recentActivity.filter(entry => {
+        const actorColleges = coordinatorScopes[entry.coordinatorUid] || [];
+        if (coordinatorColleges.length === 0 || actorColleges.length === 0) return false;
+        return actorColleges.some(c => coordinatorColleges.includes(c));
+      });
 
   const formatActivityTime = (createdAt) => {
     if (!createdAt?.seconds) return "";
@@ -1166,7 +1208,7 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
           {/* Desktop static sidebar */}
           {isDesktop && (
             <div className="sidebar-static">
-              <SidebarNav activeNav={activeNav} onNavigate={navigate} onLogout={handleLogoutClick} />
+              <SidebarNav activeNav={activeNav} onNavigate={navigate} onLogout={handleLogoutClick} unreadMessages={unreadMessages} />
             </div>
           )}
 
@@ -1188,7 +1230,7 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
                   <img src={logo} alt="OJTern" style={{ width: "36px", height: "36px", objectFit: "contain" }} />
                   <span style={{ fontFamily: "'Monomaniac One', sans-serif", fontSize: "1.2rem", color: "white" }}>OJTern</span>
                 </button>
-                <SidebarNav activeNav={activeNav} onNavigate={navigate} onLogout={handleLogoutClick} />
+                <SidebarNav activeNav={activeNav} onNavigate={navigate} onLogout={handleLogoutClick} unreadMessages={unreadMessages} />
               </div>
             </>
           )}
@@ -1201,7 +1243,7 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
       </div>
 
       {viewingReport && (
-        <ReportDetailModal report={viewingReport} onClose={() => setViewingReport(null)} coordinatorUid={user?.uid} />
+        <ReportDetailModal report={viewingReport} onClose={() => setViewingReport(null)} coordinatorUid={user?.uid} coordinatorName={user?.name} />
       )}
 
       {/* ── Forced first-login flow: reset password, then complete profile ── */}

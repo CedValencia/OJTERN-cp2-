@@ -104,36 +104,29 @@ const ResponsiveStyles = () => (
 
 // ─── ForgotPasswordScreen Component ──────────────────────────────────────────
 // Props:
-//   onSend(email)  — called with the email after Firebase sends the reset link
-//   onBack         — navigate back to sign-in
-const ForgotPasswordScreen = ({ onBack, onSend }) => {
+//   onProceed(email)  — called with email to move to reset password screen
+//   onBack            — navigate back to sign-in
+const ForgotPasswordScreen = ({ onBack, onProceed }) => {
   const [email, setEmail]     = useState("");
-  const [loading, setLoading] = useState(false);
   const [error, setError]     = useState("");
-  const [sent, setSent]       = useState(false);
+  const [sending, setSending] = useState(false);
 
-  const handleSend = async () => {
-  setError("");
-  if (!email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    setError("Please enter a valid email address.");
-    return;
-  }
-  setLoading(true);
-  try {
-    await resetPassword(email.trim());
-    setSent(true);
-    onSend?.(email.trim());
-  } catch (err) {
-    if (err.code === "auth/too-many-requests") {
-      setError("Too many attempts. Please wait a moment and try again.");
-    } else {
-      // Magpakita lang ng generic error kapag totoong network error / rate limit
-      setError("Failed to process request. Please try again later.");
+  const handleProceed = async () => {
+    setError("");
+    if (!email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setError("Please enter a valid email address.");
+      return;
     }
-  } finally {
-    setLoading(false);
-  }
-};
+    setSending(true);
+    try {
+      await resetPassword(email.trim());
+      onProceed?.(email.trim());
+    } catch (err) {
+      setError(err.message || "Failed to send reset email. Please try again.");
+    } finally {
+      setSending(false);
+    }
+  };
 
   return (
     <>
@@ -162,58 +155,40 @@ const ForgotPasswordScreen = ({ onBack, onSend }) => {
 
           <div className="fp-card-body">
 
-            {sent ? (
-              /* ── Success state ── */
-              <p style={{
-                fontFamily: "'Kufam', sans-serif",
-                fontSize: "0.88rem",
-                color: "#2a7a2a",
-                textAlign: "center",
-                marginBottom: "16px",
-                lineHeight: 1.6,
-              }}>
-                ✅ A password reset link has been sent to <strong>{email}</strong>. Check your inbox and follow the link to reset your password.
+            <p style={{
+              fontFamily: "'Kufam', sans-serif",
+              fontSize: "0.88rem",
+              color: "#333",
+              textAlign: "center",
+              marginBottom: "16px",
+              lineHeight: 1.6,
+            }}>
+              Enter the email address linked to your account. We'll help you reset your password.
+            </p>
+
+            <input
+              type="email"
+              placeholder="Enter email address:"
+              value={email}
+              onChange={e => { setEmail(e.target.value); setError(""); }}
+              className="fp-input"
+              style={{ border: error ? "1.5px solid red" : "none" }}
+            />
+
+            {error && (
+              <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.78rem", color: "red", margin: "4px 0 8px 4px" }}>
+                ⚠️ {error}
               </p>
-            ) : (
-              <>
-                <p style={{
-                  fontFamily: "'Kufam', sans-serif",
-                  fontSize: "0.88rem",
-                  color: "#333",
-                  textAlign: "center",
-                  marginBottom: "16px",
-                  lineHeight: 1.6,
-                }}>
-                  Enter the email address linked to your account. We'll send a password reset link.
-                </p>
-
-                <input
-                  type="email"
-                  placeholder="Enter email address:"
-                  value={email}
-                  onChange={e => { setEmail(e.target.value); setError(""); }}
-                  className="fp-input"
-                  style={{ border: error ? "1.5px solid red" : "none" }}
-                />
-
-                {error && (
-                  <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.78rem", color: "red", margin: "4px 0 8px 4px" }}>
-                    ⚠️ {error}
-                  </p>
-                )}
-              </>
             )}
 
             <hr style={{ border: "none", borderTop: "1.5px solid #ddd", margin: "16px 0" }} />
 
             <div style={{ display: "flex", justifyContent: "center", gap: "12px", flexWrap: "wrap" }}>
-              {!sent && (
-                <button onClick={handleSend} disabled={loading} className="fp-btn">
-                  {loading ? "Sending…" : "Send"}
-                </button>
-              )}
+              <button onClick={handleProceed} disabled={sending} className="fp-btn">
+                {sending ? "Sending…" : "Continue"}
+              </button>
               <button onClick={() => onBack?.()} className="fp-btn" style={{ background: "#555" }}>
-                {sent ? "Back to Sign-In" : "Back"}
+                Back
               </button>
             </div>
 

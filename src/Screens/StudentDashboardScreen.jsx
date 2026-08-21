@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { collection, onSnapshot, query, where, orderBy, limit, doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
 import { db } from "./firebase";
 import { changePassword, logOut } from "./AuthService";
+import { useUnreadCount } from "./useChat";
 
 import StudentFindCompanyScreen, { useOjtPosts } from "./StudentFindCompanyScreen";
 import StudentApplicationScreen from "./StudentApplicationScreen";
@@ -231,7 +232,7 @@ const getStudentNavKeyFromPath = (pathname) => {
   return key || "dashboard";
 };
 
-const SidebarNavList = ({ activeNav, onNavigate, onLogout }) => (
+const SidebarNavList = ({ activeNav, onNavigate, onLogout, unreadMessages = 0 }) => (
   <>
     {navItems.map((item) => (
       <div
@@ -247,9 +248,20 @@ const SidebarNavList = ({ activeNav, onNavigate, onLogout }) => (
       >
         <img src={item.icon} alt={item.label}
           style={{ width: "30px", height: "30px", objectFit: "contain", flexShrink: 0, opacity: activeNav === item.key ? 1 : 0.35 }} />
-        <span style={{ fontFamily: "'Jersey 25'", fontSize: "1.3rem", color: "#000000", opacity: activeNav === item.key ? 1 : 0.6, fontWeight: "400" }}>
+        <span style={{ fontFamily: "'Jersey 25'", fontSize: "1.3rem", color: "#000000", opacity: activeNav === item.key ? 1 : 0.6, fontWeight: "400", flex: 1 }}>
           {item.label}
         </span>
+        {item.key === "messages" && unreadMessages > 0 && (
+          <span style={{
+            background: "#8B0000", color: "white", borderRadius: "50%",
+            minWidth: "20px", height: "20px", padding: "0 5px",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontFamily: "'Kufam', sans-serif", fontSize: "0.72rem", fontWeight: 700,
+            flexShrink: 0,
+          }}>
+            {unreadMessages > 99 ? "99+" : unreadMessages}
+          </span>
+        )}
       </div>
     ))}
 
@@ -480,6 +492,10 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
   const routerNavigate = useNavigate();
   const location = useLocation();
   const activeNav = getStudentNavKeyFromPath(location.pathname);
+
+  // Unread-messages badge for the "Messages" nav item — real-time, persisted
+  // in Firestore (see useUnreadCount in useChat.js).
+  const unreadMessages = useUnreadCount(user?.uid);
   // Recently visited companies now live in Firestore (students/{uid}.recentVisited)
   // instead of localStorage, so the list follows the account across browsers
   // and devices instead of being stuck on whichever one was used to visit.
@@ -844,7 +860,7 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
           {/* Desktop static sidebar */}
           {isDesktop && (
             <div className="ssidebar-static">
-              <SidebarNavList activeNav={activeNav} onNavigate={navigate} onLogout={handleLogoutClick} />
+              <SidebarNavList activeNav={activeNav} onNavigate={navigate} onLogout={handleLogoutClick} unreadMessages={unreadMessages} />
             </div>
           )}
 
@@ -862,7 +878,7 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
                   <img src={logo} alt="OJTern" style={{ width: "36px", height: "36px", objectFit: "contain" }} />
                   <span style={{ fontFamily: "'Monomaniac One', sans-serif", fontSize: "1.2rem", color: "white" }}>OJTern</span>
                 </button>
-                <SidebarNavList activeNav={activeNav} onNavigate={navigate} onLogout={handleLogoutClick} />
+                <SidebarNavList activeNav={activeNav} onNavigate={navigate} onLogout={handleLogoutClick} unreadMessages={unreadMessages} />
               </div>
             </>
           )}

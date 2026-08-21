@@ -385,7 +385,15 @@ const ReportModal = ({ company, onClose, onSubmit, reporter }) => {
       }
 
       const reportDoc = {
-        companyId:      company.id   || company.uid || "",
+        // `company` here is an ojt_posts document (see useOjtPosts), whose
+        // own `.id` is the POST's Firestore doc ID — not the company's.
+        // The actual owning company's uid is stored on the post as
+        // `companyId` (see CompanyDashboardScreen's `where("companyId", "==", user.uid)`
+        // query against ojt_posts). Reading `company.id` here instead of
+        // `company.companyId` was writing the wrong id into every report —
+        // silently breaking any downstream lookup of `companies/{companyId}`
+        // (status changes, suspension/block, etc. never found the account).
+        companyId:      company.companyId || company.id || company.uid || "",
         company:        company.companyName || company.name || "",
         concern:        selected?.label || "Others",
         description,

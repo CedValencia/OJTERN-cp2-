@@ -1,8 +1,9 @@
 import React, { useEffect, useState, useRef } from "react";
-import { onAuthStateChanged } from "firebase/auth";
+import { onAuthStateChanged, signOut } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { useNavigate, useLocation, Routes, Route, Navigate } from "react-router-dom";
 import { auth, db } from "./firebase";
+import { checkAndReactivateCompany } from "./AuthService";
 
 import SignInScreen               from "./SignInScreen";
 import ForgotPasswordScreen       from "./ForgotPasswordScreen";
@@ -57,7 +58,8 @@ const SplashScreen = () => {
   const [showRight, setShowRight]     = useState(false);
   const isMobile                      = useIsMobile();
   const [step1Data, setStep1Data]     = useState(null);
-  const [resetEmail, setResetEmail]   = useState("");
+  const [resetEmail, setResetEmail]   = useState("");  // Email the reset link was sent to
+  const [emailSent, setEmailSent]     = useState(false); // Whether the "check your email" step should show
   const [currentUser, setCurrentUser] = useState(null);
   const [authChecking, setAuthChecking] = useState(true);
 
@@ -69,9 +71,9 @@ const SplashScreen = () => {
     if (path.startsWith("/company")) return "company_dashboard";
     if (path.includes("/signup/step-2")) return "signup2";
     if (path.includes("/signup")) return "signup1";
-    if (path.includes("/forgot-password/code")) return "forgot_code";
-    if (path.includes("/forgot-password")) return "forgot_password";
-    if (path.startsWith("/reset-password")) return "reset_password";
+    // Email-link password reset flow:
+    if (path.startsWith("/reset-password")) return "reset_password_link"; // Landed here from the emailed link (?oobCode=...)
+    if (path.includes("/forgot-password")) return "forgot_password";      // Email input screen (+ "check your email" once sent)
     return "signin";
   };
 
@@ -84,59 +86,61 @@ const SplashScreen = () => {
     student_dashboard:     "student",
   };
   const requiredRoleForView = DASHBOARD_ROLE_FOR_VIEW[currentView];
-  // True only once auth has resolved AND the signed-in user's role matches
-  // the dashboard being requested — this is what actually gates the view,
-  // not just the URL the person happened to type in.
   const isAuthorizedForView = !requiredRoleForView
     || (!!currentUser && currentUser.role === requiredRoleForView);
 
   const isInitialAuthCheck = useRef(true);
 
   // ── Restore session after page refresh ────────────────────────────────────
-  // NOTE: onAuthStateChanged fires on EVERY auth change, not just page load —
-  // including the brief sign-in Firebase does internally while AuthService.signIn()
-  // is still validating the selected role. We only want this listener to restore
-  // a session on initial mount; any sign-in attempt made while already on this
-  // screen must be routed exclusively by SignInScreen's own role-checked callbacks
-  // (onSignInCoordinator/onSignInStudent/onSignInCompany), never by this listener,
-  // or a wrong-role sign-in attempt gets briefly (and wrongly) routed to whatever
-  // dashboard matches the account's real role before AuthService signs it back out.
   useEffect(() => {
-  const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
-    const isInitial = isInitialAuthCheck.current;
-    isInitialAuthCheck.current = false;
+    const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
+      const isInitial = isInitialAuthCheck.current;
+      isInitialAuthCheck.current = false;
 
-    if (firebaseUser && isInitial) {
-      const collections = ["coordinators", "students", "companies"];
-      let userData = null;
-      for (const col of collections) {
-        const snap = await getDoc(doc(db, col, firebaseUser.uid));
-        if (snap.exists()) { userData = snap.data(); break; }
-      }
+      if (firebaseUser && isInitial) {
+        const collections = ["coordinators", "students", "companies"];
+        let userData = null;
+        for (const col of collections) {
+          const snap = await getDoc(doc(db, col, firebaseUser.uid));
+          if (snap.exists()) { userData = snap.data(); break; }
+        }
 
-      const badStatuses = ["pending", "rejected", "transferred"];
-      if (userData && !badStatuses.includes(userData.status)) {
-        setCurrentUser(userData);
-        // Navigate to dashboard if not already on one — but never hijack the
-        // Accept Invitation or Reset Password links (used by Transfer/Add
-        // Account and the emailed password-reset flow respectively). Without
-        // this exemption, opening either link in a browser where someone is
-        // still signed in would immediately bounce back to their own
-        // dashboard before that screen ever gets to render, silently
-        // aborting the flow.
-        const onDashboardRoute = ["/coordinator", "/student", "/company"].some(p => location.pathname.startsWith(p));
-        const onPublicStandaloneRoute = ["/accept-invite", "/reset-password"].some(p => location.pathname.startsWith(p));
-        if (!onDashboardRoute && !onPublicStandaloneRoute) {
-          if (userData.role === "coordinator") navigate("/coordinator/dashboard");
-          else if (userData.role === "student")  navigate("/student/dashboard");
-          else if (userData.role === "company")  navigate("/company/dashboard");
+        // A timed suspension may have already expired since the last time
+        // this company signed in — reflect that before deciding whether to
+        // restore the session, same as signIn() does in AuthService.js.
+        if (userData?.role === "company" && userData.status === "suspended") {
+          await checkAndReactivateCompany(firebaseUser.uid).catch(() => {});
+          const freshSnap = await getDoc(doc(db, "companies", firebaseUser.uid));
+          if (freshSnap.exists()) userData = freshSnap.data();
+        }
+
+        // "suspended"/"blocked" MUST be excluded here too — otherwise a
+        // company whose account was suspended/blocked while logged in could
+        // regain access simply by refreshing the page, since this is what
+        // restores `currentUser` (and therefore dashboard access) on refresh.
+        const badStatuses = ["pending", "rejected", "transferred", "suspended", "blocked"];
+        if (userData && badStatuses.includes(userData.status)) {
+          // Don't leave a live Firebase Auth session sitting around for an
+          // account that isn't allowed to use the app right now.
+          await signOut(auth).catch(() => {});
+        }
+        if (userData && !badStatuses.includes(userData.status)) {
+          setCurrentUser(userData);
+          const onDashboardRoute = ["/coordinator", "/student", "/company"].some(p => location.pathname.startsWith(p));
+          // Also exempt the emailed password-reset link — a stale/logged-in
+          // session shouldn't bounce someone away from a reset link they just clicked.
+          const onPublicStandaloneRoute = ["/accept-invite", "/reset-password"].some(p => location.pathname.startsWith(p));
+          if (!onDashboardRoute && !onPublicStandaloneRoute) {
+            if (userData.role === "coordinator") navigate("/coordinator/dashboard");
+            else if (userData.role === "student")  navigate("/student/dashboard");
+            else if (userData.role === "company")  navigate("/company/dashboard");
+          }
         }
       }
-    }
-    setAuthChecking(false);
-  });
-  return unsub;
-}, []);
+      setAuthChecking(false);
+    });
+    return unsub;
+  }, []);
 
   useEffect(() => {
     const t1 = setTimeout(() => setAnimate(true),  2000);
@@ -144,21 +148,12 @@ const SplashScreen = () => {
     return () => { clearTimeout(t1); clearTimeout(t2); };
   }, []);
 
-  // Redirect to /signin if no path is set — but only once we've confirmed
-  // there's no signed-in user. Without the currentUser check, this could
-  // race the session-restore navigate() above: if authChecking flips to
-  // false a beat before location.pathname reflects the dashboard redirect,
-  // this would send an already-authenticated person back to /signin.
   useEffect(() => {
     if (location.pathname === "/" && !authChecking && !currentUser) {
       navigate("/signin", { replace: true });
     }
   }, [location.pathname, authChecking, currentUser, navigate]);
 
-  // Guard: kick anyone off a dashboard URL they're not authenticated/authorized
-  // for — e.g. typing /student directly while logged out, or while
-  // logged in as a different role. Runs once auth has finished resolving so
-  // it doesn't fire during the brief window before onAuthStateChanged settles.
   useEffect(() => {
     if (!authChecking && requiredRoleForView && !isAuthorizedForView) {
       navigate("/signin", { replace: true });
@@ -166,34 +161,27 @@ const SplashScreen = () => {
   }, [authChecking, requiredRoleForView, isAuthorizedForView, navigate]);
 
   // ── Full-screen dashboard views ────────────────────────────────────────────
-  // Fully public, standalone pages — reached via an emailed link. Placed
-  // after all hooks above (Rules of Hooks) but before the authChecking gate
-  // below, since neither needs an auth check to render.
   if (currentView === "accept_invite") {
     return <AcceptCoordinatorInviteScreen />;
   }
-  if (currentView === "reset_password") {
-    return <ResetPasswordScreen />;
+
+  // Password reset via the emailed Firebase link (?oobCode=...)
+  if (currentView === "reset_password_link") {
+    const oobCode = new URLSearchParams(location.search).get("oobCode");
+    return <ResetPasswordScreen oobCode={oobCode} onBack={() => navigate("/forgot-password")} />;
   }
 
-  if (authChecking) return (
+  const LoadingSplash = () => (
     <div style={{ width: "100vw", height: "100vh", background: "linear-gradient(180deg, #A32424 0%, #320000 100%)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
       <img src={logo} alt="OJTern Logo" style={{ width: "120px", height: "120px", objectFit: "contain", marginBottom: "-10px" }} />
       <div style={{ fontFamily: "'Monomaniac One', sans-serif", fontSize: "3.5rem", color: "white", letterSpacing: "0.03em" }}>OJTern</div>
     </div>
   );
 
-  // Someone hit a dashboard URL without being authenticated/authorized for it
-  // — show the same loading splash for the one tick it takes the guard effect
-  // above to redirect to /signin, instead of flashing the dashboard itself.
-  if (requiredRoleForView && !isAuthorizedForView) return (
-    <div style={{ width: "100vw", height: "100vh", background: "linear-gradient(180deg, #A32424 0%, #320000 100%)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
-      <img src={logo} alt="OJTern Logo" style={{ width: "120px", height: "120px", objectFit: "contain", marginBottom: "-10px" }} />
-      <div style={{ fontFamily: "'Monomaniac One', sans-serif", fontSize: "3.5rem", color: "white", letterSpacing: "0.03em" }}>OJTern</div>
-    </div>
-  );
+  if (authChecking) return <LoadingSplash />;
+  if (requiredRoleForView && !isAuthorizedForView) return <LoadingSplash />;
 
-  // Dashboard routes
+  // ── Dashboard routes ───────────────────────────────────────────────────────
   if (currentView === "coordinator_dashboard") {
     return <CoordinatorDashboardScreen user={currentUser} onLogout={() => { 
       setCurrentUser(null); 
@@ -225,17 +213,23 @@ const SplashScreen = () => {
           onForgotPassword={() => navigate("/forgot-password")}
         />
       )}
-      {currentView === "forgot_password" && (
+
+      {/* Email-link password reset flow: email → "check your email" → link in inbox */}
+      {currentView === "forgot_password" && !emailSent && (
         <ForgotPasswordScreen
-          onSend={(email) => { setResetEmail(email); navigate("/forgot-password/code"); }}
           onBack={() => navigate("/signin")}
+          onProceed={(email) => {
+            setResetEmail(email);
+            setEmailSent(true); // resetPassword() already sent the email at this point
+          }}
         />
       )}
-      {currentView === "forgot_code" && (
+
+      {currentView === "forgot_password" && emailSent && (
         <ForgotPasswordCodeScreen
           email={resetEmail}
           onResend={() => {}}
-          onBack={() => navigate("/signin")}
+          onBack={() => { setEmailSent(false); navigate("/signin"); }}
         />
       )}
 

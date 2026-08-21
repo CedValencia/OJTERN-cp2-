@@ -547,13 +547,6 @@ const PersonalInfoScreen = ({ onBack, user }) => {
   const handleCollegeChange = (code) => setForm(f => ({ ...f, collegeCode: code, programCode: "" }));
   const handleProgramChange = (code) => setForm(f => ({ ...f, programCode: code }));
 
-  const validateStudentId = (v) => {
-    if (!v) return "Required";
-    if (!/^\d+$/.test(v)) return "Numbers only";
-    if (v.length !== 9) return `${v.length}/9 digits`;
-    return "";
-  };
-
   const validateMiddleInitial = (v) => {
     if (!v) return "Required";
     if (!/^[A-Z]\.$/.test(v)) return "Format: e.g. (A.)";
@@ -569,8 +562,6 @@ const PersonalInfoScreen = ({ onBack, user }) => {
 
   const validate = () => {
     const e = {};
-    const idErr = validateStudentId(form.studentId);
-    if (idErr) e.studentId = idErr;
     if (!form.firstName.trim()) e.firstName = "First name is required.";
     if (!form.collegeCode) e.collegeCode = "College is required.";
     if (!form.programCode) e.programCode = "Program is required.";
@@ -592,7 +583,7 @@ const PersonalInfoScreen = ({ onBack, user }) => {
     if (!validate()) return;
     try {
       await updateDoc(doc(db, "students", user?.uid), {
-        studentId:      form.studentId,
+        // studentId intentionally omitted — no longer editable from this screen.
         lastName:       form.lastName,
         middleInitial:  form.middleInitial,
         firstName:      form.firstName,
@@ -611,12 +602,6 @@ const PersonalInfoScreen = ({ onBack, user }) => {
     }
     setEditing(false);
     setErrors({});
-  };
-
-  const handleStudentIdChange = (v) => {
-    const filtered = v.replace(/\D/g, "").slice(0, 9);
-    setField("studentId", filtered);
-    setErrors(prev => ({ ...prev, studentId: validateStudentId(filtered) }));
   };
 
   const handleMiddleInitialChange = (v) => {
@@ -728,22 +713,14 @@ const PersonalInfoScreen = ({ onBack, user }) => {
             </div>
           )}
 
-          {/* Student ID */}
+          {/* Student ID — never editable: it's how the account is looked up
+              at login (see AuthService.signIn resolving email by studentId),
+              so changing it here would be able to break sign-in / mismatch
+              the account's own identifier. Always shown as plain text, even
+              while the rest of the form is in edit mode. */}
           <div style={rowStyle}>
             {fieldLabel("Student ID")}
-            {editing ? (
-              <>
-                <input
-                  value={form.studentId}
-                  onChange={e => handleStudentIdChange(e.target.value)}
-                  placeholder="9-digit number"
-                  style={errors.studentId ? inlineInputErrorStyle : inlineInputStyle}
-                />
-                {errText(errors.studentId)}
-              </>
-            ) : (
-              <span style={valueStyle}>{form.studentId}</span>
-            )}
+            <span style={valueStyle}>{form.studentId}</span>
           </div>
 
           {/* First Name */}

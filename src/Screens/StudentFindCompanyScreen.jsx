@@ -398,7 +398,11 @@ const ReportModal = ({ company, onClose, onSubmit, reporter }) => {
       }
 
       const reportDoc = {
-        companyId:      company.id   || company.uid || "",
+        // See the identical comment in CoordinatorFindCompanyScreen.jsx —
+        // `company` is an ojt_posts document here, so `.id` is the POST's
+        // doc id, not the actual company's. Use the post's own `companyId`
+        // field (the real owner uid) instead.
+        companyId:      company.companyId || company.id || company.uid || "",
         company:        company.companyName || company.name || "",
         concern:        selected?.label || "Others",
         description,

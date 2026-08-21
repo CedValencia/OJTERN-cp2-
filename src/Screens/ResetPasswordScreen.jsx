@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from "react";
-import { useSearchParams, useNavigate } from "react-router-dom";
 import { verifyResetCode, confirmReset } from "./AuthService";
 
 import logo from "../icons/ojtern.png";
@@ -38,9 +37,6 @@ const EyeIcon = ({ show, onClick }) => (
   </span>
 );
 
-// Same rules/component used everywhere else a password gets set
-// (ResetPasswordModal / FirstLoginPasswordModal / AcceptCoordinatorInviteScreen)
-// — kept identical here so the bar is consistent across the whole app.
 const PASSWORD_RULES = [
   { key: "length",    label: "At least 8 characters",                     test: pwd => pwd.length >= 8 },
   { key: "uppercase", label: "At least one uppercase letter (A–Z)",       test: pwd => /[A-Z]/.test(pwd) },
@@ -73,8 +69,6 @@ const PasswordChecklist = ({ password }) => {
   );
 };
 
-// Password field with show/hide toggle and paste/copy/cut disabled (must be
-// typed, not pasted from elsewhere) — same pattern used across the app.
 const PasswordInput = ({ value, onChange, onKeyDown, placeholder = "••••••••" }) => {
   const [show, setShow] = useState(false);
   const blockPaste = (e) => e.preventDefault();
@@ -97,44 +91,38 @@ const PasswordInput = ({ value, onChange, onKeyDown, placeholder = "••••
   );
 };
 
-// Handles Firebase's emailed password-reset link entirely inside the app —
-// expects ?oobCode=<code> in the URL (Firebase appends this automatically
-// since resetPassword() in AuthService.js sets handleCodeInApp: true with
-// this screen's URL as the continue target). No Firebase-hosted page, no
-// second tab — the whole reset happens here, and "OK" returns to /signin
-// in the same tab the link was opened in.
-const ResetPasswordScreen = () => {
-  const [searchParams] = useSearchParams();
-  const navigate = useNavigate();
-  const oobCode = searchParams.get("oobCode");
+// ─── ResetPasswordScreen Component ───────────────────────────────────────────
+// Props:
+//   oobCode          — Firebase reset code parsed from the email link's URL
+//   onBack           — go back to ForgotPasswordScreen (e.g. to request a new link)
+const ResetPasswordScreen = ({ oobCode, onBack }) => {
+  const [verifying, setVerifying]             = useState(true);
+  const [verifiedEmail, setVerifiedEmail]      = useState("");
+  const [verifyError, setVerifyError]          = useState("");
+  const [newPassword, setNewPassword]         = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [errors, setErrors]                   = useState({});
+  const [saving, setSaving]                   = useState(false);
+  const [saveError, setSaveError]             = useState("");
+  const [success, setSuccess]                 = useState(false);
 
-  const [status, setStatus]   = useState("loading"); // loading | ready | invalid | success
-  const [email, setEmail]     = useState("");
-  const [loadError, setLoadError] = useState("");
-
-  const [password, setPassword]       = useState("");
-  const [confirmPassword, setConfirm] = useState("");
-  const [errors, setErrors]           = useState({});
-  const [submitting, setSubmitting]   = useState(false);
-  const [submitError, setSubmitError] = useState("");
-
+  // Verify the link's oobCode as soon as this screen loads — this is what
+  // catches expired/invalid/already-used links before showing the form.
   useEffect(() => {
     if (!oobCode) {
-      setStatus("invalid");
-      setLoadError("This password reset link is missing required information.");
+      setVerifyError("This password reset link is missing required information.");
+      setVerifying(false);
       return;
     }
     let cancelled = false;
     (async () => {
       try {
-        const verifiedEmail = await verifyResetCode(oobCode);
-        if (cancelled) return;
-        setEmail(verifiedEmail);
-        setStatus("ready");
+        const emailForCode = await verifyResetCode(oobCode);
+        if (!cancelled) setVerifiedEmail(emailForCode);
       } catch (err) {
-        if (cancelled) return;
-        setLoadError("This link is invalid or has expired. Please request a new one.");
-        setStatus("invalid");
+        if (!cancelled) setVerifyError(err.message || "This password reset link is invalid or has expired.");
+      } finally {
+        if (!cancelled) setVerifying(false);
       }
     })();
     return () => { cancelled = true; };
@@ -142,28 +130,33 @@ const ResetPasswordScreen = () => {
 
   const validate = () => {
     const e = {};
-    if (!isPasswordStrong(password)) e.password = "Password does not meet all the requirements below.";
-    if (password !== confirmPassword) e.confirmPassword = "Passwords do not match.";
+    if (!isPasswordStrong(newPassword)) e.newPassword = "Password does not meet all the requirements below.";
+    if (newPassword !== confirmPassword) e.confirmPassword = "Passwords do not match.";
     setErrors(e);
     return Object.keys(e).length === 0;
   };
 
-  const handleSubmit = async () => {
+  const handleSave = async () => {
     if (!validate()) return;
-    setSubmitError("");
-    setSubmitting(true);
+    setSaveError("");
+    setSaving(true);
     try {
-      await confirmReset(oobCode, password);
-      setStatus("success");
+      await confirmReset(oobCode, newPassword);
+      setSuccess(true);
     } catch (err) {
-      setSubmitError("Failed to reset your password. The link may have expired — please request a new one.");
+      setSaveError(err.message || "Failed to reset password. Please try again.");
     } finally {
-      setSubmitting(false);
+      setSaving(false);
     }
   };
 
+  const handleContinue = () => {
+    // Redirect to sign-in
+    window.location.href = "/signin";
+  };
+
   const handleKeyDown = (e) => {
-    if (e.key === "Enter" && !submitting) handleSubmit();
+    if (e.key === "Enter" && !saving) handleSave();
   };
 
   return (
@@ -183,76 +176,118 @@ const ResetPasswordScreen = () => {
           <span style={{ fontFamily: "'Monomaniac One', sans-serif", fontSize: "1.6rem", color: darkRed, letterSpacing: "0.03em" }}>OJTern</span>
         </div>
 
-        {status === "loading" && (
+        {verifying ? (
           <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem", color: "#555", textAlign: "center" }}>
             Verifying your reset link…
           </p>
-        )}
-
-        {status === "invalid" && (
+        ) : verifyError ? (
           <>
             <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.3rem", color: red, marginBottom: "8px", textAlign: "center" }}>
               Invalid or Expired Link
             </p>
             <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#555", textAlign: "center", marginBottom: "20px" }}>
-              {loadError}
+              {verifyError}
             </p>
             <button
-              onClick={() => navigate("/forgot-password")}
-              style={{ width: "100%", padding: "12px", borderRadius: "20px", background: red, color: "white", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.9rem", cursor: "pointer" }}
+              onClick={() => onBack?.()}
+              style={{
+                width: "100%", padding: "12px", borderRadius: "20px",
+                background: red, color: "white", border: "none",
+                fontFamily: "'Kufam', sans-serif", fontWeight: 700,
+                fontSize: "0.9rem", cursor: "pointer"
+              }}
             >
               Request a New Link
             </button>
           </>
-        )}
+        ) : !success ? (
+          <>
+            <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.3rem", color: red, marginBottom: "8px", textAlign: "center" }}>
+              Reset Password
+            </p>
+            <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#555", textAlign: "center", marginBottom: "20px" }}>
+              Resetting password for <strong>{verifiedEmail}</strong>.
+            </p>
 
-        {status === "success" && (
+            {/* New Password */}
+            <label style={{ ...labelStyle, marginTop: "14px" }}>New Password:</label>
+            <PasswordInput 
+              value={newPassword} 
+              onChange={e => setNewPassword(e.target.value)} 
+              onKeyDown={handleKeyDown} 
+            />
+            {errors.newPassword && (
+              <p style={{ color: "red", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif", marginBottom: "6px" }}>
+                ⚠️ {errors.newPassword}
+              </p>
+            )}
+            <PasswordChecklist password={newPassword} />
+
+            {/* Confirm Password */}
+            <label style={{ ...labelStyle, marginTop: "10px" }}>Confirm New Password:</label>
+            <PasswordInput 
+              value={confirmPassword} 
+              onChange={e => setConfirmPassword(e.target.value)} 
+              onKeyDown={handleKeyDown} 
+            />
+            {errors.confirmPassword && (
+              <p style={{ color: "red", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif", marginBottom: "6px" }}>
+                ⚠️ {errors.confirmPassword}
+              </p>
+            )}
+
+            {saveError && (
+              <p style={{ color: "red", fontSize: "0.8rem", fontFamily: "'Kufam', sans-serif", textAlign: "center", marginTop: "12px" }}>
+                ⚠️ {saveError}
+              </p>
+            )}
+
+            {/* Buttons */}
+            <div style={{ display: "flex", gap: "12px", marginTop: "20px" }}>
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                style={{ 
+                  flex: 1, padding: "12px", borderRadius: "20px", 
+                  background: red, color: "white", border: "none", 
+                  fontFamily: "'Kufam', sans-serif", fontWeight: 700, 
+                  fontSize: "0.9rem", cursor: saving ? "not-allowed" : "pointer", 
+                  opacity: saving ? 0.7 : 1 
+                }}
+              >
+                {saving ? "Saving…" : "Save"}
+              </button>
+              <button
+                onClick={() => onBack?.()}
+                style={{ 
+                  flex: 1, padding: "12px", borderRadius: "20px", 
+                  background: "#555", color: "white", border: "none", 
+                  fontFamily: "'Kufam', sans-serif", fontWeight: 700, 
+                  fontSize: "0.9rem", cursor: "pointer" 
+                }}
+              >
+                Back
+              </button>
+            </div>
+          </>
+        ) : (
           <>
             <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.3rem", color: red, marginBottom: "8px", textAlign: "center" }}>
               Password Reset!
             </p>
             <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#555", textAlign: "center", marginBottom: "20px" }}>
-              Your password has been changed. You can now sign in with your new password.
+              Your password has been successfully changed. You can now sign in with your new password.
             </p>
             <button
-              onClick={() => navigate("/signin")}
-              style={{ width: "100%", padding: "12px", borderRadius: "20px", background: red, color: "white", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.9rem", cursor: "pointer" }}
+              onClick={handleContinue}
+              style={{ 
+                width: "100%", padding: "12px", borderRadius: "20px", 
+                background: red, color: "white", border: "none", 
+                fontFamily: "'Kufam', sans-serif", fontWeight: 700, 
+                fontSize: "0.9rem", cursor: "pointer" 
+              }}
             >
-              OK
-            </button>
-          </>
-        )}
-
-        {status === "ready" && (
-          <>
-            <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.3rem", color: red, marginBottom: "8px", textAlign: "center" }}>
-              Set New Password
-            </p>
-            <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#555", textAlign: "center", marginBottom: "20px" }}>
-              Resetting the password for <strong>{email}</strong>.
-            </p>
-
-            <label style={labelStyle}>New Password:</label>
-            <PasswordInput value={password} onChange={e => setPassword(e.target.value)} onKeyDown={handleKeyDown} />
-            {errors.password && <p style={{ color: "red", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif", marginBottom: "6px" }}>{errors.password}</p>}
-            <PasswordChecklist password={password} />
-
-            <label style={{ ...labelStyle, marginTop: "10px" }}>Confirm New Password:</label>
-            <PasswordInput value={confirmPassword} onChange={e => setConfirm(e.target.value)} onKeyDown={handleKeyDown} />
-            {errors.confirmPassword && <p style={{ color: "red", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif", marginBottom: "6px" }}>{errors.confirmPassword}</p>}
-
-            {submitError && (
-              <p style={{ color: "red", fontSize: "0.8rem", fontFamily: "'Kufam', sans-serif", textAlign: "center", marginTop: "12px" }}>
-                ⚠️ {submitError}
-              </p>
-            )}
-
-            <button
-              onClick={handleSubmit}
-              disabled={submitting}
-              style={{ width: "100%", padding: "12px", borderRadius: "20px", background: red, color: "white", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.9rem", cursor: submitting ? "not-allowed" : "pointer", opacity: submitting ? 0.7 : 1, marginTop: "18px" }}
-            >
-              {submitting ? "Resetting…" : "Reset Password"}
+              Continue to Sign In
             </button>
           </>
         )}

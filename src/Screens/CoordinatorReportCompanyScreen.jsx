@@ -1,7 +1,13 @@
 import React, { useState, useEffect } from "react";
-import { doc, updateDoc, serverTimestamp } from "firebase/firestore";
+import { doc, updateDoc, getDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "./firebase";
-import { logActivity } from "./AuthService";
+import {
+  logActivity,
+  applyCompanyEnforcement,
+  recordCompanyAction,
+  notifyCompany,
+  getCompanyActionHistory,
+} from "./AuthService";
 
 const red     = "#8B0000";
 const darkRed = "#590101";
@@ -278,37 +284,151 @@ const PdfIcon = () => (
 
 // ── Report Detail Modal ───────────────────────────────────────────────────────
 // ── Resolution actions ─────────────────────────────────────────────────────
-// Each report category (report.concern) has a sensible set of actions a
-// coordinator can take. "Others" is the fallback for any concern not listed.
-const ACTIONS_BY_CONCERN = {
-  "Fraud and Scam":         ["Block Company", "Suspend Account", "Warning Issued", "Others"],
-  "Discrimination":         ["Warning Issued", "Require Correction", "Suspend Account", "Block Company", "Others"],
-  "Sexual Harassment":      ["Suspend Account", "Block Company", "Others"],
-  "Harmful Misinformation": ["Require Correction", "Warning Issued", "Suspend Account", "Others"],
-  "Workplace Misconduct":   ["Warning Issued", "Settlement / Mediation", "Suspend Account", "Block Company", "Others"],
-  "Others":                 ["Warning Issued", "Settlement / Mediation", "Suspend Account", "Block Company", "Others"],
-};
+// Fixed set of actions available for every report, matching the coordinator
+// review form: Require Correction, Warning Issued, Suspend Account, Others,
+// Block Account. Enforcement + audit trail + company notification for all of
+// these now live in AuthService.js (applyCompanyEnforcement / recordCompanyAction
+// / notifyCompany) so account-status logic has one home instead of being
+// duplicated between this screen and the login flow.
+const STANDARD_ACTIONS = ["Require Correction", "Warning Issued", "Suspend Account", "Others", "Block Account"];
 
 const RESOLUTION_ACTION_META = {
-  "Block Company":          { icon: "⛔", desc: "Company loses access to the platform immediately." },
-  "Suspend Account":        { icon: "⏸", desc: "Temporary hold while further review takes place." },
-  "Warning Issued":         { icon: "⚠️", desc: "Formal notice sent; account stays active." },
-  "Settlement / Mediation": { icon: "🤝", desc: "Both parties agreed on a resolution." },
-  "Require Correction":     { icon: "✏️", desc: "Company must edit or remove the flagged content." },
-  "Others":                 { icon: "📝", desc: "Action taken not covered by the options above." },
+  "Require Correction": { icon: "✏️", desc: "Company must edit or remove the flagged content." },
+  "Warning Issued":     { icon: "⚠️", desc: "Formal notice sent; account stays active." },
+  "Suspend Account":    { icon: "⏸", desc: "Temporary hold while further review takes place." },
+  "Others":             { icon: "📝", desc: "Action taken not covered by the options above." },
+  "Block Account":      { icon: "⛔", desc: "Company loses access to the platform immediately." },
 };
 
-export const ReportDetailModal = ({ report, onClose, coordinatorUid }) => {
+// The message sent to the company (via notifyCompany) for each action type.
+// Custom "Others" text and the coordinator's resolution notes are appended.
+const buildNotificationText = (actionType, resolutionNotes) => {
+  const notes = resolutionNotes ? ` Details: ${resolutionNotes}` : "";
+  switch (actionType) {
+    case "Require Correction":
+      return `A coordinator has reviewed a report concerning your account and found content that needs to be edited or removed. Please make the required corrections.${notes}`;
+    case "Warning Issued":
+      return `This is a formal warning regarding your company account. Please review and comply with platform guidelines.${notes}`;
+    case "Suspend Account":
+      return `Your company account has been suspended following a coordinator review.${notes}`;
+    case "Block Account":
+      return `Your company account has been blocked. Please contact the system administrator for more information.${notes}`;
+    default:
+      return `A coordinator has taken the following action on your account: ${actionType}.${notes}`;
+  }
+};
+
+// ── Company account-status badge (Active/Approved, Suspended, Blocked) ────────
+const COMPANY_STATUS_BADGE = {
+  approved:  { bg: "#2a7a2a", label: "Active" },
+  active:    { bg: "#2a7a2a", label: "Active" },
+  pending:   { bg: "#e0a800", label: "Pending" },
+  rejected:  { bg: "#666",    label: "Rejected" },
+  suspended: { bg: "#e0a800", label: "Suspended" },
+  blocked:   { bg: red,       label: "Blocked" },
+};
+const CompanyStatusBadge = ({ status }) => {
+  const b = COMPANY_STATUS_BADGE[status] || { bg: "#999", label: status };
+  return (
+    <span style={{
+      fontFamily: "'Kufam', sans-serif", fontSize: "0.7rem", fontWeight: 700,
+      background: b.bg, color: "white", borderRadius: "12px",
+      padding: "3px 10px", whiteSpace: "nowrap",
+    }}>{b.label}</span>
+  );
+};
+
+// ── Action History Modal (audit trail for a single company) ───────────────────
+const ActionHistoryModal = ({ open, onClose, loading, history }) => {
+  if (!open) return null;
+  return (
+    <div style={{
+      position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      zIndex: 1300, padding: "16px",
+    }}>
+      <div style={{
+        background: "white", borderRadius: "18px", width: "100%", maxWidth: "460px",
+        maxHeight: "80vh", display: "flex", flexDirection: "column", overflow: "hidden",
+        boxShadow: "0 24px 70px rgba(0,0,0,0.35)",
+      }}>
+        <div style={{ background: darkRed, padding: "16px 22px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <span style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.3rem", color: "white" }}>Action History</span>
+          <button onClick={onClose} style={{ background: "white", border: "none", borderRadius: "50%", width: "26px", height: "26px", cursor: "pointer", fontSize: "0.9rem", color: darkRed }}>✕</button>
+        </div>
+        <div style={{ padding: "16px 20px", overflowY: "auto", flex: 1 }}>
+          {loading && <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#aaa", textAlign: "center", padding: "20px" }}>Loading…</p>}
+          {!loading && history.length === 0 && (
+            <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#aaa", textAlign: "center", padding: "20px" }}>No actions recorded for this company yet.</p>
+          )}
+          {!loading && history.map((h) => (
+            <div key={h.id} style={{ borderBottom: "1px solid #eee", padding: "12px 0" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px", marginBottom: "4px" }}>
+                <span style={{ fontFamily: "'Jua', sans-serif", fontSize: "0.85rem", color: "#1a1a1a" }}>{h.actionType}</span>
+                <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.7rem", color: "#999" }}>
+                  {h.createdAt?.toDate ? h.createdAt.toDate().toLocaleString() : ""}
+                </span>
+              </div>
+              <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.78rem", color: "#555", marginBottom: "4px" }}>{h.reason}</p>
+              <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.72rem", color: "#999" }}>
+                By {h.coordinatorName} • {h.previousAccountStatus} → {h.newAccountStatus}
+              </p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export const ReportDetailModal = ({ report, onClose, coordinatorUid, coordinatorName }) => {
   const [lightbox, setLightbox]           = useState(false);
   const [status, setStatus]               = useState(report?.status || "pending");
   const [working, setWorking]             = useState(false);
   const [resolvingPanel, setResolvingPanel] = useState(false);
   const [confirmingDismiss, setConfirmingDismiss] = useState(false);
+  const [confirmingResolve, setConfirmingResolve] = useState(false);
   const [selectedAction, setSelectedAction] = useState(null);
   const [otherActionText, setOtherActionText] = useState("");
   const [resolutionNotes, setResolutionNotes] = useState("");
+  const [suspensionDays, setSuspensionDays]   = useState("7");
   const [savedAction, setSavedAction]         = useState(report?.resolutionAction || "");
   const [savedNotes, setSavedNotes]           = useState(report?.resolutionNotes || "");
+  const [enforcementNote, setEnforcementNote] = useState(null);
+  const [companyStatus, setCompanyStatus]     = useState(null); // live accountStatus, fetched below
+  const [historyOpen, setHistoryOpen]         = useState(false);
+  const [history, setHistory]                 = useState([]);
+  const [historyLoading, setHistoryLoading]   = useState(false);
+
+  // Live company account status — lets the coordinator see whether this
+  // company is currently Active/Approved, Suspended, or Blocked, without
+  // needing a separate company-list screen open.
+  useEffect(() => {
+    if (!report?.companyId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const snap = await getDoc(doc(db, "companies", report.companyId));
+        if (!cancelled && snap.exists()) setCompanyStatus(snap.data().status || "approved");
+      } catch (err) {
+        console.error("Failed to fetch company status:", err);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [report?.companyId, enforcementNote]); // re-fetch after an enforcement action changes it
+
+  const openHistory = async () => {
+    setHistoryOpen(true);
+    if (!report?.companyId) return;
+    setHistoryLoading(true);
+    try {
+      setHistory(await getCompanyActionHistory(report.companyId));
+    } catch (err) {
+      console.error("Failed to load action history:", err);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
 
   if (!report) return null;
 
@@ -318,10 +438,11 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid }) => {
   const isPdf   = allowed && file.type === "application/pdf";
 
   const badge = REPORT_STATUS_BADGE[status] || REPORT_STATUS_BADGE.pending;
-  const availableActions = ACTIONS_BY_CONCERN[report.concern] || ACTIONS_BY_CONCERN["Others"];
+  const availableActions = STANDARD_ACTIONS;
   const canConfirmResolve = selectedAction
     && resolutionNotes.trim().length > 0
-    && (selectedAction !== "Others" || otherActionText.trim().length > 0);
+    && (selectedAction !== "Others" || otherActionText.trim().length > 0)
+    && (selectedAction !== "Suspend Account" || Number(suspensionDays) > 0);
 
   const handleDismiss = async () => {
     if (working || status !== "pending") return;
@@ -365,6 +486,65 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid }) => {
         `Resolved report on ${report.company} (${finalAction})`,
         { targetId: report.id, targetName: report.company }
       ).catch(err => console.error("Failed to log activity:", err));
+
+      // Actually enforce the action on the company itself, not just the report.
+      let enforcementResult = null;
+      try {
+        enforcementResult = await applyCompanyEnforcement(report.companyId, finalAction, coordinatorUid, suspensionDays);
+        if (enforcementResult) {
+          setCompanyStatus(enforcementResult.status);
+          if (enforcementResult.status === "blocked" || enforcementResult.status === "suspended") {
+            const untilStr = enforcementResult.suspendedUntil?.toDate
+              ? enforcementResult.suspendedUntil.toDate().toLocaleDateString()
+              : null;
+            setEnforcementNote(
+              enforcementResult.autoEscalated
+                ? `This company was auto-${enforcementResult.status}${untilStr ? ` until ${untilStr}` : ""} after accumulating multiple disciplinary actions.`
+                : enforcementResult.status === "suspended"
+                  ? `Company account has been suspended${untilStr ? ` until ${untilStr}` : ""}.`
+                  : `Company account has been ${enforcementResult.status}.`
+            );
+            logActivity(
+              coordinatorUid,
+              enforcementResult.autoEscalated ? "company_auto_suspended" : "company_status_changed",
+              `${report.company} is now ${enforcementResult.status}${enforcementResult.autoEscalated ? " (auto-escalated)" : ""}`,
+              { targetId: report.companyId, targetName: report.company }
+            ).catch(err => console.error("Failed to log activity:", err));
+          }
+        }
+      } catch (err) {
+        console.error("Failed to apply company enforcement:", err);
+      }
+
+      // Audit trail — dedicated record for this disciplinary action.
+      try {
+        await recordCompanyAction({
+          companyId:             report.companyId,
+          companyName:           report.company,
+          coordinatorId:         coordinatorUid,
+          coordinatorName:       coordinatorName || "Coordinator",
+          actionType:            finalAction,
+          reason:                resolutionNotes.trim(),
+          previousAccountStatus: enforcementResult?.previousStatus || companyStatus || "approved",
+          newAccountStatus:      enforcementResult?.status || companyStatus || "approved",
+        });
+      } catch (err) {
+        console.error("Failed to record company action history:", err);
+      }
+
+      // Notify the company — reuses the existing chat/messaging system.
+      try {
+        await notifyCompany(
+          coordinatorUid,
+          coordinatorName || "Coordinator",
+          report.companyId,
+          report.company,
+          buildNotificationText(finalAction, resolutionNotes.trim()),
+        );
+      } catch (err) {
+        console.error("Failed to notify company:", err);
+      }
+
       setSavedAction(finalAction);
       setSavedNotes(resolutionNotes.trim());
       setStatus("resolved");
@@ -373,6 +553,46 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid }) => {
       console.error("Failed to resolve report:", err);
     } finally {
       setWorking(false);
+      setConfirmingResolve(false);
+    }
+  };
+
+  // Confirmation copy shown right before an action is actually applied —
+  // tailored per action so the coordinator knows exactly what they're about
+  // to trigger (especially the two that affect login access).
+  const buildResolveConfirmCopy = () => {
+    const finalAction = selectedAction === "Others" ? otherActionText.trim() : selectedAction;
+    switch (selectedAction) {
+      case "Block Account":
+        return {
+          title: "Block this company?",
+          message: `Are you sure you want to block ${report.company}? Their account will be blocked immediately and they will no longer be able to log in until a coordinator reverses this.`,
+          confirmLabel: "BLOCK ACCOUNT",
+        };
+      case "Suspend Account":
+        return {
+          title: "Suspend this company?",
+          message: `Are you sure you want to suspend ${report.company} for ${Number(suspensionDays) > 0 ? suspensionDays : 7} day(s)? They will not be able to log in until the suspension ends.`,
+          confirmLabel: "SUSPEND ACCOUNT",
+        };
+      case "Require Correction":
+        return {
+          title: "Require correction?",
+          message: `${report.company} will be notified that they must edit or remove the flagged content. Their account stays active. Continue?`,
+          confirmLabel: "CONFIRM",
+        };
+      case "Warning Issued":
+        return {
+          title: "Issue this warning?",
+          message: `${report.company} will receive a formal warning notice. Their account stays active. Continue?`,
+          confirmLabel: "CONFIRM",
+        };
+      default:
+        return {
+          title: "Confirm this resolution?",
+          message: `You're about to resolve this report with the action "${finalAction || "Others"}". Continue?`,
+          confirmLabel: "CONFIRM",
+        };
     }
   };
 
@@ -417,9 +637,26 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid }) => {
             <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem", marginBottom: "8px" }}>
               <b>Concern:</b> {report.concern}
             </p>
-            <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem", marginBottom: "16px" }}>
+            <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem", marginBottom: "8px" }}>
               <b>Date:</b> {report.date}
             </p>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "16px", flexWrap: "wrap" }}>
+              <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem", margin: 0 }}>
+                <b>Company Account Status:</b>{" "}
+                {companyStatus
+                  ? <CompanyStatusBadge status={companyStatus} />
+                  : <span style={{ color: "#aaa", fontSize: "0.8rem" }}>Loading…</span>}
+              </p>
+              <button
+                onClick={openHistory}
+                style={{
+                  padding: "4px 14px", borderRadius: "14px",
+                  border: `1.5px solid ${red}`, background: "white", color: red,
+                  fontFamily: "'Kufam', sans-serif", fontSize: "0.74rem", fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >View Action History</button>
+            </div>
             <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem", fontWeight: 700, marginBottom: "6px" }}>
               DESCRIPTION:
             </p>
@@ -504,6 +741,12 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid }) => {
                 </div>
               </div>
             )}
+            {enforcementNote && (
+              <div style={{ background: "#fdf1f1", border: `1.5px solid ${red}`, borderRadius: "10px", padding: "12px 14px", marginBottom: "16px", display: "flex", gap: "10px", alignItems: "flex-start" }}>
+                <span style={{ fontSize: "1rem" }}>⛔</span>
+                <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.8rem", color: darkRed }}>{enforcementNote}</p>
+              </div>
+            )}
           </div>
 
           <div style={{
@@ -553,9 +796,20 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid }) => {
           setOtherActionText={setOtherActionText}
           resolutionNotes={resolutionNotes}
           setResolutionNotes={setResolutionNotes}
+          suspensionDays={suspensionDays}
+          setSuspensionDays={setSuspensionDays}
           working={working}
           canConfirm={canConfirmResolve}
-          onCancel={() => { setResolvingPanel(false); setSelectedAction(null); setOtherActionText(""); setResolutionNotes(""); }}
+          onCancel={() => { setResolvingPanel(false); setSelectedAction(null); setOtherActionText(""); setResolutionNotes(""); setSuspensionDays("7"); }}
+          onConfirm={() => setConfirmingResolve(true)}
+        />
+      )}
+
+      {confirmingResolve && (
+        <ConfirmModal
+          {...buildResolveConfirmCopy()}
+          working={working}
+          onCancel={() => setConfirmingResolve(false)}
           onConfirm={handleConfirmResolve}
         />
       )}
@@ -570,6 +824,13 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid }) => {
           onConfirm={handleDismiss}
         />
       )}
+
+      <ActionHistoryModal
+        open={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+        loading={historyLoading}
+        history={history}
+      />
     </>
   );
 };
@@ -621,7 +882,9 @@ const ConfirmModal = ({ title, message, confirmLabel = "CONFIRM", working, onCan
 const ResolveActionModal = ({
   availableActions, selectedAction, setSelectedAction,
   otherActionText, setOtherActionText,
-  resolutionNotes, setResolutionNotes, working, canConfirm,
+  resolutionNotes, setResolutionNotes,
+  suspensionDays, setSuspensionDays,
+  working, canConfirm,
   onCancel, onConfirm,
 }) => (
   <div style={{
@@ -698,6 +961,30 @@ const ResolveActionModal = ({
                   outline: "none", background: "white", boxSizing: "border-box",
                 }}
               />
+            </div>
+          )}
+
+          {selectedAction === "Suspend Account" && (
+            <div style={{ marginBottom: "16px" }}>
+              <p style={{ fontFamily: "'Jua', sans-serif", fontSize: "0.9rem", color: "#1a1a1a", marginBottom: "6px" }}>
+                Suspend for how many days?
+              </p>
+              <input
+                type="number"
+                min="1"
+                value={suspensionDays}
+                onChange={e => setSuspensionDays(e.target.value)}
+                placeholder="e.g. 7"
+                style={{
+                  width: "120px", borderRadius: "10px",
+                  border: "1.5px solid #ddd", padding: "10px 12px",
+                  fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", color: "#1a1a1a",
+                  outline: "none", background: "white", boxSizing: "border-box",
+                }}
+              />
+              <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.7rem", color: "#888", marginTop: "6px" }}>
+                Account auto-reactivates once this period ends.
+              </p>
             </div>
           )}
 

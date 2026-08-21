@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { collection, onSnapshot, query, where, doc, getDoc, setDoc } from "firebase/firestore";
 import { db } from "./firebase";
 import { logOut } from "./AuthService";
+import { useUnreadCount } from "./useChat";
 
 import CompanyCreatePostScreen        from "./CompanyCreatePostScreen";
 import CompanyApplicantsScreen     from "./CompanyApplicantsScreen";
@@ -189,7 +190,7 @@ const getCompanyNavKeyFromPath = (pathname) => {
 };
 
 // ── Sidebar nav list (reused in static & drawer) ───────────────────────────────
-const SidebarNav = ({ activeNav, onNavigate, onLogout }) => (
+const SidebarNav = ({ activeNav, onNavigate, onLogout, unreadMessages = 0 }) => (
   <>
     {navItems.map((item) => (
       <div
@@ -207,9 +208,20 @@ const SidebarNav = ({ activeNav, onNavigate, onLogout }) => (
           src={item.icon} alt={item.label}
           style={{ width: "30px", height: "30px", objectFit: "contain", flexShrink: 0, opacity: activeNav === item.key ? 1 : 0.35 }}
         />
-        <span style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.3rem", opacity: activeNav === item.key ? 1 : 0.35 }}>
+        <span style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.3rem", opacity: activeNav === item.key ? 1 : 0.35, flex: 1 }}>
           {item.label}
         </span>
+        {item.key === "messages" && unreadMessages > 0 && (
+          <span style={{
+            background: "#8B0000", color: "white", borderRadius: "50%",
+            minWidth: "20px", height: "20px", padding: "0 5px",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontFamily: "'Kufam', sans-serif", fontSize: "0.72rem", fontWeight: 700,
+            flexShrink: 0,
+          }}>
+            {unreadMessages > 99 ? "99+" : unreadMessages}
+          </span>
+        )}
       </div>
     ))}
 
@@ -575,6 +587,10 @@ const CompanyDashboardScreen = ({ user, onLogout, onAuthStateChange }) => {
   const location = useLocation();
   const activeNav = getCompanyNavKeyFromPath(location.pathname);
 
+  // Unread-messages badge for the "Messages" nav item — real-time, persisted
+  // in Firestore (see useUnreadCount in useChat.js).
+  const unreadMessages = useUnreadCount(user?.uid);
+
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
@@ -599,6 +615,36 @@ const CompanyDashboardScreen = ({ user, onLogout, onAuthStateChange }) => {
   const [pendingApplicantId, setPendingApplicantId] = useState(null);
   const [pendingPostId, setPendingPostId] = useState(null);
   const [pendingStatusFilter, setPendingStatusFilter] = useState(null);
+
+  // ── Suspension / Block enforcement while already logged in ─────────────────
+  // signIn() in AuthService.js already blocks a suspended/blocked company
+  // from signing back IN, but a company that was already logged in when a
+  // coordinator takes action needs to be caught here too — this listens for
+  // a live status change on the company's own doc and locks the dashboard
+  // immediately, without waiting for a refresh.
+  const [accountLocked, setAccountLocked] = useState(null); // null | "suspended" | "blocked"
+
+  useEffect(() => {
+    if (!user?.uid) return;
+    const unsub = onSnapshot(doc(db, "companies", user.uid), (snap) => {
+      if (!snap.exists()) return;
+      const status = snap.data().status;
+      if (status === "suspended" || status === "blocked") {
+        setAccountLocked(status);
+      }
+    }, err => console.error("Account status listener error:", err));
+    return () => unsub();
+  }, [user?.uid]);
+
+  const handleLockedSignOut = async () => {
+    try {
+      await logOut();
+    } catch (err) {
+      console.error("Logout failed:", err);
+    } finally {
+      onLogout?.();
+    }
+  };
 
   // Close drawer when resizing to desktop
   useEffect(() => { if (isDesktop) setDrawerOpen(false); }, [isDesktop]);
@@ -766,6 +812,40 @@ const CompanyDashboardScreen = ({ user, onLogout, onAuthStateChange }) => {
 
   const currentLabel = navItems.find(n => n.key === activeNav)?.label ?? "";
 
+  // Hard gate: a suspended/blocked company sees only this — no dashboard
+  // content, forms, or nav underneath it, and their only option is to sign out.
+  if (accountLocked) {
+    const isBlocked = accountLocked === "blocked";
+    return (
+      <>
+        <FontImport />
+        <div style={{
+          width: "100vw", height: "100vh", display: "flex", flexDirection: "column",
+          alignItems: "center", justifyContent: "center", gap: "18px",
+          background: "linear-gradient(180deg, #A32424 0%, #320000 100%)", padding: "24px", textAlign: "center",
+        }}>
+          <span style={{ fontSize: "3rem" }}>{isBlocked ? "⛔" : "⏸"}</span>
+          <h1 style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "2.2rem", color: "white" }}>
+            {isBlocked ? "Account Blocked" : "Account Suspended"}
+          </h1>
+          <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.95rem", color: "rgba(255,255,255,0.85)", maxWidth: "420px", lineHeight: 1.6 }}>
+            {isBlocked
+              ? "Your company account has been blocked. Please contact the system administrator for more information."
+              : "Your company account has been suspended by a coordinator. Please contact the system administrator for more information."}
+          </p>
+          <button
+            onClick={handleLockedSignOut}
+            style={{
+              marginTop: "10px", padding: "11px 28px", borderRadius: "24px",
+              background: "white", color: darkRed, border: "none",
+              fontFamily: "'Jersey 25', sans-serif", fontSize: "1.1rem", cursor: "pointer",
+            }}
+          >SIGN OUT</button>
+        </div>
+      </>
+    );
+  }
+
   return (
     <>
       <FontImport />
@@ -830,7 +910,7 @@ const CompanyDashboardScreen = ({ user, onLogout, onAuthStateChange }) => {
           {/* Desktop static sidebar */}
           {isDesktop && (
             <div className="csidebar-static">
-              <SidebarNav activeNav={activeNav} onNavigate={navigate} onLogout={handleLogoutClick} />
+              <SidebarNav activeNav={activeNav} onNavigate={navigate} onLogout={handleLogoutClick} unreadMessages={unreadMessages} />
             </div>
           )}
 
@@ -852,7 +932,7 @@ const CompanyDashboardScreen = ({ user, onLogout, onAuthStateChange }) => {
                   <img src={logo} alt="OJTern" style={{ width: "36px", height: "36px", objectFit: "contain" }} />
                   <span style={{ fontFamily: "'Monomaniac One', sans-serif", fontSize: "1.2rem", color: "white" }}>OJTern</span>
                 </button>
-                <SidebarNav activeNav={activeNav} onNavigate={navigate} onLogout={handleLogoutClick} />
+                <SidebarNav activeNav={activeNav} onNavigate={navigate} onLogout={handleLogoutClick} unreadMessages={unreadMessages} />
               </div>
             </>
           )}
