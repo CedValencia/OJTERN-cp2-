@@ -598,7 +598,7 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onR
   const confirmDeleteConversation = () => { onDeleteConversation(contact.id); setShowDeleteConfirm(false); };
 
   const avatarSize    = isMobile ? 30 : 36;
-  const bubbleMaxWidth = isMobile ? "75%" : "60%";
+  const bubbleMaxWidth = isMobile ? "70%" : "55%";
   const headerPadding = isMobile ? "10px 14px" : "14px 20px";
   const msgPadding    = isMobile ? "12px 14px" : "20px 24px";
   const inputPadding  = isMobile ? "8px 12px"  : "12px 20px";
@@ -691,10 +691,10 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onR
             <div
               onMouseDown={e => e.stopPropagation()}
               style={{
-                position: "absolute", bottom: "calc(100% + 4px)", right: 0,
+                position: "absolute", bottom: "calc(100% + 4px)", left: "50%", transform: "translateX(-50%)",
                 background: "white", borderRadius: "10px",
                 boxShadow: "0 4px 16px rgba(0,0,0,0.18)", zIndex: 100,
-                minWidth: "120px", overflow: "hidden",
+                minWidth: "120px", maxWidth: "160px", overflow: "hidden", whiteSpace: "nowrap",
               }}
             >
               {canEdit && (
@@ -786,7 +786,8 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onR
                               userSelect: "none",
                               outline: (isPopupOpen || editingId === msg.id) ? `2px solid ${darkRed}` : "none",
                               WebkitUserSelect: "none", WebkitTouchCallout: "none",
-                              minWidth: 0, wordBreak: "break-word", overflowWrap: "break-word",
+                              width: "100%", maxWidth: "100%", boxSizing: "border-box",
+                              wordWrap: "break-word", overflowWrap: "break-word", wordBreak: "break-word",
                             }}
                           >
                             {msg.text}

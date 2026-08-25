@@ -19,7 +19,7 @@ const ResponsiveStyles = () => (
       .post-grid { grid-template-columns: 1fr; }
     }
 
-    /* Post modal: full screen on mobile */
+    /* Post modal */
     .post-modal-inner {
       width: 640px;
       max-width: 100%;
@@ -27,8 +27,14 @@ const ResponsiveStyles = () => (
     @media (max-width: 680px) {
       .post-modal-inner {
         width: 100%;
+        max-width: 460px;
         border-radius: 14px;
-        max-height: 95vh;
+        max-height: 82vh;
+      }
+    }
+    @media (max-width: 480px) {
+      .post-modal-inner {
+        max-height: 80dvh;
       }
     }
 
@@ -131,7 +137,17 @@ const ResponsiveStyles = () => (
       overflow-y: auto;
     }
     @media (max-width: 480px) {
-      .post-modal-overlay { align-items: flex-start; padding: 8px; }
+      .post-modal-overlay { padding: 10px; }
+    }
+
+    /* Confirm / success mini-modals: always centered, never pinned to top */
+    .post-confirm-overlay {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.45);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 1100;
+      padding: 16px;
+      overflow-y: auto;
     }
   `}</style>
 );
@@ -276,7 +292,7 @@ const COLLEGE_PROGRAM_DATA = {
   "College of Business and Accountancy":   { programs: ["BSBA (Major in Marketing Management)", "BSA"] },
   "College of Education":                  { programs: ["BSED (Major in English)", "BSED (Major in Mathematics)", "BEED (Generalist)"] },
   "College of Criminal Justice Education": { programs: ["BS Crim"] },
-  "College of Hospitality Management":     { programs: ["BSTM", "BSHM"] },
+  "College of Hospitality and Tourism Management":     { programs: ["BSTM", "BSHM"] },
   "College of Liberal Arts":               { programs: ["BA Pol Sci"] },
 };
 
@@ -330,28 +346,120 @@ const MultiCollegeProgramPicker = ({ selections, onChange, readOnly, errors }) =
   );
 };
 
-// ── Working Hours pattern ─────────────────────────────────────────────────────
-const workingHoursPattern = /^([A-Za-z\s]+(\s?-\s?[A-Za-z\s]+)?)\s\(\d{1,2}:\d{2}(am|pm)\s-\s\d{1,2}:\d{2}(am|pm)\)$/i;
+// ── Working Hours ──────────────────────────────────────────────────────────────
+// Picker-based instead of free text: two day dropdowns (a range, or leave
+// "To" as "(Same day)" for a single day) and two native time pickers,
+// composed into the exact same stored string format as before
+// ("Monday - Friday (8:00am - 5:00pm)") so anything else that reads
+// workingHours/workingHoursList — display screens, exports, etc. — is
+// completely unaffected. Because the string can now only ever be built
+// from a complete, valid selection or be empty, the old regex-format
+// validation is no longer needed (see the simplified check in validate()
+// below) — there's no way to produce a malformed string anymore.
+const DAYS_OF_WEEK = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+
+const formatTime12h = (t24) => {
+  if (!t24) return "";
+  const [hStr, mStr] = t24.split(":");
+  let h = parseInt(hStr, 10);
+  const period = h >= 12 ? "pm" : "am";
+  h = h % 12; if (h === 0) h = 12;
+  return `${h}:${mStr}${period}`;
+};
+
+const to24h = (t12) => {
+  const m = /^(\d{1,2}):(\d{2})(am|pm)$/i.exec((t12 || "").trim());
+  if (!m) return "";
+  let h = parseInt(m[1], 10);
+  const period = m[3].toLowerCase();
+  if (period === "pm" && h !== 12) h += 12;
+  if (period === "am" && h === 12) h = 0;
+  return `${String(h).padStart(2, "0")}:${m[2]}`;
+};
+
+// Parses a previously-saved string back into its parts, so reopening an
+// existing post populates the pickers instead of showing them blank.
+const parseWorkingHours = (str) => {
+  const m = /^([A-Za-z]+)(?:\s*-\s*([A-Za-z]+))?\s*\((\d{1,2}:\d{2}(?:am|pm))\s*-\s*(\d{1,2}:\d{2}(?:am|pm))\)$/i.exec((str || "").trim());
+  if (!m) return { dayFrom: "", dayTo: "", timeFrom: "", timeTo: "" };
+  return { dayFrom: m[1] || "", dayTo: m[2] || "", timeFrom: to24h(m[3]), timeTo: to24h(m[4]) };
+};
 
 // ── Working Hours Input ───────────────────────────────────────────────────────
 const WorkingHoursInput = ({ value, onChange, readOnly, hasError }) => {
-  const handleChange = (e) => {
-    let v = e.target.value;
-    const parenIdx = v.indexOf("(");
-    if (parenIdx === -1) { onChange(v); return; }
-    const dayPart  = v.slice(0, parenIdx);
-    let timePart   = v.slice(parenIdx + 1).replace(/\)/g, "");
-    timePart = timePart.replace(/[^0-9apm:\-\s]/gi, "");
-    onChange(dayPart + "(" + timePart + (timePart.length > 0 ? ")" : ""));
-  };
-  const handleBlur = () => {
-    if (value && value.includes("(") && !value.includes(")")) onChange(value + ")");
-  };
+  // Local state is the actual source of truth while editing — parsed ONCE
+  // from the incoming value on mount (so reopening an existing post
+  // populates correctly), never re-derived from `value` afterward. This is
+  // what fixes the "won't let me type/select anything" bug: the previous
+  // version re-derived every field straight from the composed string on
+  // every render, and emitted `onChange("")` the instant any ONE of the
+  // four parts was still missing — so the very first selection (e.g. just
+  // "Day") got wiped back to blank before the person could pick the next
+  // one. Now, partial progress just stays in local state; the parent only
+  // hears about it once the selection is actually complete.
+  const [dayFrom, setDayFrom]   = useState(() => parseWorkingHours(value).dayFrom);
+  const [dayTo, setDayTo]       = useState(() => parseWorkingHours(value).dayTo);
+  const [timeFrom, setTimeFrom] = useState(() => parseWorkingHours(value).timeFrom);
+  const [timeTo, setTimeTo]     = useState(() => parseWorkingHours(value).timeTo);
+
+  // Re-sync from `value` whenever it changes for a reason OTHER than our
+  // own onChange below (e.g. the person removes an earlier "+ Add Another
+  // Working Hours" entry — since each row is keyed by array index, this
+  // same component instance can end up representing a completely different
+  // saved entry after the array shifts, without ever unmounting/remounting).
+  // This is a safe no-op the rest of the time: after our own onChange
+  // fires, `value` changes to exactly what we just emitted, and parsing it
+  // back just reproduces the same four values already in state.
+  useEffect(() => {
+    const parsed = parseWorkingHours(value);
+    setDayFrom(parsed.dayFrom);
+    setDayTo(parsed.dayTo);
+    setTimeFrom(parsed.timeFrom);
+    setTimeTo(parsed.timeTo);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
+
+  useEffect(() => {
+    if (!dayFrom || !dayTo || !timeFrom || !timeTo) return; // still incomplete — don't emit yet
+    const dayPart  = dayTo === dayFrom ? dayFrom : `${dayFrom} - ${dayTo}`;
+    const timePart = `${formatTime12h(timeFrom)} - ${formatTime12h(timeTo)}`;
+    onChange(`${dayPart} (${timePart})`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dayFrom, dayTo, timeFrom, timeTo]);
+
+  const timeStyle = { ...(readOnly ? pillInputReadonly : pillInputStyle), colorScheme: "light" };
+
+  const toLabelStyle = { fontFamily: "'Kufam', sans-serif", fontSize: "0.78rem", color: "#888", flexShrink: 0, width: "20px", textAlign: "center" };
+
   return (
-    <input className="ojt-field" type="text" disabled={readOnly}
-      placeholder="Monday - Friday (8:00am - 5:00pm)"
-      value={value} onChange={handleChange} onBlur={handleBlur}
-      style={{ ...(readOnly ? pillInputReadonly : pillInputStyle), border: hasError ? "1.5px solid #c00" : "none" }} />
+    <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+      {/* Day range — its own row so it never competes for width with the time inputs */}
+      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <PillSelect value={dayFrom} onChange={setDayFrom} options={DAYS_OF_WEEK} placeholder="Day" disabled={readOnly} hasError={hasError && !dayFrom} />
+        </div>
+        <span style={toLabelStyle}>to</span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <PillSelect value={dayTo} onChange={setDayTo} options={DAYS_OF_WEEK} placeholder="Day" disabled={readOnly} hasError={hasError && !dayTo} />
+        </div>
+      </div>
+      {/* Time range — separate row, each input gets full width to breathe
+          (a cramped width was clipping the native time picker's clock icon
+          against the text). */}
+      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <input type="time" className="ojt-field" disabled={readOnly} value={timeFrom}
+            onChange={e => setTimeFrom(e.target.value)}
+            style={{ ...timeStyle, width: "100%", border: hasError && !timeFrom ? "1.5px solid #c00" : "none" }} />
+        </div>
+        <span style={toLabelStyle}>to</span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <input type="time" className="ojt-field" disabled={readOnly} value={timeTo}
+            onChange={e => setTimeTo(e.target.value)}
+            style={{ ...timeStyle, width: "100%", border: hasError && !timeTo ? "1.5px solid #c00" : "none" }} />
+        </div>
+      </div>
+    </div>
   );
 };
 
@@ -527,7 +635,7 @@ const MapboxLocationPicker = ({ value, onChange, readOnly }) => {
 // ── Post Form Modal ───────────────────────────────────────────────────────────
 // ── Discard-changes confirm modal ──────────────────────────────────────────────
 const ConfirmDiscardModal = ({ onKeepEditing, onDiscard }) => (
-  <div className="post-modal-overlay" style={{ zIndex: 1100 }}>
+  <div className="post-confirm-overlay">
     <div style={{ background: "#fff", borderRadius: "18px", maxWidth: "360px", width: "90%", padding: "26px 22px", boxShadow: "0 8px 40px rgba(0,0,0,0.35)", textAlign: "center" }}>
       <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.4rem", color: darkRed, margin: "0 0 10px" }}>Discard changes?</p>
       <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem", color: "#333", margin: "0 0 22px", lineHeight: 1.4 }}>
@@ -547,7 +655,7 @@ const ConfirmDiscardModal = ({ onKeepEditing, onDiscard }) => (
 
 // ── Saved-successfully modal ───────────────────────────────────────────────────
 const SavedSuccessModal = ({ onClose }) => (
-  <div className="post-modal-overlay" style={{ zIndex: 1100 }}>
+  <div className="post-confirm-overlay">
     <div style={{ background: "#fff", borderRadius: "18px", maxWidth: "320px", width: "90%", padding: "30px 22px 24px", boxShadow: "0 8px 40px rgba(0,0,0,0.35)", textAlign: "center" }}>
       <div style={{ width: "56px", height: "56px", borderRadius: "50%", background: "#e6f7ec", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 14px", fontSize: "1.8rem", color: "#1f9254" }}>
         ✓
@@ -631,8 +739,7 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile }) =>
     if (emailErr) newErrors.contactEmail = emailErr;
 
     const newWhErrors = form.workingHoursList.map(h => {
-      if (!h.trim()) return "Working hours is required.";
-      if (!workingHoursPattern.test(h.trim())) return "Format: Monday - Friday (8:00am - 5:00pm)";
+      if (!h.trim()) return "Please select the day(s) and time.";
       return "";
     });
     setWorkingHoursErrors(newWhErrors);
@@ -803,7 +910,7 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile }) =>
           <FieldError msg={errors.benefits} />
 
           {/* College / Program / Major */}
-          <FieldLabel>College / Program / Major required:</FieldLabel>
+          <FieldLabel>College / Program required:</FieldLabel>
           <MultiCollegeProgramPicker
             selections={form.courseSelections}
             onChange={v => { set("courseSelections", v); setCourseErrors([]); }}

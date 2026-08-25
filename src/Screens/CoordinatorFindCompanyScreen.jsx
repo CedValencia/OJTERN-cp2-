@@ -515,7 +515,7 @@ const ReportModal = ({ company, onClose, onSubmit, reporter }) => {
 };
 
 // ── Company Profile ────────────────────────────────────────────────────────────
-const CompanyProfile = ({ company, onBack, onReport, onMessageNow }) => {
+const CompanyProfile = ({ company, onBack, onMessageNow }) => {
   const _sA = company?.slots || "0/0";
   const isFull = _sA.split("/")[0] === _sA.split("/")[1];
   const loc = company.location || {};
@@ -602,14 +602,10 @@ const CompanyProfile = ({ company, onBack, onReport, onMessageNow }) => {
       </div>
 
       {/* Bottom action bar */}
-      <div className="coord-profile-bar" style={{ position: "absolute", bottom: 0, left: 0, right: 0, background: "white", borderTop: "1px solid #eee", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+      <div className="coord-profile-bar" style={{ position: "absolute", bottom: 0, left: 0, right: 0, background: "white", borderTop: "1px solid #eee", display: "flex", alignItems: "center", justifyContent: "flex-start" }}>
         <button onClick={onMessageNow} style={{ background: darkRed, color: "white", border: "none", borderRadius: "24px", padding: "12px 28px", fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(0.9rem, 2.5vw, 1.1rem)", cursor: "pointer" }}>
           Message Now!
         </button>
-        <div onClick={onReport} style={{ cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: "4px" }}>
-          <img src={reportIcon} alt="Report" style={{ width: "44px", height: "44px", objectFit: "contain" }} />
-          <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.72rem", color: darkRed, fontWeight: 600 }}>Report!</span>
-        </div>
       </div>
     </div>
   );
@@ -716,12 +712,18 @@ const CompanyCard = ({ company, onViewProfile }) => {
 };
 
 // ── Main Screen ────────────────────────────────────────────────────────────────
-const CoordinatorFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onMessageNow, initialCompanyId, onClearInitialCompany, onVisitCompany, coordinator }) => {
+const CoordinatorFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onMessageNow, initialCompanyId, onClearInitialCompany, onBackToOrigin, onVisitCompany, coordinator }) => {
   const { isMobile } = useBreakpoint();
   const { posts: companies, loading } = useOjtPosts();
 
   const [view, setView]                       = useState("list");
   const [selectedCompany, setSelectedCompany] = useState(null);
+  // True only when the currently-open profile was reached via a deep link
+  // (initialCompanyId — e.g. "Visit" from a student's Placement modal, or a
+  // recent-company row on the Dashboard), not by clicking a card in this
+  // screen's own list. Determines whether "back" should call onBackToOrigin
+  // (return to wherever that link came from) or just show this list again.
+  const [deepLinked, setDeepLinked] = useState(false);
   const [showReportModal, setShowReportModal] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [search, setSearch]                   = useState("");
@@ -744,7 +746,7 @@ const CoordinatorFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onM
       // wrong post when a company has more than one.
       const company = companies.find(c => c.id === initialCompanyId)
         || companies.find(c => c.companyId === initialCompanyId);
-      if (company) { setSelectedCompany(company); setView("profile"); onVisitCompany?.({ id: company.id, name: company.companyName || company.name }); }
+      if (company) { setSelectedCompany(company); setView("profile"); setDeepLinked(true); onVisitCompany?.({ id: company.id, name: company.companyName || company.name }); }
       if (onClearInitialCompany) onClearInitialCompany();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -792,8 +794,11 @@ const CoordinatorFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onM
         <ResponsiveStyles />
         <CompanyProfile
           company={selectedCompany}
-          onBack={() => setView("list")}
-          onReport={() => setShowReportModal(true)}
+          onBack={() => {
+            if (deepLinked && onBackToOrigin) { onBackToOrigin(); }
+            else { setView("list"); }
+            setDeepLinked(false);
+          }}
           onMessageNow={() => onMessageNow && onMessageNow(selectedCompany)}
         />
         {showReportModal && (
@@ -878,7 +883,7 @@ const CoordinatorFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onM
               <CompanyCard
                 key={c.id}
                 company={c}
-                onViewProfile={(company) => { setSelectedCompany(company); setView("profile"); onVisitCompany?.({ id: company.id, name: company.companyName || company.name }); }}
+                onViewProfile={(company) => { setSelectedCompany(company); setView("profile"); setDeepLinked(false); onVisitCompany?.({ id: company.id, name: company.companyName || company.name }); }}
               />
             ))}
           </div>

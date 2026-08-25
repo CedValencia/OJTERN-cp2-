@@ -16,6 +16,35 @@ const STATUS_COLORS = {
   "To Interview":{ bg: "#5b8def", color: "white" },
 };
 
+// When a student has more than one application, this decides which one
+// "represents" them at a glance (list row badge) — most-advanced/most-
+// relevant status wins, rather than whichever doc Firestore happened to
+// return first. Declined only wins if every single application was
+// declined (see getApplicationSummary below).
+const STATUS_PRIORITY = ["Accepted", "To Interview", "In Review", "Pending", "Declined"];
+
+const getBestApplication = (apps) => {
+  if (!apps || apps.length === 0) return null;
+  for (const status of STATUS_PRIORITY) {
+    const found = apps.find(a => a.status === status);
+    if (found) return found;
+  }
+  return apps[0];
+};
+
+// Non-exclusive filter check — a student can match more than one filter
+// at once (e.g. Accepted somewhere AND still has a Pending application
+// elsewhere shows up under both "Accepted" and "In Progress").
+const matchesStatusFilter = (apps, filterValue) => {
+  if (!filterValue) return true; // "All"
+  if (filterValue === "No Applications yet") return !apps || apps.length === 0;
+  if (!apps || apps.length === 0) return false;
+  if (filterValue === "Accepted") return apps.some(a => a.status === "Accepted");
+  if (filterValue === "In Progress") return apps.some(a => ["Pending", "In Review", "To Interview"].includes(a.status));
+  if (filterValue === "All Declined") return apps.every(a => a.status === "Declined");
+  return true;
+};
+
 // ── Responsive styles ─────────────────────────────────────────────────────────
 const ResponsiveStyles = () => (
   <style>{`
@@ -165,8 +194,8 @@ const COLLEGE_DATA = {
     label: "College of Education",
     programs: ["BEED", "BSED (Major in English)", "BSED (Major in Mathematics)"],
   },
-  "CHM": {
-    label: "College of Hospitality Management",
+  "CHTM": {
+    label: "College of Hospitality and Tourism Management",
     programs: ["BSTM", "BSHM"],
   },
 };
@@ -200,27 +229,22 @@ const ViewIcon = ({ onClick }) => (
 );
 
 const PlacementModal = ({ student, onClose, onNavigateToCompany, companies, onMessageStudent }) => {
-  const [application, setApplication] = useState(null);
+  const [applications, setApplications] = useState([]);
 
   useEffect(() => {
     if (!student?.id) return;
-    // Look for an accepted/pending application for this student — prefer
-    // the Accepted one if the student has more than one application.
     const q = query(collection(db, "applications"), where("studentId", "==", student.id));
     getDocs(q).then(snap => {
-      if (snap.empty) return;
-      const docs = snap.docs.map(d => d.data());
-      setApplication(docs.find(a => a.status === "Accepted") || docs[0]);
+      setApplications(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
   }, [student?.id]);
 
-  const companyId = application?.companyId || student.companyId || null;
-  const company   = companyId ? companies.find(c => c.id === companyId) : null;
   const fullName = `${student.firstName} ${student.middleInitial ? student.middleInitial + " " : ""}${student.lastName}${student.suffix && student.suffix !== "None" && student.suffix !== "N/A" ? " " + student.suffix : ""}`;
 
-  const handleVisitCompany = () => {
+  const handleVisitCompany = (companyId) => {
+    if (!companyId) return;
     onClose();
-    onNavigateToCompany(companyId);
+    onNavigateToCompany(companyId, student.id);
   };
 
   const handleMessage = () => {
@@ -259,32 +283,38 @@ const PlacementModal = ({ student, onClose, onNavigateToCompany, companies, onMe
             </button>
           </div>
 
-          <div>
-            <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.15rem", color: "#222", marginBottom: "4px" }}>Placement:</p>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px" }}>
-              {company ? (
-                <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.88rem", color: "#777", marginBottom: "8px" }}>{company.name}</p>
-              ) : (
-                <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.88rem", color: "#bbb", fontStyle: "italic", marginBottom: "8px" }}>{application ? "Application pending company approval" : "No company assigned yet"}</p>
-              )}
-              {company && (
-                <div onClick={handleVisitCompany} style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer", marginBottom: "8px", flexShrink: 0 }}>
-                  <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.72rem", color: red, fontWeight: 600, whiteSpace: "nowrap" }}>Visit</span>
-                  <ViewIcon onClick={handleVisitCompany} />
-                </div>
-              )}
+          {applications.length === 0 ? (
+            <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#999", fontStyle: "italic" }}>No applications yet</p>
+          ) : (
+            <div>
+              <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "0.95rem", color: "#222", marginBottom: "6px" }}>All Applications:</p>
+              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                {applications.map(app => {
+                  const appCompany = companies.find(c => c.id === app.companyId);
+                  return (
+                    <div key={app.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px", background: "#fafafa", border: "1px solid #f0e0e0", borderRadius: "10px", padding: "8px 12px" }}>
+                      <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.78rem", color: "#444", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {appCompany?.name || "Unknown Company"}
+                      </span>
+                      <div style={{ display: "flex", alignItems: "center", gap: "10px", flexShrink: 0 }}>
+                        <span style={{ background: (STATUS_COLORS[app.status] || { bg: "#888" }).bg, color: (STATUS_COLORS[app.status] || { color: "white" }).color, borderRadius: "20px", padding: "2px 11px", fontSize: "0.68rem", fontFamily: "'Kufam', sans-serif", fontWeight: 700 }}>
+                          {app.status}
+                        </span>
+                        {appCompany && (
+                          <span
+                            onClick={() => handleVisitCompany(appCompany.id)}
+                            style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.68rem", color: red, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}
+                          >
+                            Visit
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.68rem", color: "#bbb" }}>Status:</span>
-              {application ? (
-                <span style={{ background: (STATUS_COLORS[application.status] || { bg: "#888" }).bg, color: (STATUS_COLORS[application.status] || { color: "white" }).color, borderRadius: "20px", padding: "2px 11px", fontSize: "0.7rem", fontFamily: "'Kufam', sans-serif", fontWeight: 700 }}>
-                  {application.status}
-                </span>
-              ) : (
-                <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.75rem", color: "#999", fontStyle: "italic" }}>No application yet</span>
-              )}
-            </div>
-          </div>
+          )}
 
           <div style={{ marginTop: "18px", padding: "12px 14px", background: "#fafafa", borderRadius: "10px", border: "1px solid #f0e0e0" }}>
             <div className="sp-detail-grid">
@@ -308,10 +338,12 @@ const PlacementModal = ({ student, onClose, onNavigateToCompany, companies, onMe
   );
 };
 
-const FilterPanel = ({ filters, setFilters, filterRef }) => {
+const FilterPanel = ({ filters, setFilters, filterRef, coordinatorColleges = [] }) => {
   const [expandedCollege, setExpandedCollege] = useState(filters.college || "");
 
-  const allColleges        = Object.keys(COLLEGE_DATA);
+  // Scoped to the coordinator's own assigned department(s) — never the
+  // full school-wide college list.
+  const allColleges        = coordinatorColleges.length > 0 ? coordinatorColleges : Object.keys(COLLEGE_DATA);
   const allPrograms        = expandedCollege ? (COLLEGE_DATA[expandedCollege]?.programs || []) : [];
   const allSpecializations = (expandedCollege && filters.program)
     ? (COLLEGE_DATA[expandedCollege]?.programs[filters.program]?.specializations || [])
@@ -458,7 +490,7 @@ const FilterPanel = ({ filters, setFilters, filterRef }) => {
   );
 };
 
-const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany, onMessageStudent }) => {
+const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany, onMessageStudent, initialViewingStudentId, onClearInitialViewingStudent }) => {
   const [search, setSearch]                 = useState("");
   const [viewingStudent, setViewingStudent] = useState(null);
   const [showFilter, setShowFilter]         = useState(false);
@@ -468,8 +500,17 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
   const [students, setStudents]     = useState([]);
   const [companies, setCompanies]   = useState([]);
   const [loadingStudents, setLoadingStudents] = useState(true);
-  const [acceptedStudentIds, setAcceptedStudentIds] = useState(new Set());
-  const [appliedStudentIds, setAppliedStudentIds]   = useState(new Set());
+  const [applicationsByStudent, setApplicationsByStudent] = useState({});
+
+  // If we got here because the coordinator pressed "back" on a company
+  // profile they reached via a student's Placement modal, reopen that
+  // same student's modal instead of dropping them on a bare list.
+  useEffect(() => {
+    if (!initialViewingStudentId || loadingStudents || students.length === 0) return;
+    const match = students.find(s => s.id === initialViewingStudentId);
+    if (match) setViewingStudent(match);
+    onClearInitialViewingStudent && onClearInitialViewingStudent();
+  }, [initialViewingStudentId, loadingStudents, students]);
 
   // ── Load students — scoped to this coordinator's own department(s). ──────
   // NOTE: needs a Firestore composite index (college + createdAt) the first
@@ -517,19 +558,13 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
   useEffect(() => {
     const q = query(collection(db, "applications"));
     const unsub = onSnapshot(q, snap => {
-      const accepted = new Set();
-      const applied  = new Set();
+      const byStudent = {};
       snap.docs.forEach(d => {
         const data = d.data();
         if (!data.studentId) return;
-        applied.add(data.studentId);
-        if (data.status === "Accepted") accepted.add(data.studentId);
+        (byStudent[data.studentId] ||= []).push({ id: d.id, ...data });
       });
-      setAcceptedStudentIds(accepted);
-      setAppliedStudentIds(applied);
-
-    
-      console.table(snap.docs.map(d => ({ appId: d.id, linkedStudentDocId: d.data().studentId, status: d.data().status })));
+      setApplicationsByStudent(byStudent);
     });
     return () => unsub();
   }, []);
@@ -555,14 +590,8 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
     const matchProgram = !filters.program || s.program  === filters.program;
     const matchSpec    = !filters.specialization || s.major === filters.specialization;
     
-    // Status filter
-    let matchStatus = true;
-    if (filters.status === "Accepted") {
-      matchStatus = acceptedStudentIds.has(s.id);
-    } else if (filters.status === "No Applications yet") {
-      matchStatus = !appliedStudentIds.has(s.id);
-    }
-    // "All" has no status filter
+    // Status filter — non-exclusive, see matchesStatusFilter above.
+    const matchStatus = matchesStatusFilter(applicationsByStudent[s.id], filters.status);
     
     return matchSearch && matchSex && matchSection && matchCollege && matchProgram && matchSpec && matchStatus;
   });
@@ -644,7 +673,7 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
                 </svg>
                 {hasFilter && <div style={{ position: "absolute", top: "-4px", right: "-4px", width: "10px", height: "10px", borderRadius: "50%", background: red }} />}
               </div>
-              {showFilter && <FilterPanel filters={filters} setFilters={setFilters} filterRef={filterRef} />}
+              {showFilter && <FilterPanel filters={filters} setFilters={setFilters} filterRef={filterRef} coordinatorColleges={coordinatorColleges} />}
             </div>
           </div>
         </div>
@@ -661,9 +690,13 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
           flexShrink: 0,
           overflowX: "auto"
         }}>
-          {["All", "Accepted", "No Applications yet"].map((statusOption) => {
+          {["All", "Accepted", "In Progress", "All Declined", "No Applications yet"].map((statusOption) => {
             const isActive = statusOption === "All" ? filters.status === "" : filters.status === statusOption;
-            const statusColor = statusOption === "Accepted" ? "#4CAF50" : statusOption === "No Applications yet" ? "#c0392b" : "#666";
+            const statusColor =
+              statusOption === "Accepted" ? "#4CAF50" :
+              statusOption === "In Progress" ? "#5b8def" :
+              statusOption === "All Declined" ? "#e0a800" :
+              statusOption === "No Applications yet" ? "#c0392b" : "#666";
             
             return (
               <button
@@ -721,9 +754,9 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
           student={viewingStudent}
           companies={companies}
           onClose={() => setViewingStudent(null)}
-          onNavigateToCompany={(companyId) => {
+          onNavigateToCompany={(companyId, studentId) => {
             setViewingStudent(null);
-            onNavigateToCompany && onNavigateToCompany(companyId);
+            onNavigateToCompany && onNavigateToCompany(companyId, studentId);
           }}
           onMessageStudent={onMessageStudent}
         />

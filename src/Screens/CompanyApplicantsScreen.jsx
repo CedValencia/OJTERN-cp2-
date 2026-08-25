@@ -48,7 +48,7 @@ const COLLEGE_DATA = {
       "BS Education — Major in Mathematics": { specializations: [] },
     },
   },
-  "College of Hospitality Management": {
+  "College of Hospitality and Tourism Management": {
     programs: {
       "Bachelor of Science in Tourism Management": { specializations: [] },
       "Bachelor of Science in Hospitality Management": { specializations: [] },
@@ -907,6 +907,14 @@ const CompanyApplicantsScreen = ({ embedded = false, onNavigateToMessages, user,
 
   const handleStatusChange = async (id, newStatus, description = "") => {
     const current = applicants.find(a => a.id === id);
+    // No actual change — nothing to persist, and importantly nothing that
+    // should trigger another status-update email (the backend Cloud
+    // Function guards this too via oldData.status !== newData.status, but
+    // catching it here avoids an unnecessary Firestore write in the first
+    // place).
+    if (current?.status === newStatus) {
+      return;
+    }
     // Accepted/Declined are final — no further changes.
     if (current?.status === "Accepted" || current?.status === "Declined") {
       console.warn(`Blocked status change: applicant already ${current.status}.`);

@@ -45,7 +45,7 @@ const DEPT_LABEL_TO_COLLEGE_KEY = {
   "College of Criminal Justice Education":"CCJE",
   "College of Liberal Arts":              "CLA",
   "College of Education":                 "CED",
-  "College of Hospitality Management":    "CHM",
+  "College of Hospitality and Tourism Management":    "CHTM",
 };
 
 // A coordinator can be assigned to more than one department, so this returns
@@ -206,9 +206,9 @@ const navItems = [
   { key: "dashboard",         label: "Dashboard",          icon: dashboardIcon },
   { key: "findcompany",       label: "Find Company",      icon: findIcon },
   { key: "studentlist", label: "Student List", icon: studentPlacementIcon },
+  { key: "studentsaccount",      label: "Students Account",      icon: studentListIcon },
   { key: "companylist",       label: "Company List",       icon: companyListIcon },
   { key: "reportcompany",     label: "Report List",     icon: reportCompanyIcon },
-   { key: "studentsaccount",      label: "Students Account",      icon: studentListIcon },
   { key: "messages",          label: "Messages",           icon: messagesIcon },
   { key: "accountprofile",    label: "Account Profile",    icon: accountProfileIcon },
 ];
@@ -839,6 +839,16 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
   const [placementTargetCompanyId, setPlacementTargetCompanyId] = useState(null);
   const [dashboardCompanyId, setDashboardCompanyId]             = useState(null);
   const [dashboardTarget, setDashboardTarget]                   = useState(null);
+  // Which student's "Student Placement" modal a Find-Company deep link came
+  // from (Visit → view company → back should reopen that same modal instead
+  // of dropping the coordinator on the bare Find Company list).
+  const [placementTargetStudentId, setPlacementTargetStudentId] = useState(null);
+  // Where to send the coordinator back to when they press "back" from a
+  // company profile they reached via a deep link — "studentlist" (Visit,
+  // from a student's Placement modal) or "dashboard" (a recent/registered
+  // company row). Null means the profile was opened normally from within
+  // Find Company's own list, so its default (show that list again) applies.
+  const [findCompanyOrigin, setFindCompanyOrigin]                = useState(null);
   const [showChangePass, setShowChangePass] = useState(!user?.passwordChanged);
   const [showPassSuccess, setShowPassSuccess]   = useState(false);
   const [showEditInfo,   setShowEditInfo]   = useState(!!user?.passwordChanged && !user?.profileComplete);
@@ -939,6 +949,7 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
   const handleViewCompany = (companyId) => {
     setDashboardCompanyId(companyId);
     setDashboardTarget("findcompany");
+    setFindCompanyOrigin("dashboard");
     navigate("findcompany");
   };
 
@@ -986,6 +997,11 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
           setDashboardTarget(null);
           setPlacementTargetCompanyId(null);
         }}
+        onBackToOrigin={
+          findCompanyOrigin
+            ? () => { const origin = findCompanyOrigin; setFindCompanyOrigin(null); navigate(origin); }
+            : undefined
+        }
         coordinator={user}
         onVisitCompany={({ id, name }) => trackVisit(id, name)}
       />
@@ -1001,10 +1017,14 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
     if (activeNav === "studentlist") return (
       <CoordinatorStudentListScreen
         coordinatorColleges={coordinatorColleges}
-        onNavigateToCompany={(companyId) => {
+        onNavigateToCompany={(companyId, studentId) => {
           setPlacementTargetCompanyId(companyId);
+          setPlacementTargetStudentId(studentId);
+          setFindCompanyOrigin("studentlist");
           navigate("findcompany");
         }}
+        initialViewingStudentId={placementTargetStudentId}
+        onClearInitialViewingStudent={() => setPlacementTargetStudentId(null)}
         onMessageStudent={handleMessageStudent}
       />
     );

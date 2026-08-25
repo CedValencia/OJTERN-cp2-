@@ -11,6 +11,8 @@ import {
   verifyPasswordResetCode,
   confirmPasswordReset,
   updatePassword,
+  updateEmail,
+  verifyBeforeUpdateEmail,
   reauthenticateWithCredential,
   EmailAuthProvider,
   getAuth,
@@ -159,6 +161,33 @@ export const signIn = async (role, emailOrStudentId, password) => {
 
   const userData = userSnap.data();
 
+  // Reconcile Firestore's `email` field with the ACTUAL Firebase Auth email
+  // whenever they've drifted apart, for companies and coordinators. This is
+  // deliberately unconditional — not just "when it matches a stashed
+  // pendingEmail" — because a change made via requestUserEmailChange below
+  // is a two-step process: (1) Firebase sends a verification link and only
+  // updates the real Auth email once it's clicked, entirely outside this
+  // app, with no callback we can hook; (2) this app tries to track that
+  // in-progress state in Firestore's `pendingEmail` field so the UI can show
+  // "confirmation pending." If step 2's Firestore write ever fails for any
+  // reason (e.g. security rules) after step 1 already succeeded, the old
+  // narrower check (which required `pendingEmail` to exist and match) would
+  // never fire again — permanently stranding the Firestore record on the
+  // old email even though sign-in with the new one keeps succeeding. Since
+  // we only reach this point after a real Firebase Auth sign-in already
+  // succeeded, `user.email` is trustworthy as the source of truth — so any
+  // mismatch here just gets synced, self-healing regardless of whether
+  // `pendingEmail` was ever recorded.
+  if ((role === "company" || role === "coordinator") && user.email
+      && userData.email && userData.email.toLowerCase() !== user.email.toLowerCase()) {
+    await updateDoc(doc(db, collectionMap[role], user.uid), {
+      email:        user.email,
+      pendingEmail: null,
+    });
+    userData.email = user.email;
+    delete userData.pendingEmail;
+  }
+
   // Role mismatch check
   if (userData.role !== role) {
     await signOut(auth);
@@ -287,12 +316,28 @@ export const resetPasswordInApp = async (email, currentPassword, newPassword) =>
 export const resetPassword = async (email) => {
   const normalized = email.trim().toLowerCase();
 
-  // Check all three collections for a matching email
+  // Check all three collections for a matching email. Companies and
+  // coordinators additionally check `pendingEmail` — an account that already
+  // clicked the confirmation link for an email change (see
+  // requestUserEmailChange above) has a fully verified, real Auth account
+  // under this new address, but Firestore hasn't reconciled `email` to match
+  // yet (that only happens on their next successful signIn()). Without this,
+  // "Forgot Password" would wrongly report the new email as unregistered
+  // until they log in at least once — exactly backwards for someone using
+  // this screen because they can't log in. sendPasswordResetEmail() itself
+  // still safely rejects a pendingEmail that hasn't actually been verified
+  // yet (Firebase doesn't recognize it as an Auth account email until the
+  // link is clicked), so this doesn't loosen anything security-wise — it
+  // just stops Firestore lag from blocking a legitimate reset.
   const cols = ["coordinators", "students", "companies"];
   let found = false;
   for (const col of cols) {
     const snap = await getDocs(query(collection(db, col), where("email", "==", normalized)));
     if (!snap.empty) { found = true; break; }
+    if (col === "companies" || col === "coordinators") {
+      const pendingSnap = await getDocs(query(collection(db, col), where("pendingEmail", "==", normalized)));
+      if (!pendingSnap.empty) { found = true; break; }
+    }
   }
 
   if (!found) {
@@ -310,6 +355,13 @@ export const resetPassword = async (email) => {
   } catch (err) {
     if (err.code === "auth/too-many-requests") {
       throw new Error("Too many attempts. Please wait a moment before trying again.");
+    }
+    if (err.code === "auth/user-not-found") {
+      // Reachable specifically via the pendingEmail check above: the address
+      // is on file as a pending change, but its confirmation link hasn't
+      // been clicked yet, so Firebase doesn't recognize it as an Auth
+      // account email — nothing to send a reset link to.
+      throw new Error("This email is on file as a pending change. Please confirm the verification link sent to it first, then try again.");
     }
     throw new Error("Failed to send reset email. Please try again later.");
   }
@@ -799,6 +851,138 @@ export const changePassword = async (currentPassword, newPassword, collectionNam
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// LOGIN-EMAIL CHANGE — companies & coordinators
+// ─────────────────────────────────────────────────────────────────────────────
+// Changing a user's *login* email is NOT the same as updating the `email`
+// field on their Firestore doc — that field is just data. The actual
+// credential Firebase Auth checks against at sign-in lives on the Auth
+// account itself (`auth.currentUser.email`), and it's a separate system.
+// Editing only the Firestore field (what the old code did, and what the
+// coordinator profile screen was still doing) explains exactly the symptom
+// reported: the OLD email kept working to log in (Auth account unchanged)
+// and the NEW one didn't (Auth never heard about it).
+//
+// Firebase also won't let a signed-in user's email be swapped instantly on
+// most projects anymore — "email enumeration protection" (on by default for
+// projects created after Feb 2023) forces `updateEmail()` to fail with
+// auth/operation-not-allowed, and requires `verifyBeforeUpdateEmail()`
+// instead: a confirmation link is emailed to the NEW address, and the Auth
+// account's email only actually changes once that link is clicked.
+//
+// So Firestore's `email` field is intentionally left untouched here — it
+// still needs to work for login lookups in the meantime — and the new
+// address is stashed in `pendingEmail` instead. See the reconciliation
+// block in signIn() above for how `pendingEmail` gets promoted to `email`
+// automatically the first time the user successfully logs in with it (proof
+// the link was verified).
+//
+// @param {string} currentPassword — required to reauthenticate (Firebase
+//   treats an email change as a sensitive operation; without a recent
+//   sign-in it throws auth/requires-recent-login).
+// @param {string} newEmail
+// @param {string} uid
+// @param {"companies"|"coordinators"} collectionName
+// @returns {Promise<{ changed: boolean, pendingEmail?: string }>}
+const requestUserEmailChange = async (currentPassword, newEmail, uid, collectionName) => {
+  const user = auth.currentUser;
+  if (!user) throw new Error("No user is currently signed in.");
+
+  const normalizedNewEmail = newEmail.trim().toLowerCase();
+  const currentAuthEmail   = (user.email || "").toLowerCase();
+
+  if (normalizedNewEmail === currentAuthEmail) {
+    return { changed: false }; // nothing to do — not actually a change
+  }
+
+  // Reauthenticate with the CURRENT (still-active) Auth email — not the new
+  // one, which isn't a recognized credential yet.
+  const credential = EmailAuthProvider.credential(user.email, currentPassword);
+  try {
+    await reauthenticateWithCredential(user, credential);
+  } catch (err) {
+    console.error(`[requestUserEmailChange:${collectionName}] reauthenticate failed:`, { code: err.code, message: err.message });
+    if (err.code === "auth/wrong-password" || err.code === "auth/invalid-credential") {
+      throw new Error("Your current password is incorrect.");
+    }
+    throw err;
+  }
+
+  try {
+    // Preferred path on modern Firebase projects: sends a verification link,
+    // doesn't change anything until it's clicked.
+    await verifyBeforeUpdateEmail(user, normalizedNewEmail);
+  } catch (err) {
+    if (err.code === "auth/operation-not-allowed") {
+      // This specific project has email enumeration protection disabled —
+      // fall back to the older, immediate-change API instead.
+      try {
+        await updateEmail(user, normalizedNewEmail);
+        await updateDoc(doc(db, collectionName, uid), {
+          email:        normalizedNewEmail,
+          pendingEmail: null,
+        });
+        return { changed: true, pendingEmail: null };
+      } catch (fallbackErr) {
+        console.error(`[requestUserEmailChange:${collectionName}] updateEmail fallback failed:`, { code: fallbackErr.code, message: fallbackErr.message });
+        throw fallbackErr;
+      }
+    }
+    if (err.code === "auth/email-already-in-use") {
+      throw new Error("That email address is already in use.");
+    }
+    if (err.code === "auth/invalid-email") {
+      throw new Error("Please enter a valid email address.");
+    }
+    console.error(`[requestUserEmailChange:${collectionName}] verifyBeforeUpdateEmail failed:`, { code: err.code, message: err.message });
+    throw err;
+  }
+
+  // This bookkeeping write is intentionally non-fatal: verifyBeforeUpdateEmail
+  // above already succeeded, meaning Firebase has already sent the real
+  // verification email — that's what actually matters for the account to
+  // work. If this Firestore write fails (e.g. security rules reject it),
+  // we don't want to report the whole email change as failed when the
+  // important part already went through. The self-healing reconciliation in
+  // signIn() above will still sync Firestore's `email` field once the user
+  // successfully logs in with the new address, even without a locally
+  // tracked pendingEmail.
+  try {
+    await updateDoc(doc(db, collectionName, uid), {
+      pendingEmail: normalizedNewEmail,
+    });
+  } catch (pendingErr) {
+    console.error(`[requestUserEmailChange:${collectionName}] pendingEmail bookkeeping write failed (verification email was already sent):`, { code: pendingErr.code, message: pendingErr.message });
+  }
+
+  return { changed: true, pendingEmail: normalizedNewEmail };
+};
+
+/**
+ * Changes a COMPANY's Firebase Auth login email (see requestUserEmailChange
+ * above for the full mechanics and why this can't just write to Firestore).
+ *
+ * @param {string} currentPassword
+ * @param {string} newEmail
+ * @param {string} uid
+ * @returns {Promise<{ changed: boolean, pendingEmail?: string }>}
+ */
+export const requestCompanyEmailChange = (currentPassword, newEmail, uid) =>
+  requestUserEmailChange(currentPassword, newEmail, uid, "companies");
+
+/**
+ * Changes a COORDINATOR's Firebase Auth login email (see
+ * requestUserEmailChange above for the full mechanics and why this can't
+ * just write to Firestore).
+ *
+ * @param {string} currentPassword
+ * @param {string} newEmail
+ * @param {string} uid
+ * @returns {Promise<{ changed: boolean, pendingEmail?: string }>}
+ */
+export const requestCoordinatorEmailChange = (currentPassword, newEmail, uid) =>
+  requestUserEmailChange(currentPassword, newEmail, uid, "coordinators");
+
+// ─────────────────────────────────────────────────────────────────────────────
 // ISOLATED ACCOUNT CREATION — create a Firebase Auth user WITHOUT switching
 // the current session to that new user (the normal client SDK behavior signs
 // you in as whoever you just created, which we don't want here since a
@@ -1129,3 +1313,6 @@ export const acceptCoordinatorInvite = async (inviteId, token, name, password) =
   return data;
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Helper — Create auth user in isolation (sign out afterward)
+// ─────────────────────────────────────────────────────────────────────────────

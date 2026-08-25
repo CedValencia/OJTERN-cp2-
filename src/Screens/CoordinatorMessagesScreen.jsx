@@ -246,7 +246,7 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation }) =
   const confirmDeleteConversation = () => { onDeleteConversation(contact.id); setShowDeleteConfirm(false); };
 
   const avatarSize     = isMobile ? 30 : 36;
-  const bubbleMaxWidth = isMobile ? "75%" : "60%";
+  const bubbleMaxWidth = isMobile ? "70%" : "55%";
   const headerPadding  = isMobile ? "10px 14px" : "14px 20px";
   const msgPadding     = isMobile ? "12px 14px" : "20px 24px";
   const inputPadding   = isMobile ? "8px 12px"  : "12px 20px";
@@ -298,7 +298,7 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation }) =
           const isSeen      = isLastMine && otherReadMs >= msgTs;
 
           const popupMenu = isPopupOpen && !msg.unsent && (
-            <div onMouseDown={e => e.stopPropagation()} style={{ position: "absolute", bottom: "calc(100% + 4px)", right: 0, background: "white", borderRadius: "10px", boxShadow: "0 4px 16px rgba(0,0,0,0.18)", zIndex: 100, minWidth: "120px", overflow: "hidden" }}>
+            <div onMouseDown={e => e.stopPropagation()} style={{ position: "absolute", bottom: "calc(100% + 4px)", left: "50%", transform: "translateX(-50%)", background: "white", borderRadius: "10px", boxShadow: "0 4px 16px rgba(0,0,0,0.18)", zIndex: 100, minWidth: "120px", maxWidth: "160px", overflow: "hidden", whiteSpace: "nowrap" }}>
               {canEdit && <div onClick={() => startEdit(msg)} style={{ padding: "10px 16px", fontFamily: "'Kufam', sans-serif", fontSize: "0.88rem", color: "#222", cursor: "pointer", borderBottom: "1px solid #f0f0f0" }} onMouseEnter={e => e.currentTarget.style.background = "#f5f5f5"} onMouseLeave={e => e.currentTarget.style.background = "white"}>Edit</div>}
               <div onClick={() => handleUnsent(msg.id)} style={{ padding: "10px 16px", fontFamily: "'Kufam', sans-serif", fontSize: "0.88rem", color: red, fontWeight: 700, cursor: "pointer" }} onMouseEnter={e => e.currentTarget.style.background = "#fff0f0"} onMouseLeave={e => e.currentTarget.style.background = "white"}>Unsend</div>
             </div>
@@ -329,7 +329,7 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation }) =
                             onMouseDown={e => startLongPress(e, msg)} onMouseUp={cancelLongPress} onMouseLeave={cancelLongPress}
                             onTouchStart={e => startLongPress(e, msg)} onTouchEnd={cancelLongPress} onTouchMove={cancelLongPress}
                             onContextMenu={e => e.preventDefault()}
-                            style={{ background: isMe ? darkRed : "#555", color: "white", borderRadius: isMe ? "18px 18px 4px 18px" : "18px 18px 18px 4px", padding: isMobile ? "8px 12px" : "10px 16px", fontFamily: "'Kufam', sans-serif", fontSize: isMobile ? "0.82rem" : "0.88rem", lineHeight: 1.5, cursor: isMe ? "pointer" : "default", userSelect: "none", outline: (isPopupOpen || editingId === msg.id) ? `2px solid ${darkRed}` : "none", WebkitUserSelect: "none", WebkitTouchCallout: "none", minWidth: 0, wordBreak: "break-word", overflowWrap: "break-word" }}
+                            style={{ background: isMe ? darkRed : "#555", color: "white", borderRadius: isMe ? "18px 18px 4px 18px" : "18px 18px 18px 4px", padding: isMobile ? "8px 12px" : "10px 16px", fontFamily: "'Kufam', sans-serif", fontSize: isMobile ? "0.82rem" : "0.88rem", lineHeight: 1.5, cursor: isMe ? "pointer" : "default", userSelect: "none", outline: (isPopupOpen || editingId === msg.id) ? `2px solid ${darkRed}` : "none", WebkitUserSelect: "none", WebkitTouchCallout: "none", width: "100%", maxWidth: "100%", boxSizing: "border-box", wordWrap: "break-word", overflowWrap: "break-word", wordBreak: "break-word" }}
                           >
                             {msg.text}
                           </div>

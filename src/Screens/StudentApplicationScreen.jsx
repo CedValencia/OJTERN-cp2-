@@ -2208,7 +2208,7 @@ const COLLEGES = [
     ],
   },
   {
-    name: "College of Hospitality Management",
+    name: "College of Hospitality and Tourism Management",
     programs: [
       {
         name: "Bachelor of Science in Hospitality Management",
@@ -2454,7 +2454,7 @@ const appValidators = {
     return "";
   },
   middleInitial: (v) => {
-    if (!v || !v.trim()) return "Required";
+    if (!v || !v.trim()) return "";
     const val = v.trim();
     if (val.toUpperCase() === "N/A") return "";
     if (!/^[A-Z]$/.test(val) && !MIDDLE_INITIAL_REGEX.test(val)) return "Format: e.g. (A.) or N/A";
@@ -2840,7 +2840,7 @@ const FormFields = ({ f, locked = false }) => {
         <FieldError msg={!locked ? f.firstName.error : ""} />
       </div>
       <div>
-        <FieldLabel>Middle I.:</FieldLabel>
+        <FieldLabel>M. I.:</FieldLabel>
         <StyledInput value={f.middleInitial.value} onChange={(v) => f.middleInitial.onChange(v.replace(/[^A-Za-z.\/]/g, "").toUpperCase().slice(0, 3))} placeholder="M. or N/A" disabled={locked} hasError={!locked && f.middleInitial.hasError} />
         <FieldError msg={!locked ? f.middleInitial.error : ""} />
       </div>
@@ -2947,7 +2947,7 @@ export const ApplyModal = ({ company, onClose, onSubmit, user }) => {
     "CCJE": "College of Criminal Justice Education",
     "CLA":  "College of Liberal Arts",
     "CED":  "College of Education",
-    "CHM":  "College of Hospitality Management",
+    "CHTM":  "College of Hospitality and Tourism Management",
   };
   const PROGRAM_ABBR_MAP = {
     "BSIT": "Bachelor of Science in Information Technology",

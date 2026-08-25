@@ -54,7 +54,7 @@ const COLLEGE_DATA = {
     label: "College of Education",
     programs: ["BEED", "BSED (Major in English)", "BSED (Major in Mathematics)"],
   },
-  "CHM": {
+  "CHTM": {
     label: "College of Hospitality Management",
     programs: ["BSTM", "BSHM"],
   },
@@ -864,10 +864,12 @@ const ImportModal = ({ onClose, onImport, coordinatorColleges = [] }) => {
 };
 
 // ── Filter Panel ───────────────────────────────────────────────────────────────
-const FilterPanel = ({ filters, setFilters, filterRef }) => {
+const FilterPanel = ({ filters, setFilters, filterRef, coordinatorColleges = [] }) => {
   const { isMobile, isTablet } = useBreakpoint();
   const [expandedCollege, setExpandedCollege] = useState(filters.college || "");
-  const allColleges        = COLLEGE_KEYS;
+  // Scoped to the coordinator's own assigned department(s) — never the
+  // full school-wide college list.
+  const allColleges        = coordinatorColleges.length > 0 ? coordinatorColleges : COLLEGE_KEYS;
   const allPrograms        = expandedCollege ? (COLLEGE_DATA[expandedCollege]?.programs || []) : [];
 
   // Derive section letters from YEAR_SECTIONS (e.g. "4-A" → "A")
@@ -957,8 +959,22 @@ const StudentAvatar = ({ size = 42 }) => (
 
 const StudentRowMenu = ({ onView, onDelete }) => {
   const [showMenu, setShowMenu] = useState(false);
+  const menuRef = useRef();
+
+  // Close the menu on any click/tap outside of it — not just when the
+  // ⋮ button is pressed again. Using mousedown (not click) so it closes
+  // before a click on, say, the row underneath registers.
+  useEffect(() => {
+    if (!showMenu) return;
+    const handler = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) setShowMenu(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [showMenu]);
+
   return (
-    <div style={{ position: "relative" }}>
+    <div ref={menuRef} style={{ position: "relative" }}>
       <button onClick={(e) => { e.stopPropagation(); setShowMenu(v => !v); }} style={{ background: "none", border: "none", cursor: "pointer", padding: "2px 6px", color: "#555", fontSize: "1.2rem", lineHeight: 1, fontWeight: "bold" }}>⋮</button>
       {showMenu && (
         <div style={{ position: "absolute", top: "28px", right: 0, background: "white", borderRadius: "10px", boxShadow: "0 4px 16px rgba(0,0,0,0.18)", zIndex: 100, minWidth: "90px", overflow: "hidden" }}>
@@ -1187,7 +1203,7 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={hasFilter ? red : "#555"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
                 {hasFilter && <div style={{ position: "absolute", top: "-4px", right: "-4px", width: "10px", height: "10px", borderRadius: "50%", background: red }} />}
               </div>
-              {showFilterDrawer && <FilterPanel filters={filters} setFilters={setFilters} filterRef={filterRef} />}
+              {showFilterDrawer && <FilterPanel filters={filters} setFilters={setFilters} filterRef={filterRef} coordinatorColleges={coordinatorColleges} />}
             </div>
           </div>
         </div>

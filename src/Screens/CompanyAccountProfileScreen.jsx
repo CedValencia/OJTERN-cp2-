@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { doc, onSnapshot, updateDoc, collection, getDocs, query, where } from "firebase/firestore";
 import { getAuth, signOut } from "firebase/auth";
 import { db } from "./firebase";
-import { changePassword } from "./AuthService";
+import { changePassword, requestCompanyEmailChange } from "./AuthService";
 import AccountProfile from "../icons/accountprofile.png";
 import viewIcon from "../icons/view.png";
 import PersonalAccountProfile from "../icons/personalaccountprofile.png";
@@ -247,17 +247,54 @@ const ResponsiveStyles = () => (
 // ── Industries ────────────────────────────────────────────────────────────────
 // TODO: Populate from backend or config
 const INDUSTRIES = [
-  "Agriculture",
-  "Computer and Technology",
-  "Education",
-  "Finance and Economics",
-  "Health Care",
-  "Hospitality",
-  "Manufacturing",
-  "Media and News",
-  "Pharmaceutical",
-  "Telecommunications",
-  "Transportation",
+//College of Computer Studies
+
+"Software & Tech Development",
+"Computer and Technology",
+"Information Technology & Managed Services",
+"Cybersecurity",
+"E-Commerce & Digital Business",
+"Data & Analytics",
+
+//College of Business and Accountancy
+
+"Financial Services & Banking",
+"Public & Corporate Accounting",
+"Consumer Goods & Retail",
+"Digital Marketing & Advertising",
+"Management Consulting",
+
+//College of Criminal Justice Education
+
+"Law Enforcement & Public Safety",
+"Private Security & Risk Management",
+"Corrections & Rehabilitation ",
+"Forensics & Crime Scene Investigation",
+"Legal & Judicial Support",
+
+//College of Liberal Arts
+
+"Government & Public Policy",
+"Non-Governmental & International Organizations",
+"Legal Services",
+"Political Consulting & Campaign Management",
+"Journalism & Media Communications (Political Reporting, Editorial Services)",
+
+//College of Education
+
+"Primary & Secondary K-12 Education",
+"Educational Technology & E-Learning",
+"Corporate Training & Adult Education",
+"Academic Publishing & Content Creation",
+"Test Preparation & Tutoring Services",
+
+//College of Hospitality Management
+
+"Hotels, Resorts & Lodging",
+"Travel & Airline Services",
+"Food & Beverage Service",
+"Event & Conference Management",
+"Eco-Tourism & Destination Marketing",
 ];
 
 // ── College / Program Data ────────────────────────────────────────────────────
@@ -291,7 +328,7 @@ const COLLEGE_PROGRAM_DATA = {
       "BS Education — Major in Mathematics": { specializations: [] },
     },
   },
-  "College of Hospitality Management": {
+  "College of Hospitality and Tourism Management": {
     programs: {
       "Bachelor of Science in Tourism Management": { specializations: [] },
       "Bachelor of Science in Hospitality Management": { specializations: [] },
@@ -3125,6 +3162,99 @@ const SaveErrorModal = ({ message, onClose }) => (
 );
 
 // ── Personal Information Screen ───────────────────────────────────────────────
+// ── Email Change Confirm Modal ────────────────────────────────────────────────
+// Changing a company's login email needs the current password (Firebase
+// treats it as a sensitive Auth operation) and is usually a two-step,
+// verify-by-link process — see requestCompanyEmailChange in AuthService.js
+// for exactly why. This modal collects the password, kicks that off, and
+// shows the right outcome (verification-link-sent vs. changed immediately).
+const EmailChangeConfirmModal = ({ newEmail, uid, onCancel, onDone }) => {
+  const [currentPass, setCurrentPass] = useState("");
+  const [error, setError]             = useState("");
+  const [loading, setLoading]         = useState(false);
+  const [sent, setSent]               = useState(false); // true once verifyBeforeUpdateEmail succeeded
+
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter" && !loading) handleConfirm();
+  };
+
+  const handleConfirm = async () => {
+    if (!currentPass) { setError("Please enter your current password."); return; }
+    setLoading(true);
+    setError("");
+    try {
+      const result = await requestCompanyEmailChange(currentPass, newEmail, uid);
+      if (result.pendingEmail) {
+        // Verification-link path — Firestore's `email` field hasn't changed
+        // yet, so save everything else now rather than blocking the rest of
+        // the form's edits on an email confirmation that might take a while.
+        await onDone(uid);
+        setSent(true);
+      } else {
+        // Either nothing actually changed, or this project fell back to the
+        // immediate updateEmail() path (already fully applied) — either way
+        // there's nothing pending to explain, just finish the save normally.
+        await onDone(uid);
+        onCancel();
+      }
+    } catch (err) {
+      setError(err.message || "Failed to update email. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (sent) {
+    return (
+      <div style={{ position: "fixed", inset: 0, zIndex: 9999, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: "16px" }}>
+        <div style={{ background: "white", borderRadius: "20px", padding: "36px 32px", width: "clamp(280px, 85vw, 400px)", display: "flex", flexDirection: "column", alignItems: "center", gap: "12px", boxShadow: "0 8px 32px rgba(0,0,0,0.18)" }}>
+          <div style={{ width: "64px", height: "64px", borderRadius: "50%", background: "#e8f5e9", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: "4px" }}>
+            <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#2d7a2d" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M4 4h16v16H4z" opacity="0"/>
+              <path d="M22 6 12 13 2 6"/>
+              <path d="M2 6h20v12H2z"/>
+            </svg>
+          </div>
+          <p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "1.1rem", color: "#1a1a1a", margin: 0, textAlign: "center" }}>
+            Confirmation Email Sent
+          </p>
+          <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.88rem", color: "#666", margin: 0, textAlign: "center", lineHeight: 1.5 }}>
+            We sent a confirmation link to <b>{newEmail}</b>. Click it to finish changing your login email.
+            Until then, keep using your <b>current</b> email to log in.
+          </p>
+          <button onClick={onCancel} style={{ width: "100%", padding: "12px", borderRadius: "30px", border: "none", background: "#590101", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.95rem", cursor: "pointer", color: "white", boxShadow: "0 3px 10px rgba(89,1,1,0.3)", marginTop: "8px" }}>
+            Got it
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: "16px" }}>
+      <div className="cap-modal-inner">
+        <div className="cap-modal-body">
+          <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.3rem", color: red, marginBottom: "12px" }}>CONFIRM EMAIL CHANGE:</p>
+          <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#666", marginBottom: "16px" }}>
+            You're changing your login email to <b>{newEmail}</b>. Enter your current password to continue.
+          </p>
+          <label style={labelStyle}>Current Password:</label>
+          <PasswordInput value={currentPass} onChange={e => { setCurrentPass(e.target.value); setError(""); }} onKeyDown={handleKeyDown} />
+          {error && <p style={{ color: "red", fontSize: "0.8rem", fontFamily: "'Kufam', sans-serif", textAlign: "center", marginTop: "12px" }}>⚠️ {error}</p>}
+        </div>
+        <div className="cap-modal-footer">
+          <button onClick={onCancel} disabled={loading} style={{ padding: "10px 28px", borderRadius: "20px", background: "white", color: darkRed, border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.9rem", cursor: "pointer" }}>
+            Cancel
+          </button>
+          <button onClick={handleConfirm} disabled={loading} style={{ padding: "10px 28px", borderRadius: "20px", background: "rgba(255,255,255,0.25)", color: "white", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.9rem", cursor: loading ? "not-allowed" : "pointer", opacity: loading ? 0.7 : 1 }}>
+            {loading ? "Confirming…" : "Confirm"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const PersonalInfoScreen = ({ onBack, user }) => {
   const [editing, setEditing]             = useState(false);
   const [loading, setLoading]             = useState(true);
@@ -3147,12 +3277,32 @@ const PersonalInfoScreen = ({ onBack, user }) => {
   // barangay/street were ever read or written back here.
   const resolvedGeoRef = useRef({ lat: null, lng: null, fullAddress: "" });
   const [email, setEmail]   = useState("");
+  // Firestore's `email` field only changes once a new address is actually
+  // verified (see AuthService.requestCompanyEmailChange) — this tracks that
+  // in-progress state so the UI can show "confirmation sent" instead of
+  // silently pretending the change already happened.
+  const [pendingEmail, setPendingEmail] = useState("");
+  const originalEmailRef = useRef(""); // last-loaded email, to detect an edit
+  const [showEmailConfirm, setShowEmailConfirm] = useState(false);
   const [errors, setErrors] = useState({});
   const [showSuccess, setShowSuccess] = useState(false);
   const [showError, setShowError]     = useState(false);
   const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
   const editSnapshotRef = useRef(null);
   const [errorMsg, setErrorMsg]       = useState("");
+
+  // The onSnapshot listener below stays subscribed for as long as this
+  // screen is mounted — including while the email-change reauth modal is
+  // open and mid-flow. Writing `pendingEmail` to this same document (see
+  // requestCompanyEmailChange) fires that listener again immediately, and
+  // without this guard it would call setEmail(d.email) with the OLD email
+  // (Firestore's real `email` field hasn't changed yet) — snapping the
+  // input the user is actively looking at back to the old value right in
+  // the middle of the flow. `editing` itself can't be read directly inside
+  // the listener's closure (it's captured stale from mount), so mirror it
+  // into a ref that's always current.
+  const editingRef = useRef(editing);
+  useEffect(() => { editingRef.current = editing; }, [editing]);
 
   useEffect(() => {
     const uid = user?.uid || getAuth().currentUser?.uid;
@@ -3161,7 +3311,15 @@ const PersonalInfoScreen = ({ onBack, user }) => {
       if (snap.exists()) {
         const d = snap.data();
         setCompanyName(d.companyName || d.name || "");
-        setEmail(d.email || "");
+        // Only sync the visible email input from Firestore while NOT
+        // actively editing — otherwise an in-progress edit (or the
+        // pendingEmail write that happens mid email-change-flow) can visibly
+        // stomp on what the user is currently typing/confirming.
+        if (!editingRef.current) {
+          setEmail(d.email || "");
+        }
+        originalEmailRef.current = d.email || "";
+        setPendingEmail(d.pendingEmail || "");
         if (d.industry) setIndustries(Array.isArray(d.industry) ? d.industry : [d.industry]);
         if (d.location) {
           setLocation({
@@ -3203,6 +3361,25 @@ const PersonalInfoScreen = ({ onBack, user }) => {
     if (!validate()) return;
     const uid = user?.uid || getAuth().currentUser?.uid;
     if (!uid) { setErrorMsg("Error: Not logged in."); setShowError(true); return; }
+
+    // Email changes go through Firebase Auth (see requestCompanyEmailChange
+    // in AuthService.js) — they need the current password AND aren't
+    // instant (a verification link has to be clicked first). Route to that
+    // flow instead of silently writing the new address to Firestore, which
+    // was the original bug: the Firestore field changed but the real Auth
+    // login credential never did, so only the OLD email kept working.
+    if (email.trim().toLowerCase() !== originalEmailRef.current.trim().toLowerCase()) {
+      setShowEmailConfirm(true);
+      return;
+    }
+
+    await saveNonEmailFields(uid);
+  };
+
+  // Everything on this screen EXCEPT the email field — split out so it can
+  // run either directly (email unchanged) or after the email-change modal
+  // successfully reauthenticates and calls requestCompanyEmailChange.
+  const saveNonEmailFields = async (uid) => {
     try {
       const newAddress = [location.street, location.barangay, location.city, location.province, location.region]
         .filter(Boolean).join(", ");
@@ -3218,7 +3395,8 @@ const PersonalInfoScreen = ({ onBack, user }) => {
         lng: newPostLocation.lng ?? resolvedGeoRef.current.lng ?? null,
       };
       await updateDoc(doc(db, "companies", uid), {
-        companyName, industry: industries, courseSelections, location: savedLocation, email,
+        // `email` intentionally excluded — see handleSave/saveNonEmailFields split above.
+        companyName, industry: industries, courseSelections, location: savedLocation,
       });
       const postsSnap = await getDocs(query(collection(db, "ojt_posts"), where("companyId", "==", uid)));
       await Promise.all(postsSnap.docs.map(d => updateDoc(d.ref, {
@@ -3254,6 +3432,14 @@ const PersonalInfoScreen = ({ onBack, user }) => {
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
       {showSuccess && <SaveSuccessModal onClose={() => setShowSuccess(false)} />}
       {showError   && <SaveErrorModal message={errorMsg} onClose={() => setShowError(false)} />}
+      {showEmailConfirm && (
+        <EmailChangeConfirmModal
+          newEmail={email.trim()}
+          uid={user?.uid || getAuth().currentUser?.uid}
+          onCancel={() => setShowEmailConfirm(false)}
+          onDone={saveNonEmailFields}
+        />
+      )}
       {showDiscardConfirm && (
         <DiscardChangesModal
           onKeepEditing={() => setShowDiscardConfirm(false)}
@@ -3351,6 +3537,14 @@ const PersonalInfoScreen = ({ onBack, user }) => {
                 </>
               ) : (
                 <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.88rem", color: "white", marginLeft: "4px" }}>{email || "—"}</span>
+              )}
+              {/* A pendingEmail on file means a verification link is still
+                  waiting to be clicked — `email` above is still the real,
+                  active login address until then. */}
+              {pendingEmail && (
+                <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.74rem", color: "#ffd7a3", margin: "4px 0 0" }}>
+                  ⏳ Confirmation pending for <b>{pendingEmail}</b> — check that inbox to finish the change.
+                </p>
               )}
             </div>
           </div>

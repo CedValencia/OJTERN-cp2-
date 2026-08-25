@@ -259,7 +259,7 @@ const COLLEGE_PROGRAM_MAP = {
             "BSED (Major in English)": "BS Education — Major in English",
             "BSED (Major in Mathematics)": "BS Education — Major in Mathematics",
           } },
-  CHM:  { label: "College of Hospitality Management",
+  CHTM:  { label: "College of Hospitality and Tourism Management",
           programs: {
             BSTM: "Bachelor of Science in Tourism Management",
             BSHM: "Bachelor of Science in Hospitality Management",
@@ -477,7 +477,7 @@ const PersonalInfoScreen = ({ onBack, user }) => {
     "CCJE": "College of Criminal Justice Education",
     "CLA":  "College of Liberal Arts",
     "CED":  "College of Education",
-    "CHM":  "College of Hospitality Management",
+    "CHTM":  "College of Hospitality and Tourism Management",
   };
 
   // Map abbreviated program → full program name used by COLLEGES array
@@ -548,7 +548,7 @@ const PersonalInfoScreen = ({ onBack, user }) => {
   const handleProgramChange = (code) => setForm(f => ({ ...f, programCode: code }));
 
   const validateMiddleInitial = (v) => {
-    if (!v) return "Required";
+    if (!v) return "";
     if (!/^[A-Z]\.$/.test(v)) return "Format: e.g. (A.)";
     return "";
   };

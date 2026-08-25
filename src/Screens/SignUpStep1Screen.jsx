@@ -2613,17 +2613,53 @@ const MapZoomModal = ({ lat, lng, onClose }) => {
 
 // ── Industries ────────────────────────────────────────────────────────────────
 const INDUSTRIES = [
-  "Agriculture",
-  "Computer and Technology",
-  "Education",
-  "Finance and Economics",
-  "Health Care",
-  "Hospitality",
-  "Manufacturing",
-  "Media and News",
-  "Pharmaceutical",
-  "Telecommunications",
-  "Transportation",
+//College of Computer Studies
+
+"Software & Tech Development",
+"Information Technology & Managed Services",
+"Cybersecurity",
+"E-Commerce & Digital Business",
+"Data & Analytics",
+
+//College of Business and Accountancy
+
+"Financial Services & Banking",
+"Public & Corporate Accounting",
+"Consumer Goods & Retail",
+"Digital Marketing & Advertising",
+"Management Consulting",
+
+//College of Criminal Justice Education
+
+"Law Enforcement & Public Safety",
+"Private Security & Risk Management",
+"Corrections & Rehabilitation ",
+"Forensics & Crime Scene Investigation",
+"Legal & Judicial Support",
+
+//College of Liberal Arts
+
+"Government & Public Policy",
+"Non-Governmental & International Organizations",
+"Legal Services",
+"Political Consulting & Campaign Management",
+"Journalism & Media Communications (Political Reporting, Editorial Services)",
+
+//College of Education
+
+"Primary & Secondary K-12 Education",
+"Educational Technology & E-Learning",
+"Corporate Training & Adult Education",
+"Academic Publishing & Content Creation",
+"Test Preparation & Tutoring Services",
+
+//College of Hospitality Management
+
+"Hotels, Resorts & Lodging",
+"Travel & Airline Services",
+"Food & Beverage Service",
+"Event & Conference Management",
+"Eco-Tourism & Destination Marketing",
 ];
 
 // ── Main Screen ───────────────────────────────────────────────────────────────

@@ -29,7 +29,7 @@ const inputStyle = {
 
 const labelStyle = {
   display: "block",
-  fontFamily: "'Jua', sans-serif",
+  fontFamily: "'montserrat', sans-serif",
   fontSize: "1rem",
   fontWeight: "700",
   color: "#000000",
@@ -150,7 +150,7 @@ const SignInScreen = ({ onGoSignUp, onSignInCoordinator, onSignInStudent, onSign
       paddingBottom: isMobile ? "1rem" : "0",
     }}>
       <h1 style={{
-        fontFamily: "'Jersey 25', sans-serif",
+        fontFamily: "'Urbanist', sans-serif",
         fontSize: isMobile ? "2rem" : "2.6rem",
         fontWeight: "400",
         color: "#000000",
@@ -164,13 +164,13 @@ const SignInScreen = ({ onGoSignUp, onSignInCoordinator, onSignInStudent, onSign
 
       <div style={{ border: "2px solid #1a1a1a", borderRadius: "24px", overflow: "hidden", position: "relative" }}>
         <div style={{ background: red, padding: isMobile ? "10px" : "14px", textAlign: "center" }}>
-          <span style={{ fontFamily: "'Jua', sans-serif", fontSize: isMobile ? "1.2rem" : "1.4rem", color: "white", letterSpacing: "0.1em", textTransform: "uppercase" }}>
+          <span style={{ fontFamily: "'montserrat', sans-serif", fontSize: isMobile ? "1.2rem" : "1.4rem", color: "white", letterSpacing: "0.1em", textTransform: "uppercase" }}>
             Sign-In
           </span>
         </div>
 
         <div style={{ padding: isMobile ? "12px 16px 20px" : "15px 24px 24px", background: "white" }}>
-          <p style={{ fontFamily: "'Jua', sans-serif", textAlign: "center", fontSize: isMobile ? "1.2rem" : "1.5rem", color: "#1a1a1a", marginBottom: "10px" }}>
+          <p style={{ fontFamily: "'montserrat', sans-serif", textAlign: "center", fontSize: isMobile ? "1.2rem" : "1.5rem", color: "#1a1a1a", marginBottom: "10px" }}>
             Sign-in as:
           </p>
 
@@ -256,7 +256,7 @@ const SignInScreen = ({ onGoSignUp, onSignInCoordinator, onSignInStudent, onSign
               style={{
                 background: darkRed, color: "white", border: "none",
                 borderRadius: "24px", padding: isMobile ? "10px 36px" : "12px 48px",
-                fontFamily: "'Jua', sans-serif", fontSize: isMobile ? "1rem" : "1.1rem",
+                fontFamily: "'montserrat', sans-serif", fontSize: isMobile ? "1rem" : "1.1rem",
                 letterSpacing: "0.08em", textTransform: "uppercase",
                 cursor: loading ? "not-allowed" : "pointer",
                 opacity: loading ? 0.7 : 1,

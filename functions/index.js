@@ -94,7 +94,7 @@ exports.sendApprovalEmail = onDocumentUpdated(
           <li>Post OJT positions</li>
           <li>View student applications</li>
         </ul>
-        <p><a href="https://ojtern.app/login">Click here to sign in</a></p>
+        <p><a href="https://ojtern.com/signin">Click here to sign in</a></p>
         <p>Best regards,<br/>OJTern Team</p>
       `;
       const text = `Welcome to OJTern!
@@ -103,7 +103,7 @@ Hi ${newData.companyName},
 
 Your company registration has been approved by our coordinator. You can now log in to your company dashboard, post OJT positions, and view student applications.
 
-Sign in: https://ojtern.app/login
+Sign in: https://ojtern.com/signin
 
 Best regards,
 OJTern Team`;
@@ -150,7 +150,217 @@ Reason: ${newData.rejectionReason || "Please contact support."}`;
   }
 );
 
-// Delete Firebase Auth account when student document is deleted
+// ─────────────────────────────────────────────────────────────────────────────
+// APPLICATION STATUS EMAIL — notifies a student by email whenever a company
+// changes their application status (Pending / In Review / To Interview /
+// Accepted / Declined — the actual statuses this system uses; see
+// STATUS_COLORS in CompanyApplicantsScreen.jsx).
+//
+// Server-side trigger, same shape as sendApprovalEmail/sendRejectionEmail
+// above, for the same reason: the actual status write happens from the
+// company's browser (CompanyApplicantsScreen.jsx → handleStatusChange), and
+// a client-side "send an email after this write succeeds" call would mean
+// either shipping the Resend API key to the frontend, or trusting the
+// browser to faithfully report what changed. Comparing before/after here
+// instead means the email reflects whatever's actually IN Firestore, not
+// what a (possibly tampered-with) client claims happened.
+//
+// Duplicate-prevention: the one before/after comparison below
+// (`oldData.status !== newData.status`) is what actually matters — it's
+// what makes a document write to a field OTHER than `status` (e.g. company
+// edits `statusNote` without changing `status` itself, or Accepted →
+// Accepted from a resubmitted save) a no-op here, regardless of what
+// guards exist client-side. The frontend also blocks most of these earlier
+// (see the added `newStatus === current?.status` check in
+// CompanyApplicantsScreen.jsx), but this is the check that can't be
+// bypassed by calling updateDoc() directly.
+exports.sendApplicationStatusEmail = onDocumentUpdated(
+  { document: "applications/{applicationId}", region: "asia-southeast1", secrets: [resendApiKey] },
+  async (event) => {
+    const newData = event.data.after.data();
+    const oldData = event.data.before.data();
+
+    if (oldData.status === newData.status) return; // nothing actually changed
+
+    const studentId = newData.studentId;
+    if (!studentId) {
+      console.warn(`Application ${event.params.applicationId} has no studentId — skipping status email.`);
+      return;
+    }
+
+    // Look up the student's CURRENT registered email fresh from their own
+    // doc rather than trusting a possibly-stale copy denormalized onto the
+    // application at apply-time — a student may have changed their email
+    // since then (see requestEmailChange in AuthService.js on the client
+    // side; the same "don't trust a stale denormalized copy" reasoning
+    // applies here). Handles Test 5 (no valid email) safely — logs and
+    // returns instead of throwing, so a missing/blank email never crashes
+    // the trigger or blocks the status change that already succeeded.
+    const db = getFirestore();
+    let studentEmail = "";
+    let studentName  = "Student";
+    try {
+      const studentSnap = await db.collection("students").doc(studentId).get();
+      if (studentSnap.exists) {
+        const student = studentSnap.data();
+        studentEmail = (student.email || "").trim();
+        studentName  = student.fullName
+          || [student.firstName, student.lastName].filter(Boolean).join(" ")
+          || "Student";
+      }
+    } catch (err) {
+      console.error(`Failed to look up student ${studentId} for status email:`, err);
+    }
+
+    if (!studentEmail) {
+      console.warn(`Student ${studentId} has no registered email — skipping status email for application ${event.params.applicationId}.`);
+      return;
+    }
+
+    const companyName = newData.companyName || "the company";
+    const newStatus    = newData.status;
+
+    // Same colors CompanyApplicantsScreen.jsx uses for the status badge in
+    // the app, so the email visually matches what the student would see
+    // after logging in — see STATUS_COLORS there.
+    const STATUS_BADGE_COLOR = {
+      "Accepted":     "#4CAF50",
+      "Declined":     "#8B0000",
+      "Pending":      "#C8B800",
+      "In Review":    "#1A3A8B",
+      "To Interview": "#6B21A8",
+    };
+    const badgeColor = STATUS_BADGE_COLOR[newStatus] || "#8B0000";
+
+    // Status-specific message — phrasing follows the existing
+    // STATUS_NOTIF_TEXT used for the in-app notification (same file), just
+    // expanded into full sentences appropriate for an email rather than a
+    // short in-app notification line.
+    const STATUS_EMAIL_MESSAGE = {
+      "Pending":      `Your application to ${companyName} is on file and pending review.`,
+      "In Review":    `Your application to ${companyName} is now being reviewed.`,
+      "To Interview": `Your application to ${companyName} has moved to the interview stage. Please log in to OJTern to view interview details and any next steps.`,
+      "Accepted":     `Congratulations! Your application has been accepted by ${companyName}. Please log in to OJTern to view the details and next steps.`,
+      "Declined":     `Your application status has been updated. Unfortunately, your application to ${companyName} was not selected at this time. We encourage you to explore other opportunities available on OJTern.`,
+    };
+    const statusMessage = STATUS_EMAIL_MESSAGE[newStatus] || `Your application to ${companyName} has been updated to "${newStatus}".`;
+
+    const currentYear = new Date().getFullYear();
+    const loginUrl = "https://ojtern.com/signin";
+    // Publicly hosted on Cloudinary (same account used for uploads
+    // elsewhere in the app — see cloudinary.config below) — a local React
+    // asset path (e.g. ../icons/ojtern.png) wouldn't resolve for a mail
+    // client reading this HTML outside the app.
+    const logoUrl = "https://res.cloudinary.com/doalndt5l/image/upload/v1787477580/ojtern_512_hdruhv.png";
+
+    const html = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Application Status Update — OJTern</title>
+      </head>
+      <body style="margin:0; padding:0; background:#f0f0f0; font-family:Arial, Helvetica, sans-serif;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f0f0f0; padding:24px 12px;">
+          <tr>
+            <td align="center">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px; background:#ffffff; border-radius:16px; overflow:hidden; box-shadow:0 4px 18px rgba(0,0,0,0.08);">
+
+                <!-- Header -->
+                <tr>
+                  <td style="background:linear-gradient(180deg, #A32424 0%, #590101 100%); background-color:#590101; padding:28px 24px; text-align:center;">
+                    <img src="${logoUrl}" alt="OJTern" width="56" height="56" style="display:block; margin:0 auto 8px; border-radius:12px;" />
+                    <span style="font-family:Arial, Helvetica, sans-serif; font-size:22px; font-weight:bold; color:#ffffff; letter-spacing:0.03em;">OJTern</span>
+                  </td>
+                </tr>
+
+                <!-- Body -->
+                <tr>
+                  <td style="padding:32px 28px 8px;">
+                    <h1 style="margin:0 0 18px; font-size:20px; color:#1a1a1a;">Application Status Update</h1>
+                    <p style="margin:0 0 16px; font-size:15px; color:#333; line-height:1.6;">
+                      Hello, <strong>${studentName}</strong>,
+                    </p>
+                    <p style="margin:0 0 20px; font-size:15px; color:#333; line-height:1.6;">
+                      Your application to <strong>${companyName}</strong> has been updated.
+                    </p>
+
+                    <!-- Status badge -->
+                    <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 20px;">
+                      <tr>
+                        <td style="background:${badgeColor}; border-radius:20px; padding:8px 20px;">
+                          <span style="font-size:13px; font-weight:bold; color:#ffffff; letter-spacing:0.04em; text-transform:uppercase;">${newStatus}</span>
+                        </td>
+                      </tr>
+                    </table>
+
+                    <p style="margin:0 0 26px; font-size:15px; color:#333; line-height:1.6;">
+                      ${statusMessage}
+                    </p>
+
+                    <!-- CTA -->
+                    <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 28px;">
+                      <tr>
+                        <td style="background:#8B0000; border-radius:24px;">
+                          <a href="${loginUrl}" style="display:inline-block; padding:13px 30px; font-size:15px; font-weight:bold; color:#ffffff; text-decoration:none;">
+                            View My Application
+                          </a>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+
+                <!-- Footer -->
+                <tr>
+                  <td style="padding:20px 28px 28px; border-top:1px solid #eee;">
+                    <p style="margin:0 0 4px; font-size:13px; color:#888;">Thank you,<br/>OJTern Team</p>
+                    <p style="margin:16px 0 4px; font-size:12px; color:#aaa;">OJTern — Online Job Training and Employment Referral Network</p>
+                    <p style="margin:0 0 4px; font-size:11px; color:#bbb;">This is an automated message from OJTern.</p>
+                    <p style="margin:0; font-size:11px; color:#bbb;">&copy; ${currentYear} OJTern. All rights reserved.</p>
+                  </td>
+                </tr>
+
+              </table>
+            </td>
+          </tr>
+        </table>
+      </body>
+      </html>
+    `;
+
+    const text = `Application Status Update — OJTern
+
+Hello, ${studentName},
+
+Your application to ${companyName} has been updated.
+
+New Status: ${newStatus}
+
+${statusMessage}
+
+Log in to view your application: ${loginUrl}
+
+Thank you,
+OJTern Team
+
+OJTern — Online Job Training and Employment Referral Network
+This is an automated message from OJTern.
+© ${currentYear} OJTern. All rights reserved.`;
+
+    try {
+      await sendMail({ to: studentEmail, subject: "Application Status Update — OJTern", html, text });
+      console.log(`Application status email sent to ${studentEmail} (${oldData.status} → ${newStatus})`);
+    } catch (error) {
+      // Per spec: a failed email must never roll back the already-saved
+      // status change, and must never crash the trigger — just log it.
+      console.error(`Failed to send application status email for application ${event.params.applicationId}:`, error);
+    }
+  }
+);
+
+
 exports.deleteStudentAuthOnDocDelete = onDocumentDeleted(
   { document: "students/{studentId}", region: "us-central1" },
   async (event) => {

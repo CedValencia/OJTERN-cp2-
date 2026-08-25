@@ -14,7 +14,7 @@ const COLLEGE_ORDER = [
   "College of Criminal Justice Education",
   "College of Liberal Arts",
   "College of Education",
-  "College of Hospitality Management",
+  "College of Hospitality and Tourism Management",
 ];
 
 // ── College → Program data (kept consistent with CompanyApplicantsScreen) ──
@@ -47,7 +47,7 @@ const COLLEGE_DATA = {
       "BS Education — Major in Mathematics": { specializations: [] },
     },
   },
-  "College of Hospitality Management": {
+  "College of Hospitality and Tourism Management": {
     programs: {
       "Bachelor of Science in Tourism Management": { specializations: [] },
       "Bachelor of Science in Hospitality Management": { specializations: [] },

@@ -623,14 +623,17 @@ const CompanyDashboardScreen = ({ user, onLogout, onAuthStateChange }) => {
   // a live status change on the company's own doc and locks the dashboard
   // immediately, without waiting for a refresh.
   const [accountLocked, setAccountLocked] = useState(null); // null | "suspended" | "blocked"
+  const [lockedByName, setLockedByName] = useState("");
 
   useEffect(() => {
     if (!user?.uid) return;
     const unsub = onSnapshot(doc(db, "companies", user.uid), (snap) => {
       if (!snap.exists()) return;
-      const status = snap.data().status;
+      const data = snap.data();
+      const status = data.status;
       if (status === "suspended" || status === "blocked") {
         setAccountLocked(status);
+        setLockedByName(data.statusUpdatedByName || "");
       }
     }, err => console.error("Account status listener error:", err));
     return () => unsub();
@@ -830,8 +833,8 @@ const CompanyDashboardScreen = ({ user, onLogout, onAuthStateChange }) => {
           </h1>
           <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.95rem", color: "rgba(255,255,255,0.85)", maxWidth: "420px", lineHeight: 1.6 }}>
             {isBlocked
-              ? "Your company account has been blocked. Please contact the system administrator for more information."
-              : "Your company account has been suspended by a coordinator. Please contact the system administrator for more information."}
+              ? `Your company account has been blocked ${lockedByName ? `by ${lockedByName}` : "by a coordinator"}. Please contact the system administrator for more information.`
+              : `Your company account has been suspended ${lockedByName ? `by ${lockedByName}` : "by a coordinator"}. Please contact the system administrator for more information.`}
           </p>
           <button
             onClick={handleLockedSignOut}
