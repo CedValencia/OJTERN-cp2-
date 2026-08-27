@@ -32,6 +32,39 @@ import aboutIcon            from "../icons/about.png";
 const red     = "#8B0000";
 const darkRed = "#590101";
 
+// ── Password strength requirements (mirrors CoordinatorAccountProfileScreen) ───
+const PASSWORD_RULES = [
+  { key: "length",    label: "At least 8 characters",                     test: pwd => pwd.length >= 8 },
+  { key: "uppercase", label: "At least one uppercase letter (A–Z)",       test: pwd => /[A-Z]/.test(pwd) },
+  { key: "lowercase", label: "At least one lowercase letter (a–z)",       test: pwd => /[a-z]/.test(pwd) },
+  { key: "number",    label: "At least one number (0–9)",                 test: pwd => /[0-9]/.test(pwd) },
+  { key: "special",   label: "At least one special character (!@#$%&*_…)", test: pwd => /[!@#$%^&*()\-_=+\[\]{};:'",.<>/?\\|`~]/.test(pwd) },
+  { key: "noSpaces",  label: "No spaces",                                 test: pwd => !/\s/.test(pwd) },
+];
+
+const isPasswordStrong = (pwd) => PASSWORD_RULES.every(rule => rule.test(pwd));
+
+const PasswordChecklist = ({ password }) => {
+  if (!password) return null;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "3px", margin: "2px 0 12px 2px" }}>
+      {PASSWORD_RULES.map(rule => {
+        const passed = rule.test(password);
+        return (
+          <div key={rule.key} style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+            <span style={{ fontSize: "0.78rem", fontWeight: 700, color: passed ? "#2a7a2a" : "#c0392b", width: "12px", flexShrink: 0 }}>
+              {passed ? "✓" : "✗"}
+            </span>
+            <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.74rem", color: passed ? "#2a7a2a" : "#888" }}>
+              {rule.label}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
 // ── Coordinator department scoping ─────────────────────────────────────────────
 // Coordinator docs store assigned departments as `deptSelections`, an array of
 // { department: "College of Computer Studies", program, specialization } — the
@@ -864,7 +897,7 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
     setPassError("");
     if (!currentPass) { setPassError("Please enter your current password."); return; }
     if (!newPass) { setPassError("Please enter a new password."); return; }
-    if (newPass.length < 8) { setPassError("Password must be at least 8 characters."); return; }
+    if (!isPasswordStrong(newPass)) { setPassError("Password does not meet all the requirements below."); return; }
     if (newPass !== confirmPass) { setPassError("Passwords do not match."); return; }
     setPassLoading(true);
     try {
@@ -1358,6 +1391,8 @@ const ChangePasswordModal = ({ show, currentPass, setCurrentPass, newPass, setNe
               style={inputStyle(passError)} />
             <EyeBtn show={showNew} onToggle={() => setShowNew(p => !p)} />
           </div>
+
+          <PasswordChecklist password={newPass} />
 
           {/* Confirm New Password */}
           <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.8rem", fontWeight: 700, color: "#333", marginBottom: "4px" }}>Confirm New Password:</p>
