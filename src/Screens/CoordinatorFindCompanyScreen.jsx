@@ -190,19 +190,7 @@ const SuccessModal = ({ onClose }) => {
 const REGIONS = [];
 
 // ── Industry categories — must match exactly what companies select on sign-up ─
-const INDUSTRIES = [
-  "Agriculture",
-  "Computer and Technology",
-  "Education",
-  "Finance and Economics",
-  "Health Care",
-  "Hospitality",
-  "Manufacturing",
-  "Media and News",
-  "Pharmaceutical",
-  "Telecommunications",
-  "Transportation",
-];
+const INDUSTRIES = [];
 
 // Kept for legacy import compatibility — use useOjtPosts hook instead
 export const ALL_COMPANIES = [];
@@ -754,7 +742,55 @@ const CoordinatorFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onM
 
   const hasFilter = selectedIndustries.length > 0 || citySearch.trim();
 
-  const filtered = companies.filter(c => {
+  // Only show posts looking for students from this coordinator's own
+  // College AND Program — same scoping used in CoordinatorCompanyListScreen
+  // (companyMatchesCoordinator/findMatchingEntry). Department is always
+  // required; Program is only required to match when BOTH sides actually
+  // specify one — a coordinator scoped to a whole Department (no specific
+  // Program picked) sees every post under that Department, and a post that
+  // only carries the legacy department-only `departments` field (no
+  // per-Program detail — see courseSelections fallback below) still shows
+  // up rather than disappearing just because it predates Program-level data.
+  const assignedScopes = React.useMemo(
+    () => (coordinator?.deptSelections || [])
+      .filter(s => s.department)
+      .map(s => ({ department: s.department, program: s.program || "" })),
+    [coordinator?.deptSelections]
+  );
+  const assignedDepartments = React.useMemo(
+    () => [...new Set(assignedScopes.map(s => s.department))],
+    [assignedScopes]
+  );
+
+  // A post's own Department/Program pairs. `departments` (flat array, saved
+  // by CompanyCreatePostScreen.jsx) has no Program detail, so those entries
+  // match on Department alone. `courseSelections` (the older per-post shape,
+  // still the only place a post's Program actually lives) is used when
+  // present so Program-level matching is possible.
+  const getPostScopes = (c) => {
+    if (Array.isArray(c.courseSelections) && c.courseSelections.length) {
+      return c.courseSelections
+        .filter(s => s.college)
+        .map(s => ({ department: s.college, program: s.program || "" }));
+    }
+    if (Array.isArray(c.departments) && c.departments.length) {
+      return c.departments.map(d => ({ department: d, program: "" }));
+    }
+    return [];
+  };
+
+  const inScopeCompanies = React.useMemo(() => {
+    if (assignedScopes.length === 0) return [];
+    return companies.filter(c =>
+      getPostScopes(c).some(p =>
+        assignedScopes.some(s =>
+          p.department === s.department && (!s.program || !p.program || p.program === s.program)
+        )
+      )
+    );
+  }, [companies, assignedScopes]);
+
+  const filtered = inScopeCompanies.filter(c => {
     const name = (c.companyName || c.company || c.name || "").toLowerCase();
     const industryArr = Array.isArray(c.industry) ? c.industry : (c.industry ? [c.industry] : []);
     const industry = industryArr.join(" ").toLowerCase();
@@ -891,7 +927,8 @@ const CoordinatorFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onM
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "60px 0", gap: "12px" }}>
             <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#ccc" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
             <p style={{ fontFamily: "'Jua', sans-serif", fontSize: "1.2rem", color: "#bbb" }}>No companies found</p>
-            <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#ccc" }}>No company data available yet</p>
+            <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#ccc" }}>
+            </p>
           </div>
         )}
       </div>

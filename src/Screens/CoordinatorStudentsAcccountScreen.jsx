@@ -5,6 +5,7 @@ import userIcon from "../icons/user.png";
 // Firebase
 import { db }                          from "./firebase";
 import { createStudentAccount, generateStudentPassword, logActivity } from "./AuthService";
+import { useDepartmentsPrograms }      from "./departmentsPrograms";
 import {
   collection, query, where,
   onSnapshot, doc, updateDoc, deleteDoc, serverTimestamp,
@@ -32,36 +33,34 @@ const useBreakpoint = () => {
 const black = "#000000";
 
 // ── College / Program / Specialization Data ───────────────────────────────────
-// Adjust colleges, programs, and specializations to match your school's actual data
-const COLLEGE_DATA = {
-  "CCS": {
-    label: "College of Computer Studies",
-    programs: ["BSIT"],
-  },
-  "CBA": {
-    label: "College of Business and Accountancy",
-    programs: ["BSBA (Major in Marketing Management)", "BSA"],
-  },
-  "CCJE": {
-    label: "College of Criminal Justice Education",
-    programs: ["BS CRIM"],
-  },
-  "CLA": {
-    label: "College of Liberal Arts",
-    programs: ["BA POLSCI"],
-  },
-  "CED": {
-    label: "College of Education",
-    programs: ["BEED", "BSED (Major in English)", "BSED (Major in Mathematics)"],
-  },
-  "CHTM": {
-    label: "College of Hospitality Management",
-    programs: ["BSTM", "BSHM"],
-  },
+// Now loaded live from Firestore via useDepartmentsPrograms() (see
+// ./departmentsPrograms) — the same source SignUpStep1Screen,
+// CoordinatorAccountProfileScreen, StudentAccountProfileScreen, and
+// CompanyCreatePostScreen all use. This used to be its own fifth hardcoded
+// copy, keyed by short CODE ("CCS") with a `label` full name — and worse,
+// the CODE itself (not the full name) is what actually got saved onto the
+// student's `college` field in Firestore, which never matched the full
+// names everyone else in the app uses. See LEGACY_PROGRAM_CODE_MAP below
+// for the CSV-import bridge that still accepts the old short forms.
+//
+// LEGACY_PROGRAM_CODE_MAP — same short-form → canonical-full-name bridge
+// used in StudentAccountProfileScreen.jsx, kept here too so the bulk-import
+// "Program Code" spreadsheet column can still be filled in with the old
+// short forms ("BSIT") without every school having to retype full names —
+// while what's actually saved to Firestore is always the canonical full
+// name, matching companies'/coordinators'/posts' Program values exactly.
+const LEGACY_PROGRAM_CODE_MAP = {
+  "BSIT":                                  "Bachelor of Science in Information Technology",
+  "BSBA (Major in Marketing Management)":  "BS Business Administration — Major in Marketing Management",
+  "BSA":                                   "Bachelor of Science in Accountancy",
+  "BS CRIM":                               "Bachelor of Science in Criminology",
+  "BA POLSCI":                             "Bachelor of Arts in Political Science",
+  "BEED":                                  "Bachelor of Elementary Education",
+  "BSED (Major in English)":               "BS Education — Major in English",
+  "BSED (Major in Mathematics)":           "BS Education — Major in Mathematics",
+  "BSTM":                                  "Bachelor of Science in Tourism Management",
+  "BSHM":                                  "Bachelor of Science in Hospitality Management",
 };
-
-// Derive the flat list of college keys used in dropdowns/filters
-const COLLEGE_KEYS = Object.keys(COLLEGE_DATA);
 
 // Year & Section options — adjust to match your school's actual sections
 const YEAR_SECTIONS = [
@@ -363,11 +362,16 @@ const validators = {
 
 };
 
-const exportToXLSX = (students) => {
+const exportToXLSX = (students, departments) => {
   const rows = [EXCEL_COLUMNS];
   students.forEach(s => {
     const fullName = `${s.firstName} ${s.middleInitial ? s.middleInitial + " " : ""}${s.lastName}`.trim();
-    const defaultPassword = generateStudentPassword(s.firstName, s.lastName, s.studentId, s.college);
+    // Must derive the SAME abbreviation used at account-creation time (see
+    // createStudentAccount/handleCreate) so the regenerated password here
+    // actually matches the real one, not a mismatched ".collegeofcomputer..."
+    // suffix — s.college is the full name saved on the student doc.
+    const collegeAbbr = departments[s.college]?.abbr || s.college;
+    const defaultPassword = generateStudentPassword(s.firstName, s.lastName, s.studentId, collegeAbbr);
     rows.push([s.studentId, fullName, defaultPassword]);
   });
   const ws = XLSX.utils.aoa_to_sheet(rows);
@@ -502,7 +506,7 @@ const useField = (initial = "", validatorKey) => {
 };
 
 // ── Student Form ───────────────────────────────────────────────────────────────
-const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submitLabel = "CREATE ACCOUNT", coordinatorColleges = [] }) => {
+const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submitLabel = "CREATE ACCOUNT", coordinatorColleges = [], departments = {} }) => {
   const studentId     = useField(initial.studentId || "", "studentId");
   const lastName      = useField(initial.lastName || "", "lastName");
   const middleInitial = useField(initial.middleInitial || "", "middleInitial");
@@ -530,7 +534,7 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
   const [saving, setSaving]                 = useState(false);
   const [submitError, setSubmitError]       = useState("");
 
-  const programs = college ? (COLLEGE_DATA[college]?.programs || []) : [];
+  const programs = college ? (departments[college]?.programs || []).map(p => p.name) : [];
   const collegeError = collegeTouched && !college ? "Required" : "";
   const programError = programTouched && !program ? "Required" : "";
 
@@ -644,7 +648,7 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
                   <StyledSelect
                     value={college}
                     onChange={handleCollegeChange}
-                    options={coordinatorColleges.map(k => ({ value: k, label: COLLEGE_DATA[k]?.label || k }))}
+                    options={coordinatorColleges.map(name => ({ value: name, label: name }))}
                     placeholder="Select your department"
                     hasError={!!collegeError}
                   />
@@ -656,7 +660,7 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
                   background: "#eee", color: "#555", fontFamily: "'Kufam', sans-serif",
                   fontSize: "0.88rem", border: "1px solid #ddd",
                 }}>
-                  {college ? (COLLEGE_DATA[college]?.label || college) : "—"}
+                  {college || "—"}
                 </div>
               )}
             </div>
@@ -694,7 +698,7 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
             <div style={{ background: "#fff8f8", border: "1.5px solid #f5c0c0", borderRadius: "10px", padding: "10px 14px", marginBottom: "10px" }}>
               <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1rem", color: "#8B0000", marginBottom: "4px" }}>🔑 Default Password:</p>
               <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.92rem", color: "#320000", fontWeight: "700", margin: 0 }}>
-                {(firstName.value && lastName.value && studentId.value && college) ? generateStudentPassword(firstName.value, lastName.value, studentId.value, college) : "—"}
+                {(firstName.value && lastName.value && studentId.value && college) ? generateStudentPassword(firstName.value, lastName.value, studentId.value, departments[college]?.abbr || college) : "—"}
               </p>
               <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.7rem", color: "#888", margin: "4px 0 0" }}>
                 Format: lastname + 123. + college code (all lowercase). Student should change this after first login.
@@ -713,21 +717,48 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
   );
 };
 
-const ALL_COLLEGES = Object.keys(COLLEGE_DATA);
-const ALL_PROGRAMS = [...new Set(Object.values(COLLEGE_DATA).flatMap(c => c.programs || []))];
-
-const validateRow = (row, rowIndex, coordinatorColleges = []) => {
+const validateRow = (row, rowIndex, coordinatorColleges = [], departments = {}) => {
   const errs = []; const r = rowIndex + 3;
+  const departmentNames = Object.keys(departments);
+  // Reverse-lookup: short College Code (e.g. "CCS") → canonical full name,
+  // derived from each department's `abbr` in the live Firestore data — so
+  // the spreadsheet can stay compact while what's saved is always the same
+  // full name companies/coordinators/posts use.
+  const abbrToFullName = {};
+  departmentNames.forEach(name => { if (departments[name]?.abbr) abbrToFullName[departments[name].abbr] = name; });
+
   if (!row.studentId) errs.push(`Row ${r}: Student ID is required`);
   else if (!/^\d{9}$/.test(row.studentId)) errs.push(`Row ${r}: Student ID must be exactly 9 digits`);
   if (!row.lastName) errs.push(`Row ${r}: Last Name is required`);
   if (!row.firstName) errs.push(`Row ${r}: First Name is required`);
   if (row.middleInitial && !/^[A-Z]\.$/.test(row.middleInitial.trim())) errs.push(`Row ${r}: Middle Initial must be format "X."`);
-  if (!row.college) errs.push(`Row ${r}: College is required`);
-  else if (ALL_COLLEGES.length > 0 && !ALL_COLLEGES.includes(row.college)) errs.push(`Row ${r}: College "${row.college}" is not valid`);
-  else if (coordinatorColleges.length > 0 && !coordinatorColleges.includes(row.college)) errs.push(`Row ${r}: College "${row.college}" is not one of your assigned departments — you can only import your own department's students`);
-  if (!row.program) errs.push(`Row ${r}: Program is required`);
-  else if (ALL_PROGRAMS.length > 0 && !ALL_PROGRAMS.includes(row.program)) errs.push(`Row ${r}: Program "${row.program}" is not valid`);
+
+  if (!row.college) {
+    errs.push(`Row ${r}: College is required`);
+  } else {
+    // Accept either the short Code ("CCS") or the full name directly.
+    const resolvedCollege = abbrToFullName[row.college] || (departmentNames.includes(row.college) ? row.college : null);
+    if (!resolvedCollege) errs.push(`Row ${r}: College "${row.college}" is not valid`);
+    else if (coordinatorColleges.length > 0 && !coordinatorColleges.includes(resolvedCollege)) errs.push(`Row ${r}: College "${row.college}" is not one of your assigned departments — you can only import your own department's students`);
+    else row.college = resolvedCollege; // normalize in place to the canonical full name before this row gets saved
+  }
+
+  if (!row.program) {
+    errs.push(`Row ${r}: Program is required`);
+  } else if (row.college && departmentNames.includes(row.college)) {
+    const collegePrograms = (departments[row.college]?.programs || []).map(p => p.name);
+    // Accept either the exact full Program name, or one of the old short
+    // forms via LEGACY_PROGRAM_CODE_MAP — same bridge used in
+    // StudentAccountProfileScreen.jsx.
+    const resolvedProgram = collegePrograms.includes(row.program)
+      ? row.program
+      : (LEGACY_PROGRAM_CODE_MAP[row.program] && collegePrograms.includes(LEGACY_PROGRAM_CODE_MAP[row.program]))
+        ? LEGACY_PROGRAM_CODE_MAP[row.program]
+        : null;
+    if (!resolvedProgram) errs.push(`Row ${r}: Program "${row.program}" is not valid for College "${row.college}"`);
+    else row.program = resolvedProgram; // normalize in place
+  }
+
   if (!row.yearSection) errs.push(`Row ${r}: Year & Section is required`);
   else if (YEAR_SECTIONS.length > 0 && !YEAR_SECTIONS.includes(row.yearSection)) errs.push(`Row ${r}: Year & Section must be one of: ${YEAR_SECTIONS.join(", ")}`);
   if (!row.sex) errs.push(`Row ${r}: Sex is required`);
@@ -739,7 +770,7 @@ const validateRow = (row, rowIndex, coordinatorColleges = []) => {
 };
 
 // ── Import Modal ───────────────────────────────────────────────────────────────
-const ImportModal = ({ onClose, onImport, coordinatorColleges = [] }) => {
+const ImportModal = ({ onClose, onImport, coordinatorColleges = [], departments = {} }) => {
   const [dragging, setDragging] = useState(false);
   const [file, setFile] = useState(null);
   const [fileError, setFileError] = useState("");
@@ -773,7 +804,7 @@ const ImportModal = ({ onClose, onImport, coordinatorColleges = [] }) => {
         // template's own "e.g. ..." example row.
         if (String(row[0] ?? "").trim().toLowerCase().startsWith("e.g.")) return;
         const student = { studentId: String(row[0]||"").trim(), lastName: String(row[1]||"").trim(), middleInitial: String(row[2]||"").trim(), firstName: String(row[3]||"").trim(), college: String(row[4]||"").trim(), program: String(row[5]||"").trim(), major: String(row[6]||"").trim(), specialization: String(row[6]||"").trim(), yearSection: String(row[7]||"").trim(), sex: String(row[8]||"").trim(), age: String(row[9]||"").trim(), email: String(row[10]||"").trim(), password: "" };
-        const errs = validateRow(student, i, coordinatorColleges);
+        const errs = validateRow(student, i, coordinatorColleges, departments);
         if (errs.length > 0) rowErrors.push(...errs); else valid.push(student);
       });
       setPreview({ valid, rowErrors, headerErrors: [] });
@@ -864,13 +895,13 @@ const ImportModal = ({ onClose, onImport, coordinatorColleges = [] }) => {
 };
 
 // ── Filter Panel ───────────────────────────────────────────────────────────────
-const FilterPanel = ({ filters, setFilters, filterRef, coordinatorColleges = [] }) => {
+const FilterPanel = ({ filters, setFilters, filterRef, coordinatorColleges = [], departments = {}, departmentNames = [] }) => {
   const { isMobile, isTablet } = useBreakpoint();
   const [expandedCollege, setExpandedCollege] = useState(filters.college || "");
   // Scoped to the coordinator's own assigned department(s) — never the
   // full school-wide college list.
-  const allColleges        = coordinatorColleges.length > 0 ? coordinatorColleges : COLLEGE_KEYS;
-  const allPrograms        = expandedCollege ? (COLLEGE_DATA[expandedCollege]?.programs || []) : [];
+  const allColleges        = coordinatorColleges.length > 0 ? coordinatorColleges : departmentNames;
+  const allPrograms        = expandedCollege ? (departments[expandedCollege]?.programs || []).map(p => p.name) : [];
 
   // Derive section letters from YEAR_SECTIONS (e.g. "4-A" → "A")
   const sectionLetters = YEAR_SECTIONS.map(s => s.split("-")[1]).filter(Boolean);
@@ -930,7 +961,7 @@ const FilterPanel = ({ filters, setFilters, filterRef, coordinatorColleges = [] 
         {locationLevel === "college" && (
           <div style={{ maxHeight: "160px", overflowY: "auto", display: "flex", flexDirection: "column", gap: "3px" }}>
             {allColleges.length > 0 ? (
-              allColleges.map(col => (<div key={col} onClick={() => toggleCollege(col)} style={{ padding: "4px 8px", borderRadius: "6px", fontSize: "0.72rem", cursor: "pointer", background: "#f7f0f0", color: darkRed, border: "1px solid #e0c0c0" }} onMouseEnter={e => e.currentTarget.style.background = "#f0d0d0"} onMouseLeave={e => e.currentTarget.style.background = "#f7f0f0"}>{COLLEGE_DATA[col]?.label || col}</div>))
+              allColleges.map(col => (<div key={col} onClick={() => toggleCollege(col)} style={{ padding: "4px 8px", borderRadius: "6px", fontSize: "0.72rem", cursor: "pointer", background: "#f7f0f0", color: darkRed, border: "1px solid #e0c0c0" }} onMouseEnter={e => e.currentTarget.style.background = "#f0d0d0"} onMouseLeave={e => e.currentTarget.style.background = "#f7f0f0"}>{col}</div>))
             ) : (
               <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.72rem", color: "#bbb", fontStyle: "italic" }}>No departments available</span>
             )}
@@ -1009,20 +1040,39 @@ const mapStudentDoc = (docSnap) => {
   };
 };
 
-// True if a student's (college, program) matches one of the coordinator's
-// assigned (college, program) pairs. Needed on top of the college-only
-// Firestore filter because CED/CHM/CBA have multiple programs/majors under
-// one department — a coordinator is scoped to their specific program, not
-// every student in the whole department.
 // ── Main Screen ────────────────────────────────────────────────────────────────
 // Props:
 //   coordinatorUid      — logged-in coordinator's Firebase UID
-//   coordinatorColleges — array of college keys (e.g. ["CCS"]) derived from the
+//   coordinatorColleges — array of college names derived from the
 //                         coordinator's deptSelections — a coordinator can be
 //                         assigned to more than one department. All
 //                         coordinators of the same college see the same
 //                         students, regardless of program/major.
+//                         NOTE: this is normalized below (see
+//                         normalizedCoordinatorColleges) to tolerate the
+//                         parent still passing legacy short codes ("CCS")
+//                         instead of the full name — students/companies/
+//                         coordinators/posts all key on the full name now.
 const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges }) => {
+  const { departments, departmentNames } = useDepartmentsPrograms();
+
+  // coordinatorColleges may arrive as either full names (canonical) or
+  // legacy short codes, depending on what the parent screen currently
+  // computes from the coordinator's deptSelections. Normalize once here so
+  // the Firestore query below, and every comparison against a student's own
+  // `college` (always a full name — see StudentAccountProfileScreen.jsx and
+  // handleCreate below), is on the same footing. Without this, a parent
+  // still passing codes would make the query below match ZERO students.
+  const abbrToFullName = React.useMemo(() => {
+    const map = {};
+    departmentNames.forEach(name => { if (departments[name]?.abbr) map[departments[name].abbr] = name; });
+    return map;
+  }, [departments, departmentNames]);
+  const normalizedCoordinatorColleges = React.useMemo(
+    () => (coordinatorColleges || []).map(c => abbrToFullName[c] || c),
+    [coordinatorColleges, abbrToFullName]
+  );
+
   const [students, setStudents]                 = useState([]);
   const [loading, setLoading]                   = useState(true);
   const [selected, setSelected]                 = useState(new Set());
@@ -1044,19 +1094,19 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
   // given college (e.g. all of CED) manages the same pool of student
   // accounts, regardless of which coordinator originally created them.
   useEffect(() => {
-    if (!coordinatorUid || !coordinatorColleges || coordinatorColleges.length === 0) {
+    if (!coordinatorUid || normalizedCoordinatorColleges.length === 0) {
       setStudents([]); setLoading(false); return;
     }
     const q = query(
       collection(db, "students"),
-      where("college", "in", coordinatorColleges)
+      where("college", "in", normalizedCoordinatorColleges)
     );
     const unsub = onSnapshot(q, (snap) => {
       setStudents(snap.docs.map(mapStudentDoc));
       setLoading(false);
     });
     return () => unsub();
-  }, [coordinatorUid, coordinatorColleges]);
+  }, [coordinatorUid, normalizedCoordinatorColleges]);
 
   // ── Close filter panel on outside click ───────────────────────────────────
   useEffect(() => {
@@ -1084,7 +1134,11 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
 
   // ── Create — calls AuthService then shows success modal ───────────────────
   const handleCreate = async (form) => {
-    const { password } = await createStudentAccount(form, coordinatorUid);
+    // collegeAbbr: only used by generateStudentPassword for a short password
+    // suffix (e.g. ".ccs") — form.college itself (the full name) is what
+    // actually gets saved to the student's Firestore doc, matching the
+    // full-name convention used everywhere else in the app.
+    const { password } = await createStudentAccount({ ...form, collegeAbbr: departments[form.college]?.abbr || form.college }, coordinatorUid);
     const fullName = `${form.firstName} ${form.middleInitial ? form.middleInitial + ". " : ""}${form.lastName}`;
     logActivity(coordinatorUid, "student_created", `Created student account for ${fullName}`, { targetId: form.studentId, targetName: fullName }).catch(err => console.error("Failed to log activity:", err));
     setShowNewModal(false);
@@ -1143,7 +1197,9 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
     // Fire in sequence to avoid hammering Firebase Auth rate limits
     for (const s of newStudents) {
       try {
-        await createStudentAccount(s, coordinatorUid);
+        // s.college is already normalized to the full name by validateRow —
+        // collegeAbbr here is only for the password suffix, same as handleCreate.
+        await createStudentAccount({ ...s, collegeAbbr: departments[s.college]?.abbr || s.college }, coordinatorUid);
         successCount++;
       } catch (err) {
         console.warn(`Skipped ${s.studentId}:`, err.message);
@@ -1165,7 +1221,7 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
     exportToXLSX(studentsToExport.map(s => ({
       studentId: s.studentId, firstName: s.firstName,
       middleInitial: s.middleInitial, lastName: s.lastName, college: s.college,
-    })));
+    })), departments);
     setConfirmExport(false);
   };
 
@@ -1203,7 +1259,7 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={hasFilter ? red : "#555"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
                 {hasFilter && <div style={{ position: "absolute", top: "-4px", right: "-4px", width: "10px", height: "10px", borderRadius: "50%", background: red }} />}
               </div>
-              {showFilterDrawer && <FilterPanel filters={filters} setFilters={setFilters} filterRef={filterRef} coordinatorColleges={coordinatorColleges} />}
+              {showFilterDrawer && <FilterPanel filters={filters} setFilters={setFilters} filterRef={filterRef} coordinatorColleges={normalizedCoordinatorColleges} departments={departments} departmentNames={departmentNames} />}
             </div>
           </div>
         </div>
@@ -1246,7 +1302,7 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
             <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.78rem", color: "#888" }}>Filters:</span>
             {filters.sex && <span style={{ background: "#f0e0e0", color: darkRed, border: `1px solid ${red}`, borderRadius: "20px", padding: "2px 10px", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif", display: "flex", alignItems: "center", gap: "5px" }}>{filters.sex}<span onClick={() => setFilters(prev => ({ ...prev, sex: "" }))} style={{ cursor: "pointer", fontWeight: "bold" }}>×</span></span>}
             {filters.section && <span style={{ background: "#f0e0e0", color: darkRed, border: `1px solid ${red}`, borderRadius: "20px", padding: "2px 10px", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif", display: "flex", alignItems: "center", gap: "5px" }}>4-{filters.section}<span onClick={() => setFilters(prev => ({ ...prev, section: "" }))} style={{ cursor: "pointer", fontWeight: "bold" }}>×</span></span>}
-            {filters.college && <span style={{ background: "#f0e0e0", color: darkRed, border: `1px solid ${red}`, borderRadius: "20px", padding: "2px 10px", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif", display: "flex", alignItems: "center", gap: "5px" }}>{[filters.college ? (COLLEGE_DATA[filters.college]?.label || filters.college) : "", filters.program].filter(Boolean).join(" › ")}<span onClick={() => setFilters(prev => ({ ...prev, college: "", program: "" }))} style={{ cursor: "pointer", fontWeight: "bold" }}>×</span></span>}
+            {filters.college && <span style={{ background: "#f0e0e0", color: darkRed, border: `1px solid ${red}`, borderRadius: "20px", padding: "2px 10px", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif", display: "flex", alignItems: "center", gap: "5px" }}>{[filters.college, filters.program].filter(Boolean).join(" › ")}<span onClick={() => setFilters(prev => ({ ...prev, college: "", program: "" }))} style={{ cursor: "pointer", fontWeight: "bold" }}>×</span></span>}
             <span onClick={() => setFilters({ college: "", program: "", sex: "", section: "" })} style={{ fontSize: "0.74rem", color: red, cursor: "pointer", fontFamily: "'Kufam', sans-serif", textDecoration: "underline" }}>Clear all</span>
           </div>
         )}
@@ -1289,9 +1345,9 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
         </div>
       </div>
 
-      {showNewModal    && <StudentForm coordinatorColleges={coordinatorColleges} onClose={() => setShowNewModal(false)} onSubmit={handleCreate} submitLabel="CREATE ACCOUNT" />}
-      {viewingStudent  && <StudentForm initial={viewingStudent} readOnly coordinatorColleges={coordinatorColleges} onClose={() => setViewingStudent(null)} onSubmit={handleSave} />}
-      {showImportModal && <ImportModal coordinatorColleges={coordinatorColleges} onClose={() => setShowImportModal(false)} onImport={handleImport} />}
+      {showNewModal    && <StudentForm coordinatorColleges={normalizedCoordinatorColleges} departments={departments} onClose={() => setShowNewModal(false)} onSubmit={handleCreate} submitLabel="CREATE ACCOUNT" />}
+      {viewingStudent  && <StudentForm initial={viewingStudent} readOnly coordinatorColleges={normalizedCoordinatorColleges} departments={departments} onClose={() => setViewingStudent(null)} onSubmit={handleSave} />}
+      {showImportModal && <ImportModal coordinatorColleges={normalizedCoordinatorColleges} departments={departments} onClose={() => setShowImportModal(false)} onImport={handleImport} />}
 
       {/* ── Warning modal: no students selected for export ── */}
       {exportEmptyWarning && (

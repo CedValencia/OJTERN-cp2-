@@ -3,6 +3,7 @@ import { doc, updateDoc, onSnapshot } from "firebase/firestore";
 import { getAuth, signOut } from "firebase/auth";
 import { db } from "./firebase";
 import { changePassword } from "./AuthService";
+import { useDepartmentsPrograms } from "./departmentsPrograms";
 import AccountProfile from "../icons/accountprofile.png";
 import viewIcon from "../icons/view.png";
 import PersonalAccountProfile from "../icons/personalaccountprofile.png";
@@ -241,30 +242,14 @@ const ResponsiveStyles = () => (
 );
 
 // ─── College & Program Data ───────────────────────────────────────────────────
-const COLLEGE_PROGRAM_MAP = {
-  CCS:  { label: "College of Computer Studies",
-          programs: { BSIT: "Bachelor of Science in Information Technology" } },
-  CBA:  { label: "College of Business and Accountancy",
-          programs: {
-            "BSBA (Major in Marketing Management)": "BS Business Administration — Major in Marketing Management",
-            BSA: "Bachelor of Science in Accountancy",
-          } },
-  CCJE: { label: "College of Criminal Justice Education",
-          programs: { "BS CRIM": "Bachelor of Science in Criminology" } },
-  CLA:  { label: "College of Liberal Arts",
-          programs: { "BA POLSCI": "Bachelor of Arts in Political Science" } },
-  CED:  { label: "College of Education",
-          programs: {
-            BEED: "Bachelor of Elementary Education",
-            "BSED (Major in English)": "BS Education — Major in English",
-            "BSED (Major in Mathematics)": "BS Education — Major in Mathematics",
-          } },
-  CHTM:  { label: "College of Hospitality and Tourism Management",
-          programs: {
-            BSTM: "Bachelor of Science in Tourism Management",
-            BSHM: "Bachelor of Science in Hospitality Management",
-          } },
-};
+// Now loaded live from Firestore via useDepartmentsPrograms() (see
+// ./departmentsPrograms) — the same source SignUpStep1Screen,
+// CoordinatorAccountProfileScreen, and CompanyCreatePostScreen all use, so
+// a student's College/Program always matches the exact same full names a
+// company registers/posts under and a coordinator is assigned to. This used
+// to be its own separate hardcoded copy (with its own short CODES like
+// "CCS"/"BSIT" as the actual stored value — see the legacy-migration note
+// near LEGACY_COLLEGE_CODE_MAP below for why that broke matching).
 
 const YEAR_SECTIONS = [
   "4-A","4-B","4-C","4-D",
@@ -461,37 +446,48 @@ const PersonalInfoScreen = ({ onBack, user }) => {
     middleInitial:  "",
     firstName:      "",
     suffix:         "",
-    collegeCode:    "",
-    programCode:    "",
+    collegeCode:    "",   // holds the full College name now (e.g. "College of Computer Studies") — see LEGACY_COLLEGE_CODE_MAP below for why the field name still says "Code"
+    programCode:    "",   // holds the full Program name now
     yearSection:    "",
     sex:            "",
     age:            "",
     email:          "",
   });
 
-  // ── Load student data from Firestore ──────────────────────────────────────
-  // Map abbreviation → full college name used by COLLEGES array
-  const COLLEGE_ABBR_MAP = {
-    "CCS":  "College of Computer Studies",
-    "CBA":  "College of Business and Accountancy",
-    "CCJE": "College of Criminal Justice Education",
-    "CLA":  "College of Liberal Arts",
-    "CED":  "College of Education",
-    "CHTM":  "College of Hospitality and Tourism Management",
-  };
+  const { departments, departmentNames } = useDepartmentsPrograms();
 
-  // Map abbreviated program → full program name used by COLLEGES array
-  const PROGRAM_ABBR_MAP = {
-    "BSIT":                          "Bachelor of Science in Information Technology",
-    "BSBA (Major in Marketing Management)": "Bachelor of Science in Business Administration",
-    "BSA":                           "Bachelor of Science in Accountancy",
-    "BS CRIM":                       "Bachelor of Science in Criminology",
-    "BA POLSCI":                     "Bachelor of Arts in Political Science",
-    "BEED":                          "Bachelor of Elementary Education",
-    "BSED (Major in English)":       "Bachelor of Secondary Education",
-    "BSED (Major in Mathematics)":   "Bachelor of Secondary Education",
-    "BSTM":                          "Bachelor of Science in Tourism Management",
-    "BSHM":                          "Bachelor of Science in Hospitality Management",
+  // ── Load student data from Firestore ──────────────────────────────────────
+  // ── Legacy short-code migration ────────────────────────────────────────
+  // Student accounts created before this screen switched to storing full
+  // College/Program names (the same full names companies register/post
+  // under and coordinators are assigned to — see ./departmentsPrograms and
+  // CompanyCreatePostScreen.jsx's courseSelections) have `college`/`program`
+  // saved as short CODES instead ("CCS", "BSIT"). Those codes never matched
+  // anything elsewhere in the app, which silently broke Find Company
+  // filtering for every such student. These two maps translate an old code
+  // into today's canonical full name purely for display/matching here;
+  // saving the profile (even with no other change) rewrites the Firestore
+  // fields to the full name, self-healing the record from then on — same
+  // pattern as the coordinator-side migration.
+  const LEGACY_COLLEGE_CODE_MAP = {
+    CCS:  "College of Computer Studies",
+    CBA:  "College of Business and Accountancy",
+    CCJE: "College of Criminal Justice Education",
+    CLA:  "College of Liberal Arts",
+    CED:  "College of Education",
+    CHTM: "College of Hospitality and Tourism Management",
+  };
+  const LEGACY_PROGRAM_CODE_MAP = {
+    "BSIT":                                  "Bachelor of Science in Information Technology",
+    "BSBA (Major in Marketing Management)":  "BS Business Administration — Major in Marketing Management",
+    "BSA":                                   "Bachelor of Science in Accountancy",
+    "BS CRIM":                               "Bachelor of Science in Criminology",
+    "BA POLSCI":                             "Bachelor of Arts in Political Science",
+    "BEED":                                  "Bachelor of Elementary Education",
+    "BSED (Major in English)":               "BS Education — Major in English",
+    "BSED (Major in Mathematics)":           "BS Education — Major in Mathematics",
+    "BSTM":                                  "Bachelor of Science in Tourism Management",
+    "BSHM":                                  "Bachelor of Science in Hospitality Management",
   };
 
   useEffect(() => {
@@ -499,14 +495,16 @@ const PersonalInfoScreen = ({ onBack, user }) => {
     const unsub = onSnapshot(doc(db, "students", user.uid), (snap) => {
       if (snap.exists() && !editingRef.current) {
         const d = snap.data();
+        const rawCollege = d.college || "";
+        const rawProgram = d.program || "";
         setForm({
           studentId:      d.studentId      || "",
           lastName:       d.lastName       || "",
           middleInitial:  d.middleInitial  || "",
           firstName:      d.firstName      || "",
           suffix:         d.suffix         || "",
-          collegeCode:    d.college        || "",
-          programCode:    d.program        || "",
+          collegeCode:    LEGACY_COLLEGE_CODE_MAP[rawCollege] || rawCollege,
+          programCode:    LEGACY_PROGRAM_CODE_MAP[rawProgram] || rawProgram,
           yearSection:    d.yearSection    || "",
           sex:            d.sex            || "",
           age:            String(d.age     || ""),
@@ -529,19 +527,23 @@ const PersonalInfoScreen = ({ onBack, user }) => {
     </div>
   );
 
-  const collegeInfo    = COLLEGE_PROGRAM_MAP[form.collegeCode];
-  const collegeLabel   = collegeInfo?.label || form.collegeCode || "—";
-  const programLabel   = collegeInfo?.programs?.[form.programCode] || form.programCode || "—";
-  const programEntries = collegeInfo ? Object.entries(collegeInfo.programs) : [];
-  // Defensive fallback: if the student's stored program/college code doesn't match
-  // any known key (e.g. imported with a different format), still show it as a
-  // selectable option instead of leaving the dropdown blank / forcing a reselect.
-  const programEntriesForSelect = (form.programCode && !programEntries.some(([code]) => code === form.programCode))
+  // form.collegeCode/programCode already ARE the full display names now, so
+  // no separate code→label lookup is needed the way the old hardcoded
+  // COLLEGE_PROGRAM_MAP required.
+  const collegeLabel   = form.collegeCode || "—";
+  const programLabel   = form.programCode || "—";
+  const programEntries = (departments[form.collegeCode]?.programs || []).map(p => [p.name, p.name]);
+  // Defensive fallback: if the student's stored program/college doesn't match
+  // any currently-known name (e.g. a legacy code this file doesn't recognize,
+  // or a Program removed/renamed since), still show it as a selectable
+  // option instead of leaving the dropdown blank / forcing a reselect the
+  // student didn't ask for.
+  const programEntriesForSelect = (form.programCode && !programEntries.some(([name]) => name === form.programCode))
     ? [...programEntries, [form.programCode, programLabel]]
     : programEntries;
-  const collegeEntriesForSelect = (form.collegeCode && !COLLEGE_PROGRAM_MAP[form.collegeCode])
-    ? [...Object.entries(COLLEGE_PROGRAM_MAP), [form.collegeCode, { label: collegeLabel }]]
-    : Object.entries(COLLEGE_PROGRAM_MAP);
+  const collegeEntriesForSelect = (form.collegeCode && !departmentNames.includes(form.collegeCode))
+    ? [...departmentNames.map(name => [name, { label: name }]), [form.collegeCode, { label: collegeLabel }]]
+    : departmentNames.map(name => [name, { label: name }]);
 
   const setField = (key, val) => setForm(f => ({ ...f, [key]: val }));
   const handleCollegeChange = (code) => setForm(f => ({ ...f, collegeCode: code, programCode: "" }));

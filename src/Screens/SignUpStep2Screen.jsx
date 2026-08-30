@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { registerCompany } from "./AuthService";
 import { uploadFiles }    from "./CloudinaryService";
 
@@ -302,6 +302,8 @@ const SignUpStep2Screen = ({ onBack, onGoSignIn, onSubmitSuccess, step1Data }) =
   const [submitting, setSubmitting] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [showTerms, setShowTerms]   = useState(false);
+  const [termsScrolledToEnd, setTermsScrolledToEnd] = useState(false);
+  const termsScrollRef = useRef(null);
 
   const MAX_TOTAL_MB = 10;
   const MAX_BYTES    = MAX_TOTAL_MB * 1024 * 1024;
@@ -340,14 +342,34 @@ const SignUpStep2Screen = ({ onBack, onGoSignIn, onSubmitSuccess, step1Data }) =
   };
 
   // ── Terms & Conditions modal handlers ─────────────────────────────────────
-  const openTerms = () => setShowTerms(true);
+  const openTerms = () => {
+    setTermsScrolledToEnd(false);
+    setShowTerms(true);
+  };
+
+  const handleTermsScroll = (e) => {
+    const el = e.target;
+    // small tolerance for sub-pixel rounding
+    const reachedEnd = el.scrollHeight - el.scrollTop - el.clientHeight < 4;
+    if (reachedEnd) setTermsScrolledToEnd(true);
+  };
+
+  // If the terms content is short enough to fit without scrolling, don't
+  // trap the user — auto-unlock "I Agree" once the modal has rendered.
+  useEffect(() => {
+    if (!showTerms) return;
+    const el = termsScrollRef.current;
+    if (el && el.scrollHeight - el.clientHeight < 4) {
+      setTermsScrolledToEnd(true);
+    }
+  }, [showTerms]);
 
   const handleCheckboxClick = () => {
     if (agreed) {
       // allow unchecking directly without re-reading the terms
       setAgreed(false);
     } else {
-      setShowTerms(true);
+      openTerms();
     }
   };
 
@@ -551,14 +573,20 @@ const SignUpStep2Screen = ({ onBack, onGoSignIn, onSubmitSuccess, step1Data }) =
                       ✕
                     </span>
                   </div>
-                  <div className="su2-terms-scroll">
+                  <div className="su2-terms-scroll" onScroll={handleTermsScroll} ref={termsScrollRef}>
                     <TermsContent />
                   </div>
                   <div className="su2-terms-footer">
+                   
                     <button
                       onClick={handleAgreeTerms}
                       className="su2-btn"
-                      style={{ width: "100%" }}
+                      disabled={!termsScrolledToEnd}
+                      style={{
+                        width: "100%",
+                        opacity: termsScrolledToEnd ? 1 : 0.5,
+                        cursor: termsScrolledToEnd ? "pointer" : "not-allowed",
+                      }}
                     >
                       I Agree
                     </button>

@@ -29,7 +29,6 @@ fontFamily: "'Playfair Display', serif"   /* Premium, sophisticated */
     .about-header-card {
       position: relative;
       z-index: 2;
-      margin-top: 46px;
       background: white;
       border-radius: 14px;
       padding: 56px 40px 4px;
@@ -76,7 +75,7 @@ fontFamily: "'Playfair Display', serif"   /* Premium, sophisticated */
       gap: 8px;
       width: 100%;
       max-width: 420px;
-      margin: 18px auto 14px;
+      margin: 22px auto 14px;
       padding: 0 4px;
     }
 
@@ -577,34 +576,38 @@ const AboutScreen = ({ onBack }) => {
       <ResponsiveStyles />
 
       {/* ── Red header ── */}
-      <div style={{ position: "relative", flexShrink: 0, zIndex: 1, display: "flex", justifyContent: "center" }}>
+      <div style={{
+        flexShrink: 0, position: "relative", zIndex: 1,
+        background: darkRed,
+        borderBottomLeftRadius: "30px", borderBottomRightRadius: "30px",
+        display: "flex", justifyContent: "center",
+        paddingTop: "40px",
+        paddingBottom: "26px",
+      }}>
+        {/* Logo circle — a direct child of the FULL-WIDTH maroon container
+            (not of the white card below), so left:50%+translateX centers it
+            against the full maroon width. Centering it relative to the white
+            card instead was the bug: the card's width shrinks to fit its own
+            text content, so the card's own "50%" is not the same point as
+            the maroon block's true horizontal center. */}
         <div style={{
-          position: "absolute", top: 0, left: 0, right: 0,
-          height: "80px", background: darkRed,
-          borderBottomLeftRadius: "30px", borderBottomRightRadius: "30px",
-          zIndex: 1,
-        }} />
+          position: "absolute", top: "12px", left: "50%", transform: "translateX(-50%)",
+          width: "75px", height: "75px", borderRadius: "50%",
+          background: "#320000",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          zIndex: 3, boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
+          overflow: "hidden",
+        }}>
+          <img src={logo} alt="OJTern"
+            style={{ width: "56px", height: "56px", objectFit: "contain", display: "block" }} />
+        </div>
 
         <div className="about-header-card">
-          {/* Logo circle */}
-          <div style={{
-            position: "absolute", top: "-28px",
-            width: "75px", height: "75px", borderRadius: "50%",
-            background: "#320000",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            zIndex: 3, boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
-            overflow: "hidden",
-          }}>
-            <img src={logo} alt="OJTern"
-              style={{ width: "56px", height: "56px", objectFit: "contain", display: "block" }} />
-          </div>
-
           <p className="about-app-name">OJTern</p>
           <span style={{
             fontFamily: "'Kufam', sans-serif", fontSize: "0.72rem",
             color: "#888", fontWeight: 600, marginTop: "2px",
           }}>
-            Version 2.1.0
           </span>
         </div>
       </div>

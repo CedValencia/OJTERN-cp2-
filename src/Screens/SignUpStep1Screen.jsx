@@ -1,7 +1,43 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
+import { db } from "./firebase";
+import { collection, doc, setDoc, onSnapshot, serverTimestamp } from "firebase/firestore";
+import { useDepartmentsPrograms } from "./departmentsPrograms";
 
 const darkRed = "#320000";
 const red = "#8B0000";
+
+// ── Password strength requirements ────────────────────────────────────────────
+const PASSWORD_RULES = [
+  { key: "length",    label: "At least 8 characters",                     test: pwd => pwd.length >= 8 },
+  { key: "uppercase", label: "At least one uppercase letter (A–Z)",       test: pwd => /[A-Z]/.test(pwd) },
+  { key: "lowercase", label: "At least one lowercase letter (a–z)",       test: pwd => /[a-z]/.test(pwd) },
+  { key: "number",    label: "At least one number (0–9)",                 test: pwd => /[0-9]/.test(pwd) },
+  { key: "special",   label: "At least one special character (!@#$%&*_…)", test: pwd => /[!@#$%^&*()\-_=+\[\]{};:'",.<>/?\\|`~]/.test(pwd) },
+  { key: "noSpaces",  label: "No spaces",                                 test: pwd => !/\s/.test(pwd) },
+];
+
+const isPasswordStrong = (pwd) => PASSWORD_RULES.every(rule => rule.test(pwd));
+
+const PasswordChecklist = ({ password }) => {
+  if (!password) return null;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "3px", margin: "2px 0 12px 2px" }}>
+      {PASSWORD_RULES.map(rule => {
+        const passed = rule.test(password);
+        return (
+          <div key={rule.key} style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+            <span style={{ fontSize: "0.78rem", fontWeight: 700, color: passed ? "#2a7a2a" : "#c0392b", width: "12px", flexShrink: 0 }}>
+              {passed ? "✓" : "✗"}
+            </span>
+            <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.74rem", color: passed ? "#2a7a2a" : "#888" }}>
+              {rule.label}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
 
 // ── Mapbox token ──────────────────────────────────────────────────────────────
 const MAPBOX_TOKEN = "pk.eyJ1IjoibWFraWlpaS0iLCJhIjoiY21wbTgybHVmMmc1ZzJycTFuZXRlb3NoNCJ9.FIpjF2lKTHkbU1e6qrL_Pw";
@@ -2463,11 +2499,15 @@ const LocationMapPreview = ({ address, onResolved }) => {
   const mapRef          = useRef(null);
   const markerRef       = useRef(null);
   const debounceRef     = useRef(null);
+  const addressRef      = useRef(address);
   const [mapReady, setMapReady] = useState(!!window.mapboxgl);
   const [mapError, setMapError] = useState(false);
   const [geocoding, setGeocoding] = useState(false);
   const [coords, setCoords]       = useState({ lat: null, lng: null });
   const [showZoom, setShowZoom]   = useState(false);
+  const [pinIsManual, setPinIsManual] = useState(false);
+
+  useEffect(() => { addressRef.current = address; }, [address]);
 
   useEffect(() => {
     if (window.mapboxgl) { setMapReady(true); return; }
@@ -2493,6 +2533,25 @@ const LocationMapPreview = ({ address, onResolved }) => {
         zoom:      5,
       });
       mapRef.current.addControl(new window.mapboxgl.NavigationControl({ showCompass: false }), "top-right");
+
+      // Let the company click anywhere on the map to drop the pin at their
+      // exact location — overrides the address-based pin until the address
+      // selection changes again (see the address-effect below, which resets
+      // this back to "auto" as the new starting point).
+      mapRef.current.getCanvas().style.cursor = "pointer";
+      mapRef.current.on("click", (e) => {
+        const { lat, lng } = e.lngLat;
+        if (markerRef.current) {
+          markerRef.current.setLngLat([lng, lat]);
+        } else {
+          markerRef.current = new window.mapboxgl.Marker({ color: "#8B0000" })
+            .setLngLat([lng, lat])
+            .addTo(mapRef.current);
+        }
+        setCoords({ lat, lng });
+        setPinIsManual(true);
+        onResolved?.({ address: addressRef.current, lat, lng, isManual: true });
+      });
     } catch (_) {
       setMapError(true);
     }
@@ -2515,7 +2574,10 @@ const LocationMapPreview = ({ address, onResolved }) => {
           .setLngLat([lng, lat])
           .addTo(mapRef.current);
       }
-      onResolved?.({ address, lat, lng });
+      // A new address selection is a fresh starting point — any earlier
+      // manual pin placement no longer applies.
+      setPinIsManual(false);
+      onResolved?.({ address, lat, lng, isManual: false });
       setCoords({ lat, lng });
     }, 500);
     return () => clearTimeout(debounceRef.current);
@@ -2532,36 +2594,66 @@ const LocationMapPreview = ({ address, onResolved }) => {
   }
 
   return (
-    <div style={{ position: "relative", marginTop: "8px" }}>
-      <div ref={mapContainerRef} className="su1-map-container" />
-      {geocoding && (
-        <span style={{ position: "absolute", top: "8px", left: "10px", background: "rgba(0,0,0,0.6)", color: "white", fontFamily: "'Kufam', sans-serif", fontSize: "0.68rem", padding: "3px 8px", borderRadius: "10px" }}>
-          Locating…
-        </span>
-      )}
-      {coords.lat != null && (
-        <button
-          onClick={() => setShowZoom(true)}
-          title="Click to view fullscreen"
-          style={{
-            position: "absolute", bottom: "10px", left: "50%", transform: "translateX(-50%)",
-            background: "rgba(0,0,0,0.6)", color: "white", border: "none", borderRadius: "16px",
-            padding: "4px 12px", fontSize: "0.72rem", fontFamily: "'Kufam', sans-serif",
-            cursor: "pointer", display: "flex", alignItems: "center", gap: "4px", zIndex: 5,
-          }}
-        >
-          🔍 Click to zoom
-        </button>
-      )}
-      {showZoom && <MapZoomModal lat={coords.lat} lng={coords.lng} onClose={() => setShowZoom(false)} />}
+    <div style={{ marginTop: "8px" }}>
+      <div style={{ position: "relative" }}>
+        <div ref={mapContainerRef} className="su1-map-container" />
+        {geocoding && (
+          <span style={{ position: "absolute", top: "8px", left: "10px", background: "rgba(0,0,0,0.6)", color: "white", fontFamily: "'Kufam', sans-serif", fontSize: "0.68rem", padding: "3px 8px", borderRadius: "10px" }}>
+            Locating…
+          </span>
+        )}
+        {!geocoding && pinIsManual && (
+          <span style={{ position: "absolute", top: "8px", left: "10px", background: "rgba(139,0,0,0.85)", color: "white", fontFamily: "'Kufam', sans-serif", fontSize: "0.68rem", padding: "3px 8px", borderRadius: "10px" }}>
+            📍 Manually pinned
+          </span>
+        )}
+        {coords.lat != null && (
+          <button
+            onClick={() => setShowZoom(true)}
+            title="Click to view fullscreen"
+            style={{
+              position: "absolute", bottom: "10px", left: "50%", transform: "translateX(-50%)",
+              background: "rgba(0,0,0,0.6)", color: "white", border: "none", borderRadius: "16px",
+              padding: "4px 12px", fontSize: "0.72rem", fontFamily: "'Kufam', sans-serif",
+              cursor: "pointer", display: "flex", alignItems: "center", gap: "4px", zIndex: 5,
+            }}
+          >
+            🔍 Click to zoom
+          </button>
+        )}
+        {showZoom && (
+          <MapZoomModal
+            lat={coords.lat}
+            lng={coords.lng}
+            onClose={() => setShowZoom(false)}
+            onPin={({ lat, lng }) => {
+              if (markerRef.current) {
+                markerRef.current.setLngLat([lng, lat]);
+              } else if (mapRef.current) {
+                markerRef.current = new window.mapboxgl.Marker({ color: "#8B0000" })
+                  .setLngLat([lng, lat])
+                  .addTo(mapRef.current);
+              }
+              if (mapRef.current) mapRef.current.flyTo({ center: [lng, lat], zoom: 15, duration: 600 });
+              setCoords({ lat, lng });
+              setPinIsManual(true);
+              onResolved?.({ address: addressRef.current, lat, lng, isManual: true });
+            }}
+          />
+        )}
+      </div>
+      <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.68rem", color: "#888", margin: "4px 0 0 2px" }}>
+        Not exact? Click anywhere on the map to drop the pin on your exact location.
+      </p>
     </div>
   );
 };
 
 // ── Fullscreen map modal, opened via "Click to zoom" ───────────────────────
-const MapZoomModal = ({ lat, lng, onClose }) => {
+const MapZoomModal = ({ lat, lng, onClose, onPin }) => {
   const mapContainerRef = useRef(null);
   const mapRef          = useRef(null);
+  const markerRef       = useRef(null);
 
   useEffect(() => {
     const loadMap = () => {
@@ -2574,7 +2666,16 @@ const MapZoomModal = ({ lat, lng, onClose }) => {
         zoom:      15,
       });
       mapRef.current.addControl(new window.mapboxgl.NavigationControl(), "top-right");
-      new window.mapboxgl.Marker({ color: "#8B0000" }).setLngLat([lng, lat]).addTo(mapRef.current);
+      markerRef.current = new window.mapboxgl.Marker({ color: "#8B0000" }).setLngLat([lng, lat]).addTo(mapRef.current);
+
+      // Click anywhere in this larger fullscreen view to fine-tune the pin —
+      // easier to be precise here than on the small preview.
+      mapRef.current.getCanvas().style.cursor = "pointer";
+      mapRef.current.on("click", (e) => {
+        const { lat: newLat, lng: newLng } = e.lngLat;
+        markerRef.current.setLngLat([newLng, newLat]);
+        onPin?.({ lat: newLat, lng: newLng });
+      });
     };
 
     if (window.mapboxgl) { loadMap(); return; }
@@ -2606,6 +2707,9 @@ const MapZoomModal = ({ lat, lng, onClose }) => {
         >
           ✕ Close
         </button>
+        <span style={{ position: "absolute", top: "12px", right: "56px", zIndex: 10, background: "rgba(0,0,0,0.6)", color: "white", borderRadius: "16px", padding: "6px 14px", fontFamily: "'Kufam', sans-serif", fontSize: "0.75rem" }}>
+          Click anywhere to set your exact pin
+        </span>
       </div>
     </div>
   );
@@ -2613,54 +2717,228 @@ const MapZoomModal = ({ lat, lng, onClose }) => {
 
 // ── Industries ────────────────────────────────────────────────────────────────
 const INDUSTRIES = [
-//College of Computer Studies
-
-"Software & Tech Development",
-"Information Technology & Managed Services",
-"Cybersecurity",
-"E-Commerce & Digital Business",
+"Artificial Intelligence",
+"Developer Tools & DevOps",
 "Data & Analytics",
-
-//College of Business and Accountancy
-
-"Financial Services & Banking",
-"Public & Corporate Accounting",
-"Consumer Goods & Retail",
-"Digital Marketing & Advertising",
-"Management Consulting",
-
-//College of Criminal Justice Education
-
-"Law Enforcement & Public Safety",
-"Private Security & Risk Management",
-"Corrections & Rehabilitation ",
-"Forensics & Crime Scene Investigation",
-"Legal & Judicial Support",
-
-//College of Liberal Arts
-
-"Government & Public Policy",
-"Non-Governmental & International Organizations",
-"Legal Services",
-"Political Consulting & Campaign Management",
-"Journalism & Media Communications (Political Reporting, Editorial Services)",
-
-//College of Education
-
-"Primary & Secondary K-12 Education",
-"Educational Technology & E-Learning",
-"Corporate Training & Adult Education",
-"Academic Publishing & Content Creation",
-"Test Preparation & Tutoring Services",
-
-//College of Hospitality Management
-
-"Hotels, Resorts & Lodging",
-"Travel & Airline Services",
-"Food & Beverage Service",
-"Event & Conference Management",
-"Eco-Tourism & Destination Marketing",
+"Cybersecurity & Identity",
+"Healthcare",
+"Digital Health & Telehealth",
+"Marketing & Advertising",
+"Blockchain, Crypto & Web3",
+"Telecommunications & Connectivity",
+"Supply Chain & Procurement",
+"Venture Capital & Investing",
+"Biotechnology & Drug Discovery",
+"Financial Services",
+"Education & EdTech",
+"Legal & Compliance Tech",
+"Climate & Sustainability",
+"Robotics & Autonomous Systems",
+"Semiconductors & Hardware",
+"Life Sciences",
+"Retail",
+"IoT & Connected Devices",
+"Banking & Open Banking",
+"Music, Audio & Creator Economy",
+"Human Resources & Payroll",
+"Government & Public Sector",
+"Gaming & Interactive",
+"Insurance",
+"Energy",
+"Mobility & Fleet",
+"Logistics",
+"Real Estate",
+"Media",
+"Weather & Geospatial",
+"Entertainment",
+"Automotive",
+"Transportation",
+"Aerospace",
+"Space & Satellite",
+"Construction",
+"Defense",
+"Enterprise Software",
+"Hospitality",
+"Industrial",
+"Agriculture",
+"Technology",
+"Nutrition",
+"Utilities",
+"Sports",
+"Consumer Goods",
+"Food Delivery",
+"Professional Services",
+"Mining",
+"Food Service",
+"Financial Technology",
+"Maritime",
+"Video Streaming",
+"E-commerce Platform",
+"Pet Care",
+"Waste Management",
+"Rail",
+"Travel Technology",
+"Cannabis",
+"Pharmaceutical",
+"Productivity Software",
+"Environmental Services",
+"Customer Relationship Management (CRM)",
+"Cloud Data Platform",
+"Communications Platform as a Service (CPaaS)",
+"Fitness & Wellness",
+"Tax Compliance Software",
+"Cruise Lines",
+"Event Management Software",
 ];
+
+// Turns "Robotics & Autonomous Systems" into "robotics-autonomous-systems" so
+// a newly-typed industry can be stored under a stable, de-duplicated
+// Firestore document ID (case/spacing differences collapse to the same doc).
+const slugifyIndustry = (s) =>
+  s.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+
+// ── Departments / Programs ───────────────────────────────────────────────────
+// This is what a company's registration is now routed/sorted by (a Company
+// picks one or more Department + Program pairs and their registration goes
+// to the Coordinator(s) whose own Department/Program assignment matches).
+// Industry above is kept only as informational company detail — it no
+// longer drives routing. Data now comes live from Firestore's "departments"
+// collection via useDepartmentsPrograms() (see ./departmentsPrograms) —
+// the DEFAULT_DEPARTMENTS fallback in that file only kicks in if Firestore
+// has nothing seeded yet, so nothing is hardcoded here anymore.
+
+// ── Industry Autocomplete ────────────────────────────────────────────────────
+// A type-to-search text field: the Company types their industry and matching
+// suggestions from INDUSTRIES show up below to pick from. Free typing is
+// still allowed — Industry is informational only now (College/Department
+// above is what actually routes the registration to a Coordinator).
+const IndustryAutocomplete = ({ value, onChange, hasError, options }) => {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef(null);
+
+  useEffect(() => {
+    const handler = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const query   = value.trim().toLowerCase();
+  const list    = options || INDUSTRIES;
+  const matches = query === "" ? list : list.filter(ind => ind.toLowerCase().includes(query));
+
+  return (
+    <div ref={wrapRef} style={{ position: "relative", marginBottom: "2px" }}>
+      <input
+        type="text"
+        placeholder="Type your Industry:"
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        onFocus={() => setOpen(true)}
+        autoComplete="off"
+        style={{ ...inputStyle, border: hasError ? "1.5px solid red" : "none" }}
+      />
+      {open && matches.length > 0 && (
+        <div style={{
+          position: "absolute", top: "calc(100% + 6px)", left: 0, right: 0,
+          background: "white", border: "1.5px solid #590101", borderRadius: "14px",
+          boxShadow: "0 6px 20px rgba(0,0,0,0.18)", zIndex: 50,
+          maxHeight: "230px", overflowY: "auto", padding: "8px 0",
+        }}>
+          {matches.map(ind => (
+            <div
+              key={ind}
+              onClick={() => { onChange(ind); setOpen(false); }}
+              style={{
+                padding: "9px 16px", cursor: "pointer", userSelect: "none",
+                fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#222",
+              }}
+            >
+              {ind}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ── Department → Program Picker ─────────────────────────────────────────────
+// Department drives Program: picking a Department shows only the Programs
+// that belong to it (from `departments`, loaded live from Firestore — see
+// useDepartmentsPrograms). Supports more than one Department/Program pair
+// (e.g. a Company hosting interns from both CCS and CBA), matching the
+// multi-college capability the previous single-select-per-college design had.
+const DeptProgramPicker = ({ selections, onChange, hasError, departments, departmentNames }) => {
+  const addEntry    = () => onChange([...selections, { department: "", program: "" }]);
+  const removeEntry = (idx) => onChange(selections.filter((_, i) => i !== idx));
+  const updateEntry = (idx, field, value) => {
+    onChange(selections.map((entry, i) => {
+      if (i !== idx) return entry;
+      // Changing Department always clears the previously chosen Program,
+      // since a Program from the old Department may not exist under the new one.
+      if (field === "department") return { department: value, program: "" };
+      return { ...entry, [field]: value };
+    }));
+  };
+
+  return (
+    <div style={{ marginBottom: "2px" }}>
+      {selections.map((entry, idx) => {
+        const programs = departments[entry.department]?.programs || [];
+        return (
+          <div key={idx} style={{ background: "rgba(89,1,1,0.06)", borderRadius: "14px", padding: "10px", marginBottom: "8px" }}>
+            <div style={{ display: "flex", gap: "6px", alignItems: "flex-start" }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ position: "relative", marginBottom: "6px" }}>
+                  <select
+                    value={entry.department}
+                    onChange={e => updateEntry(idx, "department", e.target.value)}
+                    style={{ ...dropdownStyle, border: hasError && !entry.department ? "1.5px solid red" : "none", color: entry.department ? "white" : "rgba(255,255,255,0.75)" }}
+                  >
+                    <option value="">Select Department</option>
+                    {departmentNames.map(name => (
+                      <option key={name} value={name}>
+                        {name}{departments[name]?.abbr ? ` (${departments[name].abbr})` : ""}
+                      </option>
+                    ))}
+                  </select>
+                  <DropArrow />
+                </div>
+                {entry.department && (
+                  <div style={{ position: "relative" }}>
+                    <select
+                      value={entry.program}
+                      onChange={e => updateEntry(idx, "program", e.target.value)}
+                      style={{ ...dropdownStyle, border: hasError && !entry.program ? "1.5px solid red" : "none", color: entry.program ? "white" : "rgba(255,255,255,0.75)" }}
+                    >
+                      <option value="">Select Program</option>
+                      {programs.map(p => <option key={p.name} value={p.name}>{p.name}</option>)}
+                    </select>
+                    <DropArrow />
+                  </div>
+                )}
+              </div>
+              {selections.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => removeEntry(idx)}
+                  style={{ width: "26px", height: "26px", borderRadius: "50%", background: "#590101", border: "none", color: "white", fontSize: "0.8rem", cursor: "pointer", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", marginTop: "2px" }}
+                >✕</button>
+              )}
+            </div>
+          </div>
+        );
+      })}
+      <button
+        type="button"
+        onClick={addEntry}
+        style={{ background: "none", border: "1.5px dashed #590101", borderRadius: "20px", color: "#590101", width: "100%", padding: "7px", fontFamily: "'Kufam', sans-serif", fontSize: "0.8rem", cursor: "pointer", fontWeight: 600 }}
+      >
+        + Add Another Department
+      </button>
+    </div>
+  );
+};
 
 // ── Main Screen ───────────────────────────────────────────────────────────────
 // Props:
@@ -2677,23 +2955,61 @@ const SignUpStep1Screen = ({ onContinue, onGoSignIn, initialData }) => {
     barangay: initialData?.location?.barangay ?? "",
     street:   initialData?.location?.street   ?? "",
   });
-  // Preserves { lat, lng, fullAddress } from the live map preview so we don't
-  // have to re-geocode from scratch if it already resolved — handleContinue
-  // still does a fresh geocode as the source of truth, this is just a
-  // fallback in case that call ever comes back empty.
+  // Preserves { lat, lng, fullAddress, isManual } from the live map preview.
+  // `isManual` is true once the company clicks the map to place their own
+  // pin — in that case handleContinue uses this exact spot instead of
+  // re-geocoding the typed address, which would otherwise overwrite it.
   const resolvedGeoRef = useRef({
     lat: initialData?.location?.lat ?? null,
     lng: initialData?.location?.lng ?? null,
     fullAddress: initialData?.location?.fullAddress ?? "",
+    isManual: false,
   });
   const [submitting, setSubmitting] = useState(false);
   // ── Controlled field state ────────────────────────────────────────────────
   const [companyName, setCompanyName] = useState(initialData?.companyName ?? "");
   const [industry, setIndustry]       = useState(initialData?.industry ?? "");
+  const [customIndustries, setCustomIndustries] = useState([]);
+  // Each entry: { department, program } — Program is always dependent on
+  // that entry's Department (see DeptProgramPicker). Falls back to
+  // reconstructing from the flat `departments` array (department names,
+  // no program) if this screen is re-opened with Step 1 data saved before
+  // Program existed — see handleContinue for what's actually submitted.
+  const [deptSelections, setDeptSelections] = useState(
+    initialData?.deptSelections?.length
+      ? initialData.deptSelections
+      : (initialData?.departments?.length
+          ? initialData.departments.map(d => ({ department: d, program: "" }))
+          : [{ department: "", program: "" }])
+  );
+  // Renamed to avoid clashing with the `departments` catalog map below —
+  // this hook call is the live Department→Program data source (Firestore
+  // "departments" collection), NOT the company's own selection.
+  const { departments: departmentCatalog, departmentNames } = useDepartmentsPrograms();
   const [email, setEmail]             = useState(initialData?.email ?? "");
   const [password, setPassword]       = useState(initialData?.password ?? "");
   const [confirmPassword, setConfirmPassword] = useState(initialData?.confirmPassword ?? "");
   const [errors, setErrors]           = useState({});
+
+  // ── Load crowd-added industries ──────────────────────────────────────────
+  // When a Company types an industry that isn't in the curated INDUSTRIES
+  // list, we save it to Firestore (see handleContinue) so it shows up as a
+  // suggestion for the next Company that types something similar.
+  useEffect(() => {
+    const unsub = onSnapshot(
+      collection(db, "industries"),
+      snap => setCustomIndustries(snap.docs.map(d => d.data()?.name).filter(Boolean)),
+      err  => console.error("Failed to load custom industries:", err)
+    );
+    return () => unsub();
+  }, []);
+
+  const allIndustries = [
+    ...INDUSTRIES,
+    ...customIndustries
+      .filter(ci => !INDUSTRIES.some(i => i.toLowerCase() === ci.toLowerCase()))
+      .sort((a, b) => a.localeCompare(b)),
+  ];
 
   // ── Validation ────────────────────────────────────────────────────────────
   const validate = () => {
@@ -2705,6 +3021,10 @@ const SignUpStep1Screen = ({ onContinue, onGoSignIn, initialData }) => {
     if (!industry)
       newErrors.industry = "Please select an industry.";
 
+    const validDeptSelections = deptSelections.filter(s => s.department && s.program);
+    if (validDeptSelections.length === 0)
+      newErrors.departments = "Please select at least one Department and Program.";
+
     if (!location.region) newErrors.location = "Please select a region.";
     else if (!location.province) newErrors.location = "Please select a province.";
     else if (!location.city) newErrors.location = "Please select a city/municipality.";
@@ -2713,8 +3033,8 @@ const SignUpStep1Screen = ({ onContinue, onGoSignIn, initialData }) => {
     if (!email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
       newErrors.email = "Please enter a valid email address.";
 
-    if (!password || password.length < 8)
-      newErrors.password = "Password must be at least 8 characters.";
+    if (!password || !isPasswordStrong(password))
+      newErrors.password = "Password does not meet all the requirements below.";
 
     if (password !== confirmPassword)
       newErrors.confirmPassword = "Passwords do not match.";
@@ -2726,18 +3046,49 @@ const SignUpStep1Screen = ({ onContinue, onGoSignIn, initialData }) => {
   const handleContinue = async () => {
     if (!validate()) return;
     setSubmitting(true);
+
+    // If the typed industry isn't one we already know about (curated or
+    // previously crowd-added), save it so future Companies see it as a
+    // suggestion too. Best-effort — this should never block sign-up.
+    const trimmedIndustry = industry.trim();
+    const isKnownIndustry = allIndustries.some(i => i.toLowerCase() === trimmedIndustry.toLowerCase());
+    if (trimmedIndustry && !isKnownIndustry) {
+      setDoc(
+        doc(db, "industries", slugifyIndustry(trimmedIndustry)),
+        { name: trimmedIndustry, createdAt: serverTimestamp() },
+        { merge: true }
+      ).catch(err => console.error("Failed to save new industry:", err));
+    }
+
     const fullAddress = [location.street, location.barangay, location.city, location.province, location.region]
       .filter(Boolean).join(", ");
-    const geo = await geocodeAddress(fullAddress);
+    // If the company clicked the map to place their own pin, that exact spot
+    // wins — skip re-geocoding (which would otherwise snap it back to the
+    // address-based location and discard their manual adjustment).
+    const geo = resolvedGeoRef.current.isManual
+      ? { lat: resolvedGeoRef.current.lat, lng: resolvedGeoRef.current.lng }
+      : await geocodeAddress(fullAddress);
     setSubmitting(false);
+    const validDeptSelections = deptSelections.filter(s => s.department && s.program);
     onContinue({
       companyName,
-      industry,
+      industry: trimmedIndustry,
+      // Full Department+Program pairs — lets a coordinator's Company List
+      // narrow down to a specific Program, not just the whole Department
+      // (see registerCompany in AuthService.js).
+      deptSelections: validDeptSelections,
+      // Flat department-name array — this is the field name
+      // registerCompany/AuthService.js actually reads and stores for the
+      // "array-contains-any" Firestore query CoordinatorCompanyListScreen.jsx
+      // runs; deptSelections above can't be queried directly since Firestore
+      // can't filter on a sub-field of an array of maps.
+      departments: validDeptSelections.map(s => s.department),
       location: {
         ...location,
         fullAddress: geo.lat != null ? fullAddress : (resolvedGeoRef.current.fullAddress || fullAddress),
         lat: geo.lat ?? resolvedGeoRef.current.lat ?? null,
         lng: geo.lng ?? resolvedGeoRef.current.lng ?? null,
+        isManual: resolvedGeoRef.current.isManual,
       },
       email,
       password,
@@ -2793,18 +3144,23 @@ const SignUpStep1Screen = ({ onContinue, onGoSignIn, initialData }) => {
             <ErrMsg field="companyName" />
 
             <label style={labelStyle}>Industry:</label>
-            <div style={{ position: "relative", marginBottom: "2px" }}>
-              <select
-                value={industry}
-                onChange={e => { setIndustry(e.target.value); setErrors(p => ({ ...p, industry: "" })); }}
-                style={{ ...dropdownStyle, border: errors.industry ? "1.5px solid red" : "none" }}
-              >
-                <option value="">Choose your type of Industry:</option>
-                {INDUSTRIES.map(ind => <option key={ind}>{ind}</option>)}
-              </select>
-              <DropArrow />
-            </div>
+            <IndustryAutocomplete
+              value={industry}
+              onChange={val => { setIndustry(val); setErrors(p => ({ ...p, industry: "" })); }}
+              hasError={!!errors.industry}
+              options={allIndustries}
+            />
             <ErrMsg field="industry" />
+
+            <label style={labelStyle}>Department:</label>
+            <DeptProgramPicker
+              selections={deptSelections}
+              onChange={sels => { setDeptSelections(sels); setErrors(p => ({ ...p, departments: "" })); }}
+              hasError={!!errors.departments}
+              departments={departmentCatalog}
+              departmentNames={departmentNames}
+            />
+            <ErrMsg field="departments" />
 
             <label style={labelStyle}>Company Address:</label>
             <LocationPicker
@@ -2814,8 +3170,8 @@ const SignUpStep1Screen = ({ onContinue, onGoSignIn, initialData }) => {
             {location.city && (
               <LocationMapPreview
                 address={[location.street, location.barangay, location.city, location.province, location.region].filter(Boolean).join(", ")}
-                onResolved={({ address, lat, lng }) => {
-                  resolvedGeoRef.current = { lat, lng, fullAddress: address };
+                onResolved={({ address, lat, lng, isManual }) => {
+                  resolvedGeoRef.current = { lat, lng, fullAddress: address, isManual: !!isManual };
                 }}
               />
             )}
@@ -2843,6 +3199,8 @@ const SignUpStep1Screen = ({ onContinue, onGoSignIn, initialData }) => {
               <EyeIcon show={showPass} onClick={() => setShowPass(!showPass)} />
             </div>
             <ErrMsg field="password" />
+
+            <PasswordChecklist password={password} />
 
             <label style={labelStyle}>Confirm Password:</label>
             <div style={{ position: "relative", marginBottom: "4px" }}>

@@ -48,12 +48,12 @@ import { auth, db, functions } from "./firebase";
  * 1. Creates a Firebase Auth user.
  * 2. Writes the company profile to Firestore with status "pending".
  *
- * @param {object} step1Data  — { email, password, companyName, industry, location }
+ * @param {object} step1Data  — { email, password, companyName, industry, departments, deptSelections, location }
  * @param {string[]} verificationDocs — array of Cloudinary secure_url strings
  * @returns {Promise<string>} the new user's UID
  */
 export const registerCompany = async (step1Data, verificationDocs) => {
-  const { email: rawEmail, password, companyName, industry, location } = step1Data;
+  const { email: rawEmail, password, companyName, industry, departments, deptSelections, location } = step1Data;
   const email = rawEmail.trim().toLowerCase(); // normalize so Auth + Firestore always match
 
   // 1. Firebase Auth
@@ -65,6 +65,26 @@ export const registerCompany = async (step1Data, verificationDocs) => {
     email,
     companyName,
     industry,
+    // Full college names, e.g. ["College of Computer Studies"] — must match
+    // the `department` value inside coordinators' own `deptSelections`
+    // entries (see CoordinatorAccountProfileScreen.jsx), since that's what
+    // CoordinatorCompanyListScreen.jsx matches against to route this
+    // registration to the right coordinator(s). Kept flat (rather than
+    // nested inside deptSelections below) purely so Firestore can query it
+    // with "array-contains-any" — nested array-of-maps fields can't be
+    // queried by sub-field.
+    departments:      departments || [],
+    // Full { department, program } pairs — the same shape coordinators save
+    // on their own profile. CoordinatorCompanyListScreen.jsx uses the flat
+    // `departments` array above for the initial Firestore query, then
+    // refines against this array client-side so a coordinator who has
+    // narrowed their own assignment down to a specific Program only sees
+    // companies registered under that Program (not the whole Department).
+    // Each entry also carries its OWN "pending"/"approved"/"rejected"
+    // status — see approveCompanyDepartment/rejectCompanyDepartment below —
+    // so a multi-department company must be approved separately by each
+    // Department's coordinator before it can post/pull students there.
+    deptSelections:   (deptSelections || []).map(s => ({ ...s, status: "pending" })),
     location,         // { fullAddress, region, province, city, barangay, street, lat, lng }
     verificationDocs, // Cloudinary URLs
     role:             "company",
@@ -419,27 +439,81 @@ export const confirmReset = async (oobCode, newPassword) => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Approves a pending company registration.
- * @param {string} companyId     — Firestore doc ID (same as company's uid)
+ * Approves a company for ONE of its registered Departments.
+ *
+ * IMPORTANT: a company can register under more than one Department/Program
+ * (see `deptSelections` on the company doc). Approval is per-entry — a
+ * coordinator can only approve the Department(s) matching their own
+ * assignment, and the company only gains posting/student access for that
+ * specific Department until each other Department's coordinator approves
+ * it separately too. (Previously this set one company-wide `status` field,
+ * which meant ANY coordinator approving silently unlocked ALL of a
+ * multi-department company's departments — see the note in the write-up.)
+ *
+ * The top-level `status` field (used for sign-in gating, see signIn() above)
+ * flips to "approved" the moment the FIRST department approves them — so the
+ * company can log in and use the dashboard — but that alone does not grant
+ * posting access to departments that haven't approved them yet. Whatever
+ * screen creates job postings / pulls students MUST check the specific
+ * `deptSelections` entry's own `status`, not the top-level one.
+ *
+ * @param {string} companyId
  * @param {string} coordinatorUid
+ * @param {string} department  — must match one of the company's deptSelections[].department values
  */
-export const approveCompany = (companyId, coordinatorUid) =>
-  updateDoc(doc(db, "companies", companyId), {
-    status:     "approved",
-    approvedBy: coordinatorUid,
-    approvedAt: serverTimestamp(),
+export const approveCompanyDepartment = (companyId, coordinatorUid, department) =>
+  runTransaction(db, async (transaction) => {
+    const companyRef = doc(db, "companies", companyId);
+    const snap = await transaction.get(companyRef);
+    if (!snap.exists()) throw new Error("Company not found.");
+    const data = snap.data();
+    const deptSelections = (data.deptSelections || []).map(entry =>
+      entry.department === department
+        ? { ...entry, status: "approved", approvedBy: coordinatorUid, approvedAt: Timestamp.now() }
+        : entry
+    );
+    const anyApproved = deptSelections.some(e => e.status === "approved");
+    transaction.update(companyRef, {
+      deptSelections,
+      // Only ever move the account-level status FORWARD out of "pending"
+      // here — never touch it if it's already "rejected"/"suspended"/
+      // "blocked" (those are separate admin actions, see
+      // applyCompanyEnforcement below).
+      ...(data.status === "pending" && anyApproved ? { status: "approved" } : {}),
+    });
   });
 
 /**
- * Rejects a pending company registration.
+ * Rejects a company for ONE of its registered Departments. Other
+ * Departments the company also registered under are unaffected — see
+ * approveCompanyDepartment above for why this is per-entry, not per-company.
+ *
  * @param {string} companyId
  * @param {string} coordinatorUid
+ * @param {string} department
  */
-export const rejectCompany = (companyId, coordinatorUid) =>
-  updateDoc(doc(db, "companies", companyId), {
-    status:     "rejected",
-    rejectedBy: coordinatorUid,
-    rejectedAt: serverTimestamp(),
+export const rejectCompanyDepartment = (companyId, coordinatorUid, department) =>
+  runTransaction(db, async (transaction) => {
+    const companyRef = doc(db, "companies", companyId);
+    const snap = await transaction.get(companyRef);
+    if (!snap.exists()) throw new Error("Company not found.");
+    const data = snap.data();
+    const deptSelections = (data.deptSelections || []).map(entry =>
+      entry.department === department
+        ? { ...entry, status: "rejected", rejectedBy: coordinatorUid, rejectedAt: Timestamp.now() }
+        : entry
+    );
+    const allRejected = deptSelections.length > 0 && deptSelections.every(e => e.status === "rejected");
+    const anyApproved = deptSelections.some(e => e.status === "approved");
+    transaction.update(companyRef, {
+      deptSelections,
+      // Only flip the account-level status to "rejected" once every
+      // Department the company registered under has rejected them, and
+      // only if the account hadn't already been approved into good
+      // standing by some other Department (see note above — don't clobber
+      // "approved"/"suspended"/"blocked" set elsewhere).
+      ...(data.status === "pending" && allRejected && !anyApproved ? { status: "rejected" } : {}),
+    });
   });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -715,14 +789,17 @@ export const getUserProfile = async (collectionName, uid) => {
  * @param {string} firstName
  * @param {string} lastName
  * @param {string} studentId
- * @param {string} college  — e.g. "CCS", "COE", "CBA"
+ * @param {string} collegeAbbr  — SHORT code, e.g. "CCS", "CBA" (NOT the full
+ *   College name — callers must pass the abbreviation, e.g. via
+ *   departments[college]?.abbr from useDepartmentsPrograms, so the password
+ *   stays short/typeable; see createStudentAccount below)
  * @returns {string}
  */
-export const generateStudentPassword = (firstName, lastName, studentId, college) => {
+export const generateStudentPassword = (firstName, lastName, studentId, collegeAbbr) => {
   const firstInitial = firstName.trim()[0].toLowerCase();
   const cleanLast    = lastName.trim().toLowerCase().replace(/\s+/g, "");
   const last3        = String(studentId).trim().replace(/\D/g, "").slice(-3);
-  const cleanCollege = college.trim().toLowerCase();
+  const cleanCollege = collegeAbbr.trim().toLowerCase().replace(/\s+/g, "");
   return `${firstInitial}${cleanLast}${last3}.${cleanCollege}`;
 };
 
@@ -734,7 +811,14 @@ export const generateStudentPassword = (firstName, lastName, studentId, college)
  * @param {object} studentData — {
  *   studentId, lastName, middleInitial, firstName,
  *   college, program, specialization, yearSection,
- *   sex, age, email
+ *   sex, age, email,
+ *   collegeAbbr — OPTIONAL short code (e.g. "CCS") used only for the
+ *     generated password suffix. `college` itself is always the full name
+ *     ("College of Computer Studies") — the same canonical form used by
+ *     companies/coordinators/posts everywhere else in the app — and is what
+ *     actually gets saved to Firestore. If collegeAbbr isn't supplied this
+ *     falls back to `college` itself, which makes for a long password but
+ *     never breaks account creation.
  * }
  * @param {string} createdByUid — coordinator's UID
  * @returns {Promise<{ uid: string, password: string }>}
@@ -744,7 +828,7 @@ export const createStudentAccount = async (studentData, createdByUid) => {
   const {
     studentId, lastName, middleInitial, firstName,
     college, program, specialization, yearSection,
-    sex, age, email,
+    sex, age, email, collegeAbbr,
   } = studentData;
 
   // 1. Check for duplicate studentId
@@ -757,8 +841,10 @@ export const createStudentAccount = async (studentData, createdByUid) => {
     throw new Error(`Student ID "${studentId}" is already registered.`);
   }
 
-  // 2. Generate default password
-  const password = generateStudentPassword(firstName, lastName, studentId, college);
+  // 2. Generate default password — uses the short abbreviation when the
+  // caller provided one, so the password suffix stays like ".ccs" rather
+  // than the unwieldy ".collegeofcomputerstudies".
+  const password = generateStudentPassword(firstName, lastName, studentId, collegeAbbr || college);
 
   // 3. Firebase Auth — isolated so it doesn't sign the coordinator out
   const uid = await createAuthUserIsolated(email.trim().toLowerCase(), password, async (newUid) => {

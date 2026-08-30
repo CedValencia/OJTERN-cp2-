@@ -189,55 +189,7 @@ const SuccessModal = ({ onClose }) => {
 };
 
 // ─── INDUSTRIES ───────────────────────────────────────────────────────────────
-const INDUSTRIES = [
-//College of Computer Studies
-
-"Software & Tech Development",
-"Information Technology & Managed Services",
-"Cybersecurity",
-"E-Commerce & Digital Business",
-"Data & Analytics",
-
-//College of Business and Accountancy
-
-"Financial Services & Banking",
-"Public & Corporate Accounting",
-"Consumer Goods & Retail",
-"Digital Marketing & Advertising",
-"Management Consulting",
-
-//College of Criminal Justice Education
-
-"Law Enforcement & Public Safety",
-"Private Security & Risk Management",
-"Corrections & Rehabilitation ",
-"Forensics & Crime Scene Investigation",
-"Legal & Judicial Support",
-
-//College of Liberal Arts
-
-"Government & Public Policy",
-"Non-Governmental & International Organizations",
-"Legal Services",
-"Political Consulting & Campaign Management",
-"Journalism & Media Communications (Political Reporting, Editorial Services)",
-
-//College of Education
-
-"Primary & Secondary K-12 Education",
-"Educational Technology & E-Learning",
-"Corporate Training & Adult Education",
-"Academic Publishing & Content Creation",
-"Test Preparation & Tutoring Services",
-
-//College of Hospitality Management
-
-"Hotels, Resorts & Lodging",
-"Travel & Airline Services",
-"Food & Beverage Service",
-"Event & Conference Management",
-"Eco-Tourism & Destination Marketing",
-];
+const INDUSTRIES = [];
 
 // ─── ALL COMPANIES (kept for legacy import compatibility — use useOjtPosts hook instead) ──
 export const ALL_COMPANIES = [];
@@ -749,7 +701,39 @@ const StudentFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onMessa
 
   const hasFilter = selectedIndustries.length > 0 || citySearch.trim();
 
-  const filtered = companies.filter(c => {
+  // Only show posts looking for students from this student's own College
+  // AND Program — same scoping used in CoordinatorCompanyListScreen /
+  // CoordinatorFindCompanyScreen. Department is always required; Program is
+  // only required to match when BOTH the student has one set AND the post
+  // carries per-Program detail (`courseSelections` — the only place a
+  // post's Program actually lives; the newer flat `departments` field is
+  // department-only, so those posts still match on Department alone rather
+  // than disappearing for lack of Program data).
+  const myCollege = user?.college || "";
+  const myProgram = user?.program || "";
+
+  const getPostScopes = (c) => {
+    if (Array.isArray(c.courseSelections) && c.courseSelections.length) {
+      return c.courseSelections
+        .filter(s => s.college)
+        .map(s => ({ department: s.college, program: s.program || "" }));
+    }
+    if (Array.isArray(c.departments) && c.departments.length) {
+      return c.departments.map(d => ({ department: d, program: "" }));
+    }
+    return [];
+  };
+
+  const inScopeCompanies = React.useMemo(() => {
+    if (!myCollege) return [];
+    return companies.filter(c =>
+      getPostScopes(c).some(p =>
+        p.department === myCollege && (!myProgram || !p.program || p.program === myProgram)
+      )
+    );
+  }, [companies, myCollege, myProgram]);
+
+  const filtered = inScopeCompanies.filter(c => {
     const name = (c.companyName || c.company || c.name || "").toLowerCase();
     const industryArr = Array.isArray(c.industry) ? c.industry : (c.industry ? [c.industry] : []);
     const industry = industryArr.join(" ").toLowerCase();
@@ -887,7 +871,11 @@ const StudentFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onMessa
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "60px 0", gap: "12px" }}>
             <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#ccc" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
             <p style={{ fontFamily: "'Jua', sans-serif", fontSize: "1.5rem", color: "#bbb" }}>No companies found</p>
-            <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.95rem", color: "#aaa" }}>No company data available yet</p>
+            <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.95rem", color: "#aaa" }}>
+              {!myCollege
+                ? "Your college isn't set on your account yet. Please contact your coordinator."
+                : "No companies looking for students from your program match your filters yet."}
+            </p>
           </div>
         )}
       </div>

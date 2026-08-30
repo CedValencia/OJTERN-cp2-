@@ -286,62 +286,60 @@ const PillSelect = ({ value, onChange, options, placeholder, disabled, hasError 
   </div>
 );
 
-// ── Multi-College Program Picker ──────────────────────────────────────────────
-const COLLEGE_PROGRAM_DATA = {
-  "College of Computer Studies":           { programs: ["BSIT"] },
-  "College of Business and Accountancy":   { programs: ["BSBA (Major in Marketing Management)", "BSA"] },
-  "College of Education":                  { programs: ["BSED (Major in English)", "BSED (Major in Mathematics)", "BEED (Generalist)"] },
-  "College of Criminal Justice Education": { programs: ["BS Crim"] },
-  "College of Hospitality and Tourism Management":     { programs: ["BSTM", "BSHM"] },
-  "College of Liberal Arts":               { programs: ["BA Pol Sci"] },
-};
+// ── Approved Department Picker ────────────────────────────────────────────────
+// A post can only be created for the department(s)/program(s) THIS company
+// has actually been approved for by the matching coordinator — not any
+// college in the system (that's what the old MultiCollegeProgramPicker did,
+// even though College/Program data itself now comes live from Firestore via
+// useDepartmentsPrograms — see ./departmentsPrograms). Every entry in
+// `approvedDeptSelections` is this company's own `deptSelections` (set at
+// Sign-Up / Account Profile), pre-filtered to `status === "approved"`.
+const ApprovedDepartmentPicker = ({ approvedDeptSelections, selections, onChange, readOnly }) => {
+  const isChecked = (dept, program) => selections.some(s => s.college === dept && s.program === program);
 
-const MultiCollegeProgramPicker = ({ selections, onChange, readOnly, errors }) => {
-  const colleges = Object.keys(COLLEGE_PROGRAM_DATA);
-
-  const addEntry    = () => onChange([...selections, { college: "", program: "", specialization: "" }]);
-  const removeEntry = (idx) => onChange(selections.filter((_, i) => i !== idx));
-  const updateEntry = (idx, field, value) => {
-    const updated = selections.map((entry, i) => {
-      if (i !== idx) return entry;
-      if (field === "college") return { college: value, program: "", specialization: "" };
-      if (field === "program") return { ...entry, program: value, specialization: "" };
-      return { ...entry, [field]: value };
-    });
-    onChange(updated);
+  const toggle = (dept, program) => {
+    if (isChecked(dept, program)) {
+      onChange(selections.filter(s => !(s.college === dept && s.program === program)));
+    } else {
+      onChange([...selections, { college: dept, program, specialization: "" }]);
+    }
   };
+
+  if (approvedDeptSelections.length === 0) {
+    return (
+      <div style={{ background: "#fff3f3", border: `1.5px solid ${red}`, borderRadius: "14px", padding: "12px 14px", fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", color: darkRed }}>
+        You don't have any approved department yet. A coordinator needs to approve at least one of your registered departments before you can post here — check your registration status.
+      </div>
+    );
+  }
 
   return (
     <div>
-      {selections.map((entry, idx) => {
-        const programs = COLLEGE_PROGRAM_DATA[entry.college]?.programs || [];
-        const err = errors?.[idx];
+      {approvedDeptSelections.map((s, idx) => {
+        const checked = isChecked(s.department, s.program);
         return (
-          <div key={idx} style={{ background: "#ececec", borderRadius: "14px", padding: "10px 12px", marginBottom: "8px" }}>
-            <div style={{ display: "flex", gap: "6px", alignItems: "center", marginBottom: entry.college ? "6px" : "0" }}>
-              <div style={{ flex: 1 }}>
-                <PillSelect value={entry.college} onChange={v => updateEntry(idx, "college", v)} options={colleges} placeholder="Select College" disabled={readOnly} hasError={err?.college} />
-                {err?.college && <FieldError msg="College is required." />}
-              </div>
-              {!readOnly && selections.length > 1 && (
-                <button type="button" onClick={() => removeEntry(idx)}
-                  style={{ width: "28px", height: "28px", borderRadius: "50%", background: darkRed, border: "none", color: "white", fontFamily: "'Jua', sans-serif", fontSize: "0.85rem", cursor: "pointer", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
-              )}
-            </div>
-            {entry.college && (
-              <div>
-                <PillSelect value={entry.program} onChange={v => updateEntry(idx, "program", v)} options={programs} placeholder="Select Program" disabled={readOnly} hasError={err?.program} />
-                {err?.program && <FieldError msg="Program is required." />}
-              </div>
-            )}
-          </div>
+          <label
+            key={idx}
+            style={{
+              display: "flex", alignItems: "center", gap: "10px",
+              background: "#ececec", borderRadius: "14px", padding: "10px 14px",
+              marginBottom: "8px", cursor: readOnly ? "default" : "pointer", userSelect: "none",
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={checked}
+              disabled={readOnly}
+              onChange={() => toggle(s.department, s.program)}
+              style={{ width: "17px", height: "17px", accentColor: darkRed, cursor: readOnly ? "default" : "pointer", flexShrink: 0 }}
+            />
+            <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#222" }}>
+              <span style={{ fontWeight: 700 }}>{s.department}</span>
+              {s.program && <span style={{ color: "#666" }}> — {s.program}</span>}
+            </span>
+          </label>
         );
       })}
-      {!readOnly && (
-        <button onClick={addEntry} style={{ background: "none", border: `1.5px dashed ${red}`, borderRadius: "20px", color: red, width: "100%", padding: "7px", fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", cursor: "pointer", marginTop: "2px", fontWeight: 600 }}>
-          + Add Another College / Program
-        </button>
-      )}
     </div>
   );
 };
@@ -496,7 +494,7 @@ const GmailInput = ({ value, onChange, readOnly, error, onBlur }) => (
 );
 
 // ── Mapbox Location Picker ─────────────────────────────────────────────────────
-const MapboxLocationPicker = ({ value, onChange, readOnly }) => {
+const MapboxLocationPicker = ({ value, lat, lng, onChange, readOnly }) => {
   const mapContainer = React.useRef(null);
   const mapRef       = React.useRef(null);
   const markerRef    = React.useRef(null);
@@ -521,14 +519,22 @@ const MapboxLocationPicker = ({ value, onChange, readOnly }) => {
       const map = new mapboxgl.Map({
         container: mapContainer.current,
         style: "mapbox://styles/mapbox/standard-satellite",
-        center: [120.9842, 14.5995], // default: Manila
-        zoom: 10,
+        center: lat != null && lng != null ? [lng, lat] : [120.9842, 14.5995], // default: Manila
+        zoom: lat != null && lng != null ? 15 : 10,
       });
       map.addControl(new mapboxgl.NavigationControl(), "top-right");
       mapRef.current = map;
 
-      // If there's an existing location with coords, fly to it
-      if (value) geocodeAndPin(value, map);
+      // Prefer the company's actual stored coordinates (this may be a pin
+      // they manually placed at signup) — only fall back to re-geocoding
+      // the address text if we don't have coordinates at all (e.g. older
+      // company records saved before pins were stored).
+      if (lat != null && lng != null) {
+        markerRef.current = new mapboxgl.Marker({ color: "#8B0000" }).setLngLat([lng, lat]).addTo(map);
+        onChange?.({ address: value, lat, lng });
+      } else if (value) {
+        geocodeAndPin(value, map);
+      }
     };
     document.head.appendChild(script);
   }, []);
@@ -681,9 +687,23 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile }) =>
   const fixedAddress = [profileLoc.street, profileLoc.barangay, profileLoc.city, profileLoc.province, profileLoc.region]
     .filter(Boolean).join(", ");
 
+  // Only department(s) THIS company has actually been approved for by a
+  // coordinator can be posted for — see ApprovedDepartmentPicker. A new
+  // post defaults to ALL currently-approved departments checked (matches
+  // whatever was picked/approved at Sign-Up); an existing post keeps its
+  // saved selections, but drops any entry that isn't (or is no longer)
+  // approved, so a revoked approval can't linger on an old post.
+  const approvedDeptSelections = (companyProfile?.deptSelections || [])
+    .filter(s => s.status === "approved" && s.department);
+  const isApproved = (college, program) =>
+    approvedDeptSelections.some(s => s.department === college && s.program === program);
+  const defaultCourseSelections = approvedDeptSelections.map(s => ({ college: s.department, program: s.program, specialization: "" }));
+
   const [form, setForm] = useState({
     benefits:         post?.benefits         || "",
-    courseSelections: post?.courseSelections || [{ college: "", program: "", specialization: "" }],
+    courseSelections: post?.courseSelections
+      ? post.courseSelections.filter(s => isApproved(s.college, s.program))
+      : defaultCourseSelections,
     skillsRequired:   post?.skillsRequired   || "",
     description:      post?.description      || "",
     requirements:     post?.requirements     || "",
@@ -691,21 +711,21 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile }) =>
     slot:             post?.slot ?? 1,
     phone:            post?.phone || "+63 ",
     contactEmail:     post?.contactEmail || "",
-    postLocation:     post?.postLocation || { address: fixedAddress, lat: null, lng: null },
+    postLocation:     post?.postLocation || { address: fixedAddress, lat: profileLoc.lat ?? null, lng: profileLoc.lng ?? null },
   });
 
   // Keep postLocation's address in lockstep with the company profile even if
   // the profile changes while this modal is open, or if the post predates
   // this fixed-location behavior and still has a stale/empty address.
   useEffect(() => {
-    if (fixedAddress && form.postLocation?.address !== fixedAddress) {
-      setForm(f => ({ ...f, postLocation: { ...f.postLocation, address: fixedAddress } }));
+    if (fixedAddress && (form.postLocation?.address !== fixedAddress || form.postLocation?.lat !== (profileLoc.lat ?? null))) {
+      setForm(f => ({ ...f, postLocation: { ...f.postLocation, address: fixedAddress, lat: profileLoc.lat ?? null, lng: profileLoc.lng ?? null } }));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fixedAddress]);
+  }, [fixedAddress, profileLoc.lat, profileLoc.lng]);
 
   const [errors, setErrors]                         = useState({});
-  const [courseErrors, setCourseErrors]             = useState([]);
+  const [courseErrors, setCourseErrors]             = useState("");
   const [workingHoursErrors, setWorkingHoursErrors] = useState([]);
   const [dirty, setDirty]                           = useState(false);
   const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
@@ -745,14 +765,12 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile }) =>
     setWorkingHoursErrors(newWhErrors);
     const hasWhError = newWhErrors.some(e => e);
 
-    const newCourseErrors = form.courseSelections.map(entry => {
-      const err = {};
-      if (!entry.college) err.college = true;
-      if (entry.college && !entry.program) err.program = true;
-      return err;
-    });
-    setCourseErrors(newCourseErrors);
-    const hasCourseError = newCourseErrors.some(e => Object.keys(e).length > 0);
+    // No per-entry college/program to validate anymore — every entry in
+    // courseSelections is, by construction, already one of the company's
+    // approved departments (see ApprovedDepartmentPicker). Just require at
+    // least one to be checked.
+    const hasCourseError = form.courseSelections.length === 0;
+    setCourseErrors(hasCourseError ? "Select at least one department." : "");
 
     setErrors(newErrors);
     if (Object.keys(newErrors).length > 0 || hasWhError || hasCourseError) return;
@@ -807,12 +825,19 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile }) =>
               <FieldLabel>Location:</FieldLabel>
               {fixedAddress ? (
                 <>
-                  <div style={{ ...pillInputReadonly, marginBottom: "8px", display: "flex", alignItems: "center", boxSizing: "border-box" }}>
-                    📍 {fixedAddress}
+                  <div style={{ ...pillInputReadonly, marginBottom: "8px", display: "flex", alignItems: "center", boxSizing: "border-box", gap: "8px" }}>
+                    <span>📍 {fixedAddress}</span>
+                    {profileLoc.isManual && (
+                      <span style={{ background: darkRed, color: "white", fontFamily: "'Kufam', sans-serif", fontSize: "0.65rem", padding: "2px 8px", borderRadius: "10px", whiteSpace: "nowrap" }}>
+                        Manually pinned
+                      </span>
+                    )}
                   </div>
                   <MapboxLocationPicker
                     key={fixedAddress}
                     value={fixedAddress}
+                    lat={profileLoc.lat}
+                    lng={profileLoc.lng}
                     onChange={(loc) => set("postLocation", loc)}
                     readOnly={true}
                   />
@@ -909,14 +934,23 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile }) =>
             style={{ ...(readOnly ? pillTextareaReadonly : pillTextareaStyle), border: errors.benefits ? "1.5px solid #c00" : "none" }} />
           <FieldError msg={errors.benefits} />
 
-          {/* College / Program / Major */}
+          {/* Industry — fixed to Account Profile's industry, not editable here */}
+          <FieldLabel>Industry:</FieldLabel>
+          <div style={{ ...pillInputReadonly, marginBottom: "8px", boxSizing: "border-box" }}>
+            {Array.isArray(companyProfile?.industry)
+              ? (companyProfile.industry.join(", ") || "—")
+              : (companyProfile?.industry || user?.industry || "—")}
+          </div>
+
+          {/* College / Program required — restricted to approved departments */}
           <FieldLabel>College / Program required:</FieldLabel>
-          <MultiCollegeProgramPicker
+          <ApprovedDepartmentPicker
+            approvedDeptSelections={approvedDeptSelections}
             selections={form.courseSelections}
-            onChange={v => { set("courseSelections", v); setCourseErrors([]); }}
+            onChange={v => { set("courseSelections", v); setCourseErrors(""); }}
             readOnly={readOnly}
-            errors={courseErrors}
           />
+          {courseErrors && <FieldError msg={courseErrors} />}
 
           {/* Skills */}
           <FieldLabel>Skills Required:</FieldLabel>
@@ -937,7 +971,19 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile }) =>
             <button onClick={handleSave} style={{ padding: "10px 28px", borderRadius: "24px", background: darkRed, color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(0.9rem, 2.5vw, 1.1rem)", cursor: "pointer" }}>Save</button>
           )}
           {mode === "create" && (
-            <button onClick={handleSave} style={{ padding: "10px 28px", borderRadius: "24px", background: darkRed, color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(0.9rem, 2.5vw, 1.1rem)", cursor: "pointer" }}>Post</button>
+            <button
+              onClick={handleSave}
+              disabled={approvedDeptSelections.length === 0}
+              style={{
+                padding: "10px 28px", borderRadius: "24px",
+                background: approvedDeptSelections.length === 0 ? "#999" : darkRed,
+                color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif",
+                fontSize: "clamp(0.9rem, 2.5vw, 1.1rem)",
+                cursor: approvedDeptSelections.length === 0 ? "not-allowed" : "pointer",
+              }}
+            >
+              Post
+            </button>
           )}
         </div>
       </div>
@@ -1028,9 +1074,14 @@ const PostOJTContent = ({ user, openPostId, onPostOpened }) => {
 
   const handleSave = async (formData) => {
     if (!user?.uid) return;
+    // Flat college-name array derived from courseSelections — lets
+    // CoordinatorFindCompanyScreen/StudentFindCompanyScreen filter posts by
+    // college without needing to read into the courseSelections sub-array.
+    const departments = (formData.courseSelections || []).map(s => s.college).filter(Boolean);
     if (modal.mode === "create") {
       await addDoc(collection(db, "ojt_posts"), {
         ...formData,
+        departments,
         companyId:   user.uid,
         companyName: companyProfile.companyName || user.companyName || "",
         industry:    companyProfile.industry    || user.industry    || "",
@@ -1042,6 +1093,8 @@ const PostOJTContent = ({ user, openPostId, onPostOpened }) => {
     } else {
       await updateDoc(doc(db, "ojt_posts", modal.post.id), {
         ...formData,
+        departments,
+        industry: companyProfile.industry || user.industry || "",
         updatedAt: serverTimestamp(),
       });
     }

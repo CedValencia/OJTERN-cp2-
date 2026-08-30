@@ -4,8 +4,8 @@ import downloadIcon from "../icons/download.png";
 import pdfIcon      from "../icons/pdf.png";
 
 import { db }                                            from "./firebase";
-import { approveCompany, rejectCompany, getUserProfile, logActivity } from "./AuthService";
-import { collection, query, where, onSnapshot }          from "firebase/firestore";
+import { approveCompanyDepartment, rejectCompanyDepartment, logActivity } from "./AuthService";
+import { collection, doc, query, where, onSnapshot }     from "firebase/firestore";
 
 const red     = "#8B0000";
 const darkRed = "#590101";
@@ -2485,7 +2485,9 @@ const FilterPanel = ({
   const provinceData = regionData?.provinces.find(p => p.name === selectedProvince);
   const cityData     = provinceData?.cities.find(c => c.name === selectedCity);
 
-  // `industries` prop is passed from the main screen (coordinator's assigned industries)
+  // `industries` prop is passed from the main screen, derived from the
+  // companies currently in view (Industry is company info only — it no
+  // longer drives which companies a coordinator sees; Department/Program does)
   const toggleIndustry = (ind) =>
     setSelectedIndustries(prev =>
       prev.includes(ind) ? prev.filter(i => i !== ind) : [...prev, ind]
@@ -2836,6 +2838,30 @@ const CompanyProfileView = ({ company, onBack, onAccept, onDeny }) => {
           <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "clamp(0.82rem, 2vw, 0.95rem)", color: "#222" }}>
             <span style={{ fontWeight: 700 }}>Industry: </span>{company.industry}
           </p>
+          {company.deptSelections && company.deptSelections.length > 0 && (
+            <div>
+              <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "clamp(0.82rem, 2vw, 0.95rem)", color: "#222", fontWeight: 700, marginBottom: "6px" }}>Department / Program:</p>
+              <div style={{ display: "flex", flexDirection: "column", gap: "5px" }}>
+                {company.deptSelections.map((s, i) => {
+                  const badgeColor = s.status === "approved" ? "#2a7a2a" : s.status === "rejected" ? darkRed : "#a67c00";
+                  const badgeLabel = s.status === "approved" ? "Approved" : s.status === "rejected" ? "Rejected" : "Pending";
+                  return (
+                    <div key={i} style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                      <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "clamp(0.8rem, 2vw, 0.88rem)", color: "#444", margin: 0 }}>
+                        {s.department}{s.program ? ` — ${s.program}` : ""}
+                      </p>
+                      <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.68rem", fontWeight: 700, color: "white", background: badgeColor, borderRadius: "10px", padding: "2px 9px" }}>
+                        {badgeLabel}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+              {/* Approving/declining below only affects THIS coordinator's own
+                  Department — every other Department this company registered
+                  under keeps whatever status it already has. */}
+            </div>
+          )}
           <div>
             <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "clamp(0.82rem, 2vw, 0.95rem)", color: "#222", fontWeight: 700, marginBottom: "6px" }}>Location:</p>
             <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
@@ -2911,6 +2937,11 @@ const CompanyCard = ({ company, onViewProfile, isReview }) => (
   >
     <h3 style={{ fontFamily: "'Jua', sans-serif", fontSize: "1rem", color: "#1a1a1a", lineHeight: 1.3 }}>{company.name}</h3>
     <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.8rem", color: "#555" }}>Industry: {company.industry}</p>
+    {company.collegePrograms && company.collegePrograms.length > 0 && (
+      <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.8rem", color: "#555", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        Dept/Program: {company.collegePrograms.map(cp => cp.college).join(", ")}
+      </p>
+    )}
     <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.8rem", color: "#555", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>Location: {company.location}</p>
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "10px" }}>
       <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.75rem", color: "#999", fontStyle: "italic" }}>Date: {company.date}</span>
@@ -2939,6 +2970,33 @@ const SectionHeader = ({ title, count }) => (
 );
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+// A company's Department/Program assignment is read from `deptSelections`
+// (the current, canonical field — an array of { department, program, status },
+// written at sign-up by registerCompany in AuthService.js). Each entry's own
+// `status` ("pending"/"approved"/"rejected") is what a Department's
+// coordinator actually acted on — see approveCompanyDepartment /
+// rejectCompanyDepartment in AuthService.js. A company registered under more
+// than one Department is judged separately by each one; approval by CCS's
+// coordinator does NOT approve them for CBA too.
+// Companies registered before Program/per-entry-status existed only have the
+// flat `departments` array (department names, no program, no status) — those
+// fall back to the company's single top-level `status` field so they don't
+// silently disappear; see the write-up for the one-time migration these
+// older records still need.
+const getCompanyDeptSelections = (d) => {
+  if (Array.isArray(d.deptSelections) && d.deptSelections.length) {
+    return d.deptSelections.map(s => ({
+      department: s.department || "",
+      program:    s.program || "",
+      status:     s.status || "pending",
+    }));
+  }
+  if (Array.isArray(d.departments) && d.departments.length) {
+    return d.departments.map(dept => ({ department: dept, program: "", status: d.status || "pending" }));
+  }
+  return [];
+};
+
 // Maps a Firestore company doc to the shape the UI expects
 const mapDoc = (docSnap) => {
   const d = docSnap.data();
@@ -2946,6 +3004,7 @@ const mapDoc = (docSnap) => {
   const location = [loc.street, loc.barangay, loc.city, loc.province, loc.region]
     .filter(Boolean).join(", ");
   const industryArr = Array.isArray(d.industry) ? d.industry : (d.industry ? [d.industry] : []);
+  const deptSelections = getCompanyDeptSelections(d);
   return {
     id:               docSnap.id,
     name:             d.companyName  || "",
@@ -2960,18 +3019,36 @@ const mapDoc = (docSnap) => {
     lat:              loc.lat        || null,
     lng:              loc.lng        || null,
     location,
-    collegePrograms:  (d.courseSelections || []).map(s => ({
-      college: s.college,
-      program: s.program,
-      major:   s.specialization || "",
-    })),
+    deptSelections,                               // [{ department, program, status }] — drives coordinator routing AND per-department approval
+    collegePrograms:  deptSelections.map(s => ({ college: s.department, program: s.program, major: "" })),
     verificationDocs: d.verificationDocs || [],
-    status:           d.status       || "pending",
+    status:           d.status       || "pending",   // account-level (sign-in gating) — NOT what a coordinator approves/rejects anymore
     date:             d.createdAt?.toDate
                         ? d.createdAt.toDate().toLocaleDateString("en-PH", { year: "numeric", month: "short", day: "numeric" })
                         : "—",
   };
 };
+
+// Finds the company's deptSelections entry that corresponds to a given
+// coordinator — i.e. the one this coordinator is actually allowed to act on.
+// Same matching rule as companyMatchesCoordinator below: Department must
+// match; Program only has to match when the coordinator has picked a
+// specific one. Returns the FIRST match — a coordinator's own deptSelections
+// shouldn't have duplicate Departments, so this is unambiguous in practice.
+const findMatchingEntry = (companyDeptSelections, coordinatorDeptSelections) => {
+  for (const c of companyDeptSelections) {
+    const scope = coordinatorDeptSelections.find(
+      s => s.department && c.department === s.department && (!s.program || c.program === s.program)
+    );
+    if (scope) return c;
+  }
+  return null;
+};
+
+// A company is visible to a coordinator if, for ANY of the company's
+// Department/Program pairs, there's a matching entry in the coordinator's
+// own deptSelections (see findMatchingEntry above for the exact match rule
+// and per-department status bucketing).
 
 // ── Main Screen ───────────────────────────────────────────────────────────────
 // Props:
@@ -2982,8 +3059,14 @@ const CoordinatorCompanyListScreen = ({ coordinatorUid, initialCompanyId, onClea
   const [cameFromDashboard, setCameFromDashboard]   = useState(false);
   const [registeredList, setRegisteredList]         = useState([]);
   const [reviewList, setReviewList]                 = useState([]);
-  const [assignedIndustries, setAssignedIndustries] = useState([]);
-  const [loadingIndustries, setLoadingIndustries]   = useState(true);
+  // The coordinator's OWN current Department/Program assignment — this is
+  // what the Company List is scoped to. It's kept live (onSnapshot, not a
+  // one-time fetch) so editing it in Account Profile > Personal Information
+  // re-scopes this list immediately, without requiring a page reload, and
+  // WITHOUT ever writing a company → coordinator link anywhere (see write-up,
+  // rule #7): the match is recomputed fresh from both live documents.
+  const [coordinatorDeptSelections, setCoordinatorDeptSelections] = useState([]);
+  const [loadingProfile, setLoadingProfile]         = useState(true);
   const [toast, setToast]                           = useState(null);
   const [search, setSearch]                         = useState("");
   const [showFilter, setShowFilter]                 = useState(false);
@@ -2996,50 +3079,85 @@ const CoordinatorCompanyListScreen = ({ coordinatorUid, initialCompanyId, onClea
   const [retryCount,       setRetryCount]           = useState(0);
   const filterRef = useRef(null);
 
-  // ── Step 1: load coordinator's assigned industries ────────────────────────
+  // ── Step 1: live-watch the coordinator's own Department/Program profile ──
+  // onSnapshot (not a one-time getUserProfile() fetch) so that saving a
+  // change in Account Profile > Personal Information — which writes
+  // `deptSelections` onto this same coordinators/{uid} doc — is picked up
+  // here immediately (see requirement: Company List must auto-refresh when
+  // the coordinator's own profile changes).
   useEffect(() => {
     if (!coordinatorUid) return;
-    let cancelled = false;
-    setLoadingIndustries(true);
+    setLoadingProfile(true);
     setLoadError(false);
-    getUserProfile("coordinators", coordinatorUid)
-      .then(data => {
-        if (cancelled) return;
-        setAssignedIndustries(data?.assignedIndustries || []);
-        setLoadingIndustries(false);
-      })
-      .catch(err => {
+    const unsub = onSnapshot(
+      doc(db, "coordinators", coordinatorUid),
+      snap => {
+        const data = snap.data();
+        const sels = (data?.deptSelections || []).filter(s => s.department);
+        setCoordinatorDeptSelections(sels);
+        setLoadingProfile(false);
+      },
+      err => {
         console.error("Failed to load coordinator profile:", err);
-        if (cancelled) return;
         setLoadError(true);
-        setLoadingIndustries(false);
-      });
-    return () => { cancelled = true; };
+        setLoadingProfile(false);
+      }
+    );
+    return () => unsub();
   }, [coordinatorUid, retryCount]);
 
-  // ── Step 2: real-time listeners scoped to coordinator's industries ─────────
+  // ── Step 2: real-time listener scoped to the coordinator's Departments ───
+  // Firestore can't query nested array-of-maps by sub-field, so companies
+  // also carry a flat `departments` (string[]) field alongside the full
+  // `deptSelections` detail — written at sign-up — purely so this
+  // array-contains-any query can narrow things down at the database level.
+  //
+  // There's a single query now (not one per status): approval is per
+  // Department (`deptSelections[i].status`), not a single company-wide
+  // `status` field, since a company can register under several Departments
+  // and each one's coordinator must approve independently — approving for
+  // CCS must NOT silently also approve that same company for CBA. So every
+  // matching company is fetched once, then bucketed into Review/Registered
+  // below by the STATUS OF THIS COORDINATOR'S OWN MATCHING ENTRY, not the
+  // company's account-wide status.
   useEffect(() => {
-    if (loadingIndustries || assignedIndustries.length === 0) return;
+    if (loadingProfile || coordinatorDeptSelections.length === 0) {
+      setReviewList([]);
+      setRegisteredList([]);
+      return;
+    }
 
-    // Firestore "in" query supports up to 30 values; chunk if needed
-    const chunk = assignedIndustries.slice(0, 30);
+    // Firestore "array-contains-any" supports up to 30 values; chunk if needed
+    const deptNames = [...new Set(coordinatorDeptSelections.map(s => s.department))].slice(0, 30);
 
-    const pendingQ = query(
-    collection(db, "companies"),
-    where("industry",  "array-contains-any", chunk),
-    where("status",    "==", "pending")
-  );
-  const approvedQ = query(
-    collection(db, "companies"),
-    where("industry",  "array-contains-any", chunk),
-    where("status",    "==", "approved")
-  );
+    const companiesQ = query(
+      collection(db, "companies"),
+      where("departments", "array-contains-any", deptNames)
+    );
 
-    const unsubPending  = onSnapshot(pendingQ,  snap => setReviewList(snap.docs.map(mapDoc)));
-    const unsubApproved = onSnapshot(approvedQ, snap => setRegisteredList(snap.docs.map(mapDoc)));
+    const unsub = onSnapshot(companiesQ, snap => {
+      const pending  = [];
+      const approved = [];
+      snap.docs.map(mapDoc).forEach(c => {
+        // Suspended/blocked accounts are an account-wide disciplinary state
+        // (see applyCompanyEnforcement in AuthService.js) — hide them from
+        // both lists here regardless of any individual Department's
+        // approval, same as before this per-department change.
+        if (c.status === "suspended" || c.status === "blocked") return;
+        const entry = findMatchingEntry(c.deptSelections, coordinatorDeptSelections);
+        if (!entry) return;
+        if (entry.status === "pending")  pending.push(c);
+        if (entry.status === "approved") approved.push(c);
+        // entry.status === "rejected" → this coordinator already acted;
+        // don't show it in either list, matching the old behavior where a
+        // rejected company disappeared from both.
+      });
+      setReviewList(pending);
+      setRegisteredList(approved);
+    });
 
-    return () => { unsubPending(); unsubApproved(); };
-  }, [loadingIndustries, assignedIndustries]);
+    return () => unsub();
+  }, [loadingProfile, coordinatorDeptSelections]);
 
   // ── Deep-link: jump straight to a company's profile when arriving here
   //    with a specific initialCompanyId (e.g. from the dashboard's Recent
@@ -3077,15 +3195,30 @@ const CoordinatorCompanyListScreen = ({ coordinatorUid, initialCompanyId, onClea
   const filteredRegistered = applyFilter(registeredList);
   const filteredReview     = applyFilter(reviewList);
 
+  // Industry filter options: derived from whatever companies are actually
+  // in view (not from the coordinator's profile — Industry is company
+  // info only now, it no longer drives who's assigned to a coordinator).
+  const availableIndustries = [...new Set(
+    [...registeredList, ...reviewList].flatMap(c => c.industries)
+  )].sort((a, b) => a.localeCompare(b));
+
   const showToast = (msg, color) => { setToast({ msg, color }); setTimeout(() => setToast(null), 2500); };
 
-  // ── Accept: set status → "approved" in Firestore ─────────────────────────
+  // Which of the company's Departments THIS coordinator is actually acting
+  // on — needed so approve/reject only ever touches their own entry, never
+  // some other Department the same company also registered under.
+  const matchingDepartment = (company) =>
+    findMatchingEntry(company.deptSelections, coordinatorDeptSelections)?.department;
+
+  // ── Accept: approve THIS coordinator's Department entry only ─────────────
   const handleAccept = async (id) => {
     const company = reviewList.find(c => c.id === id);
     if (!company) return;
+    const department = matchingDepartment(company);
+    if (!department) return;
     try {
-      await approveCompany(id, coordinatorUid);
-      logActivity(coordinatorUid, "company_approved", `Approved ${company.name}`, { targetId: id, targetName: company.name }).catch(err => console.error("Failed to log activity:", err));
+      await approveCompanyDepartment(id, coordinatorUid, department);
+      logActivity(coordinatorUid, "company_approved", `Approved ${company.name} (${department})`, { targetId: id, targetName: company.name }).catch(err => console.error("Failed to log activity:", err));
       showToast(`${company.name} has been accepted.`, "#2a7a2a");
       setView("list");
     } catch (err) {
@@ -3093,13 +3226,15 @@ const CoordinatorCompanyListScreen = ({ coordinatorUid, initialCompanyId, onClea
     }
   };
 
-  // ── Decline: set status → "rejected" in Firestore ────────────────────────
+  // ── Decline: reject THIS coordinator's Department entry only ─────────────
   const handleDeny = async (id) => {
     const company = reviewList.find(c => c.id === id);
     if (!company) return;
+    const department = matchingDepartment(company);
+    if (!department) return;
     try {
-      await rejectCompany(id, coordinatorUid);
-      logActivity(coordinatorUid, "company_declined", `Declined ${company.name}`, { targetId: id, targetName: company.name }).catch(err => console.error("Failed to log activity:", err));
+      await rejectCompanyDepartment(id, coordinatorUid, department);
+      logActivity(coordinatorUid, "company_declined", `Declined ${company.name} (${department})`, { targetId: id, targetName: company.name }).catch(err => console.error("Failed to log activity:", err));
       showToast(`${company.name} has been declined.`, darkRed);
       setView("list");
     } catch (err) {
@@ -3115,7 +3250,7 @@ const CoordinatorCompanyListScreen = ({ coordinatorUid, initialCompanyId, onClea
   };
 
   // ── Loading / empty states ───────────────────────────────────────────────
-  if (loadingIndustries) {
+  if (loadingProfile) {
     return (
       <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", background: "#f5f5f5" }}>
         <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.95rem", color: "#888" }}>Loading coordinator profile…</p>
@@ -3137,11 +3272,11 @@ const CoordinatorCompanyListScreen = ({ coordinatorUid, initialCompanyId, onClea
     );
   }
 
-  if (!loadingIndustries && assignedIndustries.length === 0) {
+  if (!loadingProfile && coordinatorDeptSelections.length === 0) {
     return (
       <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", background: "#f5f5f5" }}>
         <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.95rem", color: "#888", textAlign: "center", padding: "0 24px" }}>
-          No industries assigned to your coordinator account yet.<br />Please contact the administrator.
+          No Department/Program assigned to your coordinator account yet.<br />Please set it under Account Profile › Personal Information, or contact the administrator.
         </p>
       </div>
     );
@@ -3208,7 +3343,7 @@ const CoordinatorCompanyListScreen = ({ coordinatorUid, initialCompanyId, onClea
               </div>
               {showFilter && (
                 <FilterPanel
-                  industries={assignedIndustries}
+                  industries={availableIndustries}
                   selectedIndustries={selectedIndustries} setSelectedIndustries={setSelectedIndustries}
                   selectedRegion={selectedRegion}     setSelectedRegion={setSelectedRegion}
                   selectedProvince={selectedProvince} setSelectedProvince={setSelectedProvince}

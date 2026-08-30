@@ -130,9 +130,36 @@ const FontImport = () => (
     ::-webkit-scrollbar-thumb { background: #8B0000; border-radius: 4px; }
     ::-webkit-scrollbar-track { background: #f0f0f0; }
 
-    .nav-item { transition: background 0.15s; }
-    .nav-item:hover  { background: rgba(185,185,185,0.7) !important; }
-    .nav-item.active { background: rgba(185,185,185,0.9) !important; }
+    .nav-item {
+      position: relative;
+      transition: background 0.18s ease, transform 0.12s ease;
+    }
+    .nav-item::before {
+      content: "";
+      position: absolute; left: 0; top: 8px; bottom: 8px; width: 4px;
+      border-radius: 0 4px 4px 0; background: #888;
+      transform: scaleY(0); transform-origin: center;
+      transition: transform 0.2s ease;
+    }
+    .nav-item:hover  { background: rgba(150,150,150,0.35); }
+    .nav-item.active { background: rgba(150,150,150,0.55); }
+    .nav-item.active::before { transform: scaleY(1); }
+    .nav-item:active { transform: scale(0.98); }
+    .nav-item .nav-icon,
+    .nav-item .nav-label { transition: opacity 0.18s ease; }
+    .nav-item:hover .nav-icon,
+    .nav-item:hover .nav-label { opacity: 1 !important; }
+
+    .nav-logout { transition: background 0.18s ease, transform 0.12s ease; }
+    .nav-logout:hover  { background: rgba(150,150,150,0.35); }
+    .nav-logout:active { transform: scale(0.98); }
+
+    @keyframes badgePop {
+      0%   { transform: scale(0.5); opacity: 0; }
+      70%  { transform: scale(1.15); opacity: 1; }
+      100% { transform: scale(1); }
+    }
+    .nav-badge { animation: badgePop 0.25s ease; }
 
     .company-row { transition: background 0.15s; cursor: pointer; }
     .company-row:hover { background: #c8c8c8 !important; }
@@ -289,16 +316,15 @@ const SidebarNav = ({ activeNav, onNavigate, onLogout, unreadMessages = 0 }) => 
           display: "flex", alignItems: "center", gap: "14px",
           padding: "15px 20px", cursor: "pointer",
           borderBottom: "1px solid #ccc", minHeight: "56px",
-          background: activeNav === item.key ? "rgba(139,0,0,0.10)" : "transparent",
         }}
       >
-        <img src={item.icon} alt={item.label}
-          style={{ width: "30px", height: "30px", objectFit: "contain", flexShrink: 0, opacity: activeNav === item.key ? 1 : 0.35 }} />
-        <span style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.3rem", opacity: activeNav === item.key ? 1 : 0.35, flex: 1 }}>
+        <img src={item.icon} alt={item.label} className="nav-icon"
+          style={{ width: "30px", height: "30px", objectFit: "contain", flexShrink: 0, opacity: activeNav === item.key ? 1 : 0.85, transition: "opacity 0.18s ease" }} />
+        <span className="nav-label" style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.3rem", opacity: activeNav === item.key ? 1 : 0.65, flex: 1, transition: "opacity 0.18s ease" }}>
           {item.label}
         </span>
         {item.key === "messages" && unreadMessages > 0 && (
-          <span style={{
+          <span key={unreadMessages} className="nav-badge" style={{
             background: "#8B0000", color: "white", borderRadius: "50%",
             minWidth: "20px", height: "20px", padding: "0 5px",
             display: "flex", alignItems: "center", justifyContent: "center",
@@ -315,6 +341,7 @@ const SidebarNav = ({ activeNav, onNavigate, onLogout, unreadMessages = 0 }) => 
       <>
         <div style={{ flex: 1 }} />
         <div
+          className="nav-logout"
           onClick={onLogout}
           style={{
             display: "flex", alignItems: "center", gap: "14px",

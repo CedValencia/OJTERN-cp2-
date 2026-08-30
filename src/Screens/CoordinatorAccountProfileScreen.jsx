@@ -3,6 +3,7 @@ import { doc, onSnapshot, updateDoc } from "firebase/firestore";
 import { getAuth, signOut, reauthenticateWithCredential, EmailAuthProvider, updatePassword } from "firebase/auth";
 import { db } from "./firebase";
 import { initiateCoordinatorTransfer, initiateCoordinatorAddition, changePassword, requestCoordinatorEmailChange } from "./AuthService";
+import { useDepartmentsPrograms } from "./departmentsPrograms";
 
 import AccountProfile from "../icons/accountprofile.png";
 import viewIcon from "../icons/view.png";
@@ -314,20 +315,12 @@ const ResponsiveStyles = () => (
 );
 
 // ── Department / Program data ─────────────────────────────────────────────────
-// TODO: Populate from backend or config
-const DEPARTMENT_PROGRAM_DATA = {
-  "College of Computer Studies":           { programs: ["BSIT"] },
-  "College of Business and Accountancy":   { programs: ["BSBA (Major in Marketing Management)", "BSA"] },
-  "College of Education":                  { programs: ["BSED (Major in English)", "BSED (Major in Mathematics)", "BEED (Generalist)"] },
-  "College of Criminal Justice Education": { programs: ["BS Crim"] },
-  "College of Hospitality and Tourism Management":     { programs: ["BSTM", "BSHM"] },
-  "College of Liberal Arts":               { programs: ["BA Pol Sci"] },
-};
-
-const DEPARTMENTS = Object.keys(DEPARTMENT_PROGRAM_DATA);
+// Now loaded live from Firestore via useDepartmentsPrograms() (see
+// ./departmentsPrograms) — the same source SignUpStep1Screen uses, so
+// Coordinator and Company always see the identical College/Program list.
 
 // ── Multi-Department Picker ───────────────────────────────────────────────────
-const MultiDepartmentPicker = ({ selections, onChange, readOnly, errors }) => {
+const MultiDepartmentPicker = ({ selections, onChange, readOnly, errors, departments, departmentNames }) => {
   const addEntry = () => onChange([...selections, { department: "", program: "", specialization: "" }]);
   const removeEntry = (idx) => onChange(selections.filter((_, i) => i !== idx));
   const updateEntry = (idx, field, value) => {
@@ -359,10 +352,11 @@ const MultiDepartmentPicker = ({ selections, onChange, readOnly, errors }) => {
   return (
     <div style={{ marginTop: "8px" }}>
       {selections.map((entry, idx) => {
-        const deptData        = DEPARTMENT_PROGRAM_DATA[entry.department];
-        const programs        = deptData?.programs ?? [];
-        const specMap         = deptData?.specializations ?? {};
-        const specializations = entry.program ? (specMap[entry.program] ?? []) : [];
+        const deptData        = departments[entry.department];
+        const programs        = (deptData?.programs ?? []).map(p => p.name);
+        const specializations = entry.program
+          ? (deptData?.programs ?? []).find(p => p.name === entry.program)?.specializations ?? []
+          : [];
         const err             = errors?.[idx] ?? {};
 
         return (
@@ -372,7 +366,7 @@ const MultiDepartmentPicker = ({ selections, onChange, readOnly, errors }) => {
                 <select disabled={readOnly} value={entry.department} onChange={e => updateEntry(idx, "department", e.target.value)}
                   style={{ ...pillSelect, border: err.department ? "1.5px solid #ffaaaa" : "none" }}>
                   <option value="">Select Department</option>
-                  {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
+                  {departmentNames.map(d => <option key={d} value={d}>{d}</option>)}
                 </select>
                 <span style={{ position: "absolute", right: "10px", top: "50%", transform: "translateY(-50%)", color: "white", pointerEvents: "none", fontSize: "0.65rem" }}>▼</span>
                 {err.department && <p style={{ color: "#ffcccc", fontSize: "0.7rem", fontFamily: "'Kufam', sans-serif", margin: "3px 0 0 4px" }}>Department is required.</p>}
@@ -526,6 +520,7 @@ const MenuRow = ({ iconSrc, label, onClick }) => (
 
 // ── Add Account Modal ─────────────────────────────────────────────────────────
 const AddAccountModal = ({ onClose, currentUid, currentEmail, coordinatorDeptSelections = [] }) => {
+  const { departments, departmentNames } = useDepartmentsPrograms();
   const [currentPass, setCurrentPass] = useState("");
   const [email, setEmail]             = useState("");
   const [errors, setErrors]           = useState({});
@@ -598,6 +593,8 @@ const AddAccountModal = ({ onClose, currentUid, currentEmail, coordinatorDeptSel
                   onChange={() => {}}
                   readOnly={true}
                   errors={[]}
+                  departments={departments}
+                  departmentNames={departmentNames}
                 />
               </div>
               <p style={{ fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif", color: "#777", margin: "-2px 0 8px 4px" }}>
@@ -633,6 +630,7 @@ const AddAccountModal = ({ onClose, currentUid, currentEmail, coordinatorDeptSel
 
 // ── Transfer Account Modal ────────────────────────────────────────────────────
 const TransferAccountModal = ({ onClose, currentUid, currentEmail, coordinatorDeptSelections = [] }) => {
+  const { departments, departmentNames } = useDepartmentsPrograms();
   const [currentPass, setCurrentPass] = useState("");
   const [email, setEmail]             = useState("");
   const [errors, setErrors]           = useState({});
@@ -705,6 +703,8 @@ const TransferAccountModal = ({ onClose, currentUid, currentEmail, coordinatorDe
                   onChange={() => {}}
                   readOnly={true}
                   errors={[]}
+                  departments={departments}
+                  departmentNames={departmentNames}
                 />
               </div>
               <p style={{ fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif", color: "#777", margin: "-2px 0 8px 4px" }}>
@@ -851,6 +851,7 @@ const CoordinatorEmailChangeConfirmModal = ({ newEmail, uid, onCancel, onDone })
 
 // ── Personal Info Screen ──────────────────────────────────────────────────────
 const PersonalInfoScreen = ({ user, onBack, onSaved, mandatory = false }) => {
+  const { departments, departmentNames } = useDepartmentsPrograms();
   const [editing, setEditing]           = useState(!!mandatory);
   const [name, setName]                 = useState(user?.name || "");
   const [deptSelections, setDeptSelections] = useState(
@@ -944,7 +945,7 @@ const PersonalInfoScreen = ({ user, onBack, onSaved, mandatory = false }) => {
       if (!entry.department) err.department = true;
       if (entry.department && !entry.program) err.program = true;
       if (entry.department && entry.program) {
-        const specs = DEPARTMENT_PROGRAM_DATA[entry.department]?.specializations?.[entry.program] ?? [];
+        const specs = (departments[entry.department]?.programs ?? []).find(p => p.name === entry.program)?.specializations ?? [];
         if (specs.length > 0 && !entry.specialization) err.specialization = true;
       }
       return err;
@@ -1079,7 +1080,7 @@ const PersonalInfoScreen = ({ user, onBack, onSaved, mandatory = false }) => {
           <div style={rowStyle}>
             <span style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.88rem", color: "white" }}>Department:</span>
             {editing ? (
-              <MultiDepartmentPicker selections={deptSelections} onChange={v => { setDeptSelections(v); setDeptErrors([]); }} readOnly={false} errors={deptErrors} />
+              <MultiDepartmentPicker selections={deptSelections} onChange={v => { setDeptSelections(v); setDeptErrors([]); }} readOnly={false} errors={deptErrors} departments={departments} departmentNames={departmentNames} />
             ) : (
               deptSelections.length === 1 ? (
                 <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", color: "white", marginLeft: "6px" }}>{deptViewLabel(deptSelections[0]) || "—"}</span>

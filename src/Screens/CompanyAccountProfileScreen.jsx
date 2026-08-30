@@ -74,6 +74,22 @@ const ResponsiveStyles = () => (
     @import url('https://fonts.googleapis.com/css2?family=Jersey+25&family=Jua&family=Kufam:wght@400;600;700&family=Monomaniac+One&display=swap');
     * { box-sizing: border-box; }
 
+    /* ── Mapbox address search (Location Map Preview) ── */
+    .su1-map-container {
+      width: 100%;
+      height: 160px;
+      border-radius: 12px;
+      margin-top: 8px;
+      margin-bottom: 6px;
+      overflow: hidden;
+      border: 1.5px solid #ccc;
+      position: relative;
+      cursor: pointer;
+    }
+    @media (max-width: 360px) {
+      .su1-map-container { height: 130px; }
+    }
+
     /* ── Profile header card ── */
     .cap-header-card {
       position: relative;
@@ -2727,6 +2743,253 @@ const MultiCollegeProgramPicker = ({ selections, onChange, editable = true }) =>
   );
 };
 
+// ── Location Map Preview ──────────────────────────────────────────────────────
+// Lets the company re-pin their exact location if they relocated — same
+// click-to-place-pin behavior as SignUpStep1Screen's map, adapted for the
+// "editing an existing saved location" case here: `initialLat`/`initialLng`/
+// `initialIsManual` seed the pin from whatever's already saved (e.g. a pin
+// manually placed at Sign-Up) so opening Edit Profile doesn't immediately
+// snap it back to the address-only location before the company touches
+// anything. Only once they actually change Region/Province/City/Barangay
+// does the address-driven auto-geocode kick in as a fresh "starting point"
+// (matching SignUpStep1Screen's behavior) — a bare re-render (e.g. entering
+// edit mode) does not.
+const LocationMapPreview = ({ address, initialLat, initialLng, initialIsManual, onResolved }) => {
+  const mapContainerRef = useRef(null);
+  const mapRef          = useRef(null);
+  const markerRef       = useRef(null);
+  const debounceRef     = useRef(null);
+  const addressRef      = useRef(address);
+  const hasInitializedRef = useRef(false);
+  const [mapReady, setMapReady] = useState(!!window.mapboxgl);
+  const [mapError, setMapError] = useState(false);
+  const [geocoding, setGeocoding] = useState(false);
+  const [coords, setCoords]       = useState({ lat: initialLat ?? null, lng: initialLng ?? null });
+  const [showZoom, setShowZoom]   = useState(false);
+  const [pinIsManual, setPinIsManual] = useState(!!initialIsManual);
+
+  useEffect(() => { addressRef.current = address; }, [address]);
+
+  useEffect(() => {
+    if (window.mapboxgl) { setMapReady(true); return; }
+    const link = document.createElement("link");
+    link.rel  = "stylesheet";
+    link.href = "https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.css";
+    document.head.appendChild(link);
+    const script = document.createElement("script");
+    script.src = "https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.js";
+    script.onload  = () => setMapReady(true);
+    script.onerror = () => setMapError(true);
+    document.head.appendChild(script);
+  }, []);
+
+  useEffect(() => {
+    if (!mapReady || mapRef.current || !mapContainerRef.current) return;
+    try {
+      window.mapboxgl.accessToken = MAPBOX_TOKEN;
+      const startLat = initialLat ?? 12.0, startLng = initialLng ?? 121.0;
+      mapRef.current = new window.mapboxgl.Map({
+        container: mapContainerRef.current,
+        style:     "mapbox://styles/mapbox/standard-satellite",
+        center:    [startLng, startLat],
+        zoom:      initialLat != null ? 15 : 5,
+      });
+      mapRef.current.addControl(new window.mapboxgl.NavigationControl({ showCompass: false }), "top-right");
+
+      // Show the already-saved pin immediately, if there is one.
+      if (initialLat != null && initialLng != null) {
+        markerRef.current = new window.mapboxgl.Marker({ color: "#8B0000" })
+          .setLngLat([initialLng, initialLat])
+          .addTo(mapRef.current);
+      }
+
+      // Let the company click anywhere on the map to drop the pin at their
+      // exact (possibly relocated) location.
+      mapRef.current.getCanvas().style.cursor = "pointer";
+      mapRef.current.on("click", (e) => {
+        const { lat, lng } = e.lngLat;
+        if (markerRef.current) {
+          markerRef.current.setLngLat([lng, lat]);
+        } else {
+          markerRef.current = new window.mapboxgl.Marker({ color: "#8B0000" })
+            .setLngLat([lng, lat])
+            .addTo(mapRef.current);
+        }
+        setCoords({ lat, lng });
+        setPinIsManual(true);
+        onResolved?.({ address: addressRef.current, lat, lng, isManual: true });
+      });
+    } catch (_) {
+      setMapError(true);
+    }
+  }, [mapReady]);
+
+  useEffect(() => {
+    if (!mapReady || !mapRef.current) return;
+    // Skip the very first run when we already have a saved pin to show —
+    // otherwise simply opening Edit Profile would immediately re-geocode the
+    // unchanged address and silently discard a manually-placed pin from
+    // Sign-Up before the company has touched anything.
+    if (!hasInitializedRef.current) {
+      hasInitializedRef.current = true;
+      if (initialLat != null && initialLng != null) return;
+    }
+    clearTimeout(debounceRef.current);
+    if (!address || !address.trim()) return;
+    debounceRef.current = setTimeout(async () => {
+      setGeocoding(true);
+      const { lat, lng } = await geocodeAddress(address);
+      setGeocoding(false);
+      if (lat == null || lng == null || !mapRef.current) return;
+      mapRef.current.flyTo({ center: [lng, lat], zoom: 15, duration: 1000 });
+      if (markerRef.current) {
+        markerRef.current.setLngLat([lng, lat]);
+      } else {
+        markerRef.current = new window.mapboxgl.Marker({ color: "#8B0000" })
+          .setLngLat([lng, lat])
+          .addTo(mapRef.current);
+      }
+      // A new address selection is a fresh starting point — any earlier
+      // manual pin placement no longer applies.
+      setPinIsManual(false);
+      onResolved?.({ address, lat, lng, isManual: false });
+      setCoords({ lat, lng });
+    }, 500);
+    return () => clearTimeout(debounceRef.current);
+  }, [address, mapReady]);
+
+  if (mapError) {
+    return (
+      <div style={{ width: "100%", height: "160px", background: "#f0f0f0", borderRadius: "12px", marginTop: "8px", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.75rem", color: "#888", textAlign: "center", padding: "0 12px" }}>
+          Map unavailable. Address will still be saved.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ marginTop: "8px" }}>
+      <div style={{ position: "relative" }}>
+        <div ref={mapContainerRef} className="su1-map-container" />
+        {geocoding && (
+          <span style={{ position: "absolute", top: "8px", left: "10px", background: "rgba(0,0,0,0.6)", color: "white", fontFamily: "'Kufam', sans-serif", fontSize: "0.68rem", padding: "3px 8px", borderRadius: "10px" }}>
+            Locating…
+          </span>
+        )}
+        {!geocoding && pinIsManual && (
+          <span style={{ position: "absolute", top: "8px", left: "10px", background: "rgba(139,0,0,0.85)", color: "white", fontFamily: "'Kufam', sans-serif", fontSize: "0.68rem", padding: "3px 8px", borderRadius: "10px" }}>
+            📍 Manually pinned
+          </span>
+        )}
+        {coords.lat != null && (
+          <button
+            onClick={() => setShowZoom(true)}
+            title="Click to view fullscreen"
+            style={{
+              position: "absolute", bottom: "10px", left: "50%", transform: "translateX(-50%)",
+              background: "rgba(0,0,0,0.6)", color: "white", border: "none", borderRadius: "16px",
+              padding: "4px 12px", fontSize: "0.72rem", fontFamily: "'Kufam', sans-serif",
+              cursor: "pointer", display: "flex", alignItems: "center", gap: "4px", zIndex: 5,
+            }}
+          >
+            🔍 Click to zoom
+          </button>
+        )}
+        {showZoom && (
+          <MapZoomModal
+            lat={coords.lat}
+            lng={coords.lng}
+            onClose={() => setShowZoom(false)}
+            onPin={({ lat, lng }) => {
+              if (markerRef.current) {
+                markerRef.current.setLngLat([lng, lat]);
+              } else if (mapRef.current) {
+                markerRef.current = new window.mapboxgl.Marker({ color: "#8B0000" })
+                  .setLngLat([lng, lat])
+                  .addTo(mapRef.current);
+              }
+              if (mapRef.current) mapRef.current.flyTo({ center: [lng, lat], zoom: 15, duration: 600 });
+              setCoords({ lat, lng });
+              setPinIsManual(true);
+              onResolved?.({ address: addressRef.current, lat, lng, isManual: true });
+            }}
+          />
+        )}
+      </div>
+      <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.68rem", color: "#888", margin: "4px 0 0 2px" }}>
+        Relocated? Click anywhere on the map to drop the pin on your new exact location.
+      </p>
+    </div>
+  );
+};
+
+// ── Fullscreen map modal, opened via "Click to zoom" ───────────────────────
+const MapZoomModal = ({ lat, lng, onClose, onPin }) => {
+  const mapContainerRef = useRef(null);
+  const mapRef          = useRef(null);
+  const markerRef       = useRef(null);
+
+  useEffect(() => {
+    const loadMap = () => {
+      if (!mapContainerRef.current || mapRef.current) return;
+      window.mapboxgl.accessToken = MAPBOX_TOKEN;
+      mapRef.current = new window.mapboxgl.Map({
+        container: mapContainerRef.current,
+        style:     "mapbox://styles/mapbox/standard-satellite",
+        center:    [lng, lat],
+        zoom:      15,
+      });
+      mapRef.current.addControl(new window.mapboxgl.NavigationControl(), "top-right");
+      markerRef.current = new window.mapboxgl.Marker({ color: "#8B0000" }).setLngLat([lng, lat]).addTo(mapRef.current);
+
+      // Click anywhere in this larger fullscreen view to fine-tune the pin —
+      // easier to be precise here than on the small preview.
+      mapRef.current.getCanvas().style.cursor = "pointer";
+      mapRef.current.on("click", (e) => {
+        const { lat: newLat, lng: newLng } = e.lngLat;
+        markerRef.current.setLngLat([newLng, newLat]);
+        onPin?.({ lat: newLat, lng: newLng });
+      });
+    };
+
+    if (window.mapboxgl) { loadMap(); return; }
+    const link = document.createElement("link");
+    link.rel  = "stylesheet";
+    link.href = "https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.css";
+    document.head.appendChild(link);
+    const script = document.createElement("script");
+    script.src = "https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.js";
+    script.onload = loadMap;
+    document.head.appendChild(script);
+
+    return () => { if (mapRef.current) { mapRef.current.remove(); mapRef.current = null; } };
+  }, [lat, lng]);
+
+  return (
+    <div
+      onClick={onClose}
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: "16px" }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{ width: "min(92vw, 800px)", height: "min(85vh, 560px)", borderRadius: "16px", overflow: "hidden", position: "relative", boxShadow: "0 8px 32px rgba(0,0,0,0.4)" }}
+      >
+        <div ref={mapContainerRef} style={{ width: "100%", height: "100%" }} />
+        <button
+          onClick={onClose}
+          style={{ position: "absolute", top: "12px", left: "12px", zIndex: 10, background: "#8B0000", color: "white", border: "none", borderRadius: "20px", padding: "6px 16px", fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", cursor: "pointer", boxShadow: "0 2px 8px rgba(0,0,0,0.3)" }}
+        >
+          ✕ Close
+        </button>
+        <span style={{ position: "absolute", top: "12px", right: "56px", zIndex: 10, background: "rgba(0,0,0,0.6)", color: "white", borderRadius: "16px", padding: "6px 14px", fontFamily: "'Kufam', sans-serif", fontSize: "0.75rem" }}>
+          Click anywhere to set your exact pin
+        </span>
+      </div>
+    </div>
+  );
+};
+
 // ── Location Picker ───────────────────────────────────────────────────────────
 const LocationPicker = ({ location, onChange, editable = true }) => {
   const { region, province, city, barangay, street } = location;
@@ -3275,7 +3538,7 @@ const PersonalInfoScreen = ({ onBack, user }) => {
   // Without this, saving from this screen would silently wipe out the lat/lng
   // that Sign-up originally captured, since only region/province/city/
   // barangay/street were ever read or written back here.
-  const resolvedGeoRef = useRef({ lat: null, lng: null, fullAddress: "" });
+  const resolvedGeoRef = useRef({ lat: null, lng: null, fullAddress: "", isManual: false });
   const [email, setEmail]   = useState("");
   // Firestore's `email` field only changes once a new address is actually
   // verified (see AuthService.requestCompanyEmailChange) — this tracks that
@@ -3333,6 +3596,7 @@ const PersonalInfoScreen = ({ onBack, user }) => {
             lat: d.location.lat ?? null,
             lng: d.location.lng ?? null,
             fullAddress: d.location.fullAddress || "",
+            isManual: !!d.location.isManual,
           };
         }
         if (d.courseSelections) setCourseSelections(d.courseSelections);
@@ -3383,7 +3647,12 @@ const PersonalInfoScreen = ({ onBack, user }) => {
     try {
       const newAddress = [location.street, location.barangay, location.city, location.province, location.region]
         .filter(Boolean).join(", ");
-      const newPostLocation = await geocodeAddress(newAddress);
+      // If the company clicked the map to re-pin their exact location, that
+      // wins — skip re-geocoding (which would otherwise snap it back to the
+      // address-based location and discard the manual adjustment).
+      const newPostLocation = resolvedGeoRef.current.isManual
+        ? { address: newAddress, lat: resolvedGeoRef.current.lat, lng: resolvedGeoRef.current.lng }
+        : await geocodeAddress(newAddress);
       // Prefer this fresh geocode; fall back to the live preview map's
       // last-known-good coords (or the previously saved ones) if this
       // particular geocode call came back empty (e.g. a transient network
@@ -3393,6 +3662,7 @@ const PersonalInfoScreen = ({ onBack, user }) => {
         fullAddress: newPostLocation.lat != null ? newAddress : (resolvedGeoRef.current.fullAddress || newAddress),
         lat: newPostLocation.lat ?? resolvedGeoRef.current.lat ?? null,
         lng: newPostLocation.lng ?? resolvedGeoRef.current.lng ?? null,
+        isManual: resolvedGeoRef.current.isManual,
       };
       await updateDoc(doc(db, "companies", uid), {
         // `email` intentionally excluded — see handleSave/saveNonEmailFields split above.
@@ -3522,6 +3792,17 @@ const PersonalInfoScreen = ({ onBack, user }) => {
               <>
                 <LocationPicker location={location} onChange={setLocation} editable={true} />
                 {errors.location && <p style={{ color: "#ffcccc", fontSize: "0.72rem", fontFamily: "'Kufam', sans-serif", margin: "2px 0 0" }}>{errors.location}</p>}
+                {location.city && (
+                  <LocationMapPreview
+                    address={[location.street, location.barangay, location.city, location.province, location.region].filter(Boolean).join(", ")}
+                    initialLat={resolvedGeoRef.current.lat}
+                    initialLng={resolvedGeoRef.current.lng}
+                    initialIsManual={resolvedGeoRef.current.isManual}
+                    onResolved={({ address, lat, lng, isManual }) => {
+                      resolvedGeoRef.current = { lat, lng, fullAddress: address, isManual: !!isManual };
+                    }}
+                  />
+                )}
               </>
             )}
           </div>
