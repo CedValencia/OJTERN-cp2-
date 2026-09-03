@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
-import { doc, onSnapshot, updateDoc, collection, getDocs, query, where } from "firebase/firestore";
+import { doc, onSnapshot, updateDoc, collection, getDocs, query, where, setDoc, serverTimestamp } from "firebase/firestore";
 import { getAuth, signOut } from "firebase/auth";
 import { db } from "./firebase";
 import { changePassword, requestCompanyEmailChange } from "./AuthService";
@@ -261,57 +261,91 @@ const ResponsiveStyles = () => (
 );
 
 // ── Industries ────────────────────────────────────────────────────────────────
-// TODO: Populate from backend or config
+// Same curated list used by Sign-Up Step 1 (see IndustryAutocomplete there) —
+// kept in sync so a Company sees the same suggestions whether they're
+// signing up or editing their profile later.
 const INDUSTRIES = [
-//College of Computer Studies
-
-"Software & Tech Development",
-"Computer and Technology",
-"Information Technology & Managed Services",
-"Cybersecurity",
-"E-Commerce & Digital Business",
+"Artificial Intelligence",
+"Developer Tools & DevOps",
 "Data & Analytics",
-
-//College of Business and Accountancy
-
-"Financial Services & Banking",
-"Public & Corporate Accounting",
-"Consumer Goods & Retail",
-"Digital Marketing & Advertising",
-"Management Consulting",
-
-//College of Criminal Justice Education
-
-"Law Enforcement & Public Safety",
-"Private Security & Risk Management",
-"Corrections & Rehabilitation ",
-"Forensics & Crime Scene Investigation",
-"Legal & Judicial Support",
-
-//College of Liberal Arts
-
-"Government & Public Policy",
-"Non-Governmental & International Organizations",
-"Legal Services",
-"Political Consulting & Campaign Management",
-"Journalism & Media Communications (Political Reporting, Editorial Services)",
-
-//College of Education
-
-"Primary & Secondary K-12 Education",
-"Educational Technology & E-Learning",
-"Corporate Training & Adult Education",
-"Academic Publishing & Content Creation",
-"Test Preparation & Tutoring Services",
-
-//College of Hospitality Management
-
-"Hotels, Resorts & Lodging",
-"Travel & Airline Services",
-"Food & Beverage Service",
-"Event & Conference Management",
-"Eco-Tourism & Destination Marketing",
+"Cybersecurity & Identity",
+"Healthcare",
+"Digital Health & Telehealth",
+"Marketing & Advertising",
+"Blockchain, Crypto & Web3",
+"Telecommunications & Connectivity",
+"Supply Chain & Procurement",
+"Venture Capital & Investing",
+"Biotechnology & Drug Discovery",
+"Financial Services",
+"Education & EdTech",
+"Legal & Compliance Tech",
+"Climate & Sustainability",
+"Robotics & Autonomous Systems",
+"Semiconductors & Hardware",
+"Life Sciences",
+"Retail",
+"IoT & Connected Devices",
+"Banking & Open Banking",
+"Music, Audio & Creator Economy",
+"Human Resources & Payroll",
+"Government & Public Sector",
+"Gaming & Interactive",
+"Insurance",
+"Energy",
+"Mobility & Fleet",
+"Logistics",
+"Real Estate",
+"Media",
+"Weather & Geospatial",
+"Entertainment",
+"Automotive",
+"Transportation",
+"Aerospace",
+"Space & Satellite",
+"Construction",
+"Defense",
+"Enterprise Software",
+"Hospitality",
+"Industrial",
+"Agriculture",
+"Technology",
+"Nutrition",
+"Utilities",
+"Sports",
+"Consumer Goods",
+"Food Delivery",
+"Professional Services",
+"Mining",
+"Food Service",
+"Financial Technology",
+"Maritime",
+"Video Streaming",
+"E-commerce Platform",
+"Pet Care",
+"Waste Management",
+"Rail",
+"Travel Technology",
+"Cannabis",
+"Pharmaceutical",
+"Productivity Software",
+"Environmental Services",
+"Customer Relationship Management (CRM)",
+"Cloud Data Platform",
+"Communications Platform as a Service (CPaaS)",
+"Fitness & Wellness",
+"Tax Compliance Software",
+"Cruise Lines",
+"Event Management Software",
 ];
+
+// Turns "Robotics & Autonomous Systems" into "robotics-autonomous-systems" so
+// a newly-typed industry can be stored under a stable, de-duplicated
+// Firestore document ID (case/spacing differences collapse to the same doc).
+// Matches Sign-Up Step 1's slugifyIndustry exactly, so both screens write to
+// the same "industries" collection/doc.
+const slugifyIndustry = (s) =>
+  s.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
 
 // ── College / Program Data ────────────────────────────────────────────────────
 // TODO: Populate from backend or config
@@ -2619,52 +2653,62 @@ const MenuRow = ({ iconSrc, label, onClick }) => (
   </div>
 );
 
-// ── Industry Multi-Select ─────────────────────────────────────────────────────
-const IndustrySelect = ({ selected, onChange, otherText, onOtherTextChange, editable = true }) => {
+// ── Industry Autocomplete ────────────────────────────────────────────────────
+// Same type-to-search field as Sign-Up Step 1: the Company types their
+// industry and matching suggestions (curated INDUSTRIES + anything
+// crowd-added via Step 1 or here) show up below to pick from. Free typing is
+// still allowed — Industry is informational only, not used for routing.
+const IndustryAutocomplete = ({ value, onChange, hasError, options, editable = true }) => {
   const [open, setOpen] = useState(false);
+  const wrapRef = useRef(null);
 
-  const toggle = (ind) => {
-    if (!editable) return;
-    if (selected.includes(ind)) onChange(selected.filter(i => i !== ind));
-    else onChange([...selected, ind]);
-  };
+  useEffect(() => {
+    const handler = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
 
-  const displayText = selected.length === 0
-    ? "Select Industry"
-    : selected.map(i => i === "Others" && otherText ? `Others: ${otherText}` : i).join(", ");
+  const query   = value.trim().toLowerCase();
+  const list    = options || INDUSTRIES;
+  const matches = query === "" ? list : list.filter(ind => ind.toLowerCase().includes(query));
+
+  if (!editable) {
+    return <span style={{ fontWeight: 400 }}>{value || "—"}</span>;
+  }
 
   return (
-    <div style={{ position: "relative", marginBottom: "10px" }}>
-      <div onClick={() => editable && setOpen(o => !o)}
-        style={{ ...fieldStyle, display: "flex", justifyContent: "space-between", alignItems: "center", cursor: editable ? "pointer" : "default" }}>
-        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "90%", fontSize: "0.82rem" }}>{displayText}</span>
-        <span style={{ fontSize: "0.7rem" }}>▼</span>
-      </div>
-      {open && editable && (
-        <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, background: "white", border: `1.5px solid ${red}`, borderRadius: "10px", boxShadow: "0 6px 20px rgba(0,0,0,0.15)", zIndex: 300, overflow: "hidden", display: "flex", flexDirection: "column", maxHeight: "220px" }}>
-          <div style={{ overflowY: "auto", flex: 1 }}>
-            {INDUSTRIES.map(ind => (
-              <div key={ind} onClick={() => toggle(ind)}
-                style={{ display: "flex", alignItems: "center", gap: "10px", padding: "9px 14px", cursor: "pointer", background: selected.includes(ind) ? "#f5e0e0" : "white", borderBottom: "1px solid #f0f0f0" }}
-                onMouseEnter={e => { if (!selected.includes(ind)) e.currentTarget.style.background = "#faf0f0"; }}
-                onMouseLeave={e => { if (!selected.includes(ind)) e.currentTarget.style.background = "white"; }}>
-                <div style={{ width: "16px", height: "16px", borderRadius: "3px", border: `2px solid ${red}`, background: selected.includes(ind) ? red : "white", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                  {selected.includes(ind) && <span style={{ color: "white", fontSize: "10px", fontWeight: 700 }}>✓</span>}
-                </div>
-                <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.8rem", color: "#222" }}>{ind}</span>
-              </div>
-            ))}
-          </div>
-          <div onClick={() => setOpen(false)} style={{ padding: "8px 14px", textAlign: "right", borderTop: "1px solid #eee", flexShrink: 0 }}>
-            <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.78rem", color: red, cursor: "pointer", fontWeight: 600 }}>Done ✓</span>
-          </div>
+    <div ref={wrapRef} style={{ position: "relative", marginBottom: "2px" }}>
+      <input
+        type="text"
+        placeholder="Type your Industry:"
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        onFocus={() => setOpen(true)}
+        autoComplete="off"
+        style={{ ...fieldStyle, border: hasError ? "1.5px solid #ffcccc" : "none" }}
+      />
+      {open && matches.length > 0 && (
+        <div style={{
+          position: "absolute", top: "calc(100% + 6px)", left: 0, right: 0,
+          background: "white", border: `1.5px solid ${red}`, borderRadius: "14px",
+          boxShadow: "0 6px 20px rgba(0,0,0,0.18)", zIndex: 300,
+          maxHeight: "220px", overflowY: "auto", padding: "8px 0",
+        }}>
+          {matches.map(ind => (
+            <div
+              key={ind}
+              onClick={() => { onChange(ind); setOpen(false); }}
+              style={{
+                padding: "9px 16px", cursor: "pointer", userSelect: "none",
+                fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#222",
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background = "#faf0f0"; }}
+              onMouseLeave={e => { e.currentTarget.style.background = "white"; }}
+            >
+              {ind}
+            </div>
+          ))}
         </div>
-      )}
-      {selected.includes("Others") && editable && (
-        <input type="text" placeholder="Please specify..." value={otherText} onChange={e => onOtherTextChange(e.target.value)} style={{ ...fieldStyle, marginTop: "6px" }} />
-      )}
-      {selected.includes("Others") && !editable && otherText && (
-        <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.8rem", color: "rgba(255,255,255,0.85)", marginTop: "4px", marginLeft: "4px" }}>Others: {otherText}</p>
       )}
     </div>
   );
@@ -2879,7 +2923,7 @@ const LocationMapPreview = ({ address, initialLat, initialLng, initialIsManual, 
         )}
         {!geocoding && pinIsManual && (
           <span style={{ position: "absolute", top: "8px", left: "10px", background: "rgba(139,0,0,0.85)", color: "white", fontFamily: "'Kufam', sans-serif", fontSize: "0.68rem", padding: "3px 8px", borderRadius: "10px" }}>
-            📍 Manually pinned
+            
           </span>
         )}
         {coords.lat != null && (
@@ -3523,11 +3567,22 @@ const PersonalInfoScreen = ({ onBack, user }) => {
   const [loading, setLoading]             = useState(true);
 
   const [companyName, setCompanyName]     = useState("");
-  const [industries, setIndustries]       = useState([]);
-  const [otherIndustry, setOtherIndustry] = useState("");
+  const [industry, setIndustry]           = useState("");
+  // Crowd-added industries (typed by other Companies during Sign-Up Step 1 or
+  // here) — loaded live so this screen's suggestions stay in sync with
+  // Step 1's, same as customIndustries there.
+  const [customIndustries, setCustomIndustries] = useState([]);
   const [courseSelections, setCourseSelections] = useState([
     { college: "", program: "", specialization: "" }
   ]);
+  // Raw `deptSelections` as last loaded from Firestore — the field
+  // CoordinatorCompanyListScreen actually reads to route/approve companies
+  // ({ department, program, status }). It's separate from `courseSelections`
+  // (this screen's own { college, program, specialization } shape), so a
+  // save here has to translate one into the other. Kept in a ref (not
+  // state) purely so handleSave can look up each existing entry's status
+  // by department+program without needing it in the render path.
+  const deptSelectionsRef = useRef([]);
   const [location, setLocation] = useState({
     region: "", province: "", city: "", barangay: "", street: "",
   });
@@ -3567,6 +3622,23 @@ const PersonalInfoScreen = ({ onBack, user }) => {
   const editingRef = useRef(editing);
   useEffect(() => { editingRef.current = editing; }, [editing]);
 
+  // ── Load crowd-added industries (same "industries" collection Step 1 writes to) ──
+  useEffect(() => {
+    const unsub = onSnapshot(
+      collection(db, "industries"),
+      snap => setCustomIndustries(snap.docs.map(d => d.data()?.name).filter(Boolean)),
+      err  => console.error("Failed to load custom industries:", err)
+    );
+    return () => unsub();
+  }, []);
+
+  const allIndustries = [
+    ...INDUSTRIES,
+    ...customIndustries
+      .filter(ci => !INDUSTRIES.some(i => i.toLowerCase() === ci.toLowerCase()))
+      .sort((a, b) => a.localeCompare(b)),
+  ];
+
   useEffect(() => {
     const uid = user?.uid || getAuth().currentUser?.uid;
     if (!uid) { setLoading(false); return; }
@@ -3583,7 +3655,9 @@ const PersonalInfoScreen = ({ onBack, user }) => {
         }
         originalEmailRef.current = d.email || "";
         setPendingEmail(d.pendingEmail || "");
-        if (d.industry) setIndustries(Array.isArray(d.industry) ? d.industry : [d.industry]);
+        // Older docs may have saved industry as an array (multi-select) —
+        // fall back to the first entry since this is now a single free-typed value.
+        if (d.industry) setIndustry(Array.isArray(d.industry) ? (d.industry[0] || "") : d.industry);
         if (d.location) {
           setLocation({
             region:   d.location.region   || "",
@@ -3600,6 +3674,7 @@ const PersonalInfoScreen = ({ onBack, user }) => {
           };
         }
         if (d.courseSelections) setCourseSelections(d.courseSelections);
+        deptSelectionsRef.current = Array.isArray(d.deptSelections) ? d.deptSelections : [];
       }
       setLoading(false);
     });
@@ -3609,7 +3684,7 @@ const PersonalInfoScreen = ({ onBack, user }) => {
   const validate = () => {
     const e = {};
     if (!companyName.trim()) e.companyName = "Company name is required.";
-    if (industries.length === 0) e.industries = "Select at least one industry.";
+    if (!industry.trim()) e.industry = "Please enter your industry.";
     if (!email.trim()) e.email = "Email is required.";
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) e.email = "Invalid email address.";
     if (!location.region) e.location = "Please select a region.";
@@ -3645,6 +3720,20 @@ const PersonalInfoScreen = ({ onBack, user }) => {
   // successfully reauthenticates and calls requestCompanyEmailChange.
   const saveNonEmailFields = async (uid) => {
     try {
+      // If the typed industry isn't one we already know about (curated or
+      // previously crowd-added), save it so future Companies see it as a
+      // suggestion too — same as Sign-Up Step 1's handleContinue. Best-effort —
+      // this should never block the profile save.
+      const trimmedIndustry = industry.trim();
+      const isKnownIndustry = allIndustries.some(i => i.toLowerCase() === trimmedIndustry.toLowerCase());
+      if (trimmedIndustry && !isKnownIndustry) {
+        setDoc(
+          doc(db, "industries", slugifyIndustry(trimmedIndustry)),
+          { name: trimmedIndustry, createdAt: serverTimestamp() },
+          { merge: true }
+        ).catch(err => console.error("Failed to save new industry:", err));
+      }
+
       const newAddress = [location.street, location.barangay, location.city, location.province, location.region]
         .filter(Boolean).join(", ");
       // If the company clicked the map to re-pin their exact location, that
@@ -3664,13 +3753,46 @@ const PersonalInfoScreen = ({ onBack, user }) => {
         lng: newPostLocation.lng ?? resolvedGeoRef.current.lng ?? null,
         isManual: resolvedGeoRef.current.isManual,
       };
+
+      // Translate this screen's courseSelections ({ college, program,
+      // specialization }) into the deptSelections shape CoordinatorCompanyListScreen
+      // actually reads ({ department, program, status }) — these are two
+      // separate Firestore fields, so editing courseSelections alone never
+      // reached the coordinator's list. A college/program pair that already
+      // existed (matched by department+program) keeps whatever status a
+      // coordinator already gave it (pending/approved/rejected); anything
+      // new goes in as "pending" so it lands under "Companies in Review".
+      // Pairs the company removed here are dropped from deptSelections too —
+      // if they're no longer offering that college/program, it shouldn't
+      // stay listed (or stay approved) under it.
+      const newDeptSelections = courseSelections
+        .filter(s => s.college)
+        .map(s => {
+          const existing = deptSelectionsRef.current.find(
+            d => d.department === s.college && (d.program || "") === (s.program || "")
+          );
+          return {
+            department: s.college,
+            program: s.program || "",
+            status: existing ? existing.status : "pending",
+          };
+        });
+
       await updateDoc(doc(db, "companies", uid), {
         // `email` intentionally excluded — see handleSave/saveNonEmailFields split above.
-        companyName, industry: industries, courseSelections, location: savedLocation,
+        // `departments` is a flat string[] mirror of newDeptSelections' department
+        // names — Firestore can't query the nested deptSelections array-of-maps by
+        // sub-field, so CoordinatorCompanyListScreen's array-contains-any query
+        // narrows by this flat field instead. Must stay in sync with deptSelections
+        // on every write or a newly added Department silently never reaches that
+        // query, no matter what deptSelections itself says.
+        companyName, industry: trimmedIndustry, courseSelections, deptSelections: newDeptSelections,
+        departments: [...new Set(newDeptSelections.map(s => s.department))],
+        location: savedLocation,
       });
       const postsSnap = await getDocs(query(collection(db, "ojt_posts"), where("companyId", "==", uid)));
       await Promise.all(postsSnap.docs.map(d => updateDoc(d.ref, {
-        companyName, name: companyName, location: savedLocation, postLocation: newPostLocation, industry: industries,
+        companyName, name: companyName, location: savedLocation, postLocation: newPostLocation, industry: trimmedIndustry,
       })));
       const convsSnap = await getDocs(query(collection(db, "conversations"), where("participants", "array-contains", uid)));
       await Promise.all(convsSnap.docs.map(d => updateDoc(d.ref, { [`participantNames.${uid}`]: companyName })));
@@ -3717,8 +3839,7 @@ const PersonalInfoScreen = ({ onBack, user }) => {
             if (editSnapshotRef.current) {
               const snap = JSON.parse(editSnapshotRef.current);
               setCompanyName(snap.companyName);
-              setIndustries(snap.industries);
-              setOtherIndustry(snap.otherIndustry);
+              setIndustry(snap.industry);
               setCourseSelections(snap.courseSelections);
               setLocation(snap.location);
               setEmail(snap.email);
@@ -3743,7 +3864,7 @@ const PersonalInfoScreen = ({ onBack, user }) => {
           <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "8px" }}>
             {!editing && (
               <button onClick={() => {
-                editSnapshotRef.current = JSON.stringify({ companyName, industries, otherIndustry, courseSelections, location, email });
+                editSnapshotRef.current = JSON.stringify({ companyName, industry, courseSelections, location, email });
                 setEditing(true);
               }} title="Edit"
                 style={{ width: "32px", height: "32px", borderRadius: "50%", border: "2px solid white", background: "transparent", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
@@ -3771,16 +3892,38 @@ const PersonalInfoScreen = ({ onBack, user }) => {
           <div style={{ ...rowStyle, flexDirection: "column", alignItems: "stretch" }}>
             <span style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.88rem", color: "white", marginBottom: editing ? "8px" : "0" }}>
               Industry:{" "}
-              {!editing && <span style={{ fontWeight: 400 }}>{industries.length > 0 ? industries.join(", ") : "—"}</span>}
+              {!editing && <span style={{ fontWeight: 400 }}>{industry || "—"}</span>}
             </span>
             {editing && (
               <>
-                <IndustrySelect selected={industries} onChange={setIndustries} otherText={otherIndustry} onOtherTextChange={setOtherIndustry} editable={true} />
-                {errors.industries && <p style={{ color: "#ffcccc", fontSize: "0.72rem", fontFamily: "'Kufam', sans-serif", margin: "2px 0 0" }}>{errors.industries}</p>}
+                <IndustryAutocomplete value={industry} onChange={setIndustry} hasError={!!errors.industry} options={allIndustries} editable={true} />
+                {errors.industry && <p style={{ color: "#ffcccc", fontSize: "0.72rem", fontFamily: "'Kufam', sans-serif", margin: "2px 0 0" }}>{errors.industry}</p>}
               </>
             )}
           </div>
 
+
+          {/* Courses / Programs Accepted */}
+          <div style={{ ...rowStyle, flexDirection: "column", alignItems: "stretch" }}>
+            <span style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.88rem", color: "white", marginBottom: editing ? "8px" : "0" }}>
+              Courses / Programs Accepted:{" "}
+              {!editing && courseSelections.filter(s => s.college).length === 0 && (
+                <span style={{ fontWeight: 400 }}>—</span>
+              )}
+            </span>
+            {!editing && courseSelections.filter(s => s.college).length > 0 && (
+              <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                {courseSelections.filter(s => s.college).map((s, idx) => (
+                  <span key={idx} style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", color: "white", fontWeight: 400 }}>
+                    • {[s.college, s.program, s.specialization].filter(Boolean).join(" — ")}
+                  </span>
+                ))}
+              </div>
+            )}
+            {editing && (
+              <MultiCollegeProgramPicker selections={courseSelections} onChange={setCourseSelections} editable={true} />
+            )}
+          </div>
 
           {/* Location */}
           <div style={{ ...rowStyle, flexDirection: "column", alignItems: "stretch" }}>
@@ -3833,7 +3976,7 @@ const PersonalInfoScreen = ({ onBack, user }) => {
           {editing && (
             <div className="cap-save-row">
               <button onClick={() => {
-                const current = JSON.stringify({ companyName, industries, otherIndustry, courseSelections, location, email });
+                const current = JSON.stringify({ companyName, industry, courseSelections, location, email });
                 if (current !== editSnapshotRef.current) {
                   setShowDiscardConfirm(true);
                 } else {

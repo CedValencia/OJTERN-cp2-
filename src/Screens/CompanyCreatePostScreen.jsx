@@ -294,15 +294,26 @@ const PillSelect = ({ value, onChange, options, placeholder, disabled, hasError 
 // useDepartmentsPrograms — see ./departmentsPrograms). Every entry in
 // `approvedDeptSelections` is this company's own `deptSelections` (set at
 // Sign-Up / Account Profile), pre-filtered to `status === "approved"`.
+// Each checked department/program now carries its own `slot` count — a
+// company posting for two departments needs to say how many OJT slots it
+// has for EACH one, not one combined number for the whole post (see
+// PostOJTContent.handleSave, which sums these into a `slot` total for any
+// other screen that still reads that combined field).
 const ApprovedDepartmentPicker = ({ approvedDeptSelections, selections, onChange, readOnly }) => {
-  const isChecked = (dept, program) => selections.some(s => s.college === dept && s.program === program);
+  const findSelection = (dept, program) => selections.find(s => s.college === dept && s.program === program);
+  const isChecked = (dept, program) => !!findSelection(dept, program);
+  const getSlot = (dept, program) => findSelection(dept, program)?.slot ?? 1;
 
   const toggle = (dept, program) => {
     if (isChecked(dept, program)) {
       onChange(selections.filter(s => !(s.college === dept && s.program === program)));
     } else {
-      onChange([...selections, { college: dept, program, specialization: "" }]);
+      onChange([...selections, { college: dept, program, specialization: "", slot: 1 }]);
     }
+  };
+
+  const setSlot = (dept, program, slot) => {
+    onChange(selections.map(s => (s.college === dept && s.program === program) ? { ...s, slot } : s));
   };
 
   if (approvedDeptSelections.length === 0) {
@@ -318,26 +329,48 @@ const ApprovedDepartmentPicker = ({ approvedDeptSelections, selections, onChange
       {approvedDeptSelections.map((s, idx) => {
         const checked = isChecked(s.department, s.program);
         return (
-          <label
+          <div
             key={idx}
             style={{
               display: "flex", alignItems: "center", gap: "10px",
               background: "#ececec", borderRadius: "14px", padding: "10px 14px",
-              marginBottom: "8px", cursor: readOnly ? "default" : "pointer", userSelect: "none",
+              marginBottom: "8px",
             }}
           >
-            <input
-              type="checkbox"
-              checked={checked}
-              disabled={readOnly}
-              onChange={() => toggle(s.department, s.program)}
-              style={{ width: "17px", height: "17px", accentColor: darkRed, cursor: readOnly ? "default" : "pointer", flexShrink: 0 }}
-            />
-            <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#222" }}>
-              <span style={{ fontWeight: 700 }}>{s.department}</span>
-              {s.program && <span style={{ color: "#666" }}> — {s.program}</span>}
-            </span>
-          </label>
+            <label style={{ display: "flex", alignItems: "center", gap: "10px", flex: 1, minWidth: 0, cursor: readOnly ? "default" : "pointer", userSelect: "none" }}>
+              <input
+                type="checkbox"
+                checked={checked}
+                disabled={readOnly}
+                onChange={() => toggle(s.department, s.program)}
+                style={{ width: "17px", height: "17px", accentColor: darkRed, cursor: readOnly ? "default" : "pointer", flexShrink: 0 }}
+              />
+              <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#222", overflow: "hidden", textOverflow: "ellipsis" }}>
+                <span style={{ fontWeight: 700 }}>{s.department}</span>
+                {s.program && <span style={{ color: "#666" }}> — {s.program}</span>}
+              </span>
+            </label>
+            {checked && (
+              <div style={{ display: "flex", alignItems: "center", gap: "6px", flexShrink: 0 }}>
+                <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.72rem", color: "#888", whiteSpace: "nowrap" }}>Slots:</span>
+                <input
+                  type="number"
+                  min={1}
+                  disabled={readOnly}
+                  value={getSlot(s.department, s.program)}
+                  onChange={e => setSlot(s.department, s.program, Math.max(1, parseInt(e.target.value) || 1))}
+                  style={{
+                    width: "56px", textAlign: "center", padding: "5px 4px",
+                    borderRadius: "10px", border: "none",
+                    fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem",
+                    boxShadow: "inset 0 1px 3px rgba(0,0,0,0.08)",
+                    background: readOnly ? "#e0e0e0" : "white",
+                    color: readOnly ? "#555" : "#1a1a1a",
+                  }}
+                />
+              </div>
+            )}
+          </div>
         );
       })}
     </div>
@@ -345,15 +378,12 @@ const ApprovedDepartmentPicker = ({ approvedDeptSelections, selections, onChange
 };
 
 // ── Working Hours ──────────────────────────────────────────────────────────────
-// Picker-based instead of free text: two day dropdowns (a range, or leave
-// "To" as "(Same day)" for a single day) and two native time pickers,
-// composed into the exact same stored string format as before
-// ("Monday - Friday (8:00am - 5:00pm)") so anything else that reads
-// workingHours/workingHoursList — display screens, exports, etc. — is
-// completely unaffected. Because the string can now only ever be built
-// from a complete, valid selection or be empty, the old regex-format
-// validation is no longer needed (see the simplified check in validate()
-// below) — there's no way to produce a malformed string anymore.
+// One day + one time range per entry (not a day-to-day range) — pick
+// "Monday", then Monday's hours; a different day with different hours is
+// its own entry via "+ Add Another Working Hours". Composed into
+// "Monday (8:00am - 5:00pm)" so anything else that reads
+// workingHours/workingHoursList — display screens, exports, etc. — still
+// gets a single day name per entry, just no longer a "Monday - Friday" span.
 const DAYS_OF_WEEK = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
 const formatTime12h = (t24) => {
@@ -376,11 +406,13 @@ const to24h = (t12) => {
 };
 
 // Parses a previously-saved string back into its parts, so reopening an
-// existing post populates the pickers instead of showing them blank.
+// existing post populates the picker instead of showing it blank. Still
+// tolerates an old "Monday - Friday (...)" range saved before this change —
+// it just takes the first day, since there's no day-to-day picker anymore.
 const parseWorkingHours = (str) => {
-  const m = /^([A-Za-z]+)(?:\s*-\s*([A-Za-z]+))?\s*\((\d{1,2}:\d{2}(?:am|pm))\s*-\s*(\d{1,2}:\d{2}(?:am|pm))\)$/i.exec((str || "").trim());
-  if (!m) return { dayFrom: "", dayTo: "", timeFrom: "", timeTo: "" };
-  return { dayFrom: m[1] || "", dayTo: m[2] || "", timeFrom: to24h(m[3]), timeTo: to24h(m[4]) };
+  const m = /^([A-Za-z]+)(?:\s*-\s*[A-Za-z]+)?\s*\((\d{1,2}:\d{2}(?:am|pm))\s*-\s*(\d{1,2}:\d{2}(?:am|pm))\)$/i.exec((str || "").trim());
+  if (!m) return { day: "", timeFrom: "", timeTo: "" };
+  return { day: m[1] || "", timeFrom: to24h(m[2]), timeTo: to24h(m[3]) };
 };
 
 // ── Working Hours Input ───────────────────────────────────────────────────────
@@ -391,12 +423,11 @@ const WorkingHoursInput = ({ value, onChange, readOnly, hasError }) => {
   // what fixes the "won't let me type/select anything" bug: the previous
   // version re-derived every field straight from the composed string on
   // every render, and emitted `onChange("")` the instant any ONE of the
-  // four parts was still missing — so the very first selection (e.g. just
+  // three parts was still missing — so the very first selection (e.g. just
   // "Day") got wiped back to blank before the person could pick the next
   // one. Now, partial progress just stays in local state; the parent only
   // hears about it once the selection is actually complete.
-  const [dayFrom, setDayFrom]   = useState(() => parseWorkingHours(value).dayFrom);
-  const [dayTo, setDayTo]       = useState(() => parseWorkingHours(value).dayTo);
+  const [day, setDay]           = useState(() => parseWorkingHours(value).day);
   const [timeFrom, setTimeFrom] = useState(() => parseWorkingHours(value).timeFrom);
   const [timeTo, setTimeTo]     = useState(() => parseWorkingHours(value).timeTo);
 
@@ -407,23 +438,21 @@ const WorkingHoursInput = ({ value, onChange, readOnly, hasError }) => {
   // saved entry after the array shifts, without ever unmounting/remounting).
   // This is a safe no-op the rest of the time: after our own onChange
   // fires, `value` changes to exactly what we just emitted, and parsing it
-  // back just reproduces the same four values already in state.
+  // back just reproduces the same three values already in state.
   useEffect(() => {
     const parsed = parseWorkingHours(value);
-    setDayFrom(parsed.dayFrom);
-    setDayTo(parsed.dayTo);
+    setDay(parsed.day);
     setTimeFrom(parsed.timeFrom);
     setTimeTo(parsed.timeTo);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value]);
 
   useEffect(() => {
-    if (!dayFrom || !dayTo || !timeFrom || !timeTo) return; // still incomplete — don't emit yet
-    const dayPart  = dayTo === dayFrom ? dayFrom : `${dayFrom} - ${dayTo}`;
+    if (!day || !timeFrom || !timeTo) return; // still incomplete — don't emit yet
     const timePart = `${formatTime12h(timeFrom)} - ${formatTime12h(timeTo)}`;
-    onChange(`${dayPart} (${timePart})`);
+    onChange(`${day} (${timePart})`);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dayFrom, dayTo, timeFrom, timeTo]);
+  }, [day, timeFrom, timeTo]);
 
   const timeStyle = { ...(readOnly ? pillInputReadonly : pillInputStyle), colorScheme: "light" };
 
@@ -431,17 +460,13 @@ const WorkingHoursInput = ({ value, onChange, readOnly, hasError }) => {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-      {/* Day range — its own row so it never competes for width with the time inputs */}
+      {/* Day — its own row so it never competes for width with the time inputs */}
       <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <PillSelect value={dayFrom} onChange={setDayFrom} options={DAYS_OF_WEEK} placeholder="Day" disabled={readOnly} hasError={hasError && !dayFrom} />
-        </div>
-        <span style={toLabelStyle}>to</span>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <PillSelect value={dayTo} onChange={setDayTo} options={DAYS_OF_WEEK} placeholder="Day" disabled={readOnly} hasError={hasError && !dayTo} />
+          <PillSelect value={day} onChange={setDay} options={DAYS_OF_WEEK} placeholder="Day" disabled={readOnly} hasError={hasError && !day} />
         </div>
       </div>
-      {/* Time range — separate row, each input gets full width to breathe
+      {/* Time range for that day — each input gets full width to breathe
           (a cramped width was clipping the native time picker's clock icon
           against the text). */}
       <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
@@ -677,6 +702,26 @@ const SavedSuccessModal = ({ onClose }) => (
   </div>
 );
 
+// ── Generic confirm-action modal (used for Delete / Disable / Enable) ─────────
+const ConfirmActionModal = ({ title, message, confirmLabel, danger = false, onCancel, onConfirm }) => (
+  <div className="post-confirm-overlay">
+    <div style={{ background: "#fff", borderRadius: "18px", maxWidth: "360px", width: "90%", padding: "26px 22px", boxShadow: "0 8px 40px rgba(0,0,0,0.35)", textAlign: "center" }}>
+      <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.4rem", color: darkRed, margin: "0 0 10px" }}>{title}</p>
+      <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem", color: "#333", margin: "0 0 22px", lineHeight: 1.4 }}>
+        {message}
+      </p>
+      <div style={{ display: "flex", justifyContent: "center", gap: "10px" }}>
+        <button onClick={onCancel} style={{ padding: "9px 22px", borderRadius: "22px", background: "#e6e6e6", color: "#333", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.85rem", cursor: "pointer" }}>
+          Cancel
+        </button>
+        <button onClick={onConfirm} style={{ padding: "9px 22px", borderRadius: "22px", background: danger ? red : darkRed, color: "white", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.85rem", cursor: "pointer" }}>
+          {confirmLabel}
+        </button>
+      </div>
+    </div>
+  </div>
+);
+
 const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile }) => {
   const [isEditing, setIsEditing] = useState(mode === "create" || mode === "edit");
 
@@ -697,7 +742,7 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile }) =>
     .filter(s => s.status === "approved" && s.department);
   const isApproved = (college, program) =>
     approvedDeptSelections.some(s => s.department === college && s.program === program);
-  const defaultCourseSelections = approvedDeptSelections.map(s => ({ college: s.department, program: s.program, specialization: "" }));
+  const defaultCourseSelections = approvedDeptSelections.map(s => ({ college: s.department, program: s.program, specialization: "", slot: 1 }));
 
   const [form, setForm] = useState({
     benefits:         post?.benefits         || "",
@@ -708,7 +753,6 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile }) =>
     description:      post?.description      || "",
     requirements:     post?.requirements     || "",
     workingHoursList: post?.workingHoursList || [post?.workingHours || ""],
-    slot:             post?.slot ?? 1,
     phone:            post?.phone || "+63 ",
     contactEmail:     post?.contactEmail || "",
     postLocation:     post?.postLocation || { address: fixedAddress, lat: profileLoc.lat ?? null, lng: profileLoc.lng ?? null },
@@ -753,7 +797,6 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile }) =>
     if (!form.benefits.trim())       newErrors.benefits       = "Benefits is required.";
     if (!form.skillsRequired.trim()) newErrors.skillsRequired = "Skills Required is required.";
     if (!form.phone.trim() || form.phone.trim() === "+63") newErrors.phone = "Phone number is required.";
-    if (form.slot <= 0)              newErrors.slot           = "Slot must be at least 1.";
 
     const emailErr = validateGmail(form.contactEmail);
     if (emailErr) newErrors.contactEmail = emailErr;
@@ -829,7 +872,7 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile }) =>
                     <span>📍 {fixedAddress}</span>
                     {profileLoc.isManual && (
                       <span style={{ background: darkRed, color: "white", fontFamily: "'Kufam', sans-serif", fontSize: "0.65rem", padding: "2px 8px", borderRadius: "10px", whiteSpace: "nowrap" }}>
-                        Manually pinned
+                        
                       </span>
                     )}
                   </div>
@@ -853,7 +896,7 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile }) =>
             </div>
           </div>
 
-          {/* Working Hours + Slot */}
+          {/* Working Hours */}
           <div className="post-hours-slot-row">
             <div style={{ flex: 1, minWidth: 0 }}>
               <FieldLabel>Working Hours:</FieldLabel>
@@ -894,15 +937,6 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile }) =>
                 </button>
               )}
             </div>
-
-            {/* Slot */}
-            <div className="post-slot-col" style={{ display: "flex", flexDirection: "column", alignItems: "center", flexShrink: 0 }}>
-              <FieldLabel>Slot:</FieldLabel>
-              <input className="ojt-field" type="number" disabled={readOnly} min={1} value={form.slot}
-                onChange={e => { set("slot", Math.max(1, parseInt(e.target.value) || 1)); setErrors(p => ({ ...p, slot: "" })); }}
-                style={{ ...(readOnly ? pillInputReadonly : pillInputStyle), width: "70px", textAlign: "center", fontSize: "1rem", padding: "7px 6px", border: errors.slot ? "1.5px solid #c00" : "none" }} />
-              <FieldError msg={errors.slot} />
-            </div>
           </div>
 
           {/* Contact Information */}
@@ -942,8 +976,9 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile }) =>
               : (companyProfile?.industry || user?.industry || "—")}
           </div>
 
-          {/* College / Program required — restricted to approved departments */}
-          <FieldLabel>College / Program required:</FieldLabel>
+          {/* College / Program required — restricted to approved departments,
+              each with its own slot count */}
+          <FieldLabel>College / Program required (set slots per department):</FieldLabel>
           <ApprovedDepartmentPicker
             approvedDeptSelections={approvedDeptSelections}
             selections={form.courseSelections}
@@ -1036,6 +1071,9 @@ const PostOJTContent = ({ user, openPostId, onPostOpened }) => {
   const [loading, setLoading] = useState(true);
   const [modal, setModal]     = useState(null);
   const [companyProfile, setCompanyProfile] = useState({});
+  // Pending Delete/Disable/Enable action awaiting the user's confirmation —
+  // { type: "delete" | "disable" | "enable", post }.
+  const [confirmAction, setConfirmAction] = useState(null);
 
   const openCreate = () => setModal({ mode: "create", post: null });
   const openView   = (post) => setModal({ mode: "view", post });
@@ -1078,10 +1116,15 @@ const PostOJTContent = ({ user, openPostId, onPostOpened }) => {
     // CoordinatorFindCompanyScreen/StudentFindCompanyScreen filter posts by
     // college without needing to read into the courseSelections sub-array.
     const departments = (formData.courseSelections || []).map(s => s.college).filter(Boolean);
+    // Total across all selected departments — kept alongside the per-department
+    // counts in courseSelections so screens that still read a single `slot`
+    // number (student/coordinator views) keep working unchanged.
+    const totalSlot = (formData.courseSelections || []).reduce((sum, s) => sum + (s.slot || 1), 0);
     if (modal.mode === "create") {
       await addDoc(collection(db, "ojt_posts"), {
         ...formData,
         departments,
+        slot:        totalSlot,
         companyId:   user.uid,
         companyName: companyProfile.companyName || user.companyName || "",
         industry:    companyProfile.industry    || user.industry    || "",
@@ -1094,6 +1137,7 @@ const PostOJTContent = ({ user, openPostId, onPostOpened }) => {
       await updateDoc(doc(db, "ojt_posts", modal.post.id), {
         ...formData,
         departments,
+        slot:      totalSlot,
         industry: companyProfile.industry || user.industry || "",
         updatedAt: serverTimestamp(),
       });
@@ -1107,6 +1151,19 @@ const PostOJTContent = ({ user, openPostId, onPostOpened }) => {
 
   const deletePost = async (id) => {
     await deleteDoc(doc(db, "ojt_posts", id));
+  };
+
+  // Opens the confirm modal for a Delete/Disable/Enable request instead of
+  // acting immediately — the actual write only happens once the user confirms.
+  const requestToggleDisable = (post) => setConfirmAction({ type: post.disabled ? "enable" : "disable", post });
+  const requestDelete        = (post) => setConfirmAction({ type: "delete", post });
+
+  const runConfirmedAction = async () => {
+    if (!confirmAction) return;
+    const { type, post } = confirmAction;
+    setConfirmAction(null);
+    if (type === "delete") await deletePost(post.id);
+    else await toggleDisable(post.id);
   };
 
   return (
@@ -1162,8 +1219,8 @@ const PostOJTContent = ({ user, openPostId, onPostOpened }) => {
                   <ThreeDotMenu
                     isDisabled={post.disabled}
                     onView={() => openView(post)}
-                    onToggleDisable={() => toggleDisable(post.id)}
-                    onDelete={() => deletePost(post.id)}
+                    onToggleDisable={() => requestToggleDisable(post)}
+                    onDelete={() => requestDelete(post)}
                   />
                 </div>
               </div>
@@ -1184,6 +1241,31 @@ const PostOJTContent = ({ user, openPostId, onPostOpened }) => {
           onSave={handleSave}
           user={user}
           companyProfile={companyProfile}
+        />
+      )}
+
+      {confirmAction && (
+        <ConfirmActionModal
+          title={
+            confirmAction.type === "delete"  ? "Delete this post?" :
+            confirmAction.type === "disable" ? "Disable this post?" :
+                                                "Enable this post?"
+          }
+          message={
+            confirmAction.type === "delete"
+              ? "This post will be permanently removed and can't be recovered. Are you sure you want to delete it?"
+              : confirmAction.type === "disable"
+              ? "Students won't be able to see or apply to this post while it's disabled. You can enable it again anytime."
+              : "This post will become visible to students again. Continue?"
+          }
+          confirmLabel={
+            confirmAction.type === "delete"  ? "Yes, Delete"  :
+            confirmAction.type === "disable" ? "Yes, Disable" :
+                                                "Yes, Enable"
+          }
+          danger={confirmAction.type === "delete"}
+          onCancel={() => setConfirmAction(null)}
+          onConfirm={runConfirmedAction}
         />
       )}
     </div>

@@ -2897,7 +2897,7 @@ const CompanyProfileView = ({ company, onBack, onAccept, onDeny }) => {
         </div>
 
         {/* Accept / Decline buttons (review only) */}
-        {company.status === "pending" && (
+        {company.deptSelections?.some(d => d.status === "pending") && (
           <div className="clist-action-row">
             <button onClick={() => setConfirmingAction("decline")} style={{ padding: "12px 32px", borderRadius: "24px", background: darkRed, color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(1rem, 3vw, 1.2rem)", cursor: "pointer", letterSpacing: "0.04em" }}>
               Decline

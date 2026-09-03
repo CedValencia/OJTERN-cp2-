@@ -2604,7 +2604,7 @@ const LocationMapPreview = ({ address, onResolved }) => {
         )}
         {!geocoding && pinIsManual && (
           <span style={{ position: "absolute", top: "8px", left: "10px", background: "rgba(139,0,0,0.85)", color: "white", fontFamily: "'Kufam', sans-serif", fontSize: "0.68rem", padding: "3px 8px", borderRadius: "10px" }}>
-            📍 Manually pinned
+             
           </span>
         )}
         {coords.lat != null && (
@@ -2895,7 +2895,7 @@ const DeptProgramPicker = ({ selections, onChange, hasError, departments, depart
                     onChange={e => updateEntry(idx, "department", e.target.value)}
                     style={{ ...dropdownStyle, border: hasError && !entry.department ? "1.5px solid red" : "none", color: entry.department ? "white" : "rgba(255,255,255,0.75)" }}
                   >
-                    <option value="">Select Department</option>
+                    <option value="">College/Program Required:</option>
                     {departmentNames.map(name => (
                       <option key={name} value={name}>
                         {name}{departments[name]?.abbr ? ` (${departments[name].abbr})` : ""}
