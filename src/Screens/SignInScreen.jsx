@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { signIn, logOut } from "./AuthService";
+import { signIn, logOut, applyEmailVerification } from "./AuthService";
 
 const darkRed = "#320000";
 const red = "#8B0000";
@@ -72,7 +72,31 @@ const SignInScreen = ({ onGoSignUp, onSignInCoordinator, onSignInStudent, onSign
   const [password, setPassword]   = useState("");
   const [authError, setAuthError] = useState("");
   const [loading, setLoading]     = useState(false);
+  const [verifyStatus, setVerifyStatus] = useState(null); // { ok: boolean, message: string } | null
   const isMobile                  = useIsMobile();
+
+  // This screen is the `continueUrl` on the "Activate" button in the company
+  // approval email (see functions/index.js sendApprovalEmail). Because this
+  // Firebase project has a custom Action URL configured (see AuthService.js —
+  // resetPasswordInApp's docstring explains the same thing for password
+  // reset), clicking that link lands DIRECTLY here with
+  // `?mode=verifyEmail&oobCode=...` in the URL — Firebase's own hosted
+  // verification page never runs, so nothing actually applies the code unless
+  // we do it ourselves, right here, on mount.
+  useEffect(() => {
+    const params  = new URLSearchParams(window.location.search);
+    const mode    = params.get("mode");
+    const oobCode = params.get("oobCode");
+    if (mode !== "verifyEmail" || !oobCode) return;
+
+    applyEmailVerification(oobCode)
+      .then(() => setVerifyStatus({ ok: true, message: "Your account has been activated! You can now sign in below." }))
+      .catch(err => setVerifyStatus({ ok: false, message: err.message }));
+
+    // Strip the query params so refreshing this page doesn't try to reapply
+    // an oobCode that's already been used (Firebase action codes are single-use).
+    window.history.replaceState({}, document.title, window.location.pathname);
+  }, []);
 
   const handleRoleChange = (newRole) => {
     setRole(newRole);
@@ -170,6 +194,18 @@ const SignInScreen = ({ onGoSignUp, onSignInCoordinator, onSignInStudent, onSign
         </div>
 
         <div style={{ padding: isMobile ? "12px 16px 20px" : "15px 24px 24px", background: "white" }}>
+          {verifyStatus && (
+            <p style={{
+              fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem",
+              color: verifyStatus.ok ? "#1a7a1a" : "#c00",
+              background: verifyStatus.ok ? "#eafaea" : "#fff0f0",
+              border: `1.5px solid ${verifyStatus.ok ? "#1a7a1a" : "#c00"}`,
+              borderRadius: "12px", padding: "10px 14px",
+              textAlign: "center", marginBottom: "14px",
+            }}>
+              {verifyStatus.ok ? "✅ " : "⚠️ "}{verifyStatus.message}
+            </p>
+          )}
           <p style={{ fontFamily: "'montserrat', sans-serif", textAlign: "center", fontSize: isMobile ? "1.2rem" : "1.5rem", color: "#1a1a1a", marginBottom: "10px" }}>
             Sign-in as:
           </p>

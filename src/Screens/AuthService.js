@@ -10,6 +10,7 @@ import {
   sendPasswordResetEmail,
   verifyPasswordResetCode,
   confirmPasswordReset,
+  applyActionCode,
   updatePassword,
   updateEmail,
   verifyBeforeUpdateEmail,
@@ -240,6 +241,21 @@ export const signIn = async (role, emailOrStudentId, password) => {
     throw new Error("Your company account has been blocked. Please contact the system administrator for more information.");
   }
 
+  // Email-activation check — companies only. sendApprovalEmail (functions/
+  // index.js) generates a Firebase "verify your email" link and puts it in
+  // the approval email as the "Activate Account & Sign In" button; clicking
+  // it sets `emailVerified: true` on this same Auth account. Checked here,
+  // AFTER the status checks above, so a pending/rejected/suspended/blocked
+  // company still gets its own specific message instead of a misleading
+  // "please activate" — `emailVerified` is false for those too since they
+  // never received an approval email to click. `user.emailVerified` is
+  // fresh as of the signInWithEmailAndPassword call above, so no reload()
+  // is needed.
+  if (role === "company" && !user.emailVerified) {
+    await signOut(auth);
+    throw new Error("Please activate your account first. Check your email for the activation link we sent when your registration was approved.");
+  }
+
   return { user, userData };
 };
 
@@ -251,6 +267,44 @@ export const signIn = async (role, emailOrStudentId, password) => {
  * Signs out the current user.
  */
 export const logOut = () => signOut(auth);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EMAIL VERIFICATION — Applying the company activation link
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Applies a Firebase email-verification action code (the `oobCode` query
+ * param on the "Activate" link from sendApprovalEmail, functions/index.js).
+ *
+ * This project's Firebase Auth project has a custom Action URL configured
+ * (same reason the password-reset flow above was rewritten to skip Firebase's
+ * email links entirely — see resetPasswordInApp's docstring) — so clicking a
+ * Firebase action link lands DIRECTLY on our own continueUrl (ojtern.com/signin)
+ * with `?mode=verifyEmail&oobCode=...` in the query string, and Firebase's own
+ * hosted confirmation page — which would otherwise call applyActionCode
+ * automatically — never runs. Without this function, the link "worked" in the
+ * sense that it redirected somewhere, but `emailVerified` was never actually
+ * set to true, which is exactly why sign-in kept showing "please activate"
+ * even after clicking it.
+ *
+ * Call this on mount wherever `mode=verifyEmail` can land (SignInScreen, since
+ * that's the continueUrl) — see SignInScreen.jsx's useEffect.
+ *
+ * @param {string} oobCode — from the `oobCode` query param
+ * @returns {Promise<void>}
+ * @throws descriptive Error (safe to show in UI) — e.g. the link already used,
+ *   expired, or invalid
+ */
+export const applyEmailVerification = async (oobCode) => {
+  try {
+    await applyActionCode(auth, oobCode);
+  } catch (err) {
+    if (err.code === "auth/invalid-action-code") {
+      throw new Error("This activation link has already been used or has expired. If you're still unable to sign in, try signing in directly — your account may already be activated.");
+    }
+    throw new Error(err.message || "Failed to activate your account. Please try again or contact support.");
+  }
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PASSWORD RESET — In-App (No Email Link Required)

@@ -76,6 +76,45 @@ const sendMail = async ({ to, subject, html, text }) => {
 const cloudinaryApiKey    = defineSecret("CLOUDINARY_API_KEY");
 const cloudinaryApiSecret = defineSecret("CLOUDINARY_API_SECRET");
 
+// Email right after sign-up, BEFORE any coordinator approval — confirms the
+// company's submission actually went through and reached the email they
+// typed on Step 1. Fires once, the moment registerCompany
+// (AuthService.js) creates the companies/{companyId} doc — separate from
+// sendApprovalEmail/sendRejectionEmail below, which only fire later when a
+// coordinator changes `status`.
+exports.sendRegistrationReceivedEmail = onDocumentCreated(
+  { document: "companies/{companyId}", region: "asia-southeast1", secrets: [resendApiKey] },
+  async (event) => {
+    const company = event.data.data();
+    if (!company || !company.email) return;
+
+    const html = `
+      <h2>We've Received Your Registration</h2>
+      <p>Hi <strong>${company.companyName || "there"}</strong>,</p>
+      <p>Thanks for signing up on OJTern! Your company registration has been submitted and is now pending review by our coordinator.</p>
+      <p>We'll email you again as soon as a decision is made — no action is needed from you in the meantime.</p>
+      <p>Best regards,<br/>OJTern Team</p>
+    `;
+    const text = `We've Received Your Registration
+
+Hi ${company.companyName || "there"},
+
+Thanks for signing up on OJTern! Your company registration has been submitted and is now pending review by our coordinator.
+
+We'll email you again as soon as a decision is made — no action is needed from you in the meantime.
+
+Best regards,
+OJTern Team`;
+
+    try {
+      await sendMail({ to: company.email, subject: "OJTern - We've Received Your Registration", html, text });
+      console.log(`Registration-received email sent to ${company.email}`);
+    } catch (error) {
+      console.error("Registration-received email send failed:", error);
+    }
+  }
+);
+
 // Email on company approval
 exports.sendApprovalEmail = onDocumentUpdated(
   { document: "companies/{companyId}", region: "asia-southeast1", secrets: [resendApiKey] },
@@ -84,6 +123,29 @@ exports.sendApprovalEmail = onDocumentUpdated(
     const oldData = event.data.before.data();
 
     if (oldData.status !== "approved" && newData.status === "approved") {
+      // The company's Auth account already exists from sign-up (registerCompany
+      // creates it up front, before approval) — this doc's ID is that same Auth
+      // uid, same as how `coordinators` docs are keyed. So on approval we can
+      // generate Firebase's own "verify this email" link for that existing
+      // account and drop it into the approval email, instead of a plain sign-in
+      // link. Clicking it from Gmail marks emailVerified=true on their account.
+      //
+      // This is purely a "confirm the inbox is really yours" step — sign-in is
+      // NOT gated on it (per product decision), so a company that never clicks
+      // it can still sign in normally. If that gate is ever wanted later, check
+      // `auth.currentUser.emailVerified` after sign-in on the client.
+      let verifyUrl = "https://ojtern.com/signin"; // fallback if link generation fails
+      try {
+        verifyUrl = await getAuth().generateEmailVerificationLink(newData.email, {
+          url: "https://ojtern.com/signin",
+        });
+      } catch (error) {
+        // Most likely cause: no Auth user exists yet for this email (shouldn't
+        // happen given registerCompany's flow, but don't let it block the
+        // approval email itself) — fall back to the plain sign-in link above.
+        console.error(`Failed to generate verification link for ${newData.email}:`, error);
+      }
+
       const html = `
         <h2>Welcome to OJTern!</h2>
         <p>Hi <strong>${newData.companyName}</strong>,</p>
@@ -94,7 +156,15 @@ exports.sendApprovalEmail = onDocumentUpdated(
           <li>Post OJT positions</li>
           <li>View student applications</li>
         </ul>
-        <p><a href="https://ojtern.com/signin">Click here to sign in</a></p>
+        <table role="presentation" cellpadding="0" cellspacing="0" style="margin: 20px 0;">
+          <tr>
+            <td style="background:#8B0000; border-radius:24px;">
+              <a href="${verifyUrl}" style="display:inline-block; padding:13px 32px; font-family:Arial, Helvetica, sans-serif; font-size:15px; font-weight:bold; color:#ffffff; text-decoration:none; border-radius:24px;">
+                Activate
+              </a>
+            </td>
+          </tr>
+        </table>
         <p>Best regards,<br/>OJTern Team</p>
       `;
       const text = `Welcome to OJTern!
@@ -103,7 +173,7 @@ Hi ${newData.companyName},
 
 Your company registration has been approved by our coordinator. You can now log in to your company dashboard, post OJT positions, and view student applications.
 
-Sign in: https://ojtern.com/signin
+Activate your account and sign in: ${verifyUrl}
 
 Best regards,
 OJTern Team`;
