@@ -1,10 +1,29 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { db } from "./firebase";
 import { collection, doc, setDoc, onSnapshot, serverTimestamp } from "firebase/firestore";
 import { useDepartmentsPrograms } from "./departmentsPrograms";
 
-const darkRed = "#320000";
-const red = "#8B0000";
+const darkRed = "#FFFFFF";   // primary button surface (name kept for compat)
+const red     = "#FFFFFF";   // link colour on the dark panel
+ 
+const W = {
+  white:    "#FFFFFF",
+  blush100: "#161616",   // panel
+  blush200: "#1F1F1F",   // raised blocks inside the panel
+  blush300: "#333333",   // hairlines
+  ink:      "#141414",   // dark text — inside the white fields
+  inkBody:  "#333333",
+  inkMuted: "#767676",   // field icons
+  inkFaint: "#A8A8A8",   // placeholders
+  onPanel:      "#FAFAFA",
+  onPanelMuted: "rgba(250,250,250,0.62)",
+  onPanelFaint: "rgba(250,250,250,0.22)",
+  wine500:  "#FFFFFF",   // focus ring
+  danger:   "#FF7B72",
+  success:  "#79C58C",
+  ui:       "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+};
 
 // ── Password strength requirements ────────────────────────────────────────────
 const PASSWORD_RULES = [
@@ -21,17 +40,13 @@ const isPasswordStrong = (pwd) => PASSWORD_RULES.every(rule => rule.test(pwd));
 const PasswordChecklist = ({ password }) => {
   if (!password) return null;
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "3px", margin: "2px 0 12px 2px" }}>
+    <div className="su1-pwcheck">
       {PASSWORD_RULES.map(rule => {
         const passed = rule.test(password);
         return (
-          <div key={rule.key} style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-            <span style={{ fontSize: "0.78rem", fontWeight: 700, color: passed ? "#2a7a2a" : "#c0392b", width: "12px", flexShrink: 0 }}>
-              {passed ? "✓" : "✗"}
-            </span>
-            <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.74rem", color: passed ? "#2a7a2a" : "#888" }}>
-              {rule.label}
-            </span>
+          <div key={rule.key} className={passed ? "su1-pw-row is-ok" : "su1-pw-row"}>
+            <span className="su1-pw-dot">{passed ? "✓" : "✕"}</span>
+            <span className="su1-pw-label">{rule.label}</span>
           </div>
         );
       })}
@@ -45,200 +60,849 @@ const MAPBOX_TOKEN = "pk.eyJ1IjoibWFraWlpaS0iLCJhIjoiY21wbTgybHVmMmc1ZzJycTFuZXR
 // ── Responsive Styles ─────────────────────────────────────────────────────────
 const ResponsiveStyles = () => (
   <style>{`
-    @import url('https://fonts.googleapis.com/css2?family=Jersey+25&family=Jua&family=Kufam:wght@400;600;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
     @import url('https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.css');
     * { box-sizing: border-box; }
-
-    /* ── Outer wrapper ── */
+ 
+    /* — Font, forced —
+       The JSX sets its fonts through inline style objects, and an inline style
+       beats any normal stylesheet rule. !important is the only thing that
+       outranks it, so this is the one honest way to reach them without editing
+       the markup. Mapbox's own canvas is excluded. */
+    .su1-wrapper,
+    .su1-wrapper *:not(.mapboxgl-canvas):not(.mapboxgl-ctrl *) {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
+    }
+ 
+    /* — Outer wrapper — */
     .su1-wrapper {
       width: 100%;
-      max-width: 370px;
+      max-width: 100%;
       margin: 0 auto;
-      padding: 0 12px;
+      padding: 0;
     }
-    @media (max-width: 400px) {
-      .su1-wrapper { padding: 0 6px; }
-    }
-
-    /* ── Title ── */
-    .su1-title {
-      font-family: 'Jersey 25', sans-serif;
-      font-size: 2.6rem;
-      font-weight: 400;
-      color: #1a1a1a;
-      text-align: center;
-      margin-bottom: 20px;
-      line-height: 1.1;
-      text-transform: uppercase;
-    }
-    @media (max-width: 360px) {
-      .su1-title { font-size: 2rem; margin-bottom: 14px; }
-    }
-
-    /* ── Card border ── */
+ 
+    /* — Title —
+       "Hi, Sign Up Now!" is removed here rather than in the JSX, so no handler
+       or conditional around it can be disturbed. */
+    .su1-title { display: none !important; }
+ 
+    /* — Card —
+       This is the panel now: near-black on the light page, matching Sign In. */
     .su1-card {
-      border: 2px solid #1a1a1a;
-      border-radius: 24px;
+      background: #161616;
+      border: none;
+      border-radius: 26px;
       overflow: hidden;
     }
-
-    /* ── Card header ── */
-    .su1-card-header {
-      background: ${red};
-      padding: 14px;
-      text-align: center;
-    }
-    @media (max-width: 360px) {
-      .su1-card-header { padding: 10px; }
-      .su1-card-header span { font-size: 1.1rem !important; }
-    }
-
-    /* ── Scrollable form body ── */
+ 
+    /* — Card header —
+       The "SIGN-UP" bar is redundant now that the panel is the card. */
+    .su1-card-header { display: none !important; }
+ 
+    /* — Scrollable form body — */
     .su1-form-body {
-      padding: 16px 24px 24px;
-      background: white;
-      max-height: 65vh;
+      position: relative;
+      padding: 32px 26px 30px;
+      background: transparent;
+      max-height: 64vh;
       overflow-y: auto;
     }
+    .su1-form-body::-webkit-scrollbar { width: 6px; }
+    .su1-form-body::-webkit-scrollbar-track { background: transparent; }
+    .su1-form-body::-webkit-scrollbar-thumb { background: #333333; border-radius: 999px; }
     @media (max-width: 400px) {
-      .su1-form-body { padding: 12px 14px 18px; }
+      .su1-form-body { padding: 24px 18px 22px; }
     }
+ 
+    /* — Readable text on the dark panel —
+       Same reasoning as the font rule: these colours are set inline, so they
+       need !important to be reachable.
+ 
+       The :not() lists are load-bearing. Anything that sits inside a white
+       field or a white menu — the dropdown arrow, the eye toggle, the select
+       label, every option row — has to stay out of this blanket white, or it
+       goes white-on-white. Same for anything carrying its own colour: the
+       checklist, the error lines, the map badges. */
+       
+    .su1-form-body,
+    .su1-form-body p:not(.su1-err),
+    .su1-form-body div:not(.su1-pw-row):not(.su1-map-container):not(.su1-suggestions):not(.su1-drop):not(.su1-select-menu):not(.su1-select-option):not(.su1-ac-menu):not(.su1-ac-option),
+    .su1-form-body span:not(.su1-pw-dot):not(.su1-pw-label):not(.su1-eye):not(.su1-hint):not(.su1-badge):not(.su1-select-value):not(.su1-select-placeholder),
+    .su1-form-body h1, .su1-form-body h2,
+    .su1-form-body h3, .su1-form-body h4 {
+      color: #FAFAFA !important;
+    }
+    .su1-form-body label { color: #FAFAFA !important; }
 
-    /* ── Mapbox address search ── */
-    .su1-map-container {
-      width: 100%;
-      height: 160px;
-      border-radius: 12px;
-      margin-top: 8px;
-      margin-bottom: 6px;
-      overflow: hidden;
-      border: 1.5px solid #ccc;
-      position: relative;
+   .su1-ac-option {
+      padding: 11px 18px;
+      font-size: 0.9375rem;
+      line-height: 1.4;
+      color: #141414 !important;
       cursor: pointer;
+      user-select: none;
     }
-    @media (max-width: 360px) {
-      .su1-map-container { height: 130px; }
+    .su1-ac-option:hover { background: #F2F2F2; }
+    
+    .su1-wrapper .su1-hint { color: rgba(250,250,250,0.62) !important; }
+    .su1-wrapper .su1-err  { color: #FF7B72 !important; }
+ 
+    /* Fields keep their own colours: dark text on the white pill. */
+    .su1-wrapper input,
+    .su1-wrapper select,
+    .su1-wrapper textarea { color: #141414 !important; }
+    .su1-wrapper ::placeholder { color: #A8A8A8 !important; opacity: 1 !important; }
+ 
+    /* Icons sitting inside a white field. */
+    .su1-wrapper .su1-eye,
+    .su1-wrapper .su1-drop { color: #767676 !important; }
+ 
+    /* — Password checklist — */
+    .su1-pwcheck {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      margin: 8px 2px 12px;
     }
-
+    .su1-pw-row { display: flex; align-items: center; gap: 8px; }
+    .su1-pw-dot {
+      width: 15px; height: 15px; border-radius: 50%; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.62rem; font-weight: 700; line-height: 1;
+      background: #2A2A2A; color: rgba(250,250,250,0.45) !important;
+    }
+    .su1-pw-label { font-size: 0.78rem; color: rgba(250,250,250,0.62) !important; }
+    .su1-pw-row.is-ok .su1-pw-dot { background: #79C58C; color: #101010 !important; }
+    .su1-pw-row.is-ok .su1-pw-label { color: #79C58C !important; }
+ 
+    /* — Address suggestions — */
     .su1-suggestions {
       position: absolute;
-      top: 100%;
-      left: 0; right: 0;
-      background: white;
-      border: 1px solid #ddd;
-      border-top: none;
-      border-radius: 0 0 12px 12px;
+      top: calc(100% + 4px);
+      left: 10px;
+      right: 10px;
+      width: auto;
+      max-width: calc(100% - 20px);
+      background: #1F1F1F;
+      border: 1px solid #333333;
+      border-radius: 16px;
       z-index: 999;
-      max-height: 180px;
+      max-height: 170px;
       overflow-y: auto;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+      box-shadow: 0 12px 28px rgba(0,0,0,0.50);
     }
     .su1-suggestion-item {
-      padding: 10px 14px;
-      fontFamily: 'Kufam', sans-serif;
-      font-size: 0.82rem;
-      color: #1a1a1a;
+      padding: 11px 16px;
+      font-size: 0.85rem;
+      color: #FAFAFA !important;
       cursor: pointer;
-      border-bottom: 1px solid #f0f0f0;
+      border-bottom: 1px solid #2A2A2A;
     }
-    .su1-suggestion-item:hover {
-      background: #fff0f0;
+    .su1-suggestion-item:hover { background: #262626; }
+    .su1-suggestion-item:last-child { border-bottom: none; }
+ 
+    /* =========================================================
+       PILLSELECT
+       White pill trigger, white menu floating under it — the
+       dropdowns render inside the panel, so nothing escapes
+       the card the way a native <select> does.
+       ========================================================= */
+ 
+    .su1-form-body .su1-select-trigger {
+      display: flex !important;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      width: 100%;
+      height: 52px !important;
+      padding: 0 18px !important;
+      background: #FFFFFF !important;
+      border-radius: 999px !important;
+      color: #141414 !important;
+      font-size: 0.9375rem !important;
+      font-weight: 400 !important;
+      text-align: left;
+      cursor: pointer;
+      box-shadow: 0 1px 2px rgba(10,10,10,0.10);
     }
-    .su1-suggestion-item:last-child {
-      border-bottom: none;
+    .su1-form-body .su1-select-trigger:disabled { opacity: 0.6; cursor: not-allowed; }
+ 
+    .su1-select-value { color: #141414 !important; }
+    .su1-select-placeholder { color: #A8A8A8 !important; }
+ 
+    /* The chevron is a flex item, so without a hard size it stretches. */
+    .su1-form-body .su1-select-trigger svg {
+      width: 12px !important;
+      height: 12px !important;
+      flex-shrink: 0;
+      color: #767676 !important;
     }
-
-    /* ── Bottom action row ── */
+ 
+    .su1-select-menu {
+      position: absolute;
+      top: calc(100% + 6px);
+      left: 0;
+      right: 0;
+      background: #FFFFFF;
+      border: none;
+      border-radius: 18px;
+      padding: 10px 0;
+      max-height: 240px;
+      overflow-y: auto;
+      z-index: 60;
+      box-shadow: 0 12px 28px rgba(10,10,10,0.35);
+    }
+    .su1-select-menu::-webkit-scrollbar { width: 6px; }
+    .su1-select-menu::-webkit-scrollbar-track { background: transparent; }
+    .su1-select-menu::-webkit-scrollbar-thumb { background: #D8D8D8; border-radius: 999px; }
+ 
+    .su1-select-option {
+      padding: 11px 18px;
+      font-size: 0.9375rem;
+      line-height: 1.4;
+      color: #141414 !important;
+      cursor: pointer;
+      user-select: none;
+    }
+    .su1-select-option.is-active { background: #F2F2F2; }
+    .su1-select-option.is-selected { font-weight: 600; }
+ 
+    /* An open menu has to clear the map preview below it. */
+    .su1-map-container { z-index: 0; }
+ 
+    /* — Bottom action row — */
     .su1-action-row {
       display: flex;
-      justify-content: space-between;
       align-items: center;
-      margin-bottom: 16px;
-      gap: 10px;
+      margin-top: 22px;
+      margin-bottom: 20px;
+      gap: 12px;
     }
+    .su1-action-row .su1-btn { flex: 1; }
+    .su1-action-row .su1-btn:first-child { flex: 0 0 34%; }
+    .su1-btn:hover {
+    background: #898989 !important;
+    color: #FFFFFF !important;
+    filter: none;
+    }
+ 
+    .su1-action-row .su1-btn:first-child {
+      background: #898989 !important;
+      color: #FFFFFF !important;
+      border: none !important;
+      box-shadow: 0 5px 14px rgba(10,10,10,0.28) !important;
+    }
+    .su1-action-row .su1-btn:first-child:hover {
+      background: #FFFFFF !important;
+      color: #141414 !important;
+      filter: none;
+    }
+ 
     @media (max-width: 360px) {
-      .su1-action-row { flex-direction: column; gap: 8px; }
-      .su1-action-row button { width: 100%; }
+      .su1-action-row { flex-direction: column-reverse; gap: 10px; }
+      .su1-action-row .su1-btn,
+      .su1-action-row .su1-btn:first-child { flex: 1 1 auto; width: 100%; }
     }
-
-    /* ── Action buttons ── */
+ 
+    /* — Primary buttons —
+       White pill, dark label, same as SIGN IN. */
     .su1-btn {
-      background: ${darkRed};
-      color: white;
-      border: none;
-      border-radius: 24px;
-      padding: 12px 32px;
-      font-family: 'Jua', sans-serif;
-      font-size: 1.1rem;
-      letter-spacing: 0.08em;
+      background: #FFFFFF !important;
+      color: #141414 !important;
+      border: none !important;
+      border-radius: 999px !important;
+      padding: 0 32px !important;
+      height: 52px !important;
+      font-size: 1rem !important;
+      font-weight: 600 !important;
+      letter-spacing: 0.02em !important;
       cursor: pointer;
+      box-shadow: 0 5px 14px rgba(10,10,10,0.28);
+      transition: filter 180ms cubic-bezier(0.22,1,0.36,1),
+                  transform 180ms cubic-bezier(0.22,1,0.36,1);
+    }
+    .su1-btn:hover { filter: brightness(0.93); }
+    .su1-btn:active { transform: scale(0.985); }
+    .su1-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    @media (max-width: 400px) {
+      .su1-btn { padding: 0 24px !important; height: 48px !important; font-size: 0.95rem !important; }
+    }
+ 
+    /* — Secondary buttons are opt-in via .su1-add-btn —
+       The bare reset first, so a stray <button> in the body stays neutral.
+       This reset is also why .su1-select-trigger and .su1-remove above need
+       their own rules: without them, both come out flat and invisible. */
+    .su1-form-body button:not(.su1-btn) {
+      background: none;
+      border: none;
+      border-radius: 0;
+      padding: 0;
+      font-size: inherit;
+      font-weight: inherit;
+    }
+    .su1-form-body .su1-add-btn {
+      display: block;
+      width: 100%;
+      background: #898989 !important;
+      color: #FFFFFF !important;
+      border: none !important;
+      border-radius: 999px !important;
+      padding: 12px 20px !important;
+      font-size: 0.9375rem !important;
+      font-weight: 600 !important;
+      cursor: pointer;
+      transition: background 160ms cubic-bezier(0.22,1,0.36,1),
+                  color 160ms cubic-bezier(0.22,1,0.36,1);
+    }
+    .su1-form-body .su1-add-btn:hover {
+      background: #FFFFFF !important;
+      color: #141414 !important;
+    }
+ 
+    /* — Remove a department row — */
+    .su1-form-body .su1-remove {
+      width: 26px !important;
+      height: 26px !important;
+      flex-shrink: 0;
+      margin-top: 13px;
+      display: flex !important;
+      align-items: center;
+      justify-content: center;
+      background: #FFFFFF !important;
+      color: #141414 !important;
+      border: none !important;
+      border-radius: 50% !important;
+      padding: 0 !important;
+      font-size: 0.8rem !important;
+      line-height: 1;
+      cursor: pointer;
+      box-shadow: 0 2px 6px rgba(10,10,10,0.35);
+      transition: filter 160ms cubic-bezier(0.22,1,0.36,1);
+    }
+    .su1-form-body .su1-remove:hover { filter: brightness(0.90); }
+ 
+    /* Keyboard focus, which the old sheet never had. */
+    .su1-wrapper input:focus-visible,
+    .su1-wrapper select:focus-visible,
+    .su1-wrapper button:focus-visible {
+      outline: none;
+      box-shadow: 0 0 0 3px rgba(255,255,255,0.32) !important;
+    }
+    .su1-wrapper input:focus,
+    .su1-wrapper select:focus {
+      border-color: #FFFFFF !important;
+      box-shadow: 0 0 0 3px rgba(255,255,255,0.32) !important;
+    }
+ 
+    /* Chrome paints a pale blue block over autofilled fields. */
+    .su1-wrapper input:-webkit-autofill,
+    .su1-wrapper input:-webkit-autofill:hover,
+    .su1-wrapper input:-webkit-autofill:focus {
+      -webkit-text-fill-color: #141414 !important;
+      -webkit-box-shadow: 0 0 0 1000px #FFFFFF inset !important;
+      caret-color: #141414;
+      transition: background-color 9999s ease-in-out 0s;
+    }
+ 
+    /* =========================================================
+       MAP PREVIEW
+       ========================================================= */
+ 
+    .su1-map-container {
+      height: 340px;
+      margin: 10px 10px 10px;
+      width: calc(100% - 20px);
+      border-radius: 18px;
+      border: 1.5px solid #333333;
+      overflow: hidden;
+      position: relative;
+      cursor: pointer;
+      box-sizing: border-box;
     }
     @media (max-width: 400px) {
-      .su1-btn { padding: 10px 22px; font-size: 0.95rem; }
+      .su1-map-container { height: 260px; }
     }
-
-
+    .su1-map-container .mapboxgl-canvas,
+    .su1-map-container canvas { border-radius: 16px !important; }
+ 
+    /* Pointer at rest — clicking drops the pin. */
+    .su1-map-container .mapboxgl-canvas-container.mapboxgl-interactive,
+    .su1-map-container .mapboxgl-canvas { cursor: pointer !important; }
+ 
+    /* Grabbing hand while actually dragging the map. */
+    .su1-map-container .mapboxgl-canvas-container.mapboxgl-interactive:active,
+    .su1-map-container .mapboxgl-canvas-container.mapboxgl-interactive.mapboxgl-track-pointer,
+    .su1-map-container .mapboxgl-canvas-container.mapboxgl-interactive:active .mapboxgl-canvas {
+      cursor: grabbing !important;
+    }
+ 
+    /* — Undo the dashed-pill bleed onto Mapbox's own controls —
+       These stay light: they sit on the map, not on the panel. */
+    .su1-wrapper .mapboxgl-ctrl button,
+    .su1-wrapper .mapboxgl-ctrl-group button,
+    .su1-wrapper button.mapboxgl-ctrl-icon,
+    .su1-wrapper [class*="mapboxgl"] button {
+      background: #FFFFFF !important;
+      color: #141414 !important;
+      border: none !important;
+      border-radius: 0 !important;
+      padding: 0 !important;
+      height: 29px !important;
+      width: 29px !important;
+      font-size: inherit !important;
+      font-weight: 400 !important;
+      box-shadow: none !important;
+      cursor: pointer !important;
+    }
+    .su1-wrapper .mapboxgl-ctrl-group {
+      border-radius: 10px !important;
+      overflow: hidden !important;
+      border: none !important;
+      box-shadow: 0 2px 8px rgba(10,10,10,0.35) !important;
+    }
+    .su1-wrapper .mapboxgl-ctrl-group button + button {
+      border-top: 1px solid #EAEAEA !important;
+    }
+    .su1-wrapper .mapboxgl-ctrl-logo { opacity: 0.75; }
+ 
+    /* — Attribution —
+       The button reset above squashes Mapbox's own attribution toggle into a
+       blank box, so it gets rebuilt here. */
+    .su1-wrapper .su1-map-container .mapboxgl-ctrl-attrib {
+      background: rgba(255,255,255,0.85) !important;
+      border-radius: 4px 0 12px 0 !important;
+      padding: 0 5px !important;
+      font-size: 10px !important;
+    }
+    /* Collapsed state: only the ⓘ circle shows, no backing panel. */
+    .su1-wrapper .su1-map-container .mapboxgl-ctrl-attrib:not(.mapboxgl-compact-show) {
+      background: transparent !important;
+      box-shadow: none !important;
+      border: none !important;
+      padding: 0 !important;
+      min-height: 24px !important;
+    }
+    .su1-wrapper .su1-map-container .mapboxgl-ctrl-bottom-right .mapboxgl-ctrl {
+      background: transparent !important;
+      box-shadow: none !important;
+    }
+    .su1-wrapper .su1-map-container .mapboxgl-ctrl-attrib-button {
+      background-color: rgba(255,255,255,0.9) !important;
+      background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg width='24' height='24' viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg' fill-rule='evenodd'%3E%3Cpath d='M4 10a6 6 0 1 0 12 0 6 6 0 1 0-12 0m5-3a1 1 0 1 0 2 0 1 1 0 1 0-2 0m0 3a1 1 0 1 1 2 0v3a1 1 0 1 1-2 0'/%3E%3C/svg%3E") !important;
+      background-repeat: no-repeat !important;
+      background-position: center !important;
+      background-size: 20px 20px !important;
+      border: none !important;
+      border-radius: 50% !important;
+      padding: 0 !important;
+      width: 24px !important;
+      height: 24px !important;
+      min-width: 0 !important;
+      box-shadow: none !important;
+      cursor: pointer !important;
+    }
+    .su1-wrapper .su1-map-container .mapboxgl-ctrl-attrib a {
+      color: #141414 !important;
+      font-size: 10px !important;
+    }
+ 
+    /* — "Click to zoom" overlay — */
+    .su1-map-container [class*="zoom"],
+    .su1-map-container [class*="overlay"] {
+      border: none !important;
+      border-radius: 16px !important;
+      font-weight: 600;
+      letter-spacing: 0.01em;
+    }
+ 
+    /* =========================================================
+       EXPANDED MAP POPUP
+       Fixed to screen, centred on the card, space on all four sides.
+       ========================================================= */
+ 
+    .su1-map-modal-overlay {
+      position: fixed !important;
+      inset: 0 !important;
+      width: 100vw !important;
+      height: 100vh !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      padding: 28px !important;
+      background: rgba(10,10,10,0.62) !important;
+      z-index: 999999 !important;
+      box-sizing: border-box !important;
+      overflow: hidden !important;
+    }
+    /* Keep an inline style attribute from shrinking the overlay. */
+    .su1-map-modal-overlay[style],
+    .su1-map-modal-overlay[style*="fixed"] {
+      position: fixed !important;
+      inset: 0 !important;
+      top: 0 !important;
+      left: 0 !important;
+      right: 0 !important;
+      bottom: 0 !important;
+      width: 100vw !important;
+      height: 100vh !important;
+    }
+ 
+    .su1-map-modal-box {
+      position: fixed !important;
+      top:  calc(var(--card-top, 50vh) + var(--card-height, 0px) / 2) !important;
+      left: calc(var(--card-left, 50vw) + var(--card-width, 0px) / 2) !important;
+      transform: translate(-50%, -50%) !important;
+      width:  min(720px, calc(var(--card-width, 100vw) - 32px)) !important;
+      height: min(600px, calc(var(--card-height, 100vh) - 32px)) !important;
+      max-width: none !important;
+      max-height: none !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      background: #161616 !important;
+      border: 2px solid #333333 !important;
+      border-radius: 28px !important;
+      overflow: hidden !important;
+      box-sizing: border-box !important;
+      box-shadow: 0 25px 70px rgba(10,10,10,0.55) !important;
+    }
+ 
+    .su1-map-modal-surface {
+      position: absolute !important;
+      inset: 0 !important;
+      width: 100% !important;
+      height: 100% !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      border-radius: 26px !important;
+      overflow: hidden !important;
+      box-sizing: border-box !important;
+    }
+ 
+    /* Mapbox itself must fill the box. */
+    .su1-map-modal-surface .mapboxgl-map,
+    .su1-map-modal-surface .mapboxgl-canvas-container,
+    .su1-map-modal-surface .mapboxgl-canvas,
+    .su1-map-modal-surface canvas {
+      position: absolute !important;
+      top: 0 !important;
+      left: 0 !important;
+      width: 100% !important;
+      height: 100% !important;
+      max-width: none !important;
+      max-height: none !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      border-radius: 26px !important;
+      overflow: hidden !important;
+    }
+ 
+    /* The marker must keep Mapbox's own inline transform — the size and
+       position overrides above must not reach it. */
+    .su1-map-modal-surface .mapboxgl-marker {
+      position: absolute !important;
+      top: 0 !important;
+      left: 0 !important;
+      width: auto !important;
+      height: auto !important;
+      max-width: none !important;
+      max-height: none !important;
+      border-radius: 0 !important;
+      overflow: visible !important;
+    }
+ 
+    .su1-map-modal-close {
+      position: absolute !important;
+      top: 18px !important;
+      left: 18px !important;
+      z-index: 100 !important;
+      background: #FFFFFF !important;
+      color: #141414 !important;
+      border: none !important;
+      border-radius: 999px !important;
+      padding: 11px 21px !important;
+      width: auto !important;
+      height: auto !important;
+      min-width: 0 !important;
+      min-height: 0 !important;
+      font-size: 0.9rem !important;
+      font-weight: 600 !important;
+      line-height: 1.2 !important;
+      cursor: pointer !important;
+      box-shadow: 0 4px 14px rgba(10,10,10,0.35) !important;
+    }
+ 
+    .su1-map-modal-hint {
+      position: absolute !important;
+      top: 18px !important;
+      left: 50% !important;
+      transform: translateX(-50%) !important;
+      z-index: 100 !important;
+      background: rgba(255,255,255,0.96) !important;
+      color: #141414 !important;
+      border-radius: 999px !important;
+      padding: 10px 19px !important;
+      font-size: 0.82rem !important;
+      font-weight: 600 !important;
+      line-height: 1.2 !important;
+      white-space: nowrap !important;
+      box-shadow: 0 3px 12px rgba(10,10,10,0.28) !important;
+      pointer-events: none !important;
+    }
+ 
+    .su1-map-modal-surface .mapboxgl-ctrl button,
+    .su1-map-modal-surface button.mapboxgl-ctrl-icon {
+      background: #FFFFFF !important;
+      color: #141414 !important;
+      border: none !important;
+      border-radius: 0 !important;
+      padding: 0 !important;
+      width: 32px !important;
+      height: 32px !important;
+      min-width: 32px !important;
+      min-height: 32px !important;
+      box-shadow: none !important;
+    }
+    .su1-map-modal-surface .mapboxgl-ctrl-group {
+      border-radius: 10px !important;
+      overflow: hidden !important;
+      border: none !important;
+      box-shadow: 0 2px 8px rgba(10,10,10,0.35) !important;
+    }
+    .su1-map-modal-surface .mapboxgl-ctrl-top-right {
+      top: 14px !important;
+      right: 14px !important;
+    }
+ 
+    /* — Mobile — */
+    @media (max-width: 600px) {
+      .su1-map-modal-overlay { padding: 18px !important; }
+ 
+      .su1-map-modal-box {
+        width: calc(100vw - 36px) !important;
+        height: calc(100vh - 80px) !important;
+        max-width: calc(100vw - 36px) !important;
+        max-height: calc(100vh - 80px) !important;
+        border-radius: 24px !important;
+      }
+      .su1-map-modal-surface,
+      .su1-map-modal-surface .mapboxgl-map,
+      .su1-map-modal-surface .mapboxgl-canvas-container,
+      .su1-map-modal-surface .mapboxgl-canvas,
+      .su1-map-modal-surface canvas { border-radius: 22px !important; }
+ 
+      .su1-map-modal-close {
+        top: 12px !important;
+        left: 12px !important;
+        padding: 9px 16px !important;
+        font-size: 0.78rem !important;
+      }
+      .su1-map-modal-hint {
+        top: 12px !important;
+        left: auto !important;
+        right: 12px !important;
+        transform: none !important;
+        max-width: 52% !important;
+        padding: 8px 11px !important;
+        font-size: 0.65rem !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+      }
+      .su1-map-modal-surface .mapboxgl-ctrl-top-right {
+        top: 12px !important;
+        right: 12px !important;
+      }
+    }
+ 
+    /* — Very small screens — */
+    @media (max-width: 400px) {
+      .su1-map-modal-overlay { padding: 12px !important; }
+ 
+      .su1-map-modal-box {
+        width: calc(100vw - 24px) !important;
+        height: calc(100vh - 50px) !important;
+        max-width: calc(100vw - 24px) !important;
+        max-height: calc(100vh - 50px) !important;
+        border-radius: 21px !important;
+      }
+      .su1-map-modal-surface,
+      .su1-map-modal-surface .mapboxgl-map,
+      .su1-map-modal-surface .mapboxgl-canvas-container,
+      .su1-map-modal-surface .mapboxgl-canvas,
+      .su1-map-modal-surface canvas { border-radius: 19px !important; }
+ 
+      .su1-map-modal-close {
+        top: 10px !important;
+        left: 10px !important;
+        padding: 8px 14px !important;
+        font-size: 0.74rem !important;
+      }
+      .su1-map-modal-hint {
+        top: 10px !important;
+        right: 10px !important;
+        max-width: 48% !important;
+        padding: 7px 9px !important;
+        font-size: 0.6rem !important;
+      }
+    }
   `}</style>
 );
 
 const inputStyle = {
   width: "100%",
-  padding: "10px 16px",
-  background: "#590101",
-  border: "none",
-  borderRadius: "20px",
-  color: "white",
-  fontSize: "0.88rem",
-  fontFamily: "'Kufam', sans-serif",
+  padding: "0 18px",
+  height: "52px",
+  background: W.white,
+  border: "1.5px solid transparent",
+  borderRadius: "999px",
+  color: W.ink,
+  fontSize: "0.9375rem",
+  fontFamily: W.ui,
+  fontWeight: 400,
   marginBottom: "2px",
   boxSizing: "border-box",
+  outline: "none",
+  boxShadow: "0 1px 2px rgba(10,10,10,0.10)",
 };
-
+ 
 const labelStyle = {
   display: "block",
-  fontFamily: "'Jua', sans-serif",
-  fontSize: "1rem",
-  fontWeight: "700",
-  color: "#000000",
-  marginBottom: "4px",
-  marginTop: "10px",
+  fontFamily: W.ui,
+  fontSize: "0.875rem",
+  fontWeight: 500,
+  color: W.onPanel,
+  marginBottom: "6px",
+  marginTop: "14px",
 };
-
+ 
 const dropdownStyle = {
   ...inputStyle,
   appearance: "none",
   WebkitAppearance: "none",
-  paddingRight: "36px",
+  paddingRight: "44px",
   cursor: "pointer",
 };
 
+const PillSelect = ({ value, onChange, placeholder, options, hasError, disabled }) => {
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(-1);
+  const wrapRef = useRef(null);
+  const menuRef = useRef(null);
+ 
+  const items = options.map(o => (typeof o === "string" ? { value: o, label: o } : o));
+  const selected = items.find(o => o.value === value);
+ 
+  useEffect(() => {
+    const onDocDown = (e) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDocDown);
+    return () => document.removeEventListener("mousedown", onDocDown);
+  }, []);
+ 
+  // 64vh scroll box ang form body, kaya kapag malapit sa baba ang field,
+  // itinutulak ang menu papasok sa view imbes na maputol.
+  useEffect(() => {
+    if (!open || !menuRef.current) return;
+    menuRef.current.scrollIntoView({ block: "nearest" });
+    setActive(items.findIndex(o => o.value === value));
+  }, [open]);
+ 
+  const pick = (val) => { onChange(val); setOpen(false); };
+ 
+  const onKeyDown = (e) => {
+    if (disabled) return;
+    if (e.key === "Escape") { setOpen(false); return; }
+    if (!open && (e.key === "Enter" || e.key === " " || e.key === "ArrowDown")) {
+      e.preventDefault(); setOpen(true); return;
+    }
+    if (!open) return;
+    if (e.key === "ArrowDown") { e.preventDefault(); setActive(i => Math.min(i + 1, items.length - 1)); }
+    if (e.key === "ArrowUp")   { e.preventDefault(); setActive(i => Math.max(i - 1, 0)); }
+    if (e.key === "Enter")     { e.preventDefault(); if (items[active]) pick(items[active].value); }
+  };
+ 
+  return (
+    <div
+      ref={wrapRef}
+      className="su1-select"
+      style={{ position: "relative", marginBottom: "2px", zIndex: open ? 60 : "auto" }}
+    >
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => setOpen(o => !o)}
+        onKeyDown={onKeyDown}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        className="su1-select-trigger"
+        style={{ border: hasError ? "1.5px solid #FF7B72" : "1.5px solid transparent" }}
+      >
+        <span className={selected ? "su1-select-value" : "su1-select-placeholder"}>
+          {selected ? selected.label : placeholder}
+        </span>
+        <svg className="su1-drop" width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path d="M7 10l5 5 5-5z" />
+        </svg>
+      </button>
+ 
+      {open && (
+        <div ref={menuRef} className="su1-select-menu" role="listbox">
+          {items.map((o, i) => (
+            <div
+              key={o.value}
+              role="option"
+              aria-selected={o.value === value}
+              onMouseEnter={() => setActive(i)}
+              onClick={() => pick(o.value)}
+              className={
+                "su1-select-option" +
+                (o.value === value ? " is-selected" : "") +
+                (i === active ? " is-active" : "")
+              }
+            >
+              {o.label}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+ 
+
 const DropArrow = () => (
-  <div style={{ position: "absolute", right: "14px", top: "50%", transform: "translateY(-50%)", pointerEvents: "none", color: "rgba(255,255,255,0.7)" }}>
-    <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M7 10l5 5 5-5z"/></svg>
+  <div className="su1-drop" style={{
+    position: "absolute", right: "16px", top: "50%",
+    transform: "translateY(-50%)", pointerEvents: "none", color: W.inkMuted,
+  }}>
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M7 10l5 5 5-5z" />
+    </svg>
   </div>
 );
-
+ 
 const EyeIcon = ({ show, onClick }) => (
-  <span onClick={onClick} style={{
-    position: "absolute", right: "14px", top: "50%",
+  <span className="su1-eye" onClick={onClick} style={{
+    position: "absolute", right: "16px", top: "50%",
     transform: "translateY(-50%)", cursor: "pointer",
     userSelect: "none", display: "flex", alignItems: "center",
+    color: W.inkMuted,
   }}>
     {show ? (
-      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-        <circle cx="12" cy="12" r="3"/>
+      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+        <circle cx="12" cy="12" r="3" />
       </svg>
     ) : (
-      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
-        <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
-        <line x1="1" y1="1" x2="23" y2="23"/>
+      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" />
+        <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" />
+        <line x1="1" y1="1" x2="23" y2="23" />
       </svg>
     )}
   </span>
 );
-
 // Forward-geocode an address string to { address, lat, lng } via Mapbox —
 // used to pin the live map preview below the Region/Province/City/Barangay
 // dropdowns to the address they currently resolve to.
@@ -2433,53 +3097,53 @@ const LocationPicker = ({ location, onChange }) => {
   const regionData   = REGIONS.find(r => r.name === region);
   const provinceData = regionData?.provinces.find(p => p.name === province);
   const cityData     = provinceData?.cities.find(c => c.name === city);
-
+ 
   const handleRegion   = (val) => onChange({ region: val, province: "", city: "", barangay: "", street: "" });
   const handleProvince = (val) => onChange({ region, province: val, city: "", barangay: "", street: "" });
   const handleCity     = (val) => onChange({ region, province, city: val, barangay: "", street: "" });
   const handleBarangay = (val) => onChange({ region, province, city, barangay: val, street });
   const handleStreet   = (val) => onChange({ region, province, city, barangay, street: val });
-
+ 
   return (
     <div>
-      <div style={{ position: "relative", marginBottom: "2px" }}>
-        <select value={region} onChange={e => handleRegion(e.target.value)} style={dropdownStyle}>
-          <option value="">Select Region:</option>
-          {REGIONS.map(r => <option key={r.name} value={r.name}>{r.name}</option>)}
-        </select>
-        <DropArrow />
-      </div>
+      <PillSelect
+        value={region}
+        onChange={handleRegion}
+        placeholder="Select region"
+        options={REGIONS.map(r => r.name)}
+      />
+ 
       {region && (
-        <div style={{ position: "relative", marginBottom: "2px" }}>
-          <select value={province} onChange={e => handleProvince(e.target.value)} style={dropdownStyle}>
-            <option value="">Select Province:</option>
-            {regionData?.provinces.map(p => <option key={p.name} value={p.name}>{p.name}</option>)}
-          </select>
-          <DropArrow />
-        </div>
+        <PillSelect
+          value={province}
+          onChange={handleProvince}
+          placeholder="Select province"
+          options={(regionData?.provinces || []).map(p => p.name)}
+        />
       )}
+ 
       {province && (
-        <div style={{ position: "relative", marginBottom: "2px" }}>
-          <select value={city} onChange={e => handleCity(e.target.value)} style={dropdownStyle}>
-            <option value="">Select City / Municipality:</option>
-            {provinceData?.cities.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
-          </select>
-          <DropArrow />
-        </div>
+        <PillSelect
+          value={city}
+          onChange={handleCity}
+          placeholder="Select city or municipality"
+          options={(provinceData?.cities || []).map(c => c.name)}
+        />
       )}
+ 
       {city && (
-        <div style={{ position: "relative", marginBottom: "2px" }}>
-          <select value={barangay} onChange={e => handleBarangay(e.target.value)} style={dropdownStyle}>
-            <option value="">Select Barangay:</option>
-            {cityData?.barangays.map(b => <option key={b} value={b}>{b}</option>)}
-          </select>
-          <DropArrow />
-        </div>
+        <PillSelect
+          value={barangay}
+          onChange={handleBarangay}
+          placeholder="Select barangay"
+          options={cityData?.barangays || []}
+        />
       )}
+ 
       {city && (
         <input
           type="text"
-          placeholder="Street / Building (optional):"
+          placeholder="Street or building (optional)"
           value={street}
           onChange={e => handleStreet(e.target.value)}
           style={{ ...inputStyle, marginBottom: "2px" }}
@@ -2500,11 +3164,13 @@ const LocationMapPreview = ({ address, onResolved }) => {
   const markerRef       = useRef(null);
   const debounceRef     = useRef(null);
   const addressRef      = useRef(address);
+  // Last zoom level the company left the map at, so a later pin update
+  // doesn't reset the framing they chose.
+  const zoomRef         = useRef(null);
   const [mapReady, setMapReady] = useState(!!window.mapboxgl);
   const [mapError, setMapError] = useState(false);
   const [geocoding, setGeocoding] = useState(false);
   const [coords, setCoords]       = useState({ lat: null, lng: null });
-  const [showZoom, setShowZoom]   = useState(false);
   const [pinIsManual, setPinIsManual] = useState(false);
 
   useEffect(() => { addressRef.current = address; }, [address]);
@@ -2526,31 +3192,38 @@ const LocationMapPreview = ({ address, onResolved }) => {
     if (!mapReady || mapRef.current || !mapContainerRef.current) return;
     try {
       window.mapboxgl.accessToken = MAPBOX_TOKEN;
-      mapRef.current = new window.mapboxgl.Map({
+        mapRef.current = new window.mapboxgl.Map({
         container: mapContainerRef.current,
         style:     "mapbox://styles/mapbox/standard-satellite",
         center:    [121.0, 12.0],
         zoom:      5,
+        attributionControl: false,
       });
-      mapRef.current.addControl(new window.mapboxgl.NavigationControl({ showCompass: false }), "top-right");
+      mapRef.current.addControl(
+        new window.mapboxgl.AttributionControl({ compact: true }),
+        "bottom-right"
+      );
 
       // Let the company click anywhere on the map to drop the pin at their
       // exact location — overrides the address-based pin until the address
       // selection changes again (see the address-effect below, which resets
-      // this back to "auto" as the new starting point).
-      mapRef.current.getCanvas().style.cursor = "pointer";
+      // this back to "auto" as the new starting point). Only coords are set
+      // here; the marker itself is drawn by the coords effect further down.
       mapRef.current.on("click", (e) => {
         const { lat, lng } = e.lngLat;
-        if (markerRef.current) {
-          markerRef.current.setLngLat([lng, lat]);
-        } else {
-          markerRef.current = new window.mapboxgl.Marker({ color: "#8B0000" })
-            .setLngLat([lng, lat])
-            .addTo(mapRef.current);
-        }
+        zoomRef.current = mapRef.current.getZoom();
         setCoords({ lat, lng });
         setPinIsManual(true);
         onResolved?.({ address: addressRef.current, lat, lng, isManual: true });
+      });
+
+      // Remember the zoom level, and re-centre on the pin afterwards —
+      // zooming scales around the viewport centre, so without this the pin
+      // slides across the frame even though it stays on the same ground spot.
+      mapRef.current.on("zoomend", () => {
+        zoomRef.current = mapRef.current.getZoom();
+        const c = markerRef.current?.getLngLat();
+        if (c) mapRef.current.easeTo({ center: [c.lng, c.lat], duration: 300 });
       });
     } catch (_) {
       setMapError(true);
@@ -2566,22 +3239,36 @@ const LocationMapPreview = ({ address, onResolved }) => {
       const { lat, lng } = await geocodeAddress(address);
       setGeocoding(false);
       if (lat == null || lng == null || !mapRef.current) return;
-      mapRef.current.flyTo({ center: [lng, lat], zoom: 15, duration: 1000 });
-      if (markerRef.current) {
-        markerRef.current.setLngLat([lng, lat]);
-      } else {
-        markerRef.current = new window.mapboxgl.Marker({ color: "#8B0000" })
-          .setLngLat([lng, lat])
-          .addTo(mapRef.current);
-      }
       // A new address selection is a fresh starting point — any earlier
-      // manual pin placement no longer applies.
+      // manual pin placement (and its zoom) no longer applies.
+      zoomRef.current = null;
       setPinIsManual(false);
       onResolved?.({ address, lat, lng, isManual: false });
       setCoords({ lat, lng });
     }, 500);
     return () => clearTimeout(debounceRef.current);
   }, [address, mapReady]);
+
+  // The single place the marker is drawn — from coords, whatever set them
+  // (the geocoder or a click on the map).
+  useEffect(() => {
+    if (!mapReady || !mapRef.current) return;
+    const { lat, lng } = coords;
+    if (lat == null || lng == null) return;
+
+    if (markerRef.current) {
+      markerRef.current.setLngLat([lng, lat]);
+    } else {
+      markerRef.current = new window.mapboxgl.Marker({ color: "#8B0000", anchor: "bottom" })
+        .setLngLat([lng, lat])
+        .addTo(mapRef.current);
+    }
+    mapRef.current.easeTo({
+      center: [lng, lat],
+      zoom: zoomRef.current ?? Math.max(mapRef.current.getZoom(), 15),
+      duration: 600,
+    });
+  }, [coords, mapReady]);
 
   if (mapError) {
     return (
@@ -2607,113 +3294,21 @@ const LocationMapPreview = ({ address, onResolved }) => {
              
           </span>
         )}
-        {coords.lat != null && (
-          <button
-            onClick={() => setShowZoom(true)}
-            title="Click to view fullscreen"
-            style={{
-              position: "absolute", bottom: "10px", left: "50%", transform: "translateX(-50%)",
-              background: "rgba(0,0,0,0.6)", color: "white", border: "none", borderRadius: "16px",
-              padding: "4px 12px", fontSize: "0.72rem", fontFamily: "'Kufam', sans-serif",
-              cursor: "pointer", display: "flex", alignItems: "center", gap: "4px", zIndex: 5,
-            }}
-          >
-            🔍 Click to zoom
-          </button>
-        )}
-        {showZoom && (
-          <MapZoomModal
-            lat={coords.lat}
-            lng={coords.lng}
-            onClose={() => setShowZoom(false)}
-            onPin={({ lat, lng }) => {
-              if (markerRef.current) {
-                markerRef.current.setLngLat([lng, lat]);
-              } else if (mapRef.current) {
-                markerRef.current = new window.mapboxgl.Marker({ color: "#8B0000" })
-                  .setLngLat([lng, lat])
-                  .addTo(mapRef.current);
-              }
-              if (mapRef.current) mapRef.current.flyTo({ center: [lng, lat], zoom: 15, duration: 600 });
-              setCoords({ lat, lng });
-              setPinIsManual(true);
-              onResolved?.({ address: addressRef.current, lat, lng, isManual: true });
-            }}
-          />
-        )}
       </div>
-      <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.68rem", color: "#888", margin: "4px 0 0 2px" }}>
+      <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.72rem", color: "#6B0F1F", margin: "6px 0 0 2px", fontWeight: 600, lineHeight: 1.5 }}>
         Not exact? Click anywhere on the map to drop the pin on your exact location.
+        <br />
+        <span style={{ fontWeight: 400, color: "#8A6B70" }}>
+          To move around the map, press and hold, then drag.
+        </span>
       </p>
     </div>
   );
 };
 
 // ── Fullscreen map modal, opened via "Click to zoom" ───────────────────────
-const MapZoomModal = ({ lat, lng, onClose, onPin }) => {
-  const mapContainerRef = useRef(null);
-  const mapRef          = useRef(null);
-  const markerRef       = useRef(null);
+// ── Expanded map modal, opened via "Click to zoom" ───────────────────────────
 
-  useEffect(() => {
-    const loadMap = () => {
-      if (!mapContainerRef.current || mapRef.current) return;
-      window.mapboxgl.accessToken = MAPBOX_TOKEN;
-      mapRef.current = new window.mapboxgl.Map({
-        container: mapContainerRef.current,
-        style:     "mapbox://styles/mapbox/standard-satellite",
-        center:    [lng, lat],
-        zoom:      15,
-      });
-      mapRef.current.addControl(new window.mapboxgl.NavigationControl(), "top-right");
-      markerRef.current = new window.mapboxgl.Marker({ color: "#8B0000" }).setLngLat([lng, lat]).addTo(mapRef.current);
-
-      // Click anywhere in this larger fullscreen view to fine-tune the pin —
-      // easier to be precise here than on the small preview.
-      mapRef.current.getCanvas().style.cursor = "pointer";
-      mapRef.current.on("click", (e) => {
-        const { lat: newLat, lng: newLng } = e.lngLat;
-        markerRef.current.setLngLat([newLng, newLat]);
-        onPin?.({ lat: newLat, lng: newLng });
-      });
-    };
-
-    if (window.mapboxgl) { loadMap(); return; }
-    const link = document.createElement("link");
-    link.rel  = "stylesheet";
-    link.href = "https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.css";
-    document.head.appendChild(link);
-    const script = document.createElement("script");
-    script.src = "https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.js";
-    script.onload = loadMap;
-    document.head.appendChild(script);
-
-    return () => { if (mapRef.current) { mapRef.current.remove(); mapRef.current = null; } };
-  }, [lat, lng]);
-
-  return (
-    <div
-      onClick={onClose}
-      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: "16px" }}
-    >
-      <div
-        onClick={e => e.stopPropagation()}
-        style={{ width: "min(92vw, 800px)", height: "min(85vh, 560px)", borderRadius: "16px", overflow: "hidden", position: "relative", boxShadow: "0 8px 32px rgba(0,0,0,0.4)" }}
-      >
-        <div ref={mapContainerRef} style={{ width: "100%", height: "100%" }} />
-        <button
-          onClick={onClose}
-          style={{ position: "absolute", top: "12px", left: "12px", zIndex: 10, background: "#8B0000", color: "white", border: "none", borderRadius: "20px", padding: "6px 16px", fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", cursor: "pointer", boxShadow: "0 2px 8px rgba(0,0,0,0.3)" }}
-        >
-          ✕ Close
-        </button>
-        <span style={{ position: "absolute", top: "12px", right: "56px", zIndex: 10, background: "rgba(0,0,0,0.6)", color: "white", borderRadius: "16px", padding: "6px 14px", fontFamily: "'Kufam', sans-serif", fontSize: "0.75rem" }}>
-          Click anywhere to set your exact pin
-        </span>
-      </div>
-    </div>
-  );
-};
 
 // ── Industries ────────────────────────────────────────────────────────────────
 const INDUSTRIES = [
@@ -2838,20 +3433,17 @@ const IndustryAutocomplete = ({ value, onChange, hasError, options }) => {
         style={{ ...inputStyle, border: hasError ? "1.5px solid red" : "none" }}
       />
       {open && matches.length > 0 && (
-        <div style={{
+        <div className="su1-ac-menu" style={{
           position: "absolute", top: "calc(100% + 6px)", left: 0, right: 0,
-          background: "white", border: "1.5px solid #590101", borderRadius: "14px",
-          boxShadow: "0 6px 20px rgba(0,0,0,0.18)", zIndex: 50,
-          maxHeight: "230px", overflowY: "auto", padding: "8px 0",
+          background: "#FFFFFF", border: "none", borderRadius: "18px",
+          boxShadow: "0 12px 28px rgba(10,10,10,0.35)", zIndex: 50,
+          maxHeight: "230px", overflowY: "auto", padding: "10px 0",
         }}>
           {matches.map(ind => (
             <div
               key={ind}
+              className="su1-ac-option"
               onClick={() => { onChange(ind); setOpen(false); }}
-              style={{
-                padding: "9px 16px", cursor: "pointer", userSelect: "none",
-                fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#222",
-              }}
             >
               {ind}
             </div>
@@ -2874,67 +3466,65 @@ const DeptProgramPicker = ({ selections, onChange, hasError, departments, depart
   const updateEntry = (idx, field, value) => {
     onChange(selections.map((entry, i) => {
       if (i !== idx) return entry;
-      // Changing Department always clears the previously chosen Program,
-      // since a Program from the old Department may not exist under the new one.
+      // Pagpalit ng Department, kinaklaro ang Program — baka wala na iyon sa bago.
       if (field === "department") return { department: value, program: "" };
       return { ...entry, [field]: value };
     }));
   };
-
+ 
   return (
     <div style={{ marginBottom: "2px" }}>
       {selections.map((entry, idx) => {
         const programs = departments[entry.department]?.programs || [];
         return (
-          <div key={idx} style={{ background: "rgba(89,1,1,0.06)", borderRadius: "14px", padding: "10px", marginBottom: "8px" }}>
-            <div style={{ display: "flex", gap: "6px", alignItems: "flex-start" }}>
-              <div style={{ flex: 1 }}>
-                <div style={{ position: "relative", marginBottom: "6px" }}>
-                  <select
+          <div key={idx} style={{
+            background: "rgba(250,250,250,0.05)",
+            border: "1px solid #333333",
+            borderRadius: "18px",
+            padding: "10px",
+            marginBottom: "8px",
+          }}>
+            <div style={{ display: "flex", gap: "8px", alignItems: "flex-start" }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ marginBottom: "6px" }}>
+                  <PillSelect
                     value={entry.department}
-                    onChange={e => updateEntry(idx, "department", e.target.value)}
-                    style={{ ...dropdownStyle, border: hasError && !entry.department ? "1.5px solid red" : "none", color: entry.department ? "white" : "rgba(255,255,255,0.75)" }}
-                  >
-                    <option value="">College/Program Required:</option>
-                    {departmentNames.map(name => (
-                      <option key={name} value={name}>
-                        {name}{departments[name]?.abbr ? ` (${departments[name].abbr})` : ""}
-                      </option>
-                    ))}
-                  </select>
-                  <DropArrow />
+                    onChange={val => updateEntry(idx, "department", val)}
+                    placeholder="Select college or department"
+                    hasError={hasError && !entry.department}
+                    options={departmentNames.map(name => ({
+                      value: name,
+                      label: `${name}${departments[name]?.abbr ? ` (${departments[name].abbr})` : ""}`,
+                    }))}
+                  />
                 </div>
+ 
                 {entry.department && (
-                  <div style={{ position: "relative" }}>
-                    <select
-                      value={entry.program}
-                      onChange={e => updateEntry(idx, "program", e.target.value)}
-                      style={{ ...dropdownStyle, border: hasError && !entry.program ? "1.5px solid red" : "none", color: entry.program ? "white" : "rgba(255,255,255,0.75)" }}
-                    >
-                      <option value="">Select Program</option>
-                      {programs.map(p => <option key={p.name} value={p.name}>{p.name}</option>)}
-                    </select>
-                    <DropArrow />
-                  </div>
+                  <PillSelect
+                    value={entry.program}
+                    onChange={val => updateEntry(idx, "program", val)}
+                    placeholder="Select program"
+                    hasError={hasError && !entry.program}
+                    options={programs.map(p => p.name)}
+                  />
                 )}
               </div>
+ 
               {selections.length > 1 && (
                 <button
                   type="button"
+                  className="su1-remove"
                   onClick={() => removeEntry(idx)}
-                  style={{ width: "26px", height: "26px", borderRadius: "50%", background: "#590101", border: "none", color: "white", fontSize: "0.8rem", cursor: "pointer", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", marginTop: "2px" }}
+                  aria-label="Remove this department"
                 >✕</button>
               )}
             </div>
           </div>
         );
       })}
-      <button
-        type="button"
-        onClick={addEntry}
-        style={{ background: "none", border: "1.5px dashed #590101", borderRadius: "20px", color: "#590101", width: "100%", padding: "7px", fontFamily: "'Kufam', sans-serif", fontSize: "0.8rem", cursor: "pointer", fontWeight: 600 }}
-      >
-        + Add Another Department
+ 
+      <button type="button" className="su1-add-btn" onClick={addEntry}>
+        Add another department
       </button>
     </div>
   );
@@ -3225,7 +3815,7 @@ const SignUpStep1Screen = ({ onContinue, onGoSignIn, initialData }) => {
               </button>
             </div>
 
-            <hr style={{ border: "none", borderTop: "1.5px solid #ddd", marginBottom: "17px" }} />
+            <hr style={{ border: "none", borderTop: "1.5px solid #DBBFC2", marginBottom: "16px" }} />
 
             <p style={{ fontFamily: "'Kufam', sans-serif", textAlign: "center", fontSize: "0.88rem", color: "#555" }}>
               Already have an account?{" "}

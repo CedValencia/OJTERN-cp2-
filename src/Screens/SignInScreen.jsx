@@ -1,77 +1,128 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { signIn, logOut, applyEmailVerification } from "./AuthService";
-
-const darkRed = "#320000";
-const red = "#8B0000";
+import { color, ease, radius, shadow } from "./theme";
 
 // ── useIsMobile ───────────────────────────────────────────────────────────────
 const useIsMobile = () => {
-  const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth < 900);
   useEffect(() => {
-    const handler = () => setIsMobile(window.innerWidth < 768);
+    const handler = () => setIsMobile(window.innerWidth < 900);
     window.addEventListener("resize", handler);
     return () => window.removeEventListener("resize", handler);
   }, []);
   return isMobile;
 };
 
-const inputStyle = {
-  width: "100%",
-  padding: "10px 16px",
-  background: "#590101",
-  border: "none",
-  borderRadius: "20px",
-  color: "white",
-  fontSize: "0.88rem",
-  fontFamily: "'Kufam', sans-serif",
-  marginBottom: "2px",
-};
+// ── Hover-swap styles for toggle & primary buttons ─────────────────────────
+const SignInStyles = () => (
+  <style>{`
+    .si-toggle-btn {
+      background: transparent;
+      color: ${color.onWineMuted};
+      transition: background 160ms ${ease}, color 160ms ${ease};
+    }
+    .si-toggle-btn--active {
+      background: ${color.ink};
+      color: ${color.white};
+    }
+    .si-toggle-btn--active:hover {
+      background: #898989;
+      color: ${color.ink};
+    }
+    .si-signin-btn {
+      background: linear-gradient(180deg, #FFFFFF 0%, #F2F2F2 100%);
+      color: ${color.ink};
+      transition: background 160ms ${ease}, color 160ms ${ease};
+    }
+    .si-signin-btn:hover:not(:disabled) {
+      background: #898989;
+      color: ${color.white};
+    }
+  `}</style>
+);
 
-const labelStyle = {
-  display: "block",
-  fontFamily: "'montserrat', sans-serif",
-  fontSize: "1rem",
-  fontWeight: "700",
-  color: "#000000",
-  marginBottom: "4px",
-  marginTop: "10px",
-};
+// ── Icons ────────────────────────────────────────────────────────────────────
+const Ico = ({ d, children }) => (
+  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+       strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+    {children ?? <path d={d} />}
+  </svg>
+);
+
+const UserIcon = () => (
+  <Ico><circle cx="12" cy="8" r="4" /><path d="M4.5 20a7.5 7.5 0 0 1 15 0" /></Ico>
+);
+const MailIcon = () => (
+  <Ico><rect x="2.5" y="4.5" width="19" height="15" rx="2.5" /><path d="m3.5 6.5 8.5 6 8.5-6" /></Ico>
+);
+const LockIcon = () => (
+  <Ico><rect x="4" y="10.5" width="16" height="10" rx="2.5" /><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3" /></Ico>
+);
+
+// The pale circular badge each field carries on its left, as in the comps.
+// Sits on the dark panel now, so the badge itself stays light for contrast.
+const FieldIcon = ({ children }) => (
+  <span
+    aria-hidden="true"
+    style={{
+      position: "absolute", left: "10px", top: "50%", transform: "translateY(-50%)",
+      width: "30px", height: "30px", borderRadius: "50%",
+      background: color.wine400, color: color.inkMuted,
+      display: "flex", alignItems: "center", justifyContent: "center",
+      pointerEvents: "none",
+    }}
+  >
+    {children}
+  </span>
+);
 
 const EyeIcon = ({ show, onClick }) => (
-  <span onClick={onClick} style={{
-    position: "absolute", right: "14px", top: "50%",
-    transform: "translateY(-50%)", cursor: "pointer",
-    userSelect: "none", display: "flex", alignItems: "center",
-  }}>
+  <button
+    type="button"
+    onClick={onClick}
+    aria-label={show ? "Hide password" : "Show password"}
+    style={{
+      position: "absolute", right: "8px", top: "50%",
+      transform: "translateY(-50%)", cursor: "pointer",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      width: "34px", height: "34px",
+      background: "transparent", border: "none", borderRadius: "50%",
+      color: color.inkMuted, padding: 0,
+    }}
+  >
     {show ? (
-      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
         <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
         <circle cx="12" cy="12" r="3"/>
       </svg>
     ) : (
-      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
         <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
         <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
         <line x1="1" y1="1" x2="23" y2="23"/>
       </svg>
     )}
-  </span>
+  </button>
 );
 
 // Props:
-//   onGoSignUp           — navigate to company sign-up (signup1)
+//   role                 — which sign-in form to show; owned by SplashScreen's
+//                          role pills. Falls back to internal state if absent.
+//   onRoleChange         — notify the parent when the role changes here
+//   onGoSignUp           — switch to company sign-up
 //   onSignInCoordinator  — called when OJT Coordinator clicks Sign In
 //   onSignInStudent      — called when Student clicks Sign In
 //   onSignInCompany      — called when Company clicks Sign In
 //   onForgotPassword     — called when Forgot Password is clicked
-const SignInScreen = ({ onGoSignUp, onSignInCoordinator, onSignInStudent, onSignInCompany, onForgotPassword }) => {
-  const [role, setRole]           = useState("coordinator");
+const SignInScreen = ({ role: roleProp, onRoleChange, onGoSignUp, onSignInCoordinator, onSignInStudent, onSignInCompany, onForgotPassword }) => {
+  const [role, setRole]           = useState(roleProp ?? "coordinator");
   const [showPass, setShowPass]   = useState(false);
   const [email, setEmail]         = useState("");
   const [studentId, setStudentId] = useState("");
   const [password, setPassword]   = useState("");
   const [authError, setAuthError] = useState("");
   const [loading, setLoading]     = useState(false);
+  const [focused, setFocused]     = useState("");
   const [verifyStatus, setVerifyStatus] = useState(null); // { ok: boolean, message: string } | null
   const isMobile                  = useIsMobile();
 
@@ -105,7 +156,23 @@ const SignInScreen = ({ onGoSignUp, onSignInCoordinator, onSignInStudent, onSign
     setPassword("");
     setShowPass(false);
     setAuthError("");
+    onRoleChange?.(newRole);
   };
+
+  // The panel pills (in SplashScreen) are the source of truth when a role
+  // prop is supplied. Switching there clears the form exactly as the old
+  // radio group did.
+  const prevRoleProp = useRef(roleProp);
+  useEffect(() => {
+    if (roleProp == null || roleProp === prevRoleProp.current) return;
+    prevRoleProp.current = roleProp;
+    setRole(roleProp);
+    setEmail("");
+    setStudentId("");
+    setPassword("");
+    setShowPass(false);
+    setAuthError("");
+  }, [roleProp]);
 
   // ── Firebase sign-in with role-based Firestore check ─────────────────────
   const handleSignIn = async () => {
@@ -129,10 +196,9 @@ const SignInScreen = ({ onGoSignUp, onSignInCoordinator, onSignInStudent, onSign
     try {
       const identifier = role === "student" ? studentId : email;
 
-      // ✅ FIXED: signIn called only once
       const { userData } = await signIn(role, identifier, password);
 
-      // ✅ Defense-in-depth: only route to the dashboard matching the role the
+      // Defense-in-depth: only route to the dashboard matching the role the
       // user actually selected in this form. AuthService.signIn already checks
       // this, but we never want this screen to silently redirect someone to a
       // different dashboard than the one they clicked, even if signIn's own
@@ -162,159 +228,205 @@ const SignInScreen = ({ onGoSignUp, onSignInCoordinator, onSignInStudent, onSign
     { key: "company",     label: "Company"           },
   ];
 
+  const roleLabel = roles.find(r => r.key === role)?.label ?? "";
+
+  const inputStyle = (name) => ({
+    width: "100%",
+    height: "52px",
+    padding: "0 16px 0 50px",
+    background: color.white,
+    border: `1.5px solid ${focused === name ? color.ink : "transparent"}`,
+    borderRadius: radius.field,
+    color: color.ink,
+    fontSize: "0.9375rem",
+    fontWeight: 400,
+    outline: "none",
+    transition: `border-color 160ms ${ease}`,
+  });
+
   return (
-    <div style={{
-      width: "100%",
-      maxWidth: isMobile ? "100%" : "370px",
-      margin: "0 auto",
-      height: "100%",
-      display: "flex",
-      flexDirection: "column",
-      justifyContent: isMobile ? "flex-start" : "center",
-      paddingBottom: isMobile ? "1rem" : "0",
-    }}>
+    <div style={{ width: "100%", display: "flex", flexDirection: "column" }}>
+      <SignInStyles />
+
       <h1 style={{
-        fontFamily: "'Urbanist', sans-serif",
-        fontSize: isMobile ? "2rem" : "2.6rem",
-        fontWeight: "400",
-        color: "#000000",
-        textAlign: "center",
-        marginBottom: isMobile ? "14px" : "20px",
-        lineHeight: 1.1,
-        textTransform: "uppercase",
+        fontSize: isMobile ? "1.75rem" : "2rem",
+        fontWeight: 600,
+        letterSpacing: "-0.02em",
+        lineHeight: 1.15,
+        color: color.onWine,
+        margin: 0,
       }}>
-        Hi, Welcome<br />Back!
+        Sign In
       </h1>
+      <p style={{
+        fontSize: "0.9375rem",
+        color: color.onWineMuted,
+        lineHeight: 1.5,
+        margin: "8px 0 26px",
+      }}>
+        Welcome back. Signing in as <span style={{ color: color.onWine, fontWeight: 600 }}>{roleLabel}</span>.
+      </p>
 
-      <div style={{ border: "2px solid #1a1a1a", borderRadius: "24px", overflow: "hidden", position: "relative" }}>
-        <div style={{ background: red, padding: isMobile ? "10px" : "14px", textAlign: "center" }}>
-          <span style={{ fontFamily: "'montserrat', sans-serif", fontSize: isMobile ? "1.2rem" : "1.4rem", color: "white", letterSpacing: "0.1em", textTransform: "uppercase" }}>
-            Sign-In
-          </span>
+      {verifyStatus && (
+        <div
+          role="status"
+          style={{
+            display: "flex", alignItems: "flex-start", gap: "9px",
+            background: verifyStatus.ok ? "rgba(90,117,96,0.14)" : "rgba(168,84,80,0.14)",
+            border: `1px solid ${verifyStatus.ok ? color.success : color.danger}`,
+            borderRadius: "14px",
+            padding: "11px 13px",
+            margin: "0 0 18px",
+            fontSize: "0.8125rem", lineHeight: 1.45,
+            color: verifyStatus.ok ? color.success : color.danger,
+          }}
+        >
+          <span>{verifyStatus.ok ? "✅" : "⚠️"}</span>
+          <span>{verifyStatus.message}</span>
         </div>
+      )}
 
-        <div style={{ padding: isMobile ? "12px 16px 20px" : "15px 24px 24px", background: "white" }}>
-          {verifyStatus && (
-            <p style={{
-              fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem",
-              color: verifyStatus.ok ? "#1a7a1a" : "#c00",
-              background: verifyStatus.ok ? "#eafaea" : "#fff0f0",
-              border: `1.5px solid ${verifyStatus.ok ? "#1a7a1a" : "#c00"}`,
-              borderRadius: "12px", padding: "10px 14px",
-              textAlign: "center", marginBottom: "14px",
-            }}>
-              {verifyStatus.ok ? "✅ " : "⚠️ "}{verifyStatus.message}
-            </p>
-          )}
-          <p style={{ fontFamily: "'montserrat', sans-serif", textAlign: "center", fontSize: isMobile ? "1.2rem" : "1.5rem", color: "#1a1a1a", marginBottom: "10px" }}>
-            Sign-in as:
-          </p>
-
-          <div style={{ display: "flex", justifyContent: "center", gap: isMobile ? "8px" : "12px", marginBottom: "14px", flexWrap: "wrap" }}>
-            {roles.map(r => (
-              <label key={r.key} onClick={() => handleRoleChange(r.key)} style={{ display: "flex", alignItems: "center", gap: "5px", cursor: "pointer", fontFamily: "'Kufam', sans-serif", fontSize: isMobile ? "0.76rem" : "0.82rem", color: "#1a1a1a" }}>
-                <div style={{
-                  width: "18px", height: "18px", borderRadius: "50%",
-                  border: `2px solid ${role === r.key ? red : "#888"}`,
-                  background: role === r.key ? red : "transparent",
-                  display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
-                }}>
-                  {role === r.key && <div style={{ width: "6px", height: "6px", borderRadius: "50%", background: "white" }} />}
-                </div>
-                {r.label}
-              </label>
-            ))}
-          </div>
-
-          <hr style={{ border: "none", borderTop: "1.5px solid #ddd", marginBottom: "12px" }} />
-
-          {role === "student" ? (
-            <>
-              <label style={labelStyle}>Student ID:</label>
-              <input
-                type="text"
-                inputMode="numeric"
-                pattern="[0-9]*"
-                placeholder="Student ID:"
-                value={studentId}
-                onChange={e => setStudentId(e.target.value.replace(/\D/g, ""))}
-                onKeyDown={e => e.key === "Enter" && handleSignIn()}
-                style={inputStyle}
-              />
-            </>
-          ) : (
-            <>
-              <label style={labelStyle}>Email:</label>
-              <input type="email" placeholder="Enter your Email:" value={email} onChange={e => setEmail(e.target.value)} onKeyDown={e => e.key === "Enter" && handleSignIn()} style={inputStyle} />
-            </>
-          )}
-
-          <label style={labelStyle}>Password:</label>
-          <div style={{ position: "relative", marginBottom: "4px" }}>
-            <input
-              type={showPass ? "text" : "password"}
-              placeholder="Password:"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              onKeyDown={e => e.key === "Enter" && handleSignIn()}
-              onCopy={e => e.preventDefault()}
-              onCut={e => e.preventDefault()}
-              onPaste={e => e.preventDefault()}
-              style={{ ...inputStyle, paddingRight: "44px" }}
-            />
-            <EyeIcon show={showPass} onClick={() => setShowPass(!showPass)} />
-          </div>
-
-          <div style={{ textAlign: "right", marginBottom: "12px" }}>
-            <span
-              onClick={() => onForgotPassword?.()}
-              style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.8rem", color: "#555", textDecoration: "underline", cursor: "pointer" }}
-            >
-              Forgot Password?
-            </span>
-          </div>
-
-          <hr style={{ border: "none", borderTop: "1.5px solid #ddd", marginBottom: "16px" }} />
-
-          {authError && (
-            <p style={{
-              fontFamily: "'Kufam', sans-serif", fontSize: "0.8rem", color: "red",
-              textAlign: "center", marginBottom: "10px",
-            }}>
-              ⚠️ {authError}
-            </p>
-          )}
-
-          <div style={{ textAlign: "center" }}>
+      {/* Role selector — only rendered when this screen owns the choice.
+          When SplashScreen passes a role prop, the panel pills replace this. */}
+      {roleProp == null && (
+        <div style={{ display: "flex", gap: "8px", marginBottom: "22px" }}>
+          {roles.map(r => (
             <button
-              onClick={handleSignIn}
-              disabled={loading}
+              key={r.key}
+              type="button"
+              onClick={() => handleRoleChange(r.key)}
+              className={`si-toggle-btn${role === r.key ? " si-toggle-btn--active" : ""}`}
               style={{
-                background: darkRed, color: "white", border: "none",
-                borderRadius: "24px", padding: isMobile ? "10px 36px" : "12px 48px",
-                fontFamily: "'montserrat', sans-serif", fontSize: isMobile ? "1rem" : "1.1rem",
-                letterSpacing: "0.08em", textTransform: "uppercase",
-                cursor: loading ? "not-allowed" : "pointer",
-                opacity: loading ? 0.7 : 1,
+                flex: 1, padding: "11px 8px", borderRadius: radius.pill, cursor: "pointer",
+                fontSize: "0.8125rem", fontWeight: role === r.key ? 600 : 500,
+                border: `1.5px solid ${role === r.key ? "transparent" : color.blush300}`,
               }}
             >
-              {loading ? "Signing in…" : "Sign In"}
+              {r.label}
             </button>
-          </div>
+          ))}
+        </div>
+      )}
 
-          {role === "company" && (
-            <>
-              <hr style={{ border: "none", borderTop: "1.5px solid #ddd", margin: "16px 0 25px" }} />
-              <p style={{ fontFamily: "'Kufam', sans-serif", textAlign: "center", fontSize: "0.88rem", color: "#555" }}>
-                Don't have an account?{" "}
-                <span onClick={onGoSignUp} style={{ color: red, textDecoration: "underline", cursor: "pointer", fontWeight: "600" }}>
-                  Sign-up
-                </span>
-              </p>
-            </>
-          )}
+      <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+        {role === "student" ? (
+          <div style={{ position: "relative" }}>
+            <FieldIcon><UserIcon /></FieldIcon>
+            <input
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              aria-label="Student ID"
+              placeholder="Student ID"
+              value={studentId}
+              onChange={e => setStudentId(e.target.value.replace(/\D/g, ""))}
+              onKeyDown={e => e.key === "Enter" && handleSignIn()}
+              onFocus={() => setFocused("studentId")}
+              onBlur={() => setFocused("")}
+              style={inputStyle("studentId")}
+            />
+          </div>
+        ) : (
+          <div style={{ position: "relative" }}>
+            <FieldIcon><MailIcon /></FieldIcon>
+            <input
+              type="email"
+              aria-label="Email"
+              placeholder="Email"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && handleSignIn()}
+              onFocus={() => setFocused("email")}
+              onBlur={() => setFocused("")}
+              style={inputStyle("email")}
+            />
+          </div>
+        )}
+
+        <div style={{ position: "relative" }}>
+          <FieldIcon><LockIcon /></FieldIcon>
+          <input
+            type={showPass ? "text" : "password"}
+            aria-label="Password"
+            placeholder="Password"
+            value={password}
+            onChange={e => setPassword(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && handleSignIn()}
+            onCopy={e => e.preventDefault()}
+            onCut={e => e.preventDefault()}
+            onPaste={e => e.preventDefault()}
+            onFocus={() => setFocused("password")}
+            onBlur={() => setFocused("")}
+            style={{ ...inputStyle("password"), paddingRight: "50px" }}
+          />
+          <EyeIcon show={showPass} onClick={() => setShowPass(!showPass)} />
         </div>
       </div>
+
+      <div style={{ textAlign: "right", marginTop: "12px" }}>
+        <button
+          type="button"
+          onClick={() => onForgotPassword?.()}
+          style={{
+            background: "none", border: "none", padding: "4px 2px", cursor: "pointer",
+            fontSize: "0.8125rem", fontWeight: 600, color: color.onWine,
+          }}
+        >
+          Forgot password?
+        </button>
+      </div>
+
+      {authError && (
+        <div
+          role="alert"
+          style={{
+            display: "flex", alignItems: "flex-start", gap: "9px",
+            background: color.white,
+            border: `1px solid ${color.blush300}`,
+            borderRadius: "14px",
+            padding: "11px 13px",
+            margin: "14px 0 0",
+            fontSize: "0.8125rem", lineHeight: 1.45, color: color.danger,
+          }}
+        >
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" style={{ flexShrink: 0, marginTop: "1px" }}>
+            <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+          </svg>
+          <span>{authError}</span>
+        </div>
+      )}
+
+      <button
+        onClick={handleSignIn}
+        disabled={loading}
+        className="ojt-pill si-signin-btn"
+        style={{
+          width: "100%", height: "52px", marginTop: "22px",
+          border: "none", borderRadius: radius.pill,
+          fontSize: "1rem", fontWeight: 600, letterSpacing: "0.02em",
+          cursor: loading ? "not-allowed" : "pointer",
+          opacity: loading ? 0.65 : 1,
+          boxShadow: "0 6px 16px rgba(0,0,0,0.45), inset 0 1px 0 rgba(0,0,0,0.04)",
+        }}
+      >
+        {loading ? "Signing in…" : "SIGN IN"}
+      </button>
+
+      {role === "company" && (
+        <p style={{ textAlign: "center", fontSize: "0.875rem", color: color.onWineMuted, margin: "18px 0 0" }}>
+          Don't have an account?{" "}
+          <button
+            type="button"
+            onClick={onGoSignUp}
+            style={{
+              background: "none", border: "none", padding: 0, cursor: "pointer",
+              fontSize: "0.875rem", fontWeight: 700, color: color.onWine,
+            }}
+          >
+            Sign up
+          </button>
+        </p>
+      )}
     </div>
   );
 };
