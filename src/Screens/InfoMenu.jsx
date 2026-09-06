@@ -1,28 +1,13 @@
-import React, { useEffect, useRef, useState } from "react";
-import { color, radius, shadow, ease } from "./theme";
+import React from "react";
+import { color, ease, font } from "./theme";
 
-const InfoIcon = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <circle cx="12" cy="12" r="10" />
-    <line x1="12" y1="16" x2="12" y2="11" />
-    <circle cx="12" cy="8" r="0.6" fill="currentColor" stroke="none" />
-  </svg>
-);
-
-const InfoMenu = ({ open, onToggle, onSelect }) => {
-  const wrapRef = useRef(null);
-  const [iconHover, setIconHover] = useState(false);
-  const [hoverKey, setHoverKey] = useState(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const handleClick = (e) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target)) onToggle(false);
-    };
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [open, onToggle]);
-
+// Terms / Privacy / About Us, listed straight across the top-right rather
+// than hidden behind an icon. There's only three of them and they're all
+// short, so a menu was one click of friction for no gain.
+//
+// `open` / `onToggle` are accepted but unused — there's no longer a dropdown
+// to open. They're kept so callers that still pass them don't break.
+const InfoMenu = ({ onSelect }) => {
   const items = [
     { key: "terms",   label: "Terms & Condition" },
     { key: "privacy", label: "Privacy Policy" },
@@ -30,64 +15,64 @@ const InfoMenu = ({ open, onToggle, onSelect }) => {
   ];
 
   return (
-    <div ref={wrapRef} style={{ position: "absolute", top: "20px", right: "20px", zIndex: 20 }}>
-      <button
-        type="button"
-        aria-label="About this app"
-        onClick={() => onToggle(!open)}
-        onMouseEnter={() => setIconHover(true)}
-        onMouseLeave={() => setIconHover(false)}
-        style={{
-          width: "34px", height: "34px", borderRadius: "50%",
-          border: "none", cursor: "pointer",
-          background: iconHover ? "#000000" : "rgba(0,0,0,0.08)",
-          color: iconHover ? "#fff" : color.ink,
-          display: "flex", alignItems: "center", justifyContent: "center",
-          transition: `background 160ms ${ease}, color 160ms ${ease}`,
-        }}
-      >
-        <InfoIcon />
-      </button>
+    <>
+      <style>{`
+        .info-links {
+          position: absolute;
+          top: 22px;
+          right: 32px;
+          z-index: 20;
+          display: flex;
+          align-items: center;
+          gap: 34px;
+        }
+        .info-link {
+          border: none;
+          background: none;
+          padding: 0;
+          cursor: pointer;
+          font: inherit;
+          font-size: 0.875rem;
+          font-weight: 500;
+          color: ${color.ink};
+          text-decoration: underline;
+          text-underline-offset: 3px;
+          text-decoration-thickness: 1px;
+          white-space: nowrap;
+          transition: opacity 160ms ${ease}, text-decoration-thickness 160ms ${ease};
+        }
+        .info-link:hover {
+          opacity: 0.62;
+          text-decoration-thickness: 2px;
+        }
+        .info-link:active { opacity: 0.45; }
 
-      {open && (
-        <div
-          role="menu"
-          style={{
-            position: "absolute", top: "42px", right: 0,
-            minWidth: "190px",
-            background: "#2b2b2b",
-            borderRadius: radius?.panel ?? "14px",
-            boxShadow: shadow?.panel ?? "0 10px 30px rgba(0,0,0,0.35)",
-            overflow: "hidden",
-          }}
-        >
-          {items.map((item, i) => (
-            <button
-              key={item.key}
-              type="button" role="menuitem"
-              onClick={() => { onToggle(false); onSelect(item.key); }}
-              onMouseEnter={() => setHoverKey(item.key)}
-              onMouseLeave={() => setHoverKey(null)}
-              style={{
-                display: "block", width: "100%", textAlign: "left",
-                padding: "10px 16px", border: "none",
-                borderBottom: i < items.length - 1 ? "1px solid rgba(255,255,255,0.12)" : "none",
-                borderTopLeftRadius: i === 0 ? (radius?.panel ?? "14px") : 0,
-                borderTopRightRadius: i === 0 ? (radius?.panel ?? "14px") : 0,
-                borderBottomLeftRadius: i === items.length - 1 ? (radius?.panel ?? "14px") : 0,
-                borderBottomRightRadius: i === items.length - 1 ? (radius?.panel ?? "14px") : 0,
-                background: hoverKey === item.key ? "#ffffff" : "transparent",
-                color: hoverKey === item.key ? "#000000" : "#fff",
-                fontSize: "0.9rem", fontWeight: 500, cursor: "pointer",
-                transition: `background 160ms ${ease}`,
-              }}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
+        /* Three links plus the gaps run to roughly 330px, so they'd crowd the
+           logo on a phone before they'd ever wrap. Tightening both the gap and
+           the type keeps them on one line down to ~340px wide. */
+        @media (max-width: 560px) {
+          .info-links { top: 16px; right: 16px; gap: 16px; }
+          .info-link  { font-size: 0.75rem; }
+        }
+        @media (max-width: 380px) {
+          .info-links { gap: 12px; }
+          .info-link  { font-size: 0.6875rem; }
+        }
+      `}</style>
+
+      <nav className="info-links" aria-label="About this app">
+        {items.map(item => (
+          <button
+            key={item.key}
+            type="button"
+            className="info-link"
+            onClick={() => onSelect(item.key)}
+          >
+            {item.label}
+          </button>
+        ))}
+      </nav>
+    </>
   );
 };
 

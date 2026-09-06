@@ -4,6 +4,7 @@ import { collection, onSnapshot, query, where, doc, getDoc, setDoc } from "fireb
 import { db } from "./firebase";
 import { logOut } from "./AuthService";
 import { useUnreadCount } from "./useChat";
+import { color, font, ease } from "./theme";
 
 import CompanyCreatePostScreen        from "./CompanyCreatePostScreen";
 import CompanyApplicantsScreen     from "./CompanyApplicantsScreen";
@@ -19,12 +20,30 @@ import viewIcon          from "../icons/view.png";
 import postOJTIcon       from "../icons/post.png";
 import applicantsIcon    from "../icons/applicants.png";
 import messagesIcon      from "../icons/messages.png";
+import coordinatorsIcon from "../icons/coordinators.png";
 import accountProfileIcon from "../icons/accountprofile.png";
 import aboutIcon         from "../icons/about.png";
 
 // ── Design tokens ──────────────────────────────────────────────────────────────
-const red     = "#8B0000";
-const darkRed = "#590101";
+// Same three-tier system as CoordinatorDashboardScreen: ink (strongest panels,
+// top bar, active nav, primary buttons), steel (mid panels, hover states),
+// paper (page background, cards).
+const ink       = color.blush50;   // #000000 — was the #8B0000 "red" accent
+const inkSoft   = color.blush200;  // #1F1F1F — gradient / hover partner for ink
+const inkDeep   = color.blush100;  // #161616 — was the #590101 "dark red"
+const steel     = "#898989";       // mid-tone panels & hover states
+const steelSoft = "rgba(137,137,137,0.35)";
+const paper     = color.white;     // #FFFFFF
+const paperTint = color.wine900;   // #FAFAFA
+const paperCard = color.wine800;   // #F2F2F2
+const hairline  = color.wine700;   // #EAEAEA
+const inkText   = color.ink;       // #141414 body text on light panels
+const inkMuted  = color.inkMuted;  // #767676
+
+// Every screen uses one UI face — Inter — per theme.js; Monomaniac One is
+// reserved for the "OJTern" wordmark only, never for interface text.
+const uiFont   = font.ui;
+const logoFont = font.logo;
 
 // ── Time ago helper ────────────────────────────────────────────────────────────
 const timeAgo = (ts) => {
@@ -55,34 +74,59 @@ const useBreakpoint = () => {
 // ── Global styles ──────────────────────────────────────────────────────────────
 const FontImport = () => (
   <style>{`
-    @import url('https://fonts.googleapis.com/css2?family=Jersey+25&family=Jua&family=Kufam:wght@400;600;700&family=Monomaniac+One&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Monomaniac+One&display=swap');
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     ::-webkit-scrollbar { width: 4px; }
-    ::-webkit-scrollbar-thumb { background: #8B0000; border-radius: 4px; }
-    ::-webkit-scrollbar-track { background: #f0f0f0; }
+    ::-webkit-scrollbar-thumb { background: ${ink}; border-radius: 4px; }
+    ::-webkit-scrollbar-track { background: ${paperCard}; }
+
+    @keyframes welcomeIn {
+      0%   { opacity: 0; transform: translateY(14px); }
+      100% { opacity: 1; transform: translateY(0); }
+    }
+
+    .cwelcome-animate {
+      animation: welcomeIn 0.5s cubic-bezier(.16,1,.3,1);
+    }
 
     .cnav-item {
       position: relative;
+      margin: 4px 10px;
+      padding-left: 4px;
+      border-radius: 12px;
       transition: background 0.18s ease, transform 0.12s ease;
     }
     .cnav-item::before {
       content: "";
-      position: absolute; left: 0; top: 8px; bottom: 8px; width: 4px;
-      border-radius: 0 4px 4px 0; background: #888;
-      transform: scaleY(0); transform-origin: center;
-      transition: transform 0.2s ease;
+      position: absolute; left: -10px; top: 50%;
+      width: 3px; height: 0;
+      background: ${ink};
+      border-radius: 0 3px 3px 0;
+      transform: translateY(-50%);
+      transition: height 0.2s ease;
     }
-    .cnav-item:hover  { background: rgba(150,150,150,0.35); }
-    .cnav-item.active { background: rgba(150,150,150,0.55); }
-    .cnav-item.active::before { transform: scaleY(1); }
+    .cnav-item:hover  { background: ${paperCard}; }
+    .cnav-item.active { background: ${inkDeep}; }
+    .cnav-item.active::before { height: 24px; }
     .cnav-item:active { transform: scale(0.98); }
-    .cnav-item .nav-icon,
-    .cnav-item .nav-label { transition: opacity 0.18s ease; }
-    .cnav-item:hover .nav-icon,
-    .cnav-item:hover .nav-label { opacity: 1 !important; }
+    .cnav-item .nav-label {
+      transition: opacity 0.18s ease, color 0.18s ease;
+    }
+    .cnav-item .nav-icon {
+      transition: opacity 0.18s ease, filter 0.18s ease;
+    }
+    .cnav-item.active .nav-icon {
+      filter: brightness(0) invert(1);
+      opacity: 1;
+    }
 
-    .cnav-logout { transition: background 0.18s ease, transform 0.12s ease; }
-    .cnav-logout:hover  { background: rgba(150,150,150,0.35); }
+    .cnav-logout {
+      margin: 4px 10px 14px;
+      padding-left: 4px;
+      border-radius: 12px;
+      transition: background 0.18s ease, transform 0.12s ease;
+    }
+    .cnav-logout:hover  { background: ${paperCard}; }
     .cnav-logout:active { transform: scale(0.98); }
 
     @keyframes badgePop {
@@ -90,13 +134,19 @@ const FontImport = () => (
       70%  { transform: scale(1.15); opacity: 1; }
       100% { transform: scale(1); }
     }
-    .nav-badge { animation: badgePop 0.25s ease; }
+    .nav-badge {
+      animation: badgePop 0.25s ease;
+      box-shadow: 0 2px 6px rgba(20,20,20,0.25);
+    }
+
+    .notif-row { transition: background 0.15s; }
+    .notif-row:hover { background: ${hairline} !important; }
 
     .applicant-row { transition: background 0.15s; cursor: pointer; }
-    .applicant-row:hover { background: #d4d4d4 !important; }
+    .applicant-row:hover { background: ${hairline} !important; }
 
     .post-row { transition: background 0.15s; cursor: pointer; }
-    .post-row:hover { background: #d4d4d4 !important; }
+    .post-row:hover { background: ${hairline} !important; }
 
     /* ── Slide-in drawer (mobile / tablet) ── */
     .csidebar-drawer {
@@ -104,7 +154,7 @@ const FontImport = () => (
       height: 100%; width: 260px; z-index: 200;
       transform: translateX(-100%);
       transition: transform 0.28s cubic-bezier(.4,0,.2,1);
-      background: #e0e0e0; border-right: 1px solid #ccc;
+      background: ${paper}; border-right: 1px solid ${hairline};
       overflow-y: auto; display: flex; flex-direction: column;
     }
     .csidebar-drawer.open { transform: translateX(0); }
@@ -140,39 +190,52 @@ const FontImport = () => (
 
     /* ── Fluid welcome heading ── */
     .cwelcome-heading {
-      font-family: 'Jersey 25', sans-serif;
-      font-size: clamp(2.2rem, 6vw, 5.5rem);
-      color: #590101;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-      margin-bottom: -6px;
+      font-family: ${uiFont};
+      font-weight: 600;
+      font-size: clamp(1.9rem, 5vw, 3.4rem);
+      color: ${ink};
+      letter-spacing: -0.02em;
+      margin-bottom: 4px;
     }
     .cwelcome-sub {
-      font-family: 'Kufam', sans-serif;
-      font-size: clamp(0.95rem, 2.5vw, 1.5rem);
-      color: #590101;
+      font-family: ${uiFont};
+      font-weight: 400;
+      font-size: clamp(0.9rem, 2.2vw, 1.15rem);
+      color: ${inkMuted};
     }
 
     /* ── Card section header ── */
     .ccard-header {
-      background: #590101;
-      padding: 10px 16px;
-      border-radius: 14px 14px 0 0;
+      padding: 14px 18px 12px 15px;
+      border-bottom: 1px solid ${hairline};
     }
     .ccard-header span {
-      font-family: 'Kufam', sans-serif;
-      font-weight: bold;
-      font-size: clamp(0.82rem, 2vw, 1rem);
-      color: white;
+      font-family: ${uiFont};
+      font-weight: 600;
+      font-size: clamp(0.85rem, 2vw, 0.98rem);
+      color: ${inkText};
+      letter-spacing: -0.01em;
     }
+
+    .cdash-card {
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+      box-shadow: inset 0 2px 8px rgba(0,0,0,0.10);
+    }
+      .stat-view-btn { transition: transform 0.18s ease; }
+      .stat-view-btn:hover { transform: scale(1.08); }
+    .cdash-card:hover {
+      transform: translateY(-3px);
+      box-shadow: inset 0 2px 8px rgba(0,0,0,0.10), 0 10px 28px rgba(20,20,20,0.10);
+    }
+      
 
     /* ── Desktop static sidebar ── */
     @media (min-width: 1024px) {
       .csidebar-static {
         width: 260px; flex-shrink: 0;
-        background: #e0e0e0;
+        background: ${paper};
         display: flex; flex-direction: column;
-        overflow-y: auto; border-right: 1px solid #ccc;
+        overflow-y: auto; border-right: 1px solid ${hairline};
       }
     }
 
@@ -184,13 +247,13 @@ const FontImport = () => (
     }
     .chamburger-btn span {
       display: block; width: 24px; height: 2px;
-      background: white; border-radius: 2px; transition: all 0.2s;
+      background: ${paper}; border-radius: 2px; transition: all 0.2s;
     }
 
     /* ── Main content area ── */
     .cmain-content {
       flex: 1; display: flex; flex-direction: column;
-      overflow-y: auto; background: #f5f5f5; min-width: 0;
+      overflow-y: auto; background: ${paperTint}; min-width: 0;
     }
   `}</style>
 );
@@ -198,10 +261,10 @@ const FontImport = () => (
 // ── Nav items ──────────────────────────────────────────────────────────────────
 const navItems = [
   { key: "dashboard",      label: "Dashboard",       icon: dashboardIcon },
-  { key: "createpost",        label: "Create Post",        icon: postOJTIcon },
+  { key: "createpost",     label: "Create Post",     icon: postOJTIcon },
   { key: "applicants",     label: "Applicants",      icon: applicantsIcon },
   { key: "messages",       label: "Messages",        icon: messagesIcon },
-  { key: "coordinators",   label: "Coordinators",    icon: userIcon },
+  { key: "coordinators",   label: "Coordinators",    icon: coordinatorsIcon },
   { key: "accountprofile", label: "Account Profile", icon: accountProfileIcon },
 ];
 
@@ -219,56 +282,64 @@ const getCompanyNavKeyFromPath = (pathname) => {
 // ── Sidebar nav list (reused in static & drawer) ───────────────────────────────
 const SidebarNav = ({ activeNav, onNavigate, onLogout, unreadMessages = 0 }) => (
   <>
-    {navItems.map((item) => (
-      <div
-        key={item.key}
-        className={`cnav-item ${activeNav === item.key ? "active" : ""}`}
-        onClick={() => onNavigate(item.key)}
-        style={{
-          display: "flex", alignItems: "center", gap: "14px",
-          padding: "15px 20px", cursor: "pointer",
-          borderBottom: "1px solid #ccc", minHeight: "56px",
-        }}
-      >
-        <img
-          src={item.icon} alt={item.label} className="nav-icon"
-          style={{ width: "30px", height: "30px", objectFit: "contain", flexShrink: 0, opacity: activeNav === item.key ? 1 : 0.85, transition: "opacity 0.18s ease" }}
-        />
-        <span className="nav-label" style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.3rem", opacity: activeNav === item.key ? 1 : 0.65, flex: 1, transition: "opacity 0.18s ease" }}>
-          {item.label}
-        </span>
-        {item.key === "messages" && unreadMessages > 0 && (
-          <span key={unreadMessages} className="nav-badge" style={{
-            background: "#8B0000", color: "white", borderRadius: "50%",
-            minWidth: "20px", height: "20px", padding: "0 5px",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            fontFamily: "'Kufam', sans-serif", fontSize: "0.72rem", fontWeight: 700,
-            flexShrink: 0,
+    <div style={{ padding: "14px 20px 8px", flexShrink: 0 }} />
+    {navItems.map((item) => {
+      const isActive = activeNav === item.key;
+      return (
+        <div
+          key={item.key}
+          className={`cnav-item ${isActive ? "active" : ""}`}
+          onClick={() => onNavigate(item.key)}
+          style={{
+            display: "flex", alignItems: "center", gap: "14px",
+            padding: "12px 16px", cursor: "pointer", minHeight: "50px",
+          }}
+        >
+          <img
+            src={item.icon} alt={item.label} className="nav-icon"
+            style={{ width: "26px", height: "26px", objectFit: "contain", flexShrink: 0, opacity: isActive ? 1 : 0.85 }}
+          />
+          <span className="nav-label" style={{
+            fontFamily: uiFont, fontWeight: 500, fontSize: "0.9rem", flex: 1,
+            color: isActive ? paper : inkText,
           }}>
-            {unreadMessages > 99 ? "99+" : unreadMessages}
+            {item.label}
           </span>
-        )}
-      </div>
-    ))}
+          {item.key === "messages" && unreadMessages > 0 && (
+            <span key={unreadMessages} className="nav-badge" style={{
+              background: isActive ? paper : ink,
+              color: isActive ? inkDeep : paper,
+              borderRadius: "50%",
+              minWidth: "19px", height: "19px", padding: "0 5px",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontFamily: uiFont, fontSize: "0.7rem", fontWeight: 700,
+              flexShrink: 0,
+            }}>
+              {unreadMessages > 99 ? "99+" : unreadMessages}
+            </span>
+          )}
+        </div>
+      );
+    })}
 
     {onLogout && (
       <>
         <div style={{ flex: 1 }} />
+        <hr style={{ border: "none", borderTop: `1px solid ${hairline}`, margin: "0 18px 8px" }} />
         <div
           className="cnav-logout"
           onClick={onLogout}
           style={{
             display: "flex", alignItems: "center", gap: "14px",
-            padding: "15px 20px", cursor: "pointer",
-            minHeight: "56px", borderTop: "1px solid #ccc",
+            padding: "12px 16px", cursor: "pointer", minHeight: "50px",
           }}
         >
-          <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#8B0000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={ink} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
             <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
             <polyline points="16 17 21 12 16 7"/>
             <line x1="21" y1="12" x2="9" y2="12"/>
           </svg>
-          <span style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.3rem", color: "#8B0000" }}>
+          <span style={{ fontFamily: uiFont, fontWeight: 600, fontSize: "0.9rem", color: ink }}>
             Log Out
           </span>
         </div>
@@ -286,40 +357,41 @@ const LogoutConfirmModal = ({ onConfirm, onCancel }) => (
     padding: "16px",
   }}>
     <div style={{
-      background: "white", borderRadius: "20px",
+      background: paper, borderRadius: "20px",
       padding: "36px 32px", width: "clamp(280px, 85vw, 380px)",
       display: "flex", flexDirection: "column", alignItems: "center",
       gap: "12px", boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
     }}>
       <div style={{
         width: "64px", height: "64px", borderRadius: "50%",
-        background: "#fde8e8", display: "flex",
+        background: paperCard, display: "flex",
         alignItems: "center", justifyContent: "center", marginBottom: "4px",
       }}>
         <svg width="30" height="30" viewBox="0 0 24 24" fill="none"
-          stroke="#8B0000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          stroke={ink} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
           <polyline points="16 17 21 12 16 7"/>
           <line x1="21" y1="12" x2="9" y2="12"/>
         </svg>
       </div>
-      <p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "1.15rem", color: "#1a1a1a", margin: 0, textAlign: "center" }}>Log Out</p>
-      <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem", color: "#666", margin: 0, textAlign: "center", lineHeight: 1.5 }}>
+      <p style={{ fontFamily: uiFont, fontWeight: 600, fontSize: "1.15rem", color: inkText, margin: 0, textAlign: "center" }}>Log Out</p>
+      <p style={{ fontFamily: uiFont, fontSize: "0.9rem", color: inkMuted, margin: 0, textAlign: "center", lineHeight: 1.5 }}>
         Are you sure you want to log out of your account?
       </p>
       <div style={{ display: "flex", gap: "12px", width: "100%", marginTop: "8px" }}>
         <button onClick={onCancel} style={{
           flex: 1, padding: "12px", borderRadius: "30px",
-          border: "1.5px solid #ccc", background: "white",
-          fontFamily: "'Kufam', sans-serif", fontWeight: 600,
-          fontSize: "0.95rem", cursor: "pointer", color: "#555",
+          border: `1.5px solid ${hairline}`, background: paper,
+          fontFamily: uiFont, fontWeight: 600,
+          fontSize: "0.95rem", cursor: "pointer", color: inkMuted,
+          boxShadow: "0 3px 10px rgba(0,0,0,0.3)",
         }}>Cancel</button>
         <button onClick={onConfirm} style={{
           flex: 1, padding: "12px", borderRadius: "30px",
-          border: "none", background: "#8B0000",
-          fontFamily: "'Kufam', sans-serif", fontWeight: 700,
-          fontSize: "0.95rem", cursor: "pointer", color: "white",
-          boxShadow: "0 3px 10px rgba(139,0,0,0.3)",
+          border: "none", background: ink,
+          fontFamily: uiFont, fontWeight: 700,
+          fontSize: "0.95rem", cursor: "pointer", color: paper,
+          boxShadow: "0 3px 10px rgba(0,0,0,0.5)",
         }}>Log Out</button>
       </div>
     </div>
@@ -327,9 +399,9 @@ const LogoutConfirmModal = ({ onConfirm, onCancel }) => (
 );
 
 // ── Stat card ──────────────────────────────────────────────────────────────────
-const StatCard = ({ label, value, bg = "rgba(0,0,0,0.15)", onView }) => (
+const StatCard = ({ label, value, bg = steel, onView }) => (
   <div style={{ flex: 1, background: "transparent", borderRadius: "12px", padding: "2px 16px", display: "flex", flexDirection: "column" }}>
-    <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "clamp(0.9rem, 1.8vw, 1.2rem)", color: "#000000", marginBottom: "12px" }}>
+    <p style={{ fontFamily: uiFont, fontWeight: 500, fontSize: "clamp(0.9rem, 1.8vw, 1.05rem)", color: inkText, marginBottom: "12px" }}>
       {label}
     </p>
     <div style={{ position: "relative", marginBottom: "35px" }}>
@@ -338,11 +410,12 @@ const StatCard = ({ label, value, bg = "rgba(0,0,0,0.15)", onView }) => (
         width: "100%", height: "120px",
         display: "flex", alignItems: "center", justifyContent: "center",
       }}>
-        <span style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(2.2rem, 5vw, 4rem)", color: "white" }}>
+        <span style={{ fontFamily: uiFont, fontWeight: 700, fontSize: "clamp(2.2rem, 5vw, 4rem)", color: paper }}>
           {value ?? "—"}
         </span>
       </div>
       <div
+        className="stat-view-btn"
         onClick={onView}
         style={{
           position: "absolute",
@@ -359,22 +432,27 @@ const StatCard = ({ label, value, bg = "rgba(0,0,0,0.15)", onView }) => (
     </div>
   </div>
 );
-
 // ── Status badge ───────────────────────────────────────────────────────────────
+// Accepted/Declined map to the theme's semantic success/danger colors — the
+// same pair CoordinatorDashboardScreen uses for its password checklist — so
+// "good" and "bad" states read consistently across both dashboards. The
+// remaining statuses (Pending / In Review / To Interview) keep their own
+// distinct functional hues since they're a multi-state pipeline, not a
+// brand accent.
 const StatusBadge = ({ status }) => {
   const cfg = {
-    Accepted:       { bg: "#2d7a2d", text: "white" },
-    Declined:       { bg: darkRed,   text: "white" },
-    Pending:        { bg: "#c8a800", text: "white" },
-    "In Review":    { bg: "#353A8D", text: "white" },
-    "To Interview": { bg: "#7C2889", text: "white" },
-  }[status] || { bg: "#aaa", text: "white" };
+    Accepted:       { bg: "#358D5E", text: paper },
+    Declined:       { bg: color.danger, text: paper },
+    Pending:        { bg: "#c8a800",   text: paper },
+    "In Review":    { bg: "#353A8D",   text: paper },
+    "To Interview": { bg: "#7C2889",   text: paper },
+  }[status] || { bg: steel, text: paper };
 
   return (
     <div style={{
       background: cfg.bg, color: cfg.text,
       borderRadius: "20px", padding: "4px 16px",
-      fontFamily: "'Kufam', sans-serif", fontWeight: 700,
+      fontFamily: uiFont, fontWeight: 700,
       fontSize: "0.78rem", flexShrink: 0,
       minWidth: "90px", textAlign: "center",
     }}>
@@ -389,17 +467,18 @@ const NotificationBell = ({ items, open, onToggle }) => {
   return (
     <div style={{ position: "relative" }}>
       <div style={{ cursor: "pointer", padding: "8px", position: "relative" }} onClick={onToggle} aria-label="Notifications">
-        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
           <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
         </svg>
         {unread > 0 && (
           <span style={{
-            position: "absolute", top: "3px", right: "3px",
-            minWidth: "16px", height: "16px", borderRadius: "8px",
-            background: "#ff3b30", color: "white", border: `1.5px solid ${darkRed}`,
-            fontFamily: "'Kufam', sans-serif", fontSize: "0.6rem", fontWeight: 700,
-            display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px",
+            position: "absolute", top: "4px", right: "4px",
+            background: paper, color: ink, borderRadius: "50%",
+            minWidth: "16px", height: "16px", fontSize: "0.65rem",
+            fontFamily: uiFont, fontWeight: "bold",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            padding: "0 3px", lineHeight: 1,
           }}>
             {unread > 9 ? "9+" : unread}
           </span>
@@ -407,61 +486,49 @@ const NotificationBell = ({ items, open, onToggle }) => {
       </div>
 
       {open && (
-        <>
-          <div onClick={onToggle} style={{ position: "fixed", inset: 0, zIndex: 998 }} />
-          <div style={{
-            position: "absolute", top: "50px", right: 0, width: "320px", maxWidth: "88vw",
-            background: "white", borderRadius: "14px", overflow: "hidden",
-            boxShadow: "0 12px 32px rgba(0,0,0,0.3)", border: "1px solid #eee", zIndex: 999,
-          }}>
-            <div style={{ background: darkRed, padding: "12px 16px" }}>
-              <span style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.92rem", color: "white" }}>
-                Notifications
-              </span>
-            </div>
-            <div style={{ maxHeight: "360px", overflowY: "auto" }}>
-              {items.length === 0 ? (
-                <div style={{ padding: "28px 16px", textAlign: "center" }}>
-                  <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#aaa" }}>
-                    No notifications yet.
-                  </span>
-                </div>
-              ) : items.map((n) => (
-                <div
+      <>
+        <div onClick={onToggle} style={{ position: "fixed", inset: 0, zIndex: 998 }} />
+        <div style={{
+          position: "absolute", top: "50px", right: 0, width: "340px", maxWidth: "88vw",
+          background: paper, borderRadius: "16px", overflow: "hidden",
+          boxShadow: "0 12px 32px rgba(0,0,0,0.28)", border: `1px solid ${hairline}`, zIndex: 999,
+        }}>
+          <div style={{ padding: "16px 18px 12px", background: paper }}>
+            <span style={{ fontFamily: uiFont, fontWeight: 700, fontSize: "1.05rem", color: inkText }}>
+              Notifications
+            </span>
+          </div>
+          <div style={{ maxHeight: "380px", overflowY: "auto" }}>
+            {items.length === 0 ? (
+              <div style={{ padding: "28px 16px", textAlign: "center" }}>
+                <span style={{ fontFamily: uiFont, fontSize: "0.85rem", color: inkMuted }}>
+                  No notifications yet.
+                </span>
+              </div>
+            ) : items.map((n) => (
+              <div
                   key={n.id}
+                  className="notif-row"
                   onClick={n.onClick}
                   style={{
-                    display: "flex", gap: "10px", alignItems: "flex-start",
-                    padding: "12px 16px", borderBottom: "1px solid #f0f0f0",
-                    cursor: "pointer", background: n.unread ? "rgba(139,0,0,0.06)" : "white",
+                    padding: "14px 18px",
+                    borderTop: `1px solid ${hairline}`,
+                    cursor: "pointer",
+                    background: n.unread ? "#F2F2F2" : paper,
                   }}
                 >
-                  <div style={{
-                    width: "8px", height: "8px", borderRadius: "50%", marginTop: "5px", flexShrink: 0,
-                    background: n.unread ? "#8B0000" : "transparent",
-                  }} />
-                  <div style={{ minWidth: 0, flex: 1 }}>
-                    <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", fontWeight: 700, color: "#222", marginBottom: "2px" }}>
-                      {n.title}
-                    </p>
-                    {n.subtitle && (
-                      <p style={{
-                        fontFamily: "'Kufam', sans-serif", fontSize: "0.75rem", color: "#666",
-                        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                      }}>
-                        {n.subtitle}
-                      </p>
-                    )}
-                    <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.68rem", color: "#8B0000", marginTop: "3px" }}>
-                      {timeAgo(n.time)}
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </div>
+                <p style={{ fontFamily: uiFont, fontSize: "0.85rem", fontWeight: 500, color: inkText, lineHeight: 1.4, marginBottom: "5px" }}>
+                  {n.subtitle ? `${n.title} — ${n.subtitle}` : n.title}
+                </p>
+                <p style={{ fontFamily: uiFont, fontSize: "0.75rem", color: inkMuted }}>
+                  {timeAgo(n.time)}
+                </p>
+              </div>
+            ))}
           </div>
-        </>
-      )}
+        </div>
+      </>
+    )}
     </div>
   );
 };
@@ -472,7 +539,7 @@ const EmptyListPlaceholder = ({ label = "No data available" }) => (
     flex: 1, display: "flex", alignItems: "center", justifyContent: "center",
     padding: "20px",
   }}>
-    <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#aaa", fontStyle: "italic", textAlign: "center" }}>
+    <span style={{ fontFamily: uiFont, fontSize: "0.85rem", color: inkMuted, textAlign: "center" }}>
       {label}
     </span>
   </div>
@@ -480,8 +547,10 @@ const EmptyListPlaceholder = ({ label = "No data available" }) => (
 
 // ── Dashboard Content ──────────────────────────────────────────────────────────
 const DashboardContent = ({ onNavigate, applications = [], posts = [] }) => {
+  const [playIntro] = useState(true);
   const totalApplicants    = applications.length;
   const acceptedApplicants = applications.filter(a => a.status === "Accepted").length;
+
 
   const recentApplicants = [...applications]
     .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0))
@@ -493,42 +562,43 @@ const DashboardContent = ({ onNavigate, applications = [], posts = [] }) => {
     <div style={{ padding: "clamp(16px, 4vw, 32px)", overflowY: "auto", flex: 1 }}>
 
       {/* Welcome banner */}
+      
       <div style={{
-        background: "#e8e8e8", borderRadius: "18px",
+        background: paperCard, borderRadius: "18px",
         padding: "clamp(20px, 5vw, 30px) clamp(18px, 5vw, 40px)",
         marginBottom: "24px", textAlign: "center",
         boxShadow: "inset 0 2px 8px rgba(0,0,0,0.07)",
       }}>
-        <h1 className="cwelcome-heading">Welcome to OJTern</h1>
-        <p className="cwelcome-sub">Find the perfect OJT for you!</p>
+        <h1 className={`cwelcome-heading ${playIntro ? "cwelcome-animate" : ""}`}>Welcome to OJTern</h1>
+        <p className={`cwelcome-sub ${playIntro ? "cwelcome-animate" : ""}`}>Find the perfect OJT for you!</p>
       </div>
 
-      <hr style={{ border: "none", borderTop: "1.5px solid #ddd", marginBottom: "24px" }} />
+      <hr style={{ border: "none", borderTop: `1.5px solid ${hairline}`, marginBottom: "24px" }} />
 
       {/* Top grid: Company Stats + Recent Posts */}
       <div className="cdash-top-grid">
 
         {/* Company Stats */}
-        <div style={{ background: "#e8e8e8", borderRadius: "14px", overflow: "visible", display: "flex", flexDirection: "column" }}>
+        <div className="cdash-card" style={{ background: paperCard, borderRadius: "14px", overflow: "visible", display: "flex", flexDirection: "column" }}>
           <div className="ccard-header"><span>Company Stats</span></div>
           <div className="cstats-inner">
             <StatCard
               label="Total Applicants"
               value={totalApplicants}
-              bg={darkRed}
+              bg={inkDeep}
               onView={() => onNavigate("applicants")}
             />
             <StatCard
               label="Accepted Applicants"
               value={acceptedApplicants}
-              bg="rgba(0,0,0,0.15)"
+              bg={steel}
               onView={() => onNavigate("applicants", null, "Accepted")}
             />
           </div>
         </div>
 
         {/* Recent Posts */}
-        <div style={{ background: "#e8e8e8", borderRadius: "14px", overflow: "hidden", display: "flex", flexDirection: "column" }}>
+        <div className="cdash-card" style={{ background: paperCard, borderRadius: "14px", overflow: "hidden", display: "flex", flexDirection: "column" }}>
           <div className="ccard-header"><span>Recent Post</span></div>
           <div style={{ padding: "10px 12px", display: "flex", flexDirection: "column", gap: "6px", maxHeight: "240px", overflowY: "auto" }}>
             {recentPosts.length === 0 ? (
@@ -540,24 +610,24 @@ const DashboardContent = ({ onNavigate, applications = [], posts = [] }) => {
                 onClick={() => onNavigate("createpost", p.id)}
                 style={{
                   display: "flex", alignItems: "center", justifyContent: "space-between",
-                  background: "#d8d8d8", borderRadius: "8px", padding: "9px 12px",
+                  background: paperCard, borderRadius: "8px", padding: "9px 12px",
                 }}
               >
                 <div style={{ minWidth: 0 }}>
                   <p style={{
-                    fontFamily: "'Kufam', sans-serif", fontSize: "clamp(0.75rem, 2vw, 0.88rem)",
-                    color: "#222", fontWeight: 600,
+                    fontFamily: uiFont, fontSize: "clamp(0.75rem, 2vw, 0.88rem)",
+                    color: inkText, fontWeight: 600,
                     overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                   }}>
                     {p.companyName || "OJT Post"}
                   </p>
-                  <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.72rem", color: "#888" }}>
+                  <p style={{ fontFamily: uiFont, fontSize: "0.72rem", color: inkMuted }}>
                     {p.industry || ""}{p.createdAt?.seconds ? " • " + new Date(p.createdAt.seconds * 1000).toLocaleDateString([], { month: "short", day: "numeric" }) : ""}
                   </p>
                 </div>
                 <span style={{
-                  fontFamily: "'Kufam', sans-serif", fontSize: "0.72rem",
-                  color: darkRed, fontWeight: 700, flexShrink: 0, marginLeft: "8px",
+                  fontFamily: uiFont, fontSize: "0.72rem",
+                  color: ink, fontWeight: 700, flexShrink: 0, marginLeft: "8px",
                 }}>
                   {p.slot || 0} slot{p.slot !== 1 ? "s" : ""}
                 </span>
@@ -568,9 +638,9 @@ const DashboardContent = ({ onNavigate, applications = [], posts = [] }) => {
       </div>
 
       {/* Recent Applicants */}
-      <div style={{ background: "#e8e8e8", borderRadius: "14px", overflow: "hidden" }}>
-        <div className="ccard-header"><span>Recent Applicants</span></div>
-        <div style={{ padding: "10px 12px", display: "flex", flexDirection: "column", gap: "6px", maxHeight: "260px", overflowY: "auto" }}>
+      <div style={{ background: paperCard, borderRadius: "14px", overflow: "hidden" }}>
+        <div className="cdash-card" style={{ background: paperCard, borderRadius: "14px", overflow: "hidden" }}>
+          <div className="ccard-header"><span>Recent Applicants</span></div>
           {recentApplicants.length === 0 ? (
             <EmptyListPlaceholder label="No applicants yet." />
           ) : recentApplicants.map((a, i) => (
@@ -580,16 +650,16 @@ const DashboardContent = ({ onNavigate, applications = [], posts = [] }) => {
               onClick={() => onNavigate("applicants", a.id)}
               style={{
                 display: "flex", alignItems: "center", justifyContent: "space-between",
-                background: "#d8d8d8", borderRadius: "8px", padding: "9px 12px",
+                background: paperCard, borderRadius: "8px", padding: "9px 12px",
               }}
             >
               <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
                 <img src={userIcon} alt="user" style={{ width: 36, height: 36, objectFit: "contain", flexShrink: 0 }} />
-                <div style={{ width: "1px", height: "28px", background: "#bbb" }} />
+                <div style={{ width: "1px", height: "28px", background: hairline }} />
                 <span style={{
-                  fontFamily: "'Kufam', sans-serif",
+                  fontFamily: uiFont,
                   fontSize: "clamp(0.75rem, 2vw, 0.88rem)",
-                  color: "#222", fontWeight: 600,
+                  color: inkText, fontWeight: 600,
                   overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                   maxWidth: "clamp(80px, 20vw, 200px)",
                 }}>
@@ -852,13 +922,13 @@ const CompanyDashboardScreen = ({ user, onLogout, onAuthStateChange }) => {
         <div style={{
           width: "100vw", height: "100vh", display: "flex", flexDirection: "column",
           alignItems: "center", justifyContent: "center", gap: "18px",
-          background: "linear-gradient(180deg, #A32424 0%, #320000 100%)", padding: "24px", textAlign: "center",
+          background: `linear-gradient(180deg, ${ink} 0%, ${inkDeep} 100%)`, padding: "24px", textAlign: "center",
         }}>
           <span style={{ fontSize: "3rem" }}>{isBlocked ? "⛔" : "⏸"}</span>
-          <h1 style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "2.2rem", color: "white" }}>
+          <h1 style={{ fontFamily: uiFont, fontWeight: 700, fontSize: "2.2rem", color: paper }}>
             {isBlocked ? "Account Blocked" : "Account Suspended"}
           </h1>
-          <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.95rem", color: "rgba(255,255,255,0.85)", maxWidth: "420px", lineHeight: 1.6 }}>
+          <p style={{ fontFamily: uiFont, fontSize: "0.95rem", color: "rgba(255,255,255,0.85)", maxWidth: "420px", lineHeight: 1.6 }}>
             {isBlocked
               ? `Your company account has been blocked ${lockedByName ? `by ${lockedByName}` : "by a coordinator"}. Please contact the system administrator for more information.`
               : `Your company account has been suspended ${lockedByName ? `by ${lockedByName}` : "by a coordinator"}. Please contact the system administrator for more information.`}
@@ -867,10 +937,10 @@ const CompanyDashboardScreen = ({ user, onLogout, onAuthStateChange }) => {
             onClick={handleLockedSignOut}
             style={{
               marginTop: "10px", padding: "11px 28px", borderRadius: "24px",
-              background: "white", color: darkRed, border: "none",
-              fontFamily: "'Jersey 25', sans-serif", fontSize: "1.1rem", cursor: "pointer",
+              background: paper, color: inkDeep, border: "none",
+              fontFamily: uiFont, fontWeight: 700, fontSize: "1.1rem", cursor: "pointer",
             }}
-          >SIGN OUT</button>
+          >Sign Out</button>
         </div>
       </>
     );
@@ -890,7 +960,7 @@ const CompanyDashboardScreen = ({ user, onLogout, onAuthStateChange }) => {
         {/* ── Top Navbar ── */}
         <div style={{
           height: "70px", flexShrink: 0, zIndex: 100,
-          background: `linear-gradient(90deg, ${red} 0%, ${darkRed} 100%)`,
+          background: `linear-gradient(90deg, ${ink} 0%, ${inkDeep} 100%)`,
           display: "flex", alignItems: "center", justifyContent: "space-between",
           padding: "0 16px", boxShadow: "0 2px 12px rgba(0,0,0,0.25)",
         }}>
@@ -902,11 +972,11 @@ const CompanyDashboardScreen = ({ user, onLogout, onAuthStateChange }) => {
               </button>
             )}
             <button onClick={() => navigate("dashboard")} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: "10px", padding: "0", flexShrink: 0 }}>
-              <img src={logo} alt="OJTern" style={{ width: "46px", height: "46px", objectFit: "contain", flexShrink: 0 }} />
+              <img src={logo} alt="OJTern" style={{ width: "40px", height: "40px", objectFit: "contain", flexShrink: 0 }} />
               <span style={{
-                fontFamily: "'Monomaniac One', sans-serif",
+                fontFamily: logoFont,
                 fontSize: "clamp(1.1rem, 3vw, 1.5rem)",
-                color: "white", letterSpacing: "0.03em", flexShrink: 0,
+                color: paper, letterSpacing: "0.03em", flexShrink: 0,
               }}>
                 OJTern
               </span>
@@ -914,8 +984,8 @@ const CompanyDashboardScreen = ({ user, onLogout, onAuthStateChange }) => {
             {/* Current page label — mobile only */}
             {isMobile && (
               <span style={{
-                fontFamily: "'Jersey 25', sans-serif",
-                fontSize: "1rem", color: "rgba(255,255,255,0.75)", marginLeft: "4px",
+                fontFamily: uiFont, fontWeight: 500,
+                fontSize: "0.9rem", color: "rgba(255,255,255,0.7)", marginLeft: "4px",
                 whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0,
               }}>
                 / {currentLabel}
@@ -925,7 +995,7 @@ const CompanyDashboardScreen = ({ user, onLogout, onAuthStateChange }) => {
           <div style={{ display: "flex", alignItems: "center", gap: "4px", flexShrink: 0 }}>
             <NotificationBell items={notifications} open={notifOpen} onToggle={toggleNotif} />
             <div style={{ cursor: "pointer", padding: "8px" }} onClick={() => navigate("about")} title="About">
-              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="12" cy="12" r="9"/>
                 <path d="M12 8h.01"/>
                 <path d="M11 12h1v4h1"/>
@@ -954,13 +1024,13 @@ const CompanyDashboardScreen = ({ user, onLogout, onAuthStateChange }) => {
               <div className={`csidebar-drawer ${drawerOpen ? "open" : ""}`}>
                 {/* Drawer header */}
                 <button onClick={() => { navigate("dashboard"); setDrawerOpen(false); }} style={{
-                  background: `linear-gradient(90deg, ${red} 0%, ${darkRed} 100%)`,
+                  background: `linear-gradient(90deg, ${ink} 0%, ${inkDeep} 100%)`,
                   padding: "14px 20px", flexShrink: 0,
                   display: "flex", alignItems: "center", gap: "10px",
                   border: "none", cursor: "pointer", width: "100%", justifyContent: "flex-start",
                 }}>
-                  <img src={logo} alt="OJTern" style={{ width: "36px", height: "36px", objectFit: "contain" }} />
-                  <span style={{ fontFamily: "'Monomaniac One', sans-serif", fontSize: "1.2rem", color: "white" }}>OJTern</span>
+                  <img src={logo} alt="OJTern" style={{ width: "32px", height: "32px", objectFit: "contain" }} />
+                  <span style={{ fontFamily: logoFont, fontSize: "1.2rem", color: paper }}>OJTern</span>
                 </button>
                 <SidebarNav activeNav={activeNav} onNavigate={navigate} onLogout={handleLogoutClick} unreadMessages={unreadMessages} />
               </div>
@@ -982,13 +1052,13 @@ export const Sidebar    = ({ activeNav, setActiveNav }) => <SidebarNav activeNav
 export const TopNavBar  = () => (
   <div style={{
     height: "70px", flexShrink: 0,
-    background: `linear-gradient(90deg, ${red} 0%, ${darkRed} 100%)`,
+    background: `linear-gradient(90deg, ${ink} 0%, ${inkDeep} 100%)`,
     display: "flex", alignItems: "center", justifyContent: "space-between",
     padding: "0 24px", boxShadow: "0 2px 12px rgba(0,0,0,0.25)",
   }}>
     <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
       <img src={require("../icons/ojtern.png")} alt="OJTern" style={{ width: "46px", height: "46px", objectFit: "contain" }} />
-      <span style={{ fontFamily: "'Monomaniac One', sans-serif", fontSize: "1.5rem", color: "white", letterSpacing: "0.03em" }}>OJTern</span>
+      <span style={{ fontFamily: logoFont, fontSize: "1.5rem", color: paper, letterSpacing: "0.03em" }}>OJTern</span>
     </div>
     <div style={{ cursor: "pointer" }}>
       <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

@@ -79,7 +79,7 @@ export const stageGeom = {
   // Both halves are centred in their own 50% of the viewport: the hub's
   // centre moves from 50vw to 25vw, the panel's sits at ~75vw.
   hubShiftVw:   -27,  // how far left the hub column travels when a form opens
-  hubMaxPx:     420,  // the controls column — pills need room to breathe
+  hubMaxPx:     480,  // the controls column — pills need room to breathe
   formWidthVw:   44,
   formMaxPx:    600,
   formRightVw:  8,    // gap from the right edge; larger = panel sits further left

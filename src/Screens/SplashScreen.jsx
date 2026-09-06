@@ -34,6 +34,46 @@ export const ROLES = [
   { key: "company",     label: "Company"     },
 ];
 
+// Per-role icon + the one-liner shown under each role card. The copy changes
+// with `mode`: signing in answers "where do I land", signing up answers
+// "am I even allowed to register" — which heads off the dead end into
+// InvitedOnlyNotice before the click.
+const ROLE_META = {
+  coordinator: {
+    icon: (
+      <>
+        <rect x="8" y="4" width="8" height="4" rx="1" />
+        <path d="M16 6h2a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h2" />
+        <path d="M9 14l2 2 4-4" />
+      </>
+    ),
+    signin: "Manage OJT placements",
+    signup: "Invite new Coordinator",
+  },
+  student: {
+    icon: (
+      <>
+        <path d="M12 4L2 9l10 5 10-5-10-5z" />
+        <path d="M6 11.5V16c0 1.5 3 3 6 3s6-1.5 6-3v-4.5" />
+      </>
+    ),
+    signin: "Find your OJT placement",
+    signup: "Enrolled by your coordinator",
+  },
+  company: {
+    icon: (
+      <>
+        <path d="M4 21V5a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v16" />
+        <path d="M15 9h4a1 1 0 0 1 1 1v11" />
+        <path d="M2 21h20" />
+        <path d="M8 8h3M8 12h3M8 16h3" />
+      </>
+    ),
+    signin: "Post OJT opportunities",
+    signup: "Register your company",
+  },
+};
+
 // ── useIsMobile ───────────────────────────────────────────────────────────────
 const useIsMobile = () => {
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 900);
@@ -96,24 +136,23 @@ const FontImport = () => (
       transition: background-color 9999s ease-in-out 0s;
     }
 
-    .ojt-pill { transition: transform 180ms ${ease}, filter 180ms ${ease}, background 180ms ${ease}, color 180ms ${ease}; }
+    .ojt-pill { transition: transform 180ms ${ease}, filter 180ms ${ease}, background 180ms ${ease}, color 180ms ${ease}, border-color 180ms ${ease}, opacity 180ms ${ease}; }
     .ojt-pill:hover { filter: brightness(1.04); }
     .ojt-pill:active { transform: scale(0.985); }
 
-    /* ── Uniform #898989 hover treatment for splash-screen buttons ── */
     .back-btn:hover {
       background: #898989 !important;
       color: ${color.white} !important;
     }
 
-    .role-pill-btn:hover {
-      background: #000000 !important;
-      color: ${color.white} !important;
-      border-color: transparent !important;
-    }
+    /* The role cards set their own colours, lift, and entrance timing inline
+       so the icon and text can flip with the card — brightness would lighten
+       the dark fill and break the match with the picked state. */
+    .role-card-btn:hover { filter: none !important; }
+    .role-card-btn:active { transform: translateY(-2px) scale(0.985) !important; }
 
     .invited-btn:hover {
-      background: #000000 !important;
+      background: #898989 !important;
       color: ${color.white} !important;
     }
 
@@ -163,10 +202,10 @@ const BrandLockup = ({ markPx, wordRem }) => (
     <div style={{
       fontFamily: font.logo,
       fontSize: `${wordRem}rem`,
-      color: color.ink,           // was color.white
+      color: color.ink,
       letterSpacing: "0.02em",
       lineHeight: 1.05,
-      textShadow: "none",         // dark shadow di na kailangan sa light bg
+      textShadow: "none",
       transition: `font-size ${timing.rise}ms ${ease}`,
     }}>
       OJTern
@@ -192,9 +231,12 @@ const ModeSwitch = ({ mode, onChange }) => {
       style={{
         position: "relative",
         display: "flex", width: "100%", padding: "5px",
+        // The hub is sized for three role cards now, which is far wider than
+        // this control wants to be — cap it and centre it instead.
+        maxWidth: "420px", margin: "0 auto",
         borderRadius: radius.pill,
-        border: `1.5px solid ${color.blush300}`,   // was onWineFaint
-        background: "rgba(0,0,0,0.03)",             // was rgba(255,255,255,0.07)
+        border: `1.5px solid ${color.blush300}`,
+        background: "rgba(0,0,0,0.03)",
         overflow: "hidden",
       }}
     >
@@ -236,35 +278,110 @@ const ModeSwitch = ({ mode, onChange }) => {
   );
 };
 
-// The three blush role pills.
-const RolePills = ({ role, onSelect }) => (
-  <div role="tablist" aria-label="Account type" style={{ display: "flex", flexDirection: "column", gap: "16px", width: "100%" }}>
-    {ROLES.map(r => {
-      const active = role === r.key;
-      return (
-        <button
-          key={r.key} type="button" role="tab" aria-selected={active}
-          onClick={() => onSelect(r.key)} className="ojt-pill role-pill-btn"
-          style={{
-            width: "100%", padding: "18px 26px", borderRadius: radius.pill,
-            cursor: "pointer", whiteSpace: "nowrap",
-            fontSize: "1.25rem", fontWeight: 600, letterSpacing: "-0.01em",
-            border: active ? "none" : `1.5px solid ${color.blush300}`,
-            color: active ? color.white : color.ink,
-            background: active
-              ? "linear-gradient(180deg, #262626 0%, #0A0A0A 100%)"
-              : color.white,
-            boxShadow: active
-              ? "0 6px 16px rgba(10,10,10,0.22), inset 0 1px 0 rgba(255,255,255,0.06)"
-              : "0 2px 6px rgba(10,10,10,0.05)",
-          }}
-        >
-          {r.label}
-        </button>
-      );
-    })}
-  </div>
-);
+// The three role cards. Three columns on desktop; on mobile they become
+// horizontal rows (icon left) rather than three squeezed columns, which
+// stops the description wrapping to four lines on a narrow screen.
+const RolePills = ({ role, mode, onSelect, ready = true }) => {
+  const isMobile = useIsMobile();
+  const [hovered, setHovered] = useState(null);
+  const hasSelection = !!role;
+
+  return (
+    <div
+      role="tablist"
+      aria-label="Account type"
+      style={{
+        display: "grid",
+        gridTemplateColumns: isMobile ? "1fr" : "repeat(3, minmax(0, 1fr))",
+        gap: "14px",
+        width: "100%",
+      }}
+    >
+      {ROLES.map((r, i) => {
+        const active = role === r.key;
+        const isHovered = hovered === r.key;
+        // Hover previews the picked state, so the icon and text colours have
+        // to flip too — a CSS :hover rule can't reach them while the colours
+        // live in inline styles, hence the tracked hover key.
+        const dark = active || isHovered;
+        const meta = ROLE_META[r.key];
+        // Cards arrive left to right rather than as one slab. Once they've
+        // landed the delay drops to 0, so hover and selection stay instant.
+        const arriveDelay = ready ? 0 : 90 * i;
+        return (
+          <button
+            key={r.key} type="button" role="tab" aria-selected={active}
+            onClick={() => onSelect(r.key)} className="ojt-pill role-card-btn"
+            onMouseEnter={() => setHovered(r.key)}
+            onMouseLeave={() => setHovered(prev => (prev === r.key ? null : prev))}
+            onFocus={() => setHovered(r.key)}
+            onBlur={() => setHovered(prev => (prev === r.key ? null : prev))}
+            style={{
+              display: "flex",
+              flexDirection: isMobile ? "row" : "column",
+              alignItems: "center",
+              textAlign: isMobile ? "left" : "center",
+              gap: isMobile ? "14px" : "0",
+              padding: isMobile ? "16px 18px" : "26px 20px",
+              borderRadius: "18px",
+              cursor: "pointer",
+              border: `1.5px solid ${dark ? color.ink : color.blush300}`,
+              background: dark ? color.ink : color.white,
+              // Dimming the unpicked cards is mostly a mobile affordance —
+              // on desktop the hub slides away almost immediately after the
+              // click, so it barely registers there.
+              opacity: !ready ? 0 : (hasSelection && !active && !isHovered ? 0.55 : 1),
+              transform: !ready
+                ? "translateY(14px)"
+                : (isHovered ? "translateY(-2px)" : "translateY(0)"),
+              transition: `opacity 460ms ${ease} ${340 + arriveDelay}ms, transform ${ready ? "180ms" : `460ms`} ${ease} ${340 + arriveDelay}ms, background 180ms ${ease}, border-color 180ms ${ease}, box-shadow 180ms ${ease}`,
+              boxShadow: dark
+                ? "0 8px 20px rgba(10,10,10,0.20)"
+                : "0 2px 6px rgba(10,10,10,0.05)",
+            }}
+          >
+            <div style={{
+              width: "44px", height: "44px", flex: "none",
+              borderRadius: "14px",
+              margin: isMobile ? "0" : "0 0 14px",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              background: dark ? "rgba(255,255,255,0.12)" : "rgba(10,10,10,0.05)",
+              transition: `background 180ms ${ease}`,
+            }}>
+              <svg
+                width="22" height="22" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" strokeWidth="1.8"
+                strokeLinecap="round" strokeLinejoin="round"
+                aria-hidden="true"
+                style={{ color: dark ? color.white : color.ink, transition: `color 180ms ${ease}` }}
+              >
+                {meta.icon}
+              </svg>
+            </div>
+
+            <div style={{ minWidth: 0 }}>
+              <div style={{
+                fontSize: "1rem", fontWeight: 600, letterSpacing: "-0.01em",
+                color: dark ? color.white : color.ink,
+                transition: `color 180ms ${ease}`,
+              }}>
+                {r.label}
+              </div>
+              <div style={{
+                fontSize: "0.75rem", lineHeight: 1.5, marginTop: "6px",
+                textWrap: "balance",
+                color: dark ? "rgba(255,255,255,0.70)" : color.inkMuted,
+                transition: `color 180ms ${ease}`,
+              }}>
+                {mode === "signup" ? meta.signup : meta.signin}
+              </div>
+            </div>
+          </button>
+        );
+      })}
+    </div>
+  );
+};
 
 const SplashScreen = () => {
   const navigate = useNavigate();
@@ -277,8 +394,7 @@ const SplashScreen = () => {
   const [currentUser, setCurrentUser] = useState(null);
   const [authChecking, setAuthChecking] = useState(true);
 
-  // ── Info menu (Terms & Condition / Privacy Policy / About Us) ────────────
-  const [infoOpen, setInfoOpen] = useState(false);
+  // ── Info links (Terms & Condition / Privacy Policy / About Us) ───────────
   const [legalView, setLegalView] = useState(null); // null | "terms" | "privacy" | "about"
 
   // ── Presentation state for the three-stage entrance ──────────────────────
@@ -509,15 +625,41 @@ const SplashScreen = () => {
   const formOpen = stage === "form";
   const hubReady = stage === "hub" || stage === "form";
 
+  // The Terms / Privacy / About Us links belong to the hub, not the forms —
+  // they fade in once the splash settles and fade back out the moment a form
+  // opens, so the form has the screen to itself. No delay on the way out so
+  // they clear before the panel slides in; the original 240ms delay stays on
+  // the way back in, keeping them in step with the rest of the hub entrance.
+  const infoVisible = hubReady && !formOpen;
+
+  const infoMenuBlock = (
+    <div style={{
+      position: "relative",
+      zIndex: 30,
+      opacity: infoVisible ? 1 : 0,
+      transition: `opacity 420ms ${ease} ${formOpen ? "0ms" : "240ms"}`,
+      pointerEvents: infoVisible ? "auto" : "none",
+    }}>
+      <InfoMenu onSelect={(key) => setLegalView(key)} />
+    </div>
+  );
+
   // Defensive defaults: a missing token would make the transform string
   // invalid ("translate(0vw, undefinedpx)"), and the browser drops the whole
   // declaration — which looks exactly like the animation not running.
   const G = {
     hubShiftVw:         stageGeom?.hubShiftVw         ?? -27,
-    hubMaxPx:           stageGeom?.hubMaxPx           ?? 420,
+    // Three columns of role card need more room than the old stacked pills.
+    // At 620 each card lands around 197px, which gives the copy real breathing
+    // room instead of hugging the card edges.
+    hubMaxPx:           stageGeom?.hubMaxPx           ?? 620,
     formWidthVw:        stageGeom?.formWidthVw        ?? 44,
     formMaxPx:          stageGeom?.formMaxPx          ?? 600,
     formRightVw:        stageGeom?.formRightVw        ?? 8,
+    // True centre sits low once the controls are in — optical centre is a
+    // touch above it. Applied only after the splash settles, so the lockup
+    // still starts dead centre.
+    hubLiftPx:          stageGeom?.hubLiftPx          ?? 20,
     splashLiftPx:       stageGeom?.splashLiftPx       ?? 236,
     splashLiftMobilePx: stageGeom?.splashLiftMobilePx ?? 200,
     markSplashPx:       stageGeom?.markSplashPx       ?? 210,
@@ -545,9 +687,9 @@ const SplashScreen = () => {
       display: "inline-flex", alignItems: "center", gap: "8px",
       alignSelf: "flex-start", marginBottom: "14px",
       padding: "9px 18px 9px 14px", borderRadius: radius.pill,
-      border: `1px solid ${color.blush300}`,     // was onWineFaint
-      background: "rgba(0,0,0,0.03)",             // was rgba(255,255,255,0.10)
-      color: color.ink,                            // was onWine
+      border: `1px solid ${color.blush300}`,
+      background: "rgba(0,0,0,0.03)",
+      color: color.ink,
       fontSize: "0.875rem", fontWeight: 600, cursor: "pointer",
     }}
   >
@@ -657,22 +799,45 @@ const SplashScreen = () => {
   const markPx  = stage === "splash" ? G.markSplashPx : (formOpen ? G.markFormPx : G.markHubPx);
   const wordRem = stage === "splash" ? G.wordSplashRem : (formOpen ? G.wordFormRem : G.wordHubRem);
 
+  // During "splash" the controls must take up NO height, otherwise the
+  // centring column reserves room for them and the lockup sits visibly above
+  // centre. Animating grid-template-rows from 0fr to 1fr collapses them
+  // without unmounting, so the fade-in still has something to transition.
+  //
+  // The three pieces then arrive in sequence — switch, label, cards — rather
+  // than as one slab, so the eye is led down the screen in reading order.
+  const arrive = (delay) => ({
+    opacity: hubReady ? 1 : 0,
+    transform: hubReady ? "translateY(0)" : "translateY(14px)",
+    transition: `opacity 460ms ${ease} ${delay}ms, transform 460ms ${ease} ${delay}ms`,
+  });
+
   const hubControls = (
     <div style={{
       width: "100%",
       maxWidth: `${G.hubMaxPx}px`,
-      display: "flex", flexDirection: "column", gap: "20px",
-      marginTop: "30px",
-      opacity: hubReady ? 1 : 0,
-      transform: hubReady ? "translateY(0)" : "translateY(18px)",
-      transition: `opacity 520ms ${ease} 240ms, transform 520ms ${ease} 240ms`,
-      pointerEvents: hubReady ? "auto" : "none",
+      display: "grid",
+      gridTemplateRows: hubReady ? "1fr" : "0fr",
+      transition: `grid-template-rows ${timing.rise}ms ${ease}`,
     }}>
-      <ModeSwitch mode={mode} onChange={handleModeChange} />
-      <div style={{ fontSize: "0.9375rem", fontWeight: 500, color: color.inkMuted, textAlign: "center" }}>
-        {mode === "signin" ? "Sign in as" : "Sign up as"}
+      <div style={{ overflow: "hidden", minHeight: 0 }}>
+        <div style={{
+          display: "flex", flexDirection: "column", gap: "20px",
+          marginTop: "30px",
+          pointerEvents: hubReady ? "auto" : "none",
+        }}>
+          <div style={arrive(180)}>
+            <ModeSwitch mode={mode} onChange={handleModeChange} />
+          </div>
+          <div style={{
+            fontSize: "0.9375rem", fontWeight: 500, color: color.inkMuted, textAlign: "center",
+            ...arrive(260),
+          }}>
+            {mode === "signin" ? "Sign in as" : "Sign up as"}
+          </div>
+          <RolePills role={role} mode={mode} onSelect={handleRoleSelect} ready={hubReady} />
+        </div>
       </div>
-      <RolePills role={role} onSelect={handleRoleSelect} />
     </div>
   );
 
@@ -689,21 +854,7 @@ const SplashScreen = () => {
           overflowX: "hidden",
         }}>
           <CapsuleField />
-          <div style={{
-            position: "relative",
-            zIndex: 30,
-            opacity: hubReady ? 1 : 0,
-            transition: `opacity 420ms ${ease} 240ms`,
-            pointerEvents: hubReady ? "auto" : "none",
-            transform: "scale(1.15)",
-            transformOrigin: "top right",
-          }}>
-            <InfoMenu
-              open={infoOpen}
-              onToggle={setInfoOpen}
-              onSelect={(key) => setLegalView(key)}
-            />
-          </div>
+          {infoMenuBlock}
 
           <div style={{
             position: "relative", zIndex: 1,
@@ -712,13 +863,20 @@ const SplashScreen = () => {
             minHeight: "100dvh",
           }}>
             <div style={{
-              minHeight: formOpen ? "auto" : "100dvh",
+              // `auto` can't be transitioned, so the closed state is a plain
+              // 0dvh floor — the block still holds its natural content height,
+              // and the collapse now eases in step with the form instead of
+              // snapping back the moment Back is pressed.
+              minHeight: formOpen ? "0dvh" : "100dvh",
               paddingTop: formOpen ? "44px" : "0",
+              // Same optical-centre lift as desktop. Padding rather than a
+              // transform, because this block is in normal flow and the form
+              // below it has to move with it.
+              paddingBottom: !formOpen && hubReady ? `${G.hubLiftPx * 2}px` : "0",
               display: "flex", flexDirection: "column",
               alignItems: "center", justifyContent: "center",
               flexShrink: 0, width: "100%",
-              transform: "translateY(0px)",
-              transition: `transform ${timing.rise}ms ${ease}`,
+              transition: `min-height ${timing.slide}ms ${ease}, padding-top ${timing.slide}ms ${ease}, padding-bottom ${timing.rise}ms ${ease}`,
             }}>
               <BrandLockup
                 markPx={stage === "splash" ? 170 : 96}
@@ -727,15 +885,29 @@ const SplashScreen = () => {
               {hubControls}
             </div>
 
-            {formOpen && (
-              <div style={{
-                width: "100%", maxWidth: "460px", marginTop: "28px",
-                display: "flex", flexDirection: "column",
-              }}>
-                <BackButton />
-                <div style={formPanelStyle}>{formContent}</div>
+            {/* Kept mounted rather than gated on `formOpen`, otherwise Back
+                rips the panel out instantly with nothing to animate. The row
+                collapses to 0fr so it still takes no space when closed, and
+                the inner block slides — no fade, same as desktop. */}
+            <div style={{
+              width: "100%", maxWidth: "460px",
+              display: "grid",
+              gridTemplateRows: formOpen ? "1fr" : "0fr",
+              transition: `grid-template-rows ${timing.slide}ms ${ease}`,
+            }}>
+              <div style={{ overflow: "hidden", minHeight: 0 }}>
+                <div style={{
+                  marginTop: "28px",
+                  display: "flex", flexDirection: "column",
+                  transform: formOpen ? "translateY(0)" : "translateY(24px)",
+                  transition: `transform ${timing.slide}ms ${ease}`,
+                  pointerEvents: formOpen ? "auto" : "none",
+                }}>
+                  <BackButton />
+                  <div style={formPanelStyle}>{formContent}</div>
+                </div>
               </div>
-            )}
+            </div>
           </div>
         </div>
       </>
@@ -753,21 +925,7 @@ const SplashScreen = () => {
         ...wineSurface, overflow: "hidden",
       }}>
         <CapsuleField />
-        <div style={{
-          position: "relative",
-          zIndex: 30,
-          opacity: hubReady ? 1 : 0,
-          transition: `opacity 420ms ${ease} 240ms`,
-          pointerEvents: hubReady ? "auto" : "none",
-          transform: "scale(1.15)",
-          transformOrigin: "top right",
-        }}>
-          <InfoMenu
-            open={infoOpen}
-            onToggle={setInfoOpen}
-            onSelect={(key) => setLegalView(key)}
-          />
-        </div>
+        {infoMenuBlock}
 
         {/* Hub column */}
         <div style={{
@@ -775,7 +933,7 @@ const SplashScreen = () => {
           display: "flex", flexDirection: "column",
           alignItems: "center", justifyContent: "center",
           padding: "32px",
-          transform: `translate(${formOpen ? G.hubShiftVw : 0}vw, 0px)`,
+          transform: `translate(${formOpen ? G.hubShiftVw : 0}vw, ${hubReady ? -G.hubLiftPx : 0}px)`,
           transition: `transform ${timing.rise}ms ${ease}`,
           willChange: "transform",
           pointerEvents: "none",
@@ -797,13 +955,16 @@ const SplashScreen = () => {
           maxWidth: `${G.formMaxPx}px`,
           maxHeight: "90vh",
           overflowY: "auto",
+          // Slides clean off the right edge rather than fading in place. The
+          // old 56px nudge needed the opacity to hide what was left behind;
+          // clearing the panel's own width plus its offset means it's simply
+          // gone, and the exit reads as one movement instead of two.
           transform: formOpen
             ? "translateY(-50%) translateX(0)"
-            : "translateY(-50%) translateX(56px)",
-          opacity: formOpen ? 1 : 0,
-          transition: `opacity ${timing.slide}ms ${ease}, transform ${timing.slide}ms ${ease}`,
+            : `translateY(-50%) translateX(calc(100% + ${G.formRightVw}vw))`,
+          transition: `transform ${timing.slide}ms ${ease}`,
           pointerEvents: formOpen ? "auto" : "none",
-          willChange: "transform, opacity",
+          willChange: "transform",
           display: "flex", flexDirection: "column",
         }}>
           <BackButton />

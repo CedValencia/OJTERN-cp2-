@@ -4,6 +4,7 @@ import { collection, onSnapshot, query, where, orderBy, limit, doc, getDoc, setD
 import { db } from "./firebase";
 import { changePassword, logOut } from "./AuthService";
 import { useUnreadCount } from "./useChat";
+import { color, font, ease } from "./theme";
 
 import StudentFindCompanyScreen, { useOjtPosts } from "./StudentFindCompanyScreen";
 import StudentApplicationScreen from "./StudentApplicationScreen";
@@ -22,8 +23,25 @@ import accountProfileIcon from "../icons/accountprofile.png";
 import aboutIcon          from "../icons/about.png";
 
 // ── Design tokens ──────────────────────────────────────────────────────────────
-const red     = "#8B0000";
-const darkRed = "#590101";
+// Same three-tier system as Company/Coordinator dashboards: ink (strongest
+// panels, top bar, active nav, primary buttons), steel (mid panels, hover
+// states), paper (page background, cards).
+const ink       = color.blush50;   // #000000
+const inkSoft   = color.blush200;  // #1F1F1F
+const inkDeep   = color.blush100;  // #161616
+const steel     = "#898989";
+const steelSoft = "rgba(137,137,137,0.35)";
+const paper     = color.white;     // #FFFFFF
+const paperTint = color.wine900;   // #FAFAFA
+const paperCard = color.wine800;   // #F2F2F2
+const hairline  = color.wine700;   // #EAEAEA
+const inkText   = color.ink;       // #141414
+const inkMuted  = color.inkMuted;  // #767676
+
+// Every screen uses one UI face — Inter — per theme.js; Monomaniac One is
+// reserved for the "OJTern" wordmark only, never for interface text.
+const uiFont   = font.ui;
+const logoFont = font.logo;
 
 // ── Password strength requirements (mirrors StudentAccountProfileScreen) ───────
 const PASSWORD_RULES = [
@@ -45,10 +63,10 @@ const PasswordChecklist = ({ password }) => {
         const passed = rule.test(password);
         return (
           <div key={rule.key} style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-            <span style={{ fontSize: "0.78rem", fontWeight: 700, color: passed ? "#2a7a2a" : "#c0392b", width: "12px", flexShrink: 0 }}>
+            <span style={{ fontSize: "0.78rem", fontWeight: 700, color: passed ? color.success : color.danger, width: "12px", flexShrink: 0 }}>
               {passed ? "✓" : "✗"}
             </span>
-            <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.74rem", color: passed ? "#2a7a2a" : "#888" }}>
+            <span style={{ fontFamily: uiFont, fontSize: "0.74rem", color: passed ? color.success : inkMuted }}>
               {rule.label}
             </span>
           </div>
@@ -87,34 +105,57 @@ const useBreakpoint = () => {
 // ── Global styles ──────────────────────────────────────────────────────────────
 const FontImport = () => (
   <style>{`
-    @import url('https://fonts.googleapis.com/css2?family=Jersey+25&family=Jua&family=Kufam:wght@400;600;700&family=Monomaniac+One&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Monomaniac+One&display=swap');
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     ::-webkit-scrollbar { width: 4px; }
-    ::-webkit-scrollbar-thumb { background: #8B0000; border-radius: 4px; }
-    ::-webkit-scrollbar-track { background: #f0f0f0; }
+    ::-webkit-scrollbar-thumb { background: ${steel}; border-radius: 4px; transition: background 0.2s ${ease}; }
+    ::-webkit-scrollbar-thumb:hover { background: ${ink}; }
+    ::-webkit-scrollbar-track { background: ${paperCard}; }
+
+    @keyframes welcomeIn {
+      0%   { opacity: 0; transform: translateY(14px); }
+      100% { opacity: 1; transform: translateY(0); }
+    }
+    .welcome-animate {
+      animation: welcomeIn 0.5s cubic-bezier(.16,1,.3,1);
+    }
 
     .snav-item {
       position: relative;
-      transition: background 0.18s ease, transform 0.12s ease;
+      margin: 4px 12px;
+      padding-left: 4px;
+      border-radius: 14px;
+      transition: background 0.18s ${ease}, box-shadow 0.18s ${ease}, transform 0.1s ${ease};
     }
     .snav-item::before {
       content: "";
-      position: absolute; left: 0; top: 8px; bottom: 8px; width: 4px;
-      border-radius: 0 4px 4px 0; background: #888;
-      transform: scaleY(0); transform-origin: center;
-      transition: transform 0.2s ease;
+      position: absolute; left: -12px; top: 50%;
+      width: 3px; height: 0;
+      background: ${ink};
+      border-radius: 0 3px 3px 0;
+      transform: translateY(-50%);
+      transition: height 0.18s ${ease};
     }
-    .snav-item:hover  { background: rgba(150,150,150,0.35); }
-    .snav-item.active { background: rgba(150,150,150,0.55); }
-    .snav-item.active::before { transform: scaleY(1); }
+    .snav-item:hover  { background: ${paperCard}; }
+    .snav-item.active { background: ${ink}; box-shadow: 0 6px 16px rgba(20,20,20,0.18); }
+    .snav-item.active::before { height: 22px; }
     .snav-item:active { transform: scale(0.98); }
     .snav-item .nav-icon,
-    .snav-item .nav-label { transition: opacity 0.18s ease; }
-    .snav-item:hover .nav-icon,
-    .snav-item:hover .nav-label { opacity: 1 !important; }
+    .snav-item .nav-label { transition: opacity 0.18s ${ease}, color 0.16s ${ease}; }
+    .snav-item.active .nav-label {
+      color: ${paper} !important;
+      font-weight: 600 !important;
+      letter-spacing: 0.01em;
+    }
+    .snav-item.active .nav-icon { filter: brightness(0) invert(1); }
 
-    .snav-logout { transition: background 0.18s ease, transform 0.12s ease; }
-    .snav-logout:hover  { background: rgba(150,150,150,0.35); }
+    .snav-logout {
+      margin: 4px 12px 14px;
+      padding-left: 4px;
+      border-radius: 14px;
+      transition: background 0.18s ${ease}, transform 0.1s ${ease};
+    }
+    .snav-logout:hover  { background: ${paperCard}; }
     .snav-logout:active { transform: scale(0.98); }
 
     @keyframes badgePop {
@@ -122,14 +163,28 @@ const FontImport = () => (
       70%  { transform: scale(1.15); opacity: 1; }
       100% { transform: scale(1); }
     }
-    .nav-badge { animation: badgePop 0.25s ease; }
+    .nav-badge { animation: badgePop 0.25s ${ease}; box-shadow: 0 2px 6px rgba(20,20,20,0.25); }
 
     .company-row { transition: background 0.15s; cursor: pointer; }
-    .company-row:hover { background: #c8c8c8 !important; }
+    .company-row:hover { background: ${hairline} !important; }
     .visited-row { transition: background 0.15s; cursor: pointer; }
-    .visited-row:hover { background: #c8c8c8 !important; }
+    .visited-row:hover { background: ${hairline} !important; }
     .app-row { transition: background 0.15s; cursor: pointer; }
-    .app-row:hover { background: #c8c8c8 !important; }
+    .app-row:hover { background: ${hairline} !important; }
+
+    .topbar-icon-btn { transition: background 0.18s ${ease}, transform 0.12s ${ease}; border-radius: 999px; }
+    .topbar-icon-btn:hover { background: rgba(255,255,255,0.14); }
+    .topbar-icon-btn:active { transform: scale(0.94); }
+
+    .stat-view-btn { transition: transform 0.18s ${ease}; }
+    .stat-view-btn:hover { transform: scale(1.08); }
+
+    .pill-btn { transition: filter 0.18s ${ease}, transform 0.12s ${ease}, box-shadow 0.18s ${ease}; }
+    .pill-btn:hover { filter: brightness(1.25); }
+    .pill-btn:active { transform: scale(0.97); }
+
+    .notif-row { transition: background 0.15s ${ease}; }
+    .notif-row:hover { background: ${paperCard} !important; }
 
     /* ── Slide-in drawer ── */
     .ssidebar-drawer {
@@ -137,7 +192,7 @@ const FontImport = () => (
       height: 100%; width: 260px; z-index: 200;
       transform: translateX(-100%);
       transition: transform 0.28s cubic-bezier(.4,0,.2,1);
-      background: #e0e0e0; border-right: 1px solid #ccc;
+      background: ${paper}; border-right: 1px solid ${hairline};
       overflow-y: auto; display: flex; flex-direction: column;
     }
     .ssidebar-drawer.open { transform: translateX(0); }
@@ -145,6 +200,7 @@ const FontImport = () => (
     .ssidebar-overlay {
       display: none; position: fixed; inset: 0;
       background: rgba(0,0,0,0.35); z-index: 199;
+      transition: opacity 0.2s ${ease};
     }
     .ssidebar-overlay.open { display: block; }
 
@@ -161,39 +217,47 @@ const FontImport = () => (
 
     /* ── Fluid welcome heading ── */
     .welcome-heading {
-      font-family: 'Jersey 25', sans-serif;
-      font-size: clamp(2.2rem, 6vw, 5.5rem);
-      color: #590101;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-      margin-bottom: -6px;
+      font-family: ${uiFont};
+      font-weight: 600;
+      font-size: clamp(1.9rem, 5vw, 3.4rem);
+      color: ${ink};
+      letter-spacing: -0.02em;
+      margin-bottom: 4px;
     }
     .welcome-sub {
-      font-family: 'Kufam', sans-serif;
-      font-size: clamp(0.95rem, 2.5vw, 1.5rem);
-      color: #590101;
+      font-family: ${uiFont};
+      font-weight: 400;
+      font-size: clamp(0.9rem, 2.2vw, 1.15rem);
+      color: ${inkMuted};
     }
 
     /* ── Card section header ── */
     .scard-header {
-      background: #590101;
-      padding: 10px 16px;
-      border-radius: 14px 14px 0 0;
+      padding: 14px 18px 12px 15px;
+      border-bottom: 3px solid ${hairline};
     }
     .scard-header span {
-      font-family: 'Kufam', sans-serif;
-      font-weight: bold;
-      font-size: clamp(0.82rem, 2vw, 1rem);
-      color: white;
+      font-family: ${uiFont};
+      font-weight: 600;
+      font-size: clamp(0.85rem, 2vw, 0.98rem);
+      color: ${inkText};
+      letter-spacing: -0.01em;
     }
+
+    /* ── Cards: recessed panel resting state + quiet lift on hover ── */
+    .sdash-card {
+      transition: transform 0.2s ${ease}, box-shadow 0.2s ${ease};
+      box-shadow: inset 0 2px 8px rgba(0,0,0,0.10);
+    }
+    .sdash-card:hover { transform: translateY(-3px); box-shadow: inset 0 2px 8px rgba(0,0,0,0.10), 0 10px 28px rgba(20,20,20,0.10); }
 
     /* ── Desktop static sidebar ── */
     @media (min-width: 1024px) {
       .ssidebar-static {
         width: 260px; flex-shrink: 0;
-        background: #e0e0e0;
+        background: ${paper};
         display: flex; flex-direction: column;
-        overflow-y: auto; border-right: 1px solid #ccc;
+        overflow-y: auto; border-right: 1px solid ${hairline};
       }
     }
 
@@ -202,16 +266,18 @@ const FontImport = () => (
       background: none; border: none; cursor: pointer;
       padding: 6px; display: flex; flex-direction: column; gap: 5px;
       -webkit-tap-highlight-color: transparent;
+      border-radius: 999px; transition: background 0.18s ${ease};
     }
+    .hamburger-btn:hover { background: rgba(255,255,255,0.14); }
     .hamburger-btn span {
       display: block; width: 24px; height: 2px;
-      background: white; border-radius: 2px; transition: all 0.2s;
+      background: white; border-radius: 2px; transition: all 0.2s ${ease};
     }
 
     /* ── Main content ── */
     .smain-content {
       flex: 1; display: flex; flex-direction: column;
-      overflow-y: auto; background: #f5f5f5; min-width: 0;
+      overflow-y: auto; background: ${paperTint}; min-width: 0;
     }
   `}</style>
 );
@@ -226,8 +292,15 @@ const navItems = [
 ];
 
 // ── Shared sub-components ──────────────────────────────────────────────────────
+// Chip-style avatar (raised, boxed) — matches CompanyAvatar in the
+// Coordinator/Company dashboards instead of a bare flat icon.
 const CompanyAvatar = ({ size = 38 }) => (
-  <div style={{ width: size, height: size, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+  <div style={{
+    width: size, height: size, flexShrink: 0, borderRadius: "50%",
+    display: "flex", alignItems: "center", justifyContent: "center",
+    background: paper,
+    boxShadow: "0 1px 3px rgba(20,20,20,0.18), 0 1px 2px rgba(20,20,20,0.10)",
+  }}>
     <img src={companyProfileIcon} alt="company" style={{ width: size, height: size, objectFit: "contain" }} />
   </div>
 );
@@ -244,22 +317,24 @@ const ArrowBtn = () => (
   </div>
 );
 
-// ── Status badge ──────────────────────────────────────────────────────────────
+// ── Status badge ───────────────────────────────────────────────────────────────
+// Accepted/Declined map to the theme's semantic success/danger colors, same
+// pairing used on the Company/Coordinator dashboards.
 const StatusBadge = ({ status }) => {
   const cfg = {
-    Accepted:       { bg: "#2d7a2d", text: "white" },
-    Declined:       { bg: darkRed,   text: "white" },
-    Pending:        { bg: "#c8a800", text: "white" },
-    "In Review":    { bg: "#353A8D", text: "white" },
-    "To Interview": { bg: "#7C2889", text: "white" },
-  }[status] || { bg: "#aaa", text: "white" };
+    Accepted:       { bg: "#358D5E", text: paper },
+    Declined:       { bg: color.danger, text: paper },
+    Pending:        { bg: "#c8a800", text: paper },
+    "In Review":    { bg: "#353A8D", text: paper },
+    "To Interview": { bg: "#7C2889", text: paper },
+  }[status] || { bg: steel, text: paper };
 
   return (
     <div style={{
       background: cfg.bg, color: cfg.text,
       borderRadius: "20px", padding: "5px 18px",
-      fontFamily: "'Kufam', sans-serif", fontWeight: 700,
-      fontSize: "0.78rem", cursor: "pointer", flexShrink: 0,
+      fontFamily: uiFont, fontWeight: 700,
+      fontSize: "0.78rem", flexShrink: 0,
       minWidth: "90px", textAlign: "center",
     }}>
       {status}
@@ -274,13 +349,12 @@ const EmptyListPlaceholder = ({ label = "No data available" }) => (
     alignItems: "center", justifyContent: "center",
     gap: "8px", padding: "20px",
   }}>
-    <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.95rem", color: "#aaa", textAlign: "center" }}>
+    <span style={{ fontFamily: uiFont, fontSize: "0.95rem", color: inkMuted, textAlign: "center" }}>
       {label}
     </span>
   </div>
 );
 
-// ── Sidebar nav list ───────────────────────────────────────────────────────────
 // ── URL <-> tab mapping ──────────────────────────────────────────────────────
 // The active tab now lives in the URL (/student/<key>) instead of
 // sessionStorage, so the address bar always matches what's on screen and a
@@ -292,56 +366,67 @@ const getStudentNavKeyFromPath = (pathname) => {
   return key || "dashboard";
 };
 
+// ── Sidebar nav list ───────────────────────────────────────────────────────────
 const SidebarNavList = ({ activeNav, onNavigate, onLogout, unreadMessages = 0 }) => (
   <>
-    {navItems.map((item) => (
-      <div
-        key={item.key}
-        className={`snav-item ${activeNav === item.key ? "active" : ""}`}
-        onClick={() => onNavigate(item.key)}
-        style={{
-          display: "flex", alignItems: "center", gap: "14px",
-          padding: "15px 20px", cursor: "pointer",
-          borderBottom: "1px solid #ccc", minHeight: "56px",
-        }}
-      >
-        <img src={item.icon} alt={item.label} className="nav-icon"
-          style={{ width: "30px", height: "30px", objectFit: "contain", flexShrink: 0, opacity: activeNav === item.key ? 1 : 0.85, transition: "opacity 0.18s ease" }} />
-        <span className="nav-label" style={{ fontFamily: "'Jersey 25'", fontSize: "1.3rem", color: "#000000", opacity: activeNav === item.key ? 1 : 0.65, fontWeight: "400", flex: 1, transition: "opacity 0.18s ease" }}>
-          {item.label}
-        </span>
-        {item.key === "messages" && unreadMessages > 0 && (
-          <span key={unreadMessages} className="nav-badge" style={{
-            background: "#8B0000", color: "white", borderRadius: "50%",
-            minWidth: "20px", height: "20px", padding: "0 5px",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            fontFamily: "'Kufam', sans-serif", fontSize: "0.72rem", fontWeight: 700,
-            flexShrink: 0,
+    <div style={{ padding: "6px 22px 10px", flexShrink: 0 }} />
+    {navItems.map((item) => {
+      const isActive = activeNav === item.key;
+      return (
+        <div
+          key={item.key}
+          className={`snav-item ${isActive ? "active" : ""}`}
+          onClick={() => onNavigate(item.key)}
+          style={{
+            display: "flex", alignItems: "center", gap: "14px",
+            padding: "12px 16px", cursor: "pointer", minHeight: "50px",
+          }}
+        >
+          <img
+            src={item.icon} alt={item.label} className="nav-icon"
+            style={{ width: "24px", height: "24px", objectFit: "contain", flexShrink: 0, opacity: isActive ? 1 : 0.85 }}
+          />
+          <span className="nav-label" style={{
+            fontFamily: uiFont, fontWeight: 500, fontSize: "0.9rem", flex: 1,
+            color: isActive ? paper : inkText,
           }}>
-            {unreadMessages > 99 ? "99+" : unreadMessages}
+            {item.label}
           </span>
-        )}
-      </div>
-    ))}
+          {item.key === "messages" && unreadMessages > 0 && (
+            <span key={unreadMessages} className="nav-badge" style={{
+              background: isActive ? paper : ink,
+              color: isActive ? inkDeep : paper,
+              borderRadius: "50%",
+              minWidth: "19px", height: "19px", padding: "0 5px",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontFamily: uiFont, fontSize: "0.7rem", fontWeight: 700,
+              flexShrink: 0,
+            }}>
+              {unreadMessages > 99 ? "99+" : unreadMessages}
+            </span>
+          )}
+        </div>
+      );
+    })}
 
     {onLogout && (
       <>
         <div style={{ flex: 1 }} />
+        <hr style={{ border: "none", borderTop: `1px solid ${hairline}`, margin: "0 20px 8px" }} />
         <div
           className="snav-logout"
           onClick={onLogout}
           style={{
             display: "flex", alignItems: "center", gap: "14px",
-            padding: "15px 20px", cursor: "pointer",
-            minHeight: "56px", borderTop: "1px solid #ccc",
+            padding: "12px 16px", cursor: "pointer", minHeight: "50px",
           }}
         >
-          <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#8B0000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={ink} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
             <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
             <polyline points="16 17 21 12 16 7"/>
             <line x1="21" y1="12" x2="9" y2="12"/>
           </svg>
-          <span style={{ fontFamily: "'Jersey 25'", fontSize: "1.3rem", color: "#8B0000", fontWeight: "400" }}>
+          <span style={{ fontFamily: uiFont, fontWeight: 600, fontSize: "0.9rem", color: ink }}>
             Log Out
           </span>
         </div>
@@ -359,40 +444,41 @@ const LogoutConfirmModal = ({ onConfirm, onCancel }) => (
     padding: "16px",
   }}>
     <div style={{
-      background: "white", borderRadius: "20px",
+      background: paper, borderRadius: "20px",
       padding: "36px 32px", width: "clamp(280px, 85vw, 380px)",
       display: "flex", flexDirection: "column", alignItems: "center",
       gap: "12px", boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
     }}>
       <div style={{
         width: "64px", height: "64px", borderRadius: "50%",
-        background: "#fde8e8", display: "flex",
+        background: paperCard, display: "flex",
         alignItems: "center", justifyContent: "center", marginBottom: "4px",
       }}>
         <svg width="30" height="30" viewBox="0 0 24 24" fill="none"
-          stroke="#8B0000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          stroke={ink} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
           <polyline points="16 17 21 12 16 7"/>
           <line x1="21" y1="12" x2="9" y2="12"/>
         </svg>
       </div>
-      <p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "1.15rem", color: "#1a1a1a", margin: 0, textAlign: "center" }}>Log Out</p>
-      <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem", color: "#666", margin: 0, textAlign: "center", lineHeight: 1.5 }}>
+      <p style={{ fontFamily: uiFont, fontWeight: 600, fontSize: "1.15rem", color: inkText, margin: 0, textAlign: "center" }}>Log Out</p>
+      <p style={{ fontFamily: uiFont, fontSize: "0.9rem", color: inkMuted, margin: 0, textAlign: "center", lineHeight: 1.5 }}>
         Are you sure you want to log out of your account?
       </p>
       <div style={{ display: "flex", gap: "12px", width: "100%", marginTop: "8px" }}>
-        <button onClick={onCancel} style={{
+        <button onClick={onCancel} className="pill-btn" style={{
           flex: 1, padding: "12px", borderRadius: "30px",
-          border: "1.5px solid #ccc", background: "white",
-          fontFamily: "'Kufam', sans-serif", fontWeight: 600,
-          fontSize: "0.95rem", cursor: "pointer", color: "#555",
+          border: `1.5px solid ${hairline}`, background: paper,
+          fontFamily: uiFont, fontWeight: 600,
+          fontSize: "0.95rem", cursor: "pointer", color: inkMuted,
+          boxShadow: "0 3px 10px rgba(0,0,0,0.3)",
         }}>Cancel</button>
-        <button onClick={onConfirm} style={{
+        <button onClick={onConfirm} className="pill-btn" style={{
           flex: 1, padding: "12px", borderRadius: "30px",
-          border: "none", background: "#8B0000",
-          fontFamily: "'Kufam', sans-serif", fontWeight: 700,
-          fontSize: "0.95rem", cursor: "pointer", color: "white",
-          boxShadow: "0 3px 10px rgba(139,0,0,0.3)",
+          border: "none", background: ink,
+          fontFamily: uiFont, fontWeight: 700,
+          fontSize: "0.95rem", cursor: "pointer", color: paper,
+          boxShadow: "0 3px 10px rgba(0,0,0,0.5)",
         }}>Log Out</button>
       </div>
     </div>
@@ -402,31 +488,30 @@ const LogoutConfirmModal = ({ onConfirm, onCancel }) => (
 // ── Dashboard Content ──────────────────────────────────────────────────────────
 const DashboardContent = ({ onNavigate, onViewCompany, recentVisited = [], recentApplications = [] }) => {
 
-const { posts: allPosts = [] } = useOjtPosts();
-    
-const recommendedCompanies = allPosts.slice(0, 5);
+  const { posts: allPosts = [] } = useOjtPosts();
+  const recommendedCompanies = allPosts.slice(0, 5);
 
   return (
     <div style={{ padding: "clamp(16px, 4vw, 32px)", overflowY: "auto", flex: 1 }}>
 
-      {/* Welcome banner */}
+      {/* Welcome banner — container stays static, only the text animates */}
       <div style={{
-        background: "#e8e8e8", borderRadius: "18px",
+        background: paperCard, borderRadius: "18px",
         padding: "clamp(20px, 5vw, 30px) clamp(18px, 5vw, 40px)",
         marginBottom: "24px", textAlign: "center",
         boxShadow: "inset 0 2px 8px rgba(0,0,0,0.07)",
       }}>
-        <h1 className="welcome-heading">Welcome to OJTern</h1>
-        <p className="welcome-sub">Find the perfect OJT for you!</p>
+        <h1 className="welcome-heading welcome-animate">Welcome to OJTern</h1>
+        <p className="welcome-sub welcome-animate">Find the perfect OJT for you!</p>
       </div>
 
-      <hr style={{ border: "none", borderTop: "1.5px solid #ddd", marginBottom: "24px" }} />
+      <hr style={{ border: "none", borderTop: `1.5px solid ${hairline}`, marginBottom: "24px" }} />
 
       {/* Top grid: 2-col on ≥768px, 1-col below */}
       <div className="sdash-top-grid">
 
         {/* Recommended OJT Companies */}
-        <div style={{ background: "#e8e8e8", borderRadius: "14px", overflow: "hidden", display: "flex", flexDirection: "column" }}>
+        <div className="sdash-card" style={{ background: paperCard, borderRadius: "14px", overflow: "hidden", display: "flex", flexDirection: "column" }}>
           <div className="scard-header"><span>Recommended OJT Companies</span></div>
           <div style={{ padding: "10px 0 10px 12px", display: "flex", flexDirection: "column", gap: "6px", maxHeight: "280px", overflowY: "auto" }}>
             {recommendedCompanies.length > 0 ? (
@@ -437,12 +522,12 @@ const recommendedCompanies = allPosts.slice(0, 5);
                   onClick={() => onViewCompany(company.id, company)}
                   style={{
                     display: "flex", alignItems: "center", justifyContent: "space-between",
-                    background: "#d8d8d8", borderRadius: "8px", padding: "7px 10px", marginRight: "12px",
+                    background: paperCard, borderRadius: "8px", padding: "7px 10px", marginRight: "12px",
                   }}
                 >
                   <div style={{ display: "flex", alignItems: "center", gap: "8px", minWidth: 0 }}>
                     <CompanyAvatar size={38} />
-                    <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "clamp(0.75rem, 2vw, 0.82rem)", color: "#333", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    <span style={{ fontFamily: uiFont, fontSize: "clamp(0.75rem, 2vw, 0.82rem)", color: inkText, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                       {company.companyName || company.company || company.name}
                     </span>
                   </div>
@@ -456,7 +541,7 @@ const recommendedCompanies = allPosts.slice(0, 5);
         </div>
 
         {/* Recent Visited Company Profiles */}
-        <div style={{ background: "#e8e8e8", borderRadius: "14px", overflow: "hidden", display: "flex", flexDirection: "column" }}>
+        <div className="sdash-card" style={{ background: paperCard, borderRadius: "14px", overflow: "hidden", display: "flex", flexDirection: "column" }}>
           <div className="scard-header"><span>Recent Visited Company Profiles</span></div>
           <div style={{ padding: "10px 0 10px 12px", display: "flex", flexDirection: "column", gap: "6px", maxHeight: "280px", overflowY: "auto" }}>
             {recentVisited.length > 0 ? (
@@ -467,16 +552,16 @@ const recommendedCompanies = allPosts.slice(0, 5);
                   onClick={() => onViewCompany(company.id, company)}
                   style={{
                     display: "flex", alignItems: "center", justifyContent: "space-between",
-                    background: "#d8d8d8", borderRadius: "8px", padding: "7px 10px", marginRight: "12px",
+                    background: paperCard, borderRadius: "8px", padding: "7px 10px", marginRight: "12px",
                   }}
                 >
                   <div style={{ display: "flex", alignItems: "center", gap: "8px", minWidth: 0 }}>
                     <CompanyAvatar size={38} />
                     <div style={{ minWidth: 0 }}>
-                      <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "clamp(0.75rem, 2vw, 0.82rem)", color: "#333", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>
+                      <span style={{ fontFamily: uiFont, fontSize: "clamp(0.75rem, 2vw, 0.82rem)", color: inkText, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>
                         {company.companyName || company.name}
                       </span>
-                      {company.visitedAt && <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.68rem", color: "#8B0000", fontWeight: 600 }}>{timeAgo(company.visitedAt)}</span>}
+                      {company.visitedAt && <span style={{ fontFamily: uiFont, fontSize: "0.68rem", color: steel, fontWeight: 600 }}>{timeAgo(company.visitedAt)}</span>}
                     </div>
                   </div>
                   <ArrowBtn />
@@ -490,7 +575,7 @@ const recommendedCompanies = allPosts.slice(0, 5);
       </div>
 
       {/* Recent Application */}
-      <div style={{ background: "#e8e8e8", borderRadius: "14px", overflow: "hidden" }}>
+      <div className="sdash-card" style={{ background: paperCard, borderRadius: "14px", overflow: "hidden" }}>
         <div className="scard-header"><span>Recent Application</span></div>
         <div style={{ padding: "10px 12px", display: "flex", flexDirection: "column", gap: "6px", maxHeight: "260px", overflowY: "auto" }}>
           {recentApplications.length > 0 ? (
@@ -501,16 +586,16 @@ const recommendedCompanies = allPosts.slice(0, 5);
                 onClick={() => onNavigate("application", a.id)}
                 style={{
                   display: "flex", alignItems: "center", justifyContent: "space-between",
-                  background: "#d8d8d8", borderRadius: "8px", padding: "7px 10px",
+                  background: paperCard, borderRadius: "8px", padding: "7px 10px",
                 }}
               >
                 <div style={{ display: "flex", alignItems: "center", gap: "8px", minWidth: 0 }}>
                   <CompanyAvatar size={38} />
                   <div style={{ minWidth: 0 }}>
-                    <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "clamp(0.75rem, 2vw, 0.82rem)", color: "#333", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>
+                    <span style={{ fontFamily: uiFont, fontSize: "clamp(0.75rem, 2vw, 0.82rem)", color: inkText, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>
                       {a.companyName || a.name}
                     </span>
-                    {a.createdAt && <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.68rem", color: "#999" }}>{new Date(a.createdAt.seconds ? a.createdAt.seconds * 1000 : a.createdAt).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>}
+                    {a.createdAt && <span style={{ fontFamily: uiFont, fontSize: "0.68rem", color: inkMuted }}>{new Date(a.createdAt.seconds ? a.createdAt.seconds * 1000 : a.createdAt).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>}
                   </div>
                 </div>
                 <StatusBadge status={a.status} />
@@ -632,7 +717,7 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
   const [pendingContact, setPendingContact]     = useState(null);
   const [pendingApplicationId, setPendingApplicationId] = useState(null);
   const [showChangePass, setShowChangePass]     = useState(!user?.passwordChanged);
-  const [showPassSuccess, setShowPassSuccess]   = useState(false); // ✅ NEW: Success modal state
+  const [showPassSuccess, setShowPassSuccess]   = useState(false);
   const [currentPass, setCurrentPass] = useState("");
   const [newPass, setNewPass]                   = useState("");
   const [confirmPass, setConfirmPass]           = useState("");
@@ -643,47 +728,46 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
   const [showCurrent, setShowCurrent]           = useState(false);
 
   const handleChangePassword = async () => {
-  setPassError("");
+    setPassError("");
 
-  if (!currentPass) {
-    setPassError("Please enter your current password.");
-    return;
-  }
+    if (!currentPass) {
+      setPassError("Please enter your current password.");
+      return;
+    }
 
-  if (!newPass) {
-    setPassError("Please enter a new password.");
-    return;
-  }
+    if (!newPass) {
+      setPassError("Please enter a new password.");
+      return;
+    }
 
-  if (!isPasswordStrong(newPass)) {
-    setPassError("Password does not meet all the requirements below.");
-    return;
-  }
+    if (!isPasswordStrong(newPass)) {
+      setPassError("Password does not meet all the requirements below.");
+      return;
+    }
 
-  if (newPass !== confirmPass) {
-    setPassError("Passwords do not match.");
-    return;
-  }
+    if (newPass !== confirmPass) {
+      setPassError("Passwords do not match.");
+      return;
+    }
 
-  setPassLoading(true);
+    setPassLoading(true);
 
-  try {
-    await changePassword(
-      currentPass,
-      newPass,
-      "students",
-      user.uid
-    );
+    try {
+      await changePassword(
+        currentPass,
+        newPass,
+        "students",
+        user.uid
+      );
 
-    // ✅ FIXED: Show success modal instead of logging out immediately
-    setShowPassSuccess(true);
+      setShowPassSuccess(true);
 
-  } catch (err) {
-    setPassError(err.message || "Failed to change password.");
-  } finally {
-    setPassLoading(false);
-  }
-};
+    } catch (err) {
+      setPassError(err.message || "Failed to change password.");
+    } finally {
+      setPassLoading(false);
+    }
+  };
 
   const handleReportSubmit = (report) => {
     console.log("Report submitted:", report);
@@ -729,7 +813,7 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
     if (activeNav !== "application") setPendingApplicationId(null);
   }, [activeNav]);
 
- const renderContent = () => {
+  const renderContent = () => {
     if (activeNav === "dashboard") {
       return (
         <DashboardContent
@@ -813,7 +897,7 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
         {/* ── Top Navbar ── */}
         <div style={{
           height: "70px", flexShrink: 0, zIndex: 100,
-          background: `linear-gradient(90deg, ${red} 0%, ${darkRed} 100%)`,
+          background: `linear-gradient(90deg, ${ink} 0%, ${inkDeep} 100%)`,
           display: "flex", alignItems: "center", justifyContent: "space-between",
           padding: "0 16px", boxShadow: "0 2px 12px rgba(0,0,0,0.25)",
         }}>
@@ -824,14 +908,14 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
               </button>
             )}
             <button onClick={() => navigate("dashboard")} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: "10px", padding: "0", flexShrink: 0 }}>
-              <img src={logo} alt="OJTern" style={{ width: "46px", height: "46px", objectFit: "contain", flexShrink: 0 }} />
-              <span style={{ fontFamily: "'Monomaniac One', sans-serif", fontSize: "clamp(1.1rem, 3vw, 1.5rem)", color: "white", letterSpacing: "0.03em", flexShrink: 0 }}>
+              <img src={logo} alt="OJTern" style={{ width: "40px", height: "40px", objectFit: "contain", flexShrink: 0 }} />
+              <span style={{ fontFamily: logoFont, fontSize: "clamp(1.1rem, 3vw, 1.5rem)", color: paper, letterSpacing: "0.03em", flexShrink: 0 }}>
                 OJTern
               </span>
             </button>
             {isMobile && (
               <span style={{
-                fontFamily: "'Jersey 25', sans-serif", fontSize: "1rem", color: "rgba(255,255,255,0.75)", marginLeft: "4px",
+                fontFamily: uiFont, fontWeight: 500, fontSize: "0.9rem", color: "rgba(255,255,255,0.7)", marginLeft: "4px",
                 whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0,
               }}>
                 / {currentLabel}
@@ -840,17 +924,17 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: "4px", flexShrink: 0 }}>
             <div style={{ position: "relative" }}>
-              <div style={{ cursor: "pointer", padding: "8px", position: "relative" }} onClick={handleToggleNotifDropdown}>
-                <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <div className="topbar-icon-btn" style={{ cursor: "pointer", padding: "8px", position: "relative" }} onClick={handleToggleNotifDropdown}>
+                <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
                   <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
                 </svg>
                 {unreadCount > 0 && (
                   <span style={{
                     position: "absolute", top: "4px", right: "4px",
-                    background: "#e63946", color: "white", borderRadius: "50%",
+                    background: paper, color: ink, borderRadius: "50%",
                     minWidth: "16px", height: "16px", fontSize: "0.65rem",
-                    fontFamily: "'Kufam', sans-serif", fontWeight: "bold",
+                    fontFamily: uiFont, fontWeight: "bold",
                     display: "flex", alignItems: "center", justifyContent: "center",
                     padding: "0 3px", lineHeight: 1,
                   }}>
@@ -861,51 +945,62 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
 
               {showNotifDropdown && (
                 <>
-                  <div style={{ position: "fixed", inset: 0, zIndex: 40 }} onClick={() => setShowNotifDropdown(false)} />
+                  <div style={{ position: "fixed", inset: 0, zIndex: 998 }} onClick={() => setShowNotifDropdown(false)} />
                   <div style={{
-                    position: "absolute", top: "48px", right: 0, width: "320px", maxHeight: "400px",
-                    overflowY: "auto", background: "white", border: `1px solid ${darkRed}`,
-                    borderRadius: "10px", boxShadow: "0 8px 24px rgba(0,0,0,0.18)", zIndex: 50,
+                    position: "absolute", top: "50px", right: 0, width: "340px", maxWidth: "88vw",
+                    background: paper, borderRadius: "16px", overflow: "hidden",
+                    boxShadow: "0 12px 32px rgba(0,0,0,0.28)", border: `1px solid ${hairline}`, zIndex: 999,
                   }}>
-                    <div style={{ padding: "12px 14px", borderBottom: "1px solid #eee", fontFamily: "'Jersey 25', sans-serif", fontSize: "1.05rem", color: darkRed }}>
-                      Notifications
+                    <div style={{ padding: "16px 18px 12px", background: paper }}>
+                      <span style={{ fontFamily: uiFont, fontWeight: 700, fontSize: "1.05rem", color: inkText }}>
+                        Notifications
+                      </span>
                     </div>
-                    {notifications.length === 0 ? (
-                      <div style={{ padding: "24px 14px", textAlign: "center", fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", color: "#888" }}>
-                        No notifications yet.
-                      </div>
-                    ) : (
-                      notifications.map(n => (
-                        <div
-                          key={n.id}
-                          onClick={() => {
-                            setShowNotifDropdown(false);
-                            if (n.applicationId) navigate("application", n.applicationId);
-                            if (!n.read) {
-                              updateDoc(doc(db, "notifications", n.id), { read: true }).catch(err =>
-                                console.error("Failed to mark notification as read:", err)
-                              );
-                            }
-                          }}
-                          style={{
-                            padding: "10px 14px", borderBottom: "1px solid #f2f2f2",
-                            background: n.read ? "white" : "#fff5f5",
-                            fontFamily: "'Kufam', sans-serif",
-                            cursor: n.applicationId ? "pointer" : "default",
-                          }}
-                        >
-                          <p style={{ margin: 0, fontSize: "0.82rem", color: "#333", lineHeight: 1.4 }}>{n.message}</p>
-                          <p style={{ margin: "4px 0 0", fontSize: "0.68rem", color: "#999" }}>{formatNotifTime(n.createdAt)}</p>
+                    <div style={{ maxHeight: "380px", overflowY: "auto" }}>
+                      {notifications.length === 0 ? (
+                        <div style={{ padding: "28px 16px", textAlign: "center" }}>
+                          <span style={{ fontFamily: uiFont, fontSize: "0.85rem", color: inkMuted }}>
+                            No notifications yet.
+                          </span>
                         </div>
-                      ))
-                    )}
+                      ) : (
+                        notifications.map(n => (
+                          <div
+                            key={n.id}
+                            className="notif-row"
+                            onClick={() => {
+                              setShowNotifDropdown(false);
+                              if (n.applicationId) navigate("application", n.applicationId);
+                              if (!n.read) {
+                                updateDoc(doc(db, "notifications", n.id), { read: true }).catch(err =>
+                                  console.error("Failed to mark notification as read:", err)
+                                );
+                              }
+                            }}
+                            style={{
+                              padding: "14px 18px",
+                              borderTop: `1px solid ${hairline}`,
+                              cursor: n.applicationId ? "pointer" : "default",
+                              background: n.read ? paper : "#F2F2F2",
+                            }}
+                          >
+                            <p style={{ fontFamily: uiFont, fontSize: "0.85rem", fontWeight: 500, color: inkText, lineHeight: 1.4, marginBottom: "5px" }}>
+                              {n.message}
+                            </p>
+                            <p style={{ fontFamily: uiFont, fontSize: "0.75rem", color: inkMuted }}>
+                              {formatNotifTime(n.createdAt)}
+                            </p>
+                          </div>
+                        ))
+                      )}
+                    </div>
                   </div>
                 </>
               )}
             </div>
 
-            <div style={{ cursor: "pointer", padding: "8px" }} onClick={() => navigate("about")} title="About">
-              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <div className="topbar-icon-btn" style={{ cursor: "pointer", padding: "8px" }} onClick={() => navigate("about")} title="About">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="12" cy="12" r="9"/>
                 <path d="M12 8h.01"/>
                 <path d="M11 12h1v4h1"/>
@@ -930,13 +1025,13 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
               <div className={`ssidebar-overlay ${drawerOpen ? "open" : ""}`} onClick={() => setDrawerOpen(false)} />
               <div className={`ssidebar-drawer ${drawerOpen ? "open" : ""}`}>
                 <button onClick={() => { navigate("dashboard"); setDrawerOpen(false); }} style={{
-                  background: `linear-gradient(90deg, ${red} 0%, ${darkRed} 100%)`,
+                  background: `linear-gradient(90deg, ${ink} 0%, ${inkDeep} 100%)`,
                   padding: "14px 20px", flexShrink: 0,
                   display: "flex", alignItems: "center", gap: "10px",
                   border: "none", cursor: "pointer", width: "100%", justifyContent: "flex-start",
                 }}>
-                  <img src={logo} alt="OJTern" style={{ width: "36px", height: "36px", objectFit: "contain" }} />
-                  <span style={{ fontFamily: "'Monomaniac One', sans-serif", fontSize: "1.2rem", color: "white" }}>OJTern</span>
+                  <img src={logo} alt="OJTern" style={{ width: "32px", height: "32px", objectFit: "contain" }} />
+                  <span style={{ fontFamily: logoFont, fontSize: "1.2rem", color: paper }}>OJTern</span>
                 </button>
                 <SidebarNavList activeNav={activeNav} onNavigate={navigate} onLogout={handleLogoutClick} unreadMessages={unreadMessages} />
               </div>
@@ -957,7 +1052,7 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
           padding: "16px",
         }}>
           <div style={{
-            background: "white", borderRadius: "20px",
+            background: paper, borderRadius: "20px",
             padding: "36px 32px", width: "clamp(280px, 85vw, 380px)",
             display: "flex", flexDirection: "column", alignItems: "center",
             gap: "12px", boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
@@ -973,22 +1068,22 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
               </svg>
             </div>
             <p style={{
-              fontFamily: "'Kufam', sans-serif", fontWeight: 700,
-              fontSize: "1.15rem", color: "#1a1a1a", margin: 0, textAlign: "center",
+              fontFamily: uiFont, fontWeight: 700,
+              fontSize: "1.15rem", color: inkText, margin: 0, textAlign: "center",
             }}>Password Changed!</p>
             <p style={{
-              fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem",
-              color: "#666", margin: 0, textAlign: "center", lineHeight: 1.5,
+              fontFamily: uiFont, fontSize: "0.9rem",
+              color: inkMuted, margin: 0, textAlign: "center", lineHeight: 1.5,
             }}>Your password has been updated successfully. Please log in again with your new password.</p>
             <button onClick={() => {
               setShowPassSuccess(false);
               onLogout();
-            }} style={{
+            }} className="pill-btn" style={{
               width: "100%", padding: "12px", borderRadius: "30px",
-              border: "none", background: "#590101",
-              fontFamily: "'Kufam', sans-serif", fontWeight: 700,
-              fontSize: "0.95rem", cursor: "pointer", color: "white",
-              boxShadow: "0 3px 10px rgba(89,1,1,0.3)", marginTop: "8px",
+              border: "none", background: ink,
+              fontFamily: uiFont, fontWeight: 700,
+              fontSize: "0.95rem", cursor: "pointer", color: paper,
+              boxShadow: "0 3px 10px rgba(0,0,0,0.5)", marginTop: "8px",
             }}>Done</button>
           </div>
         </div>
@@ -1003,17 +1098,17 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
           padding: "1rem",
         }}>
           <div style={{
-            background: "white", borderRadius: "24px",
-            border: "2px solid #1a1a1a", overflow: "hidden",
+            background: paper, borderRadius: "24px",
+            border: `2px solid ${ink}`, overflow: "hidden",
             width: "100%", maxWidth: "370px", boxShadow: "0 8px 32px rgba(0,0,0,0.3)",
           }}>
-            <div style={{ background: "#8B0000", padding: "14px", textAlign: "center" }}>
-              <span style={{ fontFamily: "'Jua', sans-serif", fontSize: "1.3rem", color: "white", letterSpacing: "0.1em", textTransform: "uppercase" }}>
-                Set New Password!
+            <div style={{ background: ink, padding: "14px", textAlign: "center" }}>
+              <span style={{ fontFamily: uiFont, fontWeight: 700, fontSize: "1.15rem", color: paper, letterSpacing: "0.02em" }}>
+                Set New Password
               </span>
             </div>
             <div style={{ padding: "20px 24px 28px" }}>
-              <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#555", textAlign: "center", marginBottom: "16px", lineHeight: 1.6 }}>
+              <p style={{ fontFamily: uiFont, fontSize: "0.85rem", color: inkMuted, textAlign: "center", marginBottom: "16px", lineHeight: 1.6 }}>
                 For your security, please change your password before continuing.
               </p>
               <div style={{ position: "relative", marginBottom: "10px" }}>
@@ -1029,12 +1124,12 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
                   style={{
                     width: "100%",
                     padding: "10px 44px 10px 16px",
-                    background: "#590101",
-                    border: passError ? "1.5px solid red" : "none",
+                    background: ink,
+                    border: passError ? `1.5px solid ${color.danger}` : "none",
                     borderRadius: "20px",
-                    color: "white",
+                    color: paper,
                     fontSize: "0.88rem",
-                    fontFamily: "'Kufam', sans-serif",
+                    fontFamily: uiFont,
                     outline: "none",
                     boxSizing: "border-box",
                   }}
@@ -1052,7 +1147,7 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
                   value={newPass}
                   onChange={e => { setNewPass(e.target.value); setPassError(""); }}
                   onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); handleChangePassword(); } }}
-                  style={{ width: "100%", padding: "10px 44px 10px 16px", background: "#590101", border: passError ? "1.5px solid red" : "none", borderRadius: "20px", color: "white", fontSize: "0.88rem", fontFamily: "'Kufam', sans-serif", outline: "none", boxSizing: "border-box" }}
+                  style={{ width: "100%", padding: "10px 44px 10px 16px", background: ink, border: passError ? `1.5px solid ${color.danger}` : "none", borderRadius: "20px", color: paper, fontSize: "0.88rem", fontFamily: uiFont, outline: "none", boxSizing: "border-box" }}
                 />
                 <span onClick={() => setShowNew(p => !p)} style={{ position: "absolute", right: "14px", top: "50%", transform: "translateY(-50%)", cursor: "pointer" }}>
                   <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -1070,7 +1165,7 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
                   value={confirmPass}
                   onChange={e => { setConfirmPass(e.target.value); setPassError(""); }}
                   onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); handleChangePassword(); } }}
-                  style={{ width: "100%", padding: "10px 44px 10px 16px", background: "#590101", border: passError ? "1.5px solid red" : "none", borderRadius: "20px", color: "white", fontSize: "0.88rem", fontFamily: "'Kufam', sans-serif", outline: "none", boxSizing: "border-box" }}
+                  style={{ width: "100%", padding: "10px 44px 10px 16px", background: ink, border: passError ? `1.5px solid ${color.danger}` : "none", borderRadius: "20px", color: paper, fontSize: "0.88rem", fontFamily: uiFont, outline: "none", boxSizing: "border-box" }}
                 />
                 <span onClick={() => setShowConfirm(p => !p)} style={{ position: "absolute", right: "14px", top: "50%", transform: "translateY(-50%)", cursor: "pointer" }}>
                   <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -1079,14 +1174,15 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
                 </span>
               </div>
               {passError && (
-                <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.78rem", color: "red", margin: "4px 0 8px 4px" }}>⚠️ {passError}</p>
+                <p style={{ fontFamily: uiFont, fontSize: "0.78rem", color: color.danger, margin: "4px 0 8px 4px" }}>⚠️ {passError}</p>
               )}
-              <hr style={{ border: "none", borderTop: "1.5px solid #ddd", margin: "16px 0" }} />
+              <hr style={{ border: "none", borderTop: `1.5px solid ${hairline}`, margin: "16px 0" }} />
               <div style={{ textAlign: "center" }}>
                 <button
                   onClick={handleChangePassword}
                   disabled={passLoading}
-                  style={{ background: "#320000", color: "white", border: "none", borderRadius: "24px", padding: "12px 48px", fontFamily: "'Jua', sans-serif", fontSize: "1.1rem", letterSpacing: "0.08em", textTransform: "uppercase", cursor: passLoading ? "not-allowed" : "pointer", opacity: passLoading ? 0.7 : 1 }}
+                  className="pill-btn"
+                  style={{ background: ink, color: paper, border: "none", borderRadius: "24px", padding: "12px 48px", fontFamily: uiFont, fontWeight: 700, fontSize: "1.05rem", letterSpacing: "0.02em", cursor: passLoading ? "not-allowed" : "pointer", opacity: passLoading ? 0.7 : 1 }}
                 >
                   {passLoading ? "Saving…" : "Continue"}
                 </button>

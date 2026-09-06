@@ -5,6 +5,7 @@ import { collection, query, where, orderBy, limit, onSnapshot, doc, getDoc, setD
 import { db } from "./firebase";
 import { PersonalInfoScreen, ResponsiveStyles } from "./CoordinatorAccountProfileScreen";
 import { useUnreadCount } from "./useChat";
+import { color, font, ease } from "./theme";
 
 import CoordinatorStudentsAcccountScreen      from "./CoordinatorStudentsAcccountScreen";
 import CoordinatorStudentListScreen from "./CoordinatorStudentListScreen";
@@ -29,8 +30,29 @@ import accountProfileIcon   from "../icons/accountprofile.png";
 import aboutIcon            from "../icons/about.png";
 
 // ── Design tokens ──────────────────────────────────────────────────────────────
-const red     = "#8B0000";
-const darkRed = "#590101";
+// Pulled straight from theme.js so this screen shares the app's palette.
+// Three-tier system per the current visual direction:
+//   · "ink"  (near-black)   — the strongest panels: top bar, section headers,
+//                              the active nav item, primary buttons.
+//   · "steel" (#898989)     — the mid panels: hover states, secondary stat
+//                              boxes, list-row backgrounds.
+//   · "paper" (white family) — everything else: page background, cards.
+const ink       = color.blush50;   // #000000 — was the #8B0000 "red" accent
+const inkSoft   = color.blush200;  // #1F1F1F — gradient / hover partner for ink
+const inkDeep   = color.blush100;  // #161616 — was the #590101 "dark red"
+const steel     = "#898989";       // mid-tone panels & hover states
+const steelSoft = "rgba(137,137,137,0.35)";
+const paper     = color.white;     // #FFFFFF
+const paperTint = color.wine900;   // #FAFAFA
+const paperCard = color.wine800;   // #F2F2F2
+const hairline  = color.wine700;   // #EAEAEA
+const inkText  = color.ink;        // #141414 body text on light panels
+const inkMuted = color.inkMuted;   // #767676
+
+// Every screen uses one UI face — Inter — per theme.js; Monomaniac One is
+// reserved for the "OJTern" wordmark only, never for interface text.
+const uiFont   = font.ui;
+const logoFont = font.logo;
 
 // ── Password strength requirements (mirrors CoordinatorAccountProfileScreen) ───
 const PASSWORD_RULES = [
@@ -50,12 +72,15 @@ const PasswordChecklist = ({ password }) => {
     <div style={{ display: "flex", flexDirection: "column", gap: "3px", margin: "2px 0 12px 2px" }}>
       {PASSWORD_RULES.map(rule => {
         const passed = rule.test(password);
+        // Pass/fail state is functional, not brand styling, so it keeps its
+        // own semantic colors (theme.color.success / theme.color.danger)
+        // rather than the ink/steel/paper panel system.
         return (
           <div key={rule.key} style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-            <span style={{ fontSize: "0.78rem", fontWeight: 700, color: passed ? "#2a7a2a" : "#c0392b", width: "12px", flexShrink: 0 }}>
+            <span style={{ fontSize: "0.78rem", fontWeight: 700, color: passed ? color.success : color.danger, width: "12px", flexShrink: 0 }}>
               {passed ? "✓" : "✗"}
             </span>
-            <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.74rem", color: passed ? "#2a7a2a" : "#888" }}>
+            <span style={{ fontFamily: uiFont, fontSize: "0.74rem", color: passed ? color.success : inkMuted }}>
               {rule.label}
             </span>
           </div>
@@ -124,45 +149,93 @@ const useBreakpoint = () => {
 // ── Global styles ──────────────────────────────────────────────────────────────
 const FontImport = () => (
   <style>{`
-    @import url('https://fonts.googleapis.com/css2?family=Jersey+25&family=Jua&family=Kufam:wght@400;600;700&family=Monomaniac+One&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Monomaniac+One&display=swap');
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     ::-webkit-scrollbar { width: 4px; }
-    ::-webkit-scrollbar-thumb { background: #8B0000; border-radius: 4px; }
-    ::-webkit-scrollbar-track { background: #f0f0f0; }
+    ::-webkit-scrollbar-thumb { background: ${steel}; border-radius: 4px; transition: background 0.2s ${ease}; }
+    ::-webkit-scrollbar-thumb:hover { background: ${ink}; }
+    ::-webkit-scrollbar-track { background: ${paperCard}; }
 
+    /* Pill-shaped, sits off the edges with real depth on hover/press so it
+       reads as a button rather than a static row. Icons stay full opacity
+       always — dimming them to indicate "inactive" is what made the whole
+       rail look disabled. */
     .nav-item {
       position: relative;
-      transition: background 0.18s ease, transform 0.12s ease;
+      margin: 4px 12px;
+      padding-left: 4px;
+      border-radius: 14px;
+      transition: background 0.18s ${ease}, box-shadow 0.18s ${ease}, transform 0.1s ${ease};
     }
     .nav-item::before {
       content: "";
-      position: absolute; left: 0; top: 8px; bottom: 8px; width: 4px;
-      border-radius: 0 4px 4px 0; background: #888;
-      transform: scaleY(0); transform-origin: center;
-      transition: transform 0.2s ease;
+      position: absolute;
+      left: -12px; top: 50%;
+      width: 3px; height: 0;
+      background: ${ink};
+      border-radius: 0 3px 3px 0;
+      transform: translateY(-50%);
+      transition: height 0.18s ${ease};
     }
-    .nav-item:hover  { background: rgba(150,150,150,0.35); }
-    .nav-item.active { background: rgba(150,150,150,0.55); }
-    .nav-item.active::before { transform: scaleY(1); }
+    .nav-item:hover {
+      background: ${paperCard};
+    }
+    .nav-item.active {
+      background: ${ink};
+      box-shadow: 0 6px 16px rgba(20,20,20,0.18);
+    }
+    .nav-item.active::before {
+      height: 22px;
+    }
     .nav-item:active { transform: scale(0.98); }
     .nav-item .nav-icon,
-    .nav-item .nav-label { transition: opacity 0.18s ease; }
-    .nav-item:hover .nav-icon,
-    .nav-item:hover .nav-label { opacity: 1 !important; }
+    .nav-item .nav-label { transition: color 0.16s ${ease}; }
+    .nav-item.active .nav-label {
+      color: ${paper} !important;
+      font-weight: 600 !important;
+      letter-spacing: 0.01em;
+    }
 
-    .nav-logout { transition: background 0.18s ease, transform 0.12s ease; }
-    .nav-logout:hover  { background: rgba(150,150,150,0.35); }
+    .nav-logout {
+      margin: 4px 12px 14px;
+      padding-left: 4px;
+      border-radius: 14px;
+      transition: background 0.18s ${ease}, transform 0.1s ${ease};
+    }
+    .nav-logout:hover  { background: ${paperCard}; }
     .nav-logout:active { transform: scale(0.98); }
 
-    @keyframes badgePop {
-      0%   { transform: scale(0.5); opacity: 0; }
-      70%  { transform: scale(1.15); opacity: 1; }
-      100% { transform: scale(1); }
+    .nav-badge {
+      animation: badgePop 0.25s ${ease};
+      box-shadow: 0 2px 6px rgba(20,20,20,0.25);
     }
-    .nav-badge { animation: badgePop 0.25s ease; }
 
-    .company-row { transition: background 0.15s; cursor: pointer; }
-    .company-row:hover { background: #c8c8c8 !important; }
+
+    /* Cards get a resting inset shadow — matches the Welcome banner's
+       treatment — so the container reads as a recessed panel, plus a quiet
+       lift with an outer shadow on hover. */
+    .dash-card {
+      transition: transform 0.2s ${ease}, box-shadow 0.2s ${ease};
+      box-shadow: inset 0 2px 8px rgba(0,0,0,0.10);
+    }
+    .dash-card:hover { transform: translateY(-3px); box-shadow: inset 0 2px 8px rgba(0,0,0,0.10), 0 10px 28px rgba(20,20,20,0.10); }
+
+    .stat-view-btn { transition: transform 0.18s ${ease}, filter 0.18s ${ease}; }
+    .stat-view-btn:hover { transform: scale(1.08); }
+
+    .topbar-icon-btn { transition: background 0.18s ${ease}, transform 0.12s ${ease}; border-radius: 999px; }
+    .topbar-icon-btn:hover { background: rgba(255,255,255,0.14); }
+    .topbar-icon-btn:active { transform: scale(0.94); }
+
+    .pill-btn { transition: filter 0.18s ${ease}, transform 0.12s ${ease}, box-shadow 0.18s ${ease}; }
+    .pill-btn:hover { filter: brightness(1.25); }
+    .pill-btn:active { transform: scale(0.97); }
+
+    .notif-row { transition: background 0.15s ${ease}; }
+    .notif-row:hover { background: ${paperCard}; }
+
+    .company-row { transition: background 0.15s ${ease}; }
+    .company-row:hover { background: ${hairline} !important; }
 
     /* ── Slide-in drawer (mobile / tablet) ── */
     .sidebar-drawer {
@@ -170,7 +243,7 @@ const FontImport = () => (
       height: 100%; width: 260px; z-index: 200;
       transform: translateX(-100%);
       transition: transform 0.28s cubic-bezier(.4,0,.2,1);
-      background: #e0e0e0; border-right: 1px solid #ccc;
+      background: ${paper}; border-right: 1px solid ${hairline};
       overflow-y: auto; display: flex; flex-direction: column;
     }
     .sidebar-drawer.open { transform: translateX(0); }
@@ -178,6 +251,7 @@ const FontImport = () => (
     .sidebar-overlay {
       display: none; position: fixed; inset: 0;
       background: rgba(0,0,0,0.35); z-index: 199;
+      transition: opacity 0.2s ${ease};
     }
     .sidebar-overlay.open { display: block; }
 
@@ -204,41 +278,52 @@ const FontImport = () => (
       .stats-inner { flex-direction: column; min-height: unset; }
     }
 
+    @keyframes welcomeIn {
+      0%   { opacity: 0; transform: translateY(14px); }
+      100% { opacity: 1; transform: translateY(0); }
+    }
+    .welcome-animate {
+      animation: welcomeIn 0.5s cubic-bezier(.16,1,.3,1);
+    }
+
     /* ── Fluid welcome heading ── */
     .welcome-heading {
-      font-family: 'Jersey 25', sans-serif;
-      font-size: clamp(2.2rem, 6vw, 5.5rem);
-      color: #590101;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-      margin-bottom: -6px;
+      font-family: ${uiFont};
+      font-weight: 600;
+      font-size: clamp(1.9rem, 5vw, 3.4rem);
+      color: ${ink};
+      letter-spacing: -0.02em;
+      margin-bottom: 4px;
     }
     .welcome-sub {
-      font-family: 'Kufam', sans-serif;
-      font-size: clamp(0.95rem, 2.5vw, 1.5rem);
-      color: #590101;
+      font-family: ${uiFont};
+      font-weight: 400;
+      font-size: clamp(0.9rem, 2.2vw, 1.15rem);
+      color: ${inkMuted};
     }
 
     /* ── Card section header ── */
+    /* Left accent bar makes the title read as its own section instead of
+       blending into the card body, which shares the same background. */
     .card-header {
-      background: #590101;
-      padding: 10px 16px;
-      border-radius: 14px 14px 0 0;
+      padding: 14px 18px 12px 15px;
+      border-bottom: 3px solid ${hairline};
     }
     .card-header span {
-      font-family: 'Kufam', sans-serif;
-      font-weight: bold;
-      font-size: clamp(0.82rem, 2vw, 1rem);
-      color: white;
+      font-family: ${uiFont};
+      font-weight: 600;
+      font-size: clamp(0.85rem, 2vw, 0.98rem);
+      color: ${inkText};
+      letter-spacing: -0.01em;
     }
 
     /* ── Desktop static sidebar ── */
     @media (min-width: 1024px) {
       .sidebar-static {
         width: 260px; flex-shrink: 0;
-        background: #e0e0e0;
+        background: ${paper};
         display: flex; flex-direction: column;
-        overflow-y: auto; border-right: 1px solid #ccc;
+        overflow-y: auto; border-right: 1px solid ${hairline};
       }
     }
 
@@ -247,16 +332,18 @@ const FontImport = () => (
       background: none; border: none; cursor: pointer;
       padding: 6px; display: flex; flex-direction: column; gap: 5px;
       -webkit-tap-highlight-color: transparent;
+      border-radius: 999px; transition: background 0.18s ${ease};
     }
+    .hamburger-btn:hover { background: rgba(255,255,255,0.14); }
     .hamburger-btn span {
       display: block; width: 24px; height: 2px;
-      background: white; border-radius: 2px; transition: all 0.2s;
+      background: white; border-radius: 2px; transition: all 0.2s ${ease};
     }
 
     /* ── Main content area ── */
     .main-content {
       flex: 1; display: flex; flex-direction: column;
-      overflow-y: auto; background: #f5f5f5; min-width: 0;
+      overflow-y: auto; background: ${paperTint}; min-width: 0;
     }
   `}</style>
 );
@@ -285,8 +372,15 @@ const getNavKeyFromPath = (pathname) => {
 };
 
 // ── Shared sub-components ──────────────────────────────────────────────────────
+// Box shadow added so the icon itself reads as a raised chip against the
+// row background, instead of sitting flush/flat with no visible edge.
 const CompanyAvatar = ({ size = 38 }) => (
-  <div style={{ width: size, height: size, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+  <div style={{
+    width: size, height: size, flexShrink: 0, borderRadius: "50%",
+    display: "flex", alignItems: "center", justifyContent: "center",
+    background: paper,
+    boxShadow: "0 1px 3px rgba(20,20,20,0.18), 0 1px 2px rgba(20,20,20,0.10)",
+  }}>
     <img src={companyProfileIcon} alt="company" style={{ width: size, height: size, objectFit: "contain" }} />
   </div>
 );
@@ -298,7 +392,7 @@ const EmptyListPlaceholder = ({ label = "No data available" }) => (
     alignItems: "center", justifyContent: "center",
     gap: "8px", padding: "20px",
   }}>
-    <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.95rem", color: "#aaa", textAlign: "center" }}>
+    <span style={{ fontFamily: uiFont, fontSize: "0.95rem", color: inkMuted, textAlign: "center" }}>
       {label}
     </span>
   </div>
@@ -307,54 +401,66 @@ const EmptyListPlaceholder = ({ label = "No data available" }) => (
 // ── Sidebar nav list (reused in static & drawer) ───────────────────────────────
 const SidebarNav = ({ activeNav, onNavigate, onLogout, unreadMessages = 0 }) => (
   <>
-    {navItems.map((item) => (
-      <div
-        key={item.key}
-        className={`nav-item ${activeNav === item.key ? "active" : ""}`}
-        onClick={() => onNavigate(item.key)}
-        style={{
-          display: "flex", alignItems: "center", gap: "14px",
-          padding: "15px 20px", cursor: "pointer",
-          borderBottom: "1px solid #ccc", minHeight: "56px",
-        }}
-      >
-        <img src={item.icon} alt={item.label} className="nav-icon"
-          style={{ width: "30px", height: "30px", objectFit: "contain", flexShrink: 0, opacity: activeNav === item.key ? 1 : 0.85, transition: "opacity 0.18s ease" }} />
-        <span className="nav-label" style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.3rem", opacity: activeNav === item.key ? 1 : 0.65, flex: 1, transition: "opacity 0.18s ease" }}>
-          {item.label}
-        </span>
-        {item.key === "messages" && unreadMessages > 0 && (
-          <span key={unreadMessages} className="nav-badge" style={{
-            background: "#8B0000", color: "white", borderRadius: "50%",
-            minWidth: "20px", height: "20px", padding: "0 5px",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            fontFamily: "'Kufam', sans-serif", fontSize: "0.72rem", fontWeight: 700,
-            flexShrink: 0,
-          }}>
-            {unreadMessages > 99 ? "99+" : unreadMessages}
+    <div style={{ padding: "6px 22px 10px", flexShrink: 0 }}> 
+      
+    </div>
+    {navItems.map((item) => {
+      const isActive = activeNav === item.key;
+      return (
+        <div
+          key={item.key}
+          className={`nav-item ${isActive ? "active" : ""}`}
+          onClick={() => onNavigate(item.key)}
+          style={{
+            display: "flex", alignItems: "center", gap: "14px",
+            padding: "12px 16px", cursor: "pointer", minHeight: "46px",
+          }}
+        >
+          <img
+            src={item.icon}
+            alt={item.label}
+            className="nav-icon"
+            style={{ width: "20px", height: "20px", objectFit: "contain", flexShrink: 0 }}
+          />
+          <span
+            className="nav-label"
+            style={{ fontFamily: uiFont, fontWeight: 500, fontSize: "0.9rem", color: inkText, flex: 1 }}
+          >
+            {item.label}
           </span>
-        )}
-      </div>
-    ))}
+          {item.key === "messages" && unreadMessages > 0 && (
+            <span key={unreadMessages} className="nav-badge" style={{
+              background: ink, color: paper, borderRadius: "50%",
+              minWidth: "19px", height: "19px", padding: "0 5px",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontFamily: uiFont, fontSize: "0.7rem", fontWeight: 700,
+              flexShrink: 0,
+            }}>
+              {unreadMessages > 99 ? "99+" : unreadMessages}
+            </span>
+          )}
+        </div>
+      );
+    })}
 
     {onLogout && (
       <>
         <div style={{ flex: 1 }} />
+        <hr style={{ border: "none", borderTop: `1px solid ${hairline}`, margin: "0 20px 8px" }} />
         <div
           className="nav-logout"
           onClick={onLogout}
           style={{
             display: "flex", alignItems: "center", gap: "14px",
-            padding: "15px 20px", cursor: "pointer",
-            minHeight: "56px", borderTop: "1px solid #ccc",
+            padding: "12px 16px", cursor: "pointer", minHeight: "46px",
           }}
         >
-          <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#8B0000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={ink} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
             <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
             <polyline points="16 17 21 12 16 7"/>
             <line x1="21" y1="12" x2="9" y2="12"/>
           </svg>
-          <span style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.3rem", color: "#8B0000" }}>
+          <span style={{ fontFamily: uiFont, fontWeight: 600, fontSize: "0.9rem", color: ink }}>
             Log Out
           </span>
         </div>
@@ -372,40 +478,41 @@ const LogoutConfirmModal = ({ onConfirm, onCancel }) => (
     padding: "16px",
   }}>
     <div style={{
-      background: "white", borderRadius: "20px",
+      background: paper, borderRadius: "20px",
       padding: "36px 32px", width: "clamp(280px, 85vw, 380px)",
       display: "flex", flexDirection: "column", alignItems: "center",
-      gap: "12px", boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
+      gap: "12px", boxShadow: "0 8px 32px rgba(0,0,0,0.25)",
     }}>
       <div style={{
         width: "64px", height: "64px", borderRadius: "50%",
-        background: "#fde8e8", display: "flex",
+        background: paperCard, display: "flex",
         alignItems: "center", justifyContent: "center", marginBottom: "4px",
       }}>
         <svg width="30" height="30" viewBox="0 0 24 24" fill="none"
-          stroke="#8B0000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          stroke={ink} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
           <polyline points="16 17 21 12 16 7"/>
           <line x1="21" y1="12" x2="9" y2="12"/>
         </svg>
       </div>
-      <p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "1.15rem", color: "#1a1a1a", margin: 0, textAlign: "center" }}>Log Out</p>
-      <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem", color: "#666", margin: 0, textAlign: "center", lineHeight: 1.5 }}>
+      <p style={{ fontFamily: uiFont, fontWeight: 600, fontSize: "1.15rem", color: inkText, margin: 0, textAlign: "center" }}>Log Out</p>
+      <p style={{ fontFamily: uiFont, fontSize: "0.9rem", color: inkMuted, margin: 0, textAlign: "center", lineHeight: 1.5 }}>
         Are you sure you want to log out of your account?
       </p>
       <div style={{ display: "flex", gap: "12px", width: "100%", marginTop: "8px" }}>
-        <button onClick={onCancel} style={{
+        <button onClick={onCancel} className="pill-btn" style={{
           flex: 1, padding: "12px", borderRadius: "30px",
-          border: "1.5px solid #ccc", background: "white",
-          fontFamily: "'Kufam', sans-serif", fontWeight: 600,
-          fontSize: "0.95rem", cursor: "pointer", color: "#555",
+          border: `1.5px solid ${hairline}`, background: paper,
+          fontFamily: uiFont, fontWeight: 600,
+          fontSize: "0.95rem", cursor: "pointer", color: inkMuted,
+          boxShadow: "0 3px 10px rgba(0,0,0,0.3)",
         }}>Cancel</button>
-        <button onClick={onConfirm} style={{
+        <button onClick={onConfirm} className="pill-btn" style={{
           flex: 1, padding: "12px", borderRadius: "30px",
-          border: "none", background: "#8B0000",
-          fontFamily: "'Kufam', sans-serif", fontWeight: 700,
-          fontSize: "0.95rem", cursor: "pointer", color: "white",
-          boxShadow: "0 3px 10px rgba(139,0,0,0.3)",
+          border: "none", background: ink,
+          fontFamily: uiFont, fontWeight: 700,
+          fontSize: "0.95rem", cursor: "pointer", color: paper,
+          boxShadow: "0 3px 10px rgba(0,0,0,0.5)",
         }}>Log Out</button>
       </div>
     </div>
@@ -419,24 +526,26 @@ const CompanyRow = ({ company, onView, mr = "0", showTime = false }) => (
     onClick={() => onView(company.id)}
     style={{
       display: "flex", alignItems: "center", justifyContent: "space-between",
-      background: "#d8d8d8", borderRadius: "8px",
+      background: paperCard, borderRadius: "8px",
       padding: "7px 10px", marginRight: mr,
     }}
   >
     <div style={{ display: "flex", alignItems: "center", gap: "8px", minWidth: 0 }}>
       <CompanyAvatar />
       <div style={{ minWidth: 0 }}>
-        <span style={{
-          fontFamily: "'Kufam', sans-serif",
-          fontSize: "clamp(0.75rem, 2vw, 0.82rem)",
-          color: "#333",
+        <span className="company-row-name" style={{
+          fontFamily: uiFont,
+          fontWeight: 500,
+          fontSize: "clamp(0.78rem, 2vw, 0.85rem)",
+          color: inkText,
           overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
           display: "block",
+          transition: `color 0.15s ${ease}`,
         }}>
           {company.name}
         </span>
         {showTime && company.visitedAt && (
-          <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.68rem", color: "#8B0000", fontWeight: 600 }}>
+          <span className="company-row-time" style={{ fontFamily: uiFont, fontSize: "0.68rem", color: steel, fontWeight: 600, transition: `color 0.15s ${ease}` }}>
             {timeAgo(company.visitedAt)}
           </span>
         )}
@@ -459,9 +568,9 @@ const CompanyRow = ({ company, onView, mr = "0", showTime = false }) => (
 // Label on top → coloured rounded box (155px) → big number or "—" centred →
 // view button overlapping the bottom-right corner of the box (responsive, no
 // hardcoded left/top pixel values).
-const StatCard = ({ label, value, bg = "rgba(0,0,0,0.15)", onView }) => (
+const StatCard = ({ label, value, bg = steel, onView }) => (
   <div style={{ flex: 1, background: "transparent", borderRadius: "12px", padding: "2px 16px", display: "flex", flexDirection: "column" }}>
-    <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "clamp(0.9rem, 1.8vw, 1.2rem)", color: "#000000", marginBottom: "12px" }}>
+    <p style={{ fontFamily: uiFont, fontWeight: 500, fontSize: "clamp(0.9rem, 1.8vw, 1.05rem)", color: inkText, marginBottom: "12px" }}>
       {label}
     </p>
     <div style={{ position: "relative", marginBottom: "35px" }}>
@@ -471,21 +580,22 @@ const StatCard = ({ label, value, bg = "rgba(0,0,0,0.15)", onView }) => (
         display: "flex", alignItems: "center", justifyContent: "center",
       }}>
         {value !== null ? (
-          <span style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(2.2rem, 5vw, 4rem)", color: "white" }}>
+          <span style={{ fontFamily: uiFont, fontWeight: 700, fontSize: "clamp(2rem, 4.5vw, 3.4rem)", color: paper }}>
             {value}
           </span>
         ) : (
-          <span style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "2rem", color: "rgba(255,255,255,0.4)" }}>
+          <span style={{ fontFamily: uiFont, fontWeight: 600, fontSize: "2rem", color: "rgba(255,255,255,0.4)" }}>
             —
           </span>
         )}
       </div>
       <div
+        className="stat-view-btn"
         onClick={onView}
         style={{
           position: "absolute",
-          bottom: "-30px", right: "-12px", 
-          width: "55px", height: "55px",  
+          bottom: "-30px", right: "-12px",
+          width: "55px", height: "55px",
           borderRadius: "50%",
           display: "flex", alignItems: "center", justifyContent: "center",
           cursor: "pointer", WebkitTapHighlightColor: "transparent",
@@ -580,41 +690,41 @@ const DashboardContent = ({ onNavigate, onViewCompany, onViewRegistered, coordin
 
       {/* Welcome banner */}
       <div style={{
-        background: "#e8e8e8", borderRadius: "18px",
+        background: paperCard, borderRadius: "18px",
         padding: "clamp(20px, 5vw, 30px) clamp(18px, 5vw, 40px)",
         marginBottom: "24px", textAlign: "center",
-        boxShadow: "inset 0 2px 8px rgba(0,0,0,0.07)",
+        boxShadow: "inset 0 2px 8px rgba(0,0,0,0.10)",
       }}>
-        <h1 className="welcome-heading">Welcome to OJTern</h1>
-        <p className="welcome-sub">Find the perfect OJT for you!</p>
+        <h1 className="welcome-heading welcome-animate">Welcome to OJTern</h1>
+        <p className="welcome-sub welcome-animate">Find the perfect OJT for you!</p>
       </div>
 
-      <hr style={{ border: "none", borderTop: "1.5px solid #ddd", marginBottom: "24px" }} />
+      <hr style={{ border: "none", borderTop: `1.5px solid ${hairline}`, marginBottom: "24px" }} />
 
       {/* Top grid: Students Stats + Recent Registered Company */}
       <div className="dash-top-grid">
 
         {/* Students Stats */}
-        <div style={{ background: "#e8e8e8", borderRadius: "14px", overflow: "visible", display: "flex", flexDirection: "column" }}>
-          <div className="card-header"><span>Students Stats</span></div>
+        <div className="dash-card" style={{ background: paperCard, borderRadius: "14px", overflow: "visible", display: "flex", flexDirection: "column" }}>
+          <div className="card-header"><span>Students Overview</span></div>
           <div className="stats-inner">
             <StatCard
               label="Total Students"
               value={totalStudents}
-              bg="rgba(0,0,0,0.15)"
+              bg={steel}
               onView={() => onNavigate("studentlist")}
             />
             <StatCard
               label="Accepted Students"
               value={acceptedStudents}
-              bg="rgba(89,1,1,0.35)"
+              bg={ink}
               onView={() => onNavigate("studentlist")}
             />
           </div>
         </div>
 
         {/* Recent Registered Company */}
-        <div style={{ background: "#e8e8e8", borderRadius: "14px", overflow: "hidden", display: "flex", flexDirection: "column" }}>
+        <div className="dash-card" style={{ background: paperCard, borderRadius: "14px", overflow: "hidden", display: "flex", flexDirection: "column" }}>
           <div className="card-header"><span>Recent Registered Company</span></div>
           <div style={{ padding: "10px 0 10px 12px", display: "flex", flexDirection: "column", gap: "6px", maxHeight: "240px", overflowY: "auto" }}>
             {recentRegistered.length > 0 ? (
@@ -629,7 +739,7 @@ const DashboardContent = ({ onNavigate, onViewCompany, onViewRegistered, coordin
       </div>
 
       {/* Recent Visited Company */}
-      <div style={{ background: "#e8e8e8", borderRadius: "14px", overflow: "hidden" }}>
+      <div className="dash-card" style={{ background: paperCard, borderRadius: "14px", overflow: "hidden" }}>
         <div className="card-header"><span>Recent Visited Company</span></div>
         <div style={{ padding: "10px 12px", display: "flex", flexDirection: "column", gap: "6px", maxHeight: "260px", overflowY: "auto" }}>
           {recentVisited.length > 0 ? (
@@ -1135,7 +1245,7 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
         {/* ── Top Navbar ── */}
         <div style={{
           height: "70px", flexShrink: 0, zIndex: 100,
-          background: `linear-gradient(90deg, ${red} 0%, ${darkRed} 100%)`,
+          background: `linear-gradient(90deg, ${ink} 0%, ${inkDeep} 100%)`,
           display: "flex", alignItems: "center", justifyContent: "space-between",
           padding: "0 16px", boxShadow: "0 2px 12px rgba(0,0,0,0.25)",
         }}>
@@ -1147,15 +1257,15 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
               </button>
             )}
             <button onClick={() => navigate("dashboard")} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: "10px", padding: "0", flexShrink: 0 }}>
-              <img src={logo} alt="OJTern" style={{ width: "46px", height: "46px", objectFit: "contain", flexShrink: 0 }} />
-              <span style={{ fontFamily: "'Monomaniac One', sans-serif", fontSize: "clamp(1.1rem, 3vw, 1.5rem)", color: "white", letterSpacing: "0.03em", flexShrink: 0 }}>
+              <img src={logo} alt="OJTern" style={{ width: "40px", height: "40px", objectFit: "contain", flexShrink: 0 }} />
+              <span style={{ fontFamily: logoFont, fontSize: "clamp(1.1rem, 3vw, 1.5rem)", color: paper, letterSpacing: "0.03em", flexShrink: 0 }}>
                 OJTern
               </span>
             </button>
             {/* Current page label — mobile only */}
             {isMobile && (
               <span style={{
-                fontFamily: "'Jersey 25', sans-serif", fontSize: "1rem", color: "rgba(255,255,255,0.75)", marginLeft: "4px",
+                fontFamily: uiFont, fontWeight: 500, fontSize: "0.9rem", color: "rgba(255,255,255,0.7)", marginLeft: "4px",
                 whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0,
               }}>
                 / {currentLabel}
@@ -1165,8 +1275,8 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
           <div style={{ display: "flex", alignItems: "center", gap: "4px", flexShrink: 0 }}>
             {/* Activity Log */}
             <div style={{ position: "relative" }}>
-              <div style={{ cursor: "pointer", padding: "8px" }} onClick={() => setShowActivityDropdown(prev => !prev)} title="Activity Log">
-                <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <div className="topbar-icon-btn" style={{ cursor: "pointer", padding: "8px" }} onClick={() => setShowActivityDropdown(prev => !prev)} title="Activity Log">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <circle cx="12" cy="12" r="9"/>
                   <path d="M12 7v5l3 3"/>
                 </svg>
@@ -1176,35 +1286,35 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
                   <div style={{ position: "fixed", inset: 0, zIndex: 40 }} onClick={() => setShowActivityDropdown(false)} />
                   <div style={(isMobile || isTablet) ? {
                     position: "fixed", top: "76px", left: "12px", right: "12px", maxHeight: "70vh",
-                    overflowY: "auto", background: "white", border: `1px solid ${darkRed}`,
+                    overflowY: "auto", background: paper, border: `1px solid ${ink}`,
                     borderRadius: "10px", boxShadow: "0 8px 24px rgba(0,0,0,0.18)", zIndex: 50,
                   } : {
                     position: "absolute", top: "48px", right: 0, width: "min(560px, 90vw)", maxHeight: "420px",
-                    overflowY: "auto", background: "white", border: `1px solid ${darkRed}`,
+                    overflowY: "auto", background: paper, border: `1px solid ${ink}`,
                     borderRadius: "10px", boxShadow: "0 8px 24px rgba(0,0,0,0.18)", zIndex: 50,
                   }}>
-                    <div style={{ padding: "12px 14px", borderBottom: "1px solid #eee", fontFamily: "'Jersey 25', sans-serif", fontSize: "1.05rem", color: darkRed, position: "sticky", top: 0, background: "white" }}>
+                    <div style={{ padding: "12px 14px", borderBottom: `1px solid ${hairline}`, fontFamily: uiFont, fontWeight: 600, fontSize: "1rem", color: ink, position: "sticky", top: 0, background: paper }}>
                       Activity Log
                     </div>
                     {visibleActivity.length === 0 ? (
-                      <div style={{ padding: "24px 14px", textAlign: "center", fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", color: "#888" }}>
+                      <div style={{ padding: "24px 14px", textAlign: "center", fontFamily: uiFont, fontSize: "0.82rem", color: inkMuted }}>
                         No recent activity yet.
                       </div>
                     ) : (
-                      <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: "'Kufam', sans-serif" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: uiFont }}>
                         <thead>
-                          <tr style={{ background: "#f5f5f5" }}>
-                            <th style={{ textAlign: "left", padding: "8px 12px", fontSize: "0.72rem", color: "#888", fontWeight: 600 }}>Activity</th>
-                            <th style={{ textAlign: "left", padding: "8px 12px", fontSize: "0.72rem", color: "#888", fontWeight: 600, whiteSpace: "nowrap" }}>Date</th>
-                            <th style={{ textAlign: "left", padding: "8px 12px", fontSize: "0.72rem", color: "#888", fontWeight: 600, whiteSpace: "nowrap" }}>Coordinator</th>
+                          <tr style={{ background: paperCard }}>
+                            <th style={{ textAlign: "left", padding: "8px 12px", fontSize: "0.72rem", color: inkMuted, fontWeight: 600 }}>Activity</th>
+                            <th style={{ textAlign: "left", padding: "8px 12px", fontSize: "0.72rem", color: inkMuted, fontWeight: 600, whiteSpace: "nowrap" }}>Date</th>
+                            <th style={{ textAlign: "left", padding: "8px 12px", fontSize: "0.72rem", color: inkMuted, fontWeight: 600, whiteSpace: "nowrap" }}>Coordinator</th>
                           </tr>
                         </thead>
                         <tbody>
                           {visibleActivity.map(entry => (
-                            <tr key={entry.id} style={{ borderTop: "1px solid #f2f2f2" }}>
-                              <td style={{ padding: "9px 12px", fontSize: "0.8rem", color: "#333" }}>{entry.description}</td>
-                              <td style={{ padding: "9px 12px", fontSize: "0.74rem", color: "#999", whiteSpace: "nowrap" }}>{formatActivityTime(entry.createdAt)}</td>
-                              <td style={{ padding: "9px 12px", fontSize: "0.78rem", color: "#555", whiteSpace: "nowrap" }}>{coordinatorNames[entry.coordinatorUid] || "Unknown"}</td>
+                            <tr key={entry.id} className="notif-row" style={{ borderTop: `1px solid ${hairline}` }}>
+                              <td style={{ padding: "9px 12px", fontSize: "0.8rem", color: inkText }}>{entry.description}</td>
+                              <td style={{ padding: "9px 12px", fontSize: "0.74rem", color: inkMuted, whiteSpace: "nowrap" }}>{formatActivityTime(entry.createdAt)}</td>
+                              <td style={{ padding: "9px 12px", fontSize: "0.78rem", color: steel, whiteSpace: "nowrap" }}>{coordinatorNames[entry.coordinatorUid] || "Unknown"}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -1217,17 +1327,17 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
 
             {/* Notifications */}
             <div style={{ position: "relative" }}>
-              <div style={{ cursor: "pointer", padding: "8px", position: "relative" }} onClick={handleToggleNotifDropdown}>
-                <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <div className="topbar-icon-btn" style={{ cursor: "pointer", padding: "8px", position: "relative" }} onClick={handleToggleNotifDropdown}>
+                <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
                   <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
                 </svg>
                 {unreadNotifCount > 0 && (
                   <span style={{
                     position: "absolute", top: "4px", right: "4px",
-                    background: "#e63946", color: "white", borderRadius: "50%",
+                    background: paper, color: ink, borderRadius: "50%",
                     minWidth: "16px", height: "16px", fontSize: "0.65rem",
-                    fontFamily: "'Kufam', sans-serif", fontWeight: "bold",
+                    fontFamily: uiFont, fontWeight: "bold",
                     display: "flex", alignItems: "center", justifyContent: "center",
                     padding: "0 3px", lineHeight: 1,
                   }}>
@@ -1240,29 +1350,30 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
                   <div style={{ position: "fixed", inset: 0, zIndex: 40 }} onClick={() => setShowNotifDropdown(false)} />
                   <div style={(isMobile || isTablet) ? {
                     position: "fixed", top: "76px", left: "12px", right: "12px", maxHeight: "70vh",
-                    overflowY: "auto", background: "white", border: `1px solid ${darkRed}`,
+                    overflowY: "auto", background: paper, border: `1px solid ${ink}`,
                     borderRadius: "10px", boxShadow: "0 8px 24px rgba(0,0,0,0.18)", zIndex: 50,
                   } : {
                     position: "absolute", top: "48px", right: 0, width: "320px", maxHeight: "400px",
-                    overflowY: "auto", background: "white", border: `1px solid ${darkRed}`,
+                    overflowY: "auto", background: paper, border: `1px solid ${ink}`,
                     borderRadius: "10px", boxShadow: "0 8px 24px rgba(0,0,0,0.18)", zIndex: 50,
                   }}>
-                    <div style={{ padding: "12px 14px", borderBottom: "1px solid #eee", fontFamily: "'Jersey 25', sans-serif", fontSize: "1.05rem", color: darkRed }}>
+                    <div style={{ padding: "12px 14px", borderBottom: `1px solid ${hairline}`, fontFamily: uiFont, fontWeight: 600, fontSize: "1rem", color: ink }}>
                       Notifications
                     </div>
                     {coordinatorNotifications.length === 0 ? (
-                      <div style={{ padding: "24px 14px", textAlign: "center", fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", color: "#888" }}>
+                      <div style={{ padding: "24px 14px", textAlign: "center", fontFamily: uiFont, fontSize: "0.82rem", color: inkMuted }}>
                         No notifications yet.
                       </div>
                     ) : (
                       coordinatorNotifications.map(n => (
                         <div
                           key={n.id}
+                          className="notif-row"
                           onClick={() => handleNotificationClick(n)}
-                          style={{ padding: "10px 14px", borderBottom: "1px solid #f2f2f2", fontFamily: "'Kufam', sans-serif", cursor: "pointer" }}
+                          style={{ padding: "10px 14px", borderBottom: `1px solid ${hairline}`, fontFamily: uiFont, cursor: "pointer" }}
                         >
-                          <p style={{ margin: 0, fontSize: "0.82rem", color: "#333", lineHeight: 1.4 }}>{n.message}</p>
-                          <p style={{ margin: "4px 0 0", fontSize: "0.68rem", color: "#999" }}>{formatActivityTime(n.createdAt)}</p>
+                          <p style={{ margin: 0, fontSize: "0.82rem", color: inkText, lineHeight: 1.4 }}>{n.message}</p>
+                          <p style={{ margin: "4px 0 0", fontSize: "0.68rem", color: inkMuted }}>{formatActivityTime(n.createdAt)}</p>
                         </div>
                       ))
                     )}
@@ -1272,8 +1383,8 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
             </div>
 
             {/* About */}
-            <div style={{ cursor: "pointer", padding: "8px" }} onClick={() => navigate("about")} title="About">
-              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <div className="topbar-icon-btn" style={{ cursor: "pointer", padding: "8px" }} onClick={() => navigate("about")} title="About">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="12" cy="12" r="9"/>
                 <path d="M12 8h.01"/>
                 <path d="M11 12h1v4h1"/>
@@ -1302,13 +1413,13 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
               <div className={`sidebar-drawer ${drawerOpen ? "open" : ""}`}>
                 {/* Drawer header */}
                 <button onClick={() => { navigate("dashboard"); setDrawerOpen(false); }} style={{
-                  background: `linear-gradient(90deg, ${red} 0%, ${darkRed} 100%)`,
+                  background: `linear-gradient(90deg, ${ink} 0%, ${inkDeep} 100%)`,
                   padding: "14px 20px", flexShrink: 0,
                   display: "flex", alignItems: "center", gap: "10px",
                   border: "none", cursor: "pointer", width: "100%", justifyContent: "flex-start",
                 }}>
-                  <img src={logo} alt="OJTern" style={{ width: "36px", height: "36px", objectFit: "contain" }} />
-                  <span style={{ fontFamily: "'Monomaniac One', sans-serif", fontSize: "1.2rem", color: "white" }}>OJTern</span>
+                  <img src={logo} alt="OJTern" style={{ width: "32px", height: "32px", objectFit: "contain" }} />
+                  <span style={{ fontFamily: logoFont, fontSize: "1.2rem", color: paper }}>OJTern</span>
                 </button>
                 <SidebarNav activeNav={activeNav} onNavigate={navigate} onLogout={handleLogoutClick} unreadMessages={unreadMessages} />
               </div>
@@ -1347,7 +1458,7 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
           <div style={{
             width: "100%", maxWidth: "520px",
             height: "85vh",
-            background: "#590101",
+            background: ink,
             borderRadius: "24px",
             overflow: "hidden",
             display: "flex", flexDirection: "column",
@@ -1372,9 +1483,9 @@ const ChangePasswordModal = ({ show, currentPass, setCurrentPass, newPass, setNe
   if (!show) return null;
 
   const inputStyle = (hasError) => ({
-    width: "100%", padding: "10px 44px 10px 16px", background: "#590101",
-    border: hasError ? "1.5px solid red" : "none", borderRadius: "20px",
-    color: "white", fontSize: "0.88rem", fontFamily: "'Kufam', sans-serif",
+    width: "100%", padding: "10px 44px 10px 16px", background: ink,
+    border: hasError ? `1.5px solid ${color.danger}` : "none", borderRadius: "20px",
+    color: paper, fontSize: "0.88rem", fontFamily: uiFont,
     outline: "none", boxSizing: "border-box",
   });
 
@@ -1388,17 +1499,17 @@ const ChangePasswordModal = ({ show, currentPass, setCurrentPass, newPass, setNe
 
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 9999, background: "rgba(0,0,0,0.65)", display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" }}>
-      <div style={{ background: "white", borderRadius: "24px", border: "2px solid #1a1a1a", overflow: "hidden", width: "100%", maxWidth: "370px", boxShadow: "0 8px 32px rgba(0,0,0,0.3)" }}>
-        <div style={{ background: "#8B0000", padding: "14px", textAlign: "center" }}>
-          <span style={{ fontFamily: "'Jua', sans-serif", fontSize: "1.3rem", color: "white", letterSpacing: "0.1em", textTransform: "uppercase" }}>Set New Password!</span>
+      <div style={{ background: paper, borderRadius: "24px", border: `2px solid ${ink}`, overflow: "hidden", width: "100%", maxWidth: "370px", boxShadow: "0 8px 32px rgba(0,0,0,0.3)" }}>
+        <div style={{ background: ink, padding: "14px", textAlign: "center" }}>
+          <span style={{ fontFamily: uiFont, fontWeight: 700, fontSize: "1.15rem", color: paper, letterSpacing: "0.02em" }}>Set New Password</span>
         </div>
         <div style={{ padding: "20px 24px 28px" }}>
-          <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#555", textAlign: "center", marginBottom: "16px", lineHeight: 1.6 }}>
+          <p style={{ fontFamily: uiFont, fontSize: "0.85rem", color: inkMuted, textAlign: "center", marginBottom: "16px", lineHeight: 1.6 }}>
             For your security, please change your password before continuing.
           </p>
 
           {/* Current Password */}
-          <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.8rem", fontWeight: 700, color: "#333", marginBottom: "4px" }}>Current Password:</p>
+          <p style={{ fontFamily: uiFont, fontSize: "0.8rem", fontWeight: 700, color: inkText, marginBottom: "4px" }}>Current Password:</p>
           <div style={{ position: "relative", marginBottom: "10px" }}>
             <input type={showCurrent ? "text" : "password"} placeholder="Enter Current Password:" value={currentPass}
               onChange={e => { setCurrentPass(e.target.value); setPassError(""); }}
@@ -1407,10 +1518,10 @@ const ChangePasswordModal = ({ show, currentPass, setCurrentPass, newPass, setNe
             <EyeBtn show={showCurrent} onToggle={() => setShowCurrent(p => !p)} />
           </div>
 
-          <hr style={{ border: "none", borderTop: "1px solid #eee", margin: "12px 0" }} />
+          <hr style={{ border: "none", borderTop: `1px solid ${hairline}`, margin: "12px 0" }} />
 
           {/* New Password */}
-          <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.8rem", fontWeight: 700, color: "#333", marginBottom: "4px" }}>New Password:</p>
+          <p style={{ fontFamily: uiFont, fontSize: "0.8rem", fontWeight: 700, color: inkText, marginBottom: "4px" }}>New Password:</p>
           <div style={{ position: "relative", marginBottom: "10px" }}>
             <input type={showNew ? "text" : "password"} placeholder="Enter New Password:" value={newPass}
               onChange={e => { setNewPass(e.target.value); setPassError(""); }}
@@ -1422,7 +1533,7 @@ const ChangePasswordModal = ({ show, currentPass, setCurrentPass, newPass, setNe
           <PasswordChecklist password={newPass} />
 
           {/* Confirm New Password */}
-          <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.8rem", fontWeight: 700, color: "#333", marginBottom: "4px" }}>Confirm New Password:</p>
+          <p style={{ fontFamily: uiFont, fontSize: "0.8rem", fontWeight: 700, color: inkText, marginBottom: "4px" }}>Confirm New Password:</p>
           <div style={{ position: "relative", marginBottom: "4px" }}>
             <input type={showConfirm ? "text" : "password"} placeholder="Confirm New Password:" value={confirmPass}
               onChange={e => { setConfirmPass(e.target.value); setPassError(""); }}
@@ -1431,11 +1542,11 @@ const ChangePasswordModal = ({ show, currentPass, setCurrentPass, newPass, setNe
             <EyeBtn show={showConfirm} onToggle={() => setShowConfirm(p => !p)} />
           </div>
 
-          {passError && <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.78rem", color: "red", margin: "4px 0 8px 4px" }}>⚠️ {passError}</p>}
-          <hr style={{ border: "none", borderTop: "1.5px solid #ddd", margin: "16px 0" }} />
+          {passError && <p style={{ fontFamily: uiFont, fontSize: "0.78rem", color: color.danger, margin: "4px 0 8px 4px" }}>⚠️ {passError}</p>}
+          <hr style={{ border: "none", borderTop: `1.5px solid ${hairline}`, margin: "16px 0" }} />
           <div style={{ textAlign: "center" }}>
-            <button onClick={handleChangePassword} disabled={passLoading}
-              style={{ background: "#320000", color: "white", border: "none", borderRadius: "24px", padding: "12px 48px", fontFamily: "'Jua', sans-serif", fontSize: "1.1rem", letterSpacing: "0.08em", textTransform: "uppercase", cursor: passLoading ? "not-allowed" : "pointer", opacity: passLoading ? 0.7 : 1 }}>
+            <button onClick={handleChangePassword} disabled={passLoading} className="pill-btn"
+              style={{ background: ink, color: paper, border: "none", borderRadius: "24px", padding: "12px 48px", fontFamily: uiFont, fontWeight: 700, fontSize: "1.05rem", letterSpacing: "0.02em", cursor: passLoading ? "not-allowed" : "pointer", opacity: passLoading ? 0.7 : 1 }}>
               {passLoading ? "Saving…" : "Continue"}
             </button>
           </div>
