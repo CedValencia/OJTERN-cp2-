@@ -1,5 +1,12 @@
 import React, { useState, useEffect, useRef } from "react";
-import { signIn, logOut, applyEmailVerification } from "./AuthService";
+import {
+  signIn,
+  logOut,
+  applyEmailVerification,
+  resendCompanyActivation,
+  getInitialAuthAction,
+  NOT_ACTIVATED_MESSAGE,
+} from "./AuthService";
 import { color, ease, radius, shadow } from "./theme";
 
 // ── useIsMobile ───────────────────────────────────────────────────────────────
@@ -124,7 +131,18 @@ const SignInScreen = ({ role: roleProp, onRoleChange, onGoSignUp, onSignInCoordi
   const [loading, setLoading]     = useState(false);
   const [focused, setFocused]     = useState("");
   const [verifyStatus, setVerifyStatus] = useState(null); // { ok: boolean, message: string } | null
+  const [resendStatus, setResendStatus] = useState(null); // { ok: boolean, message: string } | null
+  const [resending, setResending]  = useState(false);
   const isMobile                  = useIsMobile();
+
+  // Guards the activation effect below against React StrictMode, which
+  // deliberately runs effects twice in development. Firebase action codes are
+  // single-use, so the second run would always fail with
+  // auth/invalid-action-code — and since it lands last, the user would be
+  // shown "this link has already been used" on an activation that in fact
+  // just succeeded. A ref (not state) because it must survive the re-invoke
+  // without triggering another render.
+  const activationAttempted = useRef(false);
 
   // This screen is the `continueUrl` on the "Activate" button in the company
   // approval email (see functions/index.js sendApprovalEmail). Because this
@@ -134,11 +152,24 @@ const SignInScreen = ({ role: roleProp, onRoleChange, onGoSignUp, onSignInCoordi
   // `?mode=verifyEmail&oobCode=...` in the URL — Firebase's own hosted
   // verification page never runs, so nothing actually applies the code unless
   // we do it ourselves, right here, on mount.
+  //
+  // The params come from getInitialAuthAction(), NOT from
+  // window.location.search. Reading the live URL here meant the code was only
+  // found if nothing had rewritten the URL between page load and this mount —
+  // and this app routes by screen state, not by URL (SplashScreen owns the
+  // panel and decides when this screen appears), so any navigation or path
+  // normalisation before SignInScreen mounted silently wiped the oobCode and
+  // this effect just returned early. The activation then never happened, with
+  // no error anywhere: the link "worked", the page loaded, and sign-in still
+  // said "please activate". AuthService snapshots the params at module load,
+  // which is earlier than anything that can rewrite them.
   useEffect(() => {
-    const params  = new URLSearchParams(window.location.search);
-    const mode    = params.get("mode");
-    const oobCode = params.get("oobCode");
+    if (activationAttempted.current) return;
+
+    const { mode, oobCode } = getInitialAuthAction();
     if (mode !== "verifyEmail" || !oobCode) return;
+
+    activationAttempted.current = true;
 
     applyEmailVerification(oobCode)
       .then(() => setVerifyStatus({ ok: true, message: "Your account has been activated! You can now sign in below." }))
@@ -156,6 +187,7 @@ const SignInScreen = ({ role: roleProp, onRoleChange, onGoSignUp, onSignInCoordi
     setPassword("");
     setShowPass(false);
     setAuthError("");
+    setResendStatus(null);
     onRoleChange?.(newRole);
   };
 
@@ -172,11 +204,43 @@ const SignInScreen = ({ role: roleProp, onRoleChange, onGoSignUp, onSignInCoordi
     setPassword("");
     setShowPass(false);
     setAuthError("");
+    setResendStatus(null);
   }, [roleProp]);
+
+  // Offer the resend only when it's actually the thing that would help: the
+  // company role, on the specific "not activated yet" failure. Matching on the
+  // exported sentinel rather than the message text so rewording the copy in
+  // AuthService can't quietly detach this button from its trigger.
+  const showResend = role === "company" && authError === NOT_ACTIVATED_MESSAGE;
+
+  const handleResendActivation = async () => {
+    setResendStatus(null);
+
+    if (!email.trim()) {
+      setResendStatus({ ok: false, message: "Please enter your email first." });
+      return;
+    }
+
+    setResending(true);
+    try {
+      await resendCompanyActivation(email);
+      // Intentionally worded so it says nothing about whether the address is
+      // registered — the Cloud Function is deliberately non-committal too.
+      setResendStatus({
+        ok: true,
+        message: "If that email belongs to an approved company account, a new activation link is on its way. Check your inbox and spam folder.",
+      });
+    } catch (err) {
+      setResendStatus({ ok: false, message: err.message || "Couldn't send the activation link. Please try again." });
+    } finally {
+      setResending(false);
+    }
+  };
 
   // ── Firebase sign-in with role-based Firestore check ─────────────────────
   const handleSignIn = async () => {
     setAuthError("");
+    setResendStatus(null);
 
     // Basic field check
     if (role === "student" && !studentId.trim()) {
@@ -393,6 +457,45 @@ const SignInScreen = ({ role: roleProp, onRoleChange, onGoSignUp, onSignInCoordi
             <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
           </svg>
           <span>{authError}</span>
+        </div>
+      )}
+
+      {showResend && (
+        <div style={{ textAlign: "center", marginTop: "10px" }}>
+          <button
+            type="button"
+            onClick={handleResendActivation}
+            disabled={resending}
+            style={{
+              background: "none", border: "none", padding: "4px 2px",
+              fontSize: "0.8125rem", fontWeight: 600,
+              color: color.onWine,
+              textDecoration: "underline",
+              cursor: resending ? "not-allowed" : "pointer",
+              opacity: resending ? 0.6 : 1,
+            }}
+          >
+            {resending ? "Sending…" : "Resend activation link"}
+          </button>
+        </div>
+      )}
+
+      {resendStatus && (
+        <div
+          role="status"
+          style={{
+            display: "flex", alignItems: "flex-start", gap: "9px",
+            background: resendStatus.ok ? "rgba(90,117,96,0.14)" : "rgba(168,84,80,0.14)",
+            border: `1px solid ${resendStatus.ok ? color.success : color.danger}`,
+            borderRadius: "14px",
+            padding: "11px 13px",
+            margin: "10px 0 0",
+            fontSize: "0.8125rem", lineHeight: 1.45,
+            color: resendStatus.ok ? color.success : color.danger,
+          }}
+        >
+          <span>{resendStatus.ok ? "✅" : "⚠️"}</span>
+          <span>{resendStatus.message}</span>
         </div>
       )}
 

@@ -134,17 +134,47 @@ exports.sendApprovalEmail = onDocumentUpdated(
       // NOT gated on it (per product decision), so a company that never clicks
       // it can still sign in normally. If that gate is ever wanted later, check
       // `auth.currentUser.emailVerified` after sign-in on the client.
-      let verifyUrl = "https://ojtern.com/signin"; // fallback if link generation fails
+      // Generating the link can fail (no Auth user for this email, Admin SDK
+      // permissions, transient outage). It previously fell back to a bare
+      // https://ojtern.com/signin — which produced the worst possible failure
+      // mode: a perfectly normal-looking approval email whose Activate button
+      // carried no oobCode at all, so clicking it did nothing and the company
+      // was told to "activate your account first" forever, with no way out.
+      //
+      // Now a failure just omits the button and points at the self-service
+      // resend instead, so the email is honest about what happened and the
+      // company can still recover on its own.
+      let verifyUrl = null;
       try {
         verifyUrl = await getAuth().generateEmailVerificationLink(newData.email, {
           url: "https://ojtern.com/signin",
         });
       } catch (error) {
-        // Most likely cause: no Auth user exists yet for this email (shouldn't
-        // happen given registerCompany's flow, but don't let it block the
-        // approval email itself) — fall back to the plain sign-in link above.
-        console.error(`Failed to generate verification link for ${newData.email}:`, error);
+        console.error(
+          `ACTIVATION LINK GENERATION FAILED for ${newData.email} — approval email ` +
+          `will be sent without an Activate button:`, error
+        );
       }
+
+      const ctaHtml = verifyUrl
+        ? `
+        <table role="presentation" cellpadding="0" cellspacing="0" style="margin: 20px 0;">
+          <tr>
+            <td style="background:#8B0000; border-radius:24px;">
+              <a href="${verifyUrl}" style="display:inline-block; padding:13px 32px; font-family:Arial, Helvetica, sans-serif; font-size:15px; font-weight:bold; color:#ffffff; text-decoration:none; border-radius:24px;">
+                Activate
+              </a>
+            </td>
+          </tr>
+        </table>`
+        : `
+        <p>To finish setting up, go to <a href="https://ojtern.com/signin">ojtern.com/signin</a>,
+        enter your email, and click <strong>Resend activation link</strong> — we'll email you a
+        fresh activation link right away.</p>`;
+
+      const ctaText = verifyUrl
+        ? `Activate your account and sign in: ${verifyUrl}`
+        : `To finish setting up, go to https://ojtern.com/signin, enter your email, and click "Resend activation link".`;
 
       const html = `
         <h2>Welcome to OJTern!</h2>
@@ -156,15 +186,7 @@ exports.sendApprovalEmail = onDocumentUpdated(
           <li>Post OJT positions</li>
           <li>View student applications</li>
         </ul>
-        <table role="presentation" cellpadding="0" cellspacing="0" style="margin: 20px 0;">
-          <tr>
-            <td style="background:#8B0000; border-radius:24px;">
-              <a href="${verifyUrl}" style="display:inline-block; padding:13px 32px; font-family:Arial, Helvetica, sans-serif; font-size:15px; font-weight:bold; color:#ffffff; text-decoration:none; border-radius:24px;">
-                Activate
-              </a>
-            </td>
-          </tr>
-        </table>
+        ${ctaHtml}
         <p>Best regards,<br/>OJTern Team</p>
       `;
       const text = `Welcome to OJTern!
@@ -173,7 +195,7 @@ Hi ${newData.companyName},
 
 Your company registration has been approved by our coordinator. You can now log in to your company dashboard, post OJT positions, and view student applications.
 
-Activate your account and sign in: ${verifyUrl}
+${ctaText}
 
 Best regards,
 OJTern Team`;
@@ -541,6 +563,163 @@ OJTern Team`;
       console.log(`Coordinator invite (${invite.type}) email sent to ${invite.toEmail}`);
     } catch (error) {
       console.error("Coordinator invite email send failed:", error);
+    }
+  }
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// COMPANY ACTIVATION — self-service resend
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Firebase action codes are single-use and time-limited, so the link inside
+// sendApprovalEmail is one bad outcome away from being useless: it expires, a
+// mail scanner prefetches it, the user clicks twice, the URL loses its query
+// string somewhere in transit, or link generation failed outright at approval
+// time. Every one of those left the company permanently stuck behind "Please
+// activate your account first" with a coordinator poking the Firebase console
+// as the only recovery. This is that recovery, self-service.
+//
+// UNAUTHENTICATED BY DESIGN: a company that cannot activate also cannot sign
+// in, so requiring auth here would deadlock the exact users this exists for.
+// Two consequences follow, and both are handled below —
+//   1. The response is always the same regardless of whether the address
+//      matched anything, so this can't be used to enumerate registered
+//      companies. Real outcomes go to the logs, not the caller.
+//   2. There's a per-account cooldown so it can't be used to spam an inbox or
+//      burn Resend quota.
+const RESEND_ACTIVATION_COOLDOWN_MS = 60 * 1000;
+
+exports.resendCompanyActivation = onCall(
+  { region: "asia-southeast1", secrets: [resendApiKey] },
+  async (request) => {
+    const rawEmail = (request.data && request.data.email) || "";
+    const email = String(rawEmail).trim().toLowerCase();
+
+    if (!email) {
+      throw new HttpsError("invalid-argument", "Please enter your email address.");
+    }
+
+    try {
+
+      // Uniform response — returned on every path below.
+      const genericOk = { sent: true };
+
+      const db = getFirestore();
+      const snap = await db.collection("companies").where("email", "==", email).limit(1).get();
+      if (snap.empty) {
+        console.log(`Activation resend requested for unknown email: ${email}`);
+        return genericOk;
+      }
+
+      const companyRef = snap.docs[0].ref;
+      const company    = snap.docs[0].data();
+
+      // Only approved companies have anything to activate. Pending/rejected/
+      // suspended/blocked accounts get the same silent OK — signIn already has
+      // its own specific message for each of those states.
+      if (company.status !== "approved") {
+        console.log(`Activation resend skipped for ${email} — status is "${company.status}".`);
+        return genericOk;
+      }
+
+      const lastSent = company.activationResendAt ? company.activationResendAt.toMillis() : 0;
+      if (Date.now() - lastSent < RESEND_ACTIVATION_COOLDOWN_MS) {
+        throw new HttpsError(
+          "resource-exhausted",
+          "We just sent an activation link. Please check your inbox (and spam folder) before requesting another."
+        );
+      }
+
+      let user;
+      try {
+        user = await getAuth().getUserByEmail(email);
+      } catch (error) {
+        console.error(`Activation resend: no Auth user for approved company ${email}:`, error);
+        return genericOk;
+      }
+
+      // Already verified — nothing to send. Sign-in will work; the company most
+      // likely clicked the original link and then hit an unrelated error.
+      if (user.emailVerified) {
+        console.log(`Activation resend skipped for ${email} — already verified.`);
+        return genericOk;
+      }
+
+      let verifyUrl;
+      try {
+        verifyUrl = await getAuth().generateEmailVerificationLink(email, {
+          url: "https://ojtern.com/signin",
+        });
+      } catch (error) {
+        console.error(`Activation resend: link generation failed for ${email}:`, error);
+        throw new HttpsError(
+          "internal",
+          "We couldn't generate an activation link right now. Please try again in a few minutes or contact support."
+        );
+      }
+      console.log(`Activation resend: link generated for ${email}, sending mail…`);
+
+      const html = `
+        <h2>Activate your OJTern account</h2>
+        <p>Hi <strong>${company.companyName || "there"}</strong>,</p>
+        <p>Here's a fresh activation link for your company account. This one replaces any earlier link, which may have expired or already been used.</p>
+        <table role="presentation" cellpadding="0" cellspacing="0" style="margin: 20px 0;">
+          <tr>
+            <td style="background:#8B0000; border-radius:24px;">
+              <a href="${verifyUrl}" style="display:inline-block; padding:13px 32px; font-family:Arial, Helvetica, sans-serif; font-size:15px; font-weight:bold; color:#ffffff; text-decoration:none; border-radius:24px;">
+                Activate
+              </a>
+            </td>
+          </tr>
+        </table>
+        <p>If you didn't request this, you can safely ignore this email.</p>
+        <p>Best regards,<br/>OJTern Team</p>
+      `;
+      const text = `Activate your OJTern account
+
+Hi ${company.companyName || "there"},
+
+Here's a fresh activation link for your company account. This one replaces any earlier link, which may have expired or already been used.
+
+${verifyUrl}
+
+If you didn't request this, you can safely ignore this email.
+
+Best regards,
+OJTern Team`;
+
+      try {
+        await sendMail({ to: email, subject: "OJTern - Your Activation Link", html, text });
+      } catch (error) {
+        // Resend rejects for reasons that are entirely actionable but say
+        // nothing useful if they escape as a bare crash: unverified sending
+        // domain, per-second rate limit, a recipient on a suppression list
+        // after an earlier bounce. Name the failure so the logs point at the
+        // real cause instead of just "internal".
+        console.error(`Activation resend: Resend rejected the send to ${email}:`, error);
+        throw new HttpsError(
+          "unavailable",
+          "The activation link was generated but the email couldn't be sent. Please try again shortly — if this keeps happening, contact support."
+        );
+      }
+
+      // Recorded only after a successful send, so a failed send doesn't lock the
+      // company out of retrying for the length of the cooldown.
+      await companyRef.update({ activationResendAt: FieldValue.serverTimestamp() });
+
+      console.log(`Activation link resent to ${email}`);
+      return genericOk;
+
+    } catch (error) {
+      // Anything that escapes as a non-HttpsError comes back to the browser as
+      // a bare "internal" with no message — the callable protocol has nothing
+      // else to send, so the SDK falls back to using the status code as the
+      // message. That is exactly the failure this whole flow exists to
+      // prevent, so catch it here: log the real stack server-side, and give
+      // the caller a message that at least says what stage broke.
+      if (error instanceof HttpsError) throw error;
+      console.error(`Activation resend: UNHANDLED failure for "${email}":`, error);
+      throw new HttpsError("internal", `Activation resend failed: ${error.message || error}`);
     }
   }
 );

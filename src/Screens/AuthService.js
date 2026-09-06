@@ -41,6 +41,53 @@ import { httpsCallable } from "firebase/functions";
 import { auth, db, functions } from "./firebase";
 
 // ─────────────────────────────────────────────────────────────────────────────
+// INITIAL URL ACTION PARAMS — snapshotted at module load
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Firebase action links (?mode=verifyEmail&oobCode=...) land directly on our
+// OWN pages because this project has a custom Action URL configured — see
+// applyEmailVerification's docstring below. That makes those query params
+// fragile: anything that rewrites the URL before the target screen mounts
+// (this app's hand-rolled screen-state routing, a hosting redirect, an apex
+// vs. www normalisation) silently destroys them, and the action code then
+// never gets applied even though the user did click the link.
+//
+// ES modules are all evaluated before any component renders, so reading
+// window.location here is the earliest point in the app's lifetime we can
+// reliably capture them. Screens must read this instead of touching
+// window.location.search themselves.
+//
+// Caveat: this only holds while AuthService is statically imported. If it is
+// ever moved behind a dynamic import() that resolves after routing runs, the
+// snapshot stops being early enough — move this into the app entry file
+// (main.jsx) at that point.
+const _initialParams = new URLSearchParams(
+  typeof window !== "undefined" ? window.location.search : ""
+);
+
+/**
+ * The Firebase email-action params the app was originally opened with.
+ *
+ * @returns {{ mode: string|null, oobCode: string|null }}
+ */
+export const getInitialAuthAction = () => ({
+  mode:    _initialParams.get("mode"),
+  oobCode: _initialParams.get("oobCode"),
+});
+
+/**
+ * The exact message thrown by signIn when a company account exists and is
+ * approved but has never had its email verified.
+ *
+ * Exported so SignInScreen can recognise this one failure and offer the
+ * "Resend activation link" action beside it. Matching on an exported
+ * constant rather than on the message text means rewording the copy here
+ * can't silently break that.
+ */
+export const NOT_ACTIVATED_MESSAGE =
+  "Please activate your account first. Check your email for the activation link we sent when your registration was approved.";
+
+// ─────────────────────────────────────────────────────────────────────────────
 // COMPANY — Sign Up (Step 2 calls this after Cloudinary uploads)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -253,7 +300,7 @@ export const signIn = async (role, emailOrStudentId, password) => {
   // is needed.
   if (role === "company" && !user.emailVerified) {
     await signOut(auth);
-    throw new Error("Please activate your account first. Check your email for the activation link we sent when your registration was approved.");
+    throw new Error(NOT_ACTIVATED_MESSAGE);
   }
 
   return { user, userData };
@@ -300,9 +347,64 @@ export const applyEmailVerification = async (oobCode) => {
     await applyActionCode(auth, oobCode);
   } catch (err) {
     if (err.code === "auth/invalid-action-code") {
-      throw new Error("This activation link has already been used or has expired. If you're still unable to sign in, try signing in directly — your account may already be activated.");
+      throw new Error("This activation link has already been used or has expired. Use 'Resend activation link' below to get a fresh one — or just try signing in, since your account may already be activated.");
     }
     throw new Error(err.message || "Failed to activate your account. Please try again or contact support.");
+  }
+
+  // applyActionCode changes emailVerified on the SERVER but does not refresh
+  // the local currentUser snapshot. Nobody is normally signed in on this
+  // screen, so this is usually a no-op — but if a stale session does exist
+  // (e.g. registerCompany left one behind), skipping the reload would leave
+  // auth.currentUser.emailVerified stuck at false for the rest of the page's
+  // life. Non-fatal: the activation itself already succeeded above.
+  try {
+    await auth.currentUser?.reload();
+  } catch {
+    /* ignore — the server-side state is what sign-in actually re-reads */
+  }
+};
+
+/**
+ * Asks the backend to generate and email a FRESH activation link to an
+ * approved company.
+ *
+ * Needed because Firebase action codes are single-use and time-limited, so
+ * the original link in the approval email is one bad outcome away from being
+ * useless — it expires, a mail scanner prefetches it, the user clicks twice,
+ * or link generation failed at approval time and the email shipped without a
+ * working button at all. Without this, the only recovery was a coordinator
+ * manually flipping the account in the Firebase console.
+ *
+ * Deliberately callable while signed OUT: a company that cannot activate
+ * also cannot sign in, so requiring auth here would be a deadlock. The
+ * server never confirms whether the address matched an account — see the
+ * resendCompanyActivation Cloud Function.
+ *
+ * @param {string} email
+ * @returns {Promise<{ sent: boolean }>} always { sent: true } on success,
+ *   regardless of whether an account actually existed
+ */
+export const resendCompanyActivation = async (email) => {
+  const call = httpsCallable(functions, "resendCompanyActivation");
+  try {
+    const { data } = await call({ email: email.trim().toLowerCase() });
+    return data;
+  } catch (err) {
+    // When a callable fails before it can return a real HttpsError — the
+    // request never reaches the function (CORS, missing deploy, Cloud Run
+    // refusing the invoker) or the handler throws something that isn't an
+    // HttpsError — there is no message to send back, so the SDK falls back to
+    // using the status code AS the message. The user then sees a bare
+    // "internal", which reads like a bug in the page rather than a backend
+    // failure and tells whoever is debugging nothing at all. Detect that case
+    // and say something that at least identifies the failure.
+    const code = (err.code || "").replace(/^functions\//, "");
+    const raw  = (err.message || "").trim().toLowerCase();
+    if (!raw || raw === code) {
+      throw new Error(`Couldn't reach the activation service (${code || "unknown error"}). Please try again — if this keeps happening, contact support.`);
+    }
+    throw new Error(err.message);
   }
 };
 
