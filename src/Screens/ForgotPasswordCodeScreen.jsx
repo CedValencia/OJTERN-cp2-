@@ -1,100 +1,48 @@
 import React, { useState } from "react";
 import { resetPassword } from "./AuthService";
+import { color, ease, font } from "./theme";
 
-const darkRed = "#320000";
-const red = "#8B0000";
-
-// ── Responsive Styles ─────────────────────────────────────────────────────────
-const ResponsiveStyles = () => (
+// ── Hover-swap style for the primary button, same pattern as the other
+//    auth screens in this flow. ──────────────────────────────────────────────
+const CodeScreenStyles = () => (
   <style>{`
-    @import url('https://fonts.googleapis.com/css2?family=Jersey+25&family=Jua&family=Kufam:wght@400;600;700&display=swap');
-    * { box-sizing: border-box; }
-
-    .fpc-wrapper {
-      width: 100%;
-      max-width: 370px;
-      margin: 0 auto;
-      padding: 0 12px;
-      height: 100%;
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-    }
-    @media (max-width: 400px) {
-      .fpc-wrapper { padding: 0 6px; }
-    }
-
-    .fpc-title {
-      font-family: 'Jersey 25', sans-serif;
-      font-size: 2.6rem;
-      font-weight: 400;
-      color: #000000;
-      text-align: center;
-      margin-bottom: 20px;
-      line-height: 1.1;
-      text-transform: uppercase;
-    }
-    @media (max-width: 360px) {
-      .fpc-title { font-size: 2rem; margin-bottom: 14px; }
-    }
-
-    .fpc-card {
-      border: 2px solid #1a1a1a;
-      border-radius: 24px;
-      overflow: hidden;
-    }
-
-    .fpc-card-header {
-      background: ${red};
-      padding: 14px;
-      text-align: center;
-    }
-    @media (max-width: 360px) {
-      .fpc-card-header { padding: 10px; }
-      .fpc-card-header span { font-size: 1.1rem !important; }
-    }
-
-    .fpc-card-body {
-      padding: 24px 24px 28px;
-      background: white;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-    }
-    @media (max-width: 400px) {
-      .fpc-card-body { padding: 18px 14px 22px; }
-    }
-
     .fpc-btn {
-      background: ${darkRed};
-      color: white;
-      border: none;
-      border-radius: 24px;
-      padding: 12px 48px;
-      font-family: 'Jua', sans-serif;
-      font-size: 1.1rem;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      cursor: pointer;
+      background: linear-gradient(180deg, #FFFFFF 0%, #F2F2F2 100%);
+      color: ${color.ink};
+      transition: background 160ms ${ease}, color 160ms ${ease};
     }
-    .fpc-btn:disabled { opacity: 0.65; cursor: not-allowed; }
-    @media (max-width: 400px) {
-      .fpc-btn { padding: 10px 36px; font-size: 0.95rem; }
-    }
-    @media (max-width: 360px) {
-      .fpc-btn { width: 100%; }
+    .fpc-btn:hover:not(:disabled) {
+      background: #898989;
+      color: ${color.white};
     }
   `}</style>
+);
+
+// Same stroke-icon style as MailIcon in ForgotPasswordScreen / SignInScreen.
+const MailIcon = () => (
+  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke={color.inkMuted} strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="2.5" y="4.5" width="19" height="15" rx="2.5" />
+    <path d="m3.5 6.5 8.5 6 8.5-6" />
+  </svg>
 );
 
 // Props:
 //   email    — the address the reset link was sent to (passed from SplashScreen)
 //   onResend — resend the email
-//   onBack   — go back to Sign-In
+//   onBack   — go back to Sign-In. If omitted, falls back to a direct
+//              redirect to /signin, matching the other screens in this flow.
 const ForgotPasswordCodeScreen = ({ email, onResend, onBack }) => {
   const [resending, setResending] = useState(false);
   const [resendMsg, setResendMsg] = useState("");
   const [resendError, setResendError] = useState("");
+
+  const handleBack = () => {
+    if (onBack) {
+      onBack();
+    } else {
+      window.location.href = "/signin";
+    }
+  };
 
   const handleResend = async () => {
     if (!email) return;
@@ -116,109 +64,76 @@ const ForgotPasswordCodeScreen = ({ email, onResend, onBack }) => {
     }
   };
 
+  // Bare content only — no own panel, no own Back button. The parent
+  // (SplashScreen) already supplies the dark rectangular panel and the Back
+  // pill above it for this flow, same as ForgotPasswordScreen.
   return (
-    <>
-      <ResponsiveStyles />
-      <div className="fpc-wrapper">
+    <div style={{ width: "100%", display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", fontFamily: font.ui }}>
+      <CodeScreenStyles />
 
-        <h1 className="fpc-title">
-          Check Your<br />Email!
-        </h1>
+      <span
+        aria-hidden="true"
+        style={{
+          width: "56px", height: "56px", borderRadius: "50%",
+          background: color.wine400,
+          display: "flex", alignItems: "center", justifyContent: "center",
+          marginBottom: "18px",
+        }}
+      >
+        <MailIcon />
+      </span>
 
-        <div className="fpc-card">
+      <h1 style={{
+        fontSize: "1.75rem", fontWeight: 600, letterSpacing: "-0.02em",
+        lineHeight: 1.15, color: color.onWine, margin: 0,
+      }}>
+        Check Your Email!
+      </h1>
 
-          <div className="fpc-card-header">
-            <span style={{
-              fontFamily: "'Jua', sans-serif",
-              fontSize: "1.4rem",
-              color: "white",
-              letterSpacing: "0.1em",
-              textTransform: "uppercase",
-            }}>
-              Reset Link Sent!
-            </span>
-          </div>
+      <p style={{ fontSize: "0.9375rem", color: color.onWineMuted, lineHeight: 1.5, margin: "12px 0 4px" }}>
+        A password reset link has been sent to:
+      </p>
+      <p style={{ fontSize: "0.9375rem", fontWeight: 600, color: color.onWine, lineHeight: 1.5, margin: "0 0 16px", wordBreak: "break-all" }}>
+        {email || "your email address"}
+      </p>
 
-          <div className="fpc-card-body">
+      <p style={{ fontSize: "0.8125rem", color: color.onWineMuted, lineHeight: 1.6, margin: "0 0 4px" }}>
+        Open the link in that email to set a new password. The link expires in 1 hour.
+      </p>
 
-            {/* Email icon */}
-            <div style={{ fontSize: "3rem", marginBottom: "12px" }}>📧</div>
+      {resendMsg && (
+        <p style={{ fontSize: "0.8125rem", color: color.success, margin: "8px 0 0" }}>{resendMsg}</p>
+      )}
+      {resendError && (
+        <p style={{ fontSize: "0.8125rem", color: color.danger, margin: "8px 0 0" }}>{resendError}</p>
+      )}
 
-            <p style={{
-              fontFamily: "'Kufam', sans-serif",
-              fontSize: "0.88rem",
-              color: "#333",
-              textAlign: "center",
-              marginBottom: "8px",
-              lineHeight: 1.7,
-            }}>
-              A password reset link has been sent to:
-            </p>
-            <p style={{
-              fontFamily: "'Jua', sans-serif",
-              fontSize: "0.95rem",
-              color: darkRed,
-              textAlign: "center",
-              marginBottom: "16px",
-              wordBreak: "break-all",
-            }}>
-              {email || "your email address"}
-            </p>
+      <p style={{ fontSize: "0.8125rem", color: color.onWineMuted, margin: "16px 0 4px" }}>
+        Didn't receive it?{" "}
+        <span
+          onClick={!resending ? handleResend : undefined}
+          style={{
+            textDecoration: "underline", fontWeight: 600,
+            cursor: resending ? "default" : "pointer",
+            color: resending ? color.onWineMuted : color.onWine,
+          }}
+        >
+          {resending ? "Resending…" : "Resend"}
+        </span>
+      </p>
 
-            <p style={{
-              fontFamily: "'Kufam', sans-serif",
-              fontSize: "0.82rem",
-              color: "#555",
-              textAlign: "center",
-              marginBottom: "4px",
-              lineHeight: 1.6,
-            }}>
-              Open the link in that email to set a new password. The link expires in 1 hour.
-            </p>
+      <hr style={{ border: "none", borderTop: `1.5px solid rgba(255,255,255,0.15)`, width: "100%", margin: "20px 0" }} />
 
-            {resendMsg && (
-              <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.8rem", color: "#2a7a2a", textAlign: "center", marginTop: "8px" }}>
-                ✅ {resendMsg}
-              </p>
-            )}
-            {resendError && (
-              <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.8rem", color: "red", textAlign: "center", marginTop: "8px" }}>
-                ⚠️ {resendError}
-              </p>
-            )}
-
-            <p style={{
-              fontFamily: "'Kufam', sans-serif",
-              fontSize: "0.82rem",
-              color: "#555",
-              textAlign: "center",
-              margin: "12px 0 4px",
-            }}>
-              Didn't receive it?{" "}
-              <span
-                onClick={!resending ? handleResend : undefined}
-                style={{
-                  color: resending ? "#aaa" : red,
-                  textDecoration: "underline",
-                  cursor: resending ? "default" : "pointer",
-                  fontWeight: "600",
-                }}
-              >
-                {resending ? "Resending…" : "Resend"}
-              </span>
-            </p>
-
-            <hr style={{ border: "none", borderTop: "1.5px solid #ddd", width: "100%", margin: "16px 0" }} />
-
-            <button onClick={() => onBack?.()} className="fpc-btn">
-              Back to Sign-In
-            </button>
-
-          </div>
-
-        </div>
-      </div>
-    </>
+      <button onClick={handleBack} className="ojt-pill fpc-btn" style={{
+        width: "auto", height: "52px", padding: "0 44px",
+        border: "none", borderRadius: "999px",
+        fontSize: "0.9375rem", fontWeight: 700, letterSpacing: "0.02em",
+        cursor: "pointer",
+        boxShadow: "0 6px 16px rgba(0,0,0,0.45), inset 0 1px 0 rgba(0,0,0,0.04)",
+      }}>
+        Back to Sign-In
+      </button>
+    </div>
   );
 };
 

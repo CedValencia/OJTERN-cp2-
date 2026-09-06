@@ -1,40 +1,84 @@
 import React, { useState, useEffect } from "react";
 import { verifyResetCode, confirmReset } from "./AuthService";
+import { color, ease, font } from "./theme";
 
-import logo from "../icons/ojtern.png";
+// ── Hover-swap styles for the primary/secondary buttons, same pattern as
+//    the rest of this auth flow. ─────────────────────────────────────────────
+const ResetPasswordStyles = () => (
+  <style>{`
+    .rp-primary-btn {
+      background: linear-gradient(180deg, #FFFFFF 0%, #F2F2F2 100%);
+      color: ${color.ink};
+      transition: background 160ms ${ease}, color 160ms ${ease};
+    }
+    .rp-primary-btn:hover:not(:disabled) {
+      background: #898989;
+      color: ${color.white};
+    }
+    .rp-secondary-btn {
+      background: transparent;
+      color: ${color.onWineMuted};
+      border: 1.5px solid rgba(255,255,255,0.25);
+      transition: background 160ms ${ease}, color 160ms ${ease};
+    }
+    .rp-secondary-btn:hover:not(:disabled) {
+      background: rgba(255,255,255,0.08);
+      color: ${color.onWine};
+    }
+  `}</style>
+);
 
-const red     = "#8B0000";
-const darkRed = "#590101";
-const fieldBg = "#7A4F4F";
+// Same lock stroke icon as SignInScreen's LockIcon.
+const LockIcon = () => (
+  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="4" y="10.5" width="16" height="10" rx="2.5" /><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3" />
+  </svg>
+);
 
-const fieldStyle = {
-  width: "100%", padding: "10px 16px",
-  background: fieldBg, border: "none", borderRadius: "20px",
-  color: "white", fontSize: "0.88rem",
-  fontFamily: "'Kufam', sans-serif", outline: "none",
-  boxSizing: "border-box",
-};
+// Same pale circular badge used across this flow.
+const FieldIcon = ({ children }) => (
+  <span
+    aria-hidden="true"
+    style={{
+      position: "absolute", left: "10px", top: "50%", transform: "translateY(-50%)",
+      width: "30px", height: "30px", borderRadius: "50%",
+      background: color.white, color: color.ink,
+      display: "flex", alignItems: "center", justifyContent: "center",
+      pointerEvents: "none",
+    }}
+  >
+    {children}
+  </span>
+);
 
-const labelStyle = {
-  fontFamily: "'Kufam', sans-serif",
-  fontWeight: 700, fontSize: "0.88rem",
-  color: "#222", marginBottom: "4px", display: "block",
-};
-
+// Same eye toggle as SignInScreen's EyeIcon, recolored for a dark stroke on
+// the now-white field (the original used a white stroke for a dark field).
 const EyeIcon = ({ show, onClick }) => (
-  <span onClick={onClick} style={{ position: "absolute", right: "14px", top: "50%", transform: "translateY(-50%)", cursor: "pointer", display: "flex", alignItems: "center" }}>
+  <button
+    type="button"
+    onClick={onClick}
+    aria-label={show ? "Hide password" : "Show password"}
+    style={{
+      position: "absolute", right: "8px", top: "50%",
+      transform: "translateY(-50%)", cursor: "pointer",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      width: "34px", height: "34px",
+      background: "transparent", border: "none", borderRadius: "50%",
+      color: color.inkMuted, padding: 0,
+    }}
+  >
     {show ? (
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
         <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
       </svg>
     ) : (
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
         <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
         <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
         <line x1="1" y1="1" x2="23" y2="23"/>
       </svg>
     )}
-  </span>
+  </button>
 );
 
 const PASSWORD_RULES = [
@@ -51,15 +95,15 @@ const isPasswordStrong = (pwd) => PASSWORD_RULES.every(rule => rule.test(pwd));
 const PasswordChecklist = ({ password }) => {
   if (!password) return null;
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "3px", margin: "2px 0 12px 2px" }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: "4px", margin: "8px 0 4px 2px" }}>
       {PASSWORD_RULES.map(rule => {
         const passed = rule.test(password);
         return (
-          <div key={rule.key} style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-            <span style={{ fontSize: "0.78rem", fontWeight: 700, color: passed ? "#2a7a2a" : "#c0392b", width: "12px", flexShrink: 0 }}>
+          <div key={rule.key} style={{ display: "flex", alignItems: "center", gap: "7px" }}>
+            <span style={{ fontSize: "0.78rem", fontWeight: 700, color: passed ? color.success : color.danger, width: "12px", flexShrink: 0 }}>
               {passed ? "✓" : "✗"}
             </span>
-            <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.74rem", color: passed ? "#2a7a2a" : "#888" }}>
+            <span style={{ fontFamily: font.ui, fontSize: "0.78rem", color: passed ? color.success : color.onWineMuted }}>
               {rule.label}
             </span>
           </div>
@@ -69,32 +113,40 @@ const PasswordChecklist = ({ password }) => {
   );
 };
 
-const PasswordInput = ({ value, onChange, onKeyDown, placeholder = "••••••••" }) => {
+const PasswordInput = ({ value, onChange, onKeyDown, focused, name, onFocus, onBlur, placeholder = "Password" }) => {
   const [show, setShow] = useState(false);
   const blockPaste = (e) => e.preventDefault();
 
   return (
-    <div style={{ position: "relative", marginBottom: "2px" }}>
+    <div style={{ position: "relative" }}>
+      <FieldIcon><LockIcon /></FieldIcon>
       <input
         type={show ? "text" : "password"}
         value={value}
         onChange={onChange}
         onKeyDown={onKeyDown}
+        onFocus={onFocus}
+        onBlur={onBlur}
         onPaste={blockPaste}
         onCopy={blockPaste}
         onCut={blockPaste}
         placeholder={placeholder}
-        style={{ ...fieldStyle, paddingRight: "44px" }}
+        style={{
+          width: "100%", height: "54px", padding: "0 50px 0 54px",
+          background: color.white,
+          border: `1.5px solid ${focused === name ? color.ink : "transparent"}`,
+          borderRadius: "999px", color: color.ink, fontSize: "0.9375rem",
+          fontWeight: 400, outline: "none", transition: `border-color 160ms ${ease}`,
+        }}
       />
       <EyeIcon show={show} onClick={() => setShow((s) => !s)} />
     </div>
   );
 };
 
-// ─── ResetPasswordScreen Component ───────────────────────────────────────────
 // Props:
-//   oobCode          — Firebase reset code parsed from the email link's URL
-//   onBack           — go back to ForgotPasswordScreen (e.g. to request a new link)
+//   oobCode — Firebase reset code parsed from the email link's URL
+//   onBack  — go back to ForgotPasswordScreen (e.g. to request a new link)
 const ResetPasswordScreen = ({ oobCode, onBack }) => {
   const [verifying, setVerifying]             = useState(true);
   const [verifiedEmail, setVerifiedEmail]      = useState("");
@@ -105,9 +157,8 @@ const ResetPasswordScreen = ({ oobCode, onBack }) => {
   const [saving, setSaving]                   = useState(false);
   const [saveError, setSaveError]             = useState("");
   const [success, setSuccess]                 = useState(false);
+  const [focused, setFocused]                 = useState("");
 
-  // Verify the link's oobCode as soon as this screen loads — this is what
-  // catches expired/invalid/already-used links before showing the form.
   useEffect(() => {
     if (!oobCode) {
       setVerifyError("This password reset link is missing required information.");
@@ -151,7 +202,6 @@ const ResetPasswordScreen = ({ oobCode, onBack }) => {
   };
 
   const handleContinue = () => {
-    // Redirect to sign-in
     window.location.href = "/signin";
   };
 
@@ -159,139 +209,109 @@ const ResetPasswordScreen = ({ oobCode, onBack }) => {
     if (e.key === "Enter" && !saving) handleSave();
   };
 
+  const heading = { fontSize: "1.75rem", fontWeight: 600, letterSpacing: "-0.02em", lineHeight: 1.15, color: color.onWine, margin: 0 };
+  const subhead = { fontSize: "0.9375rem", color: color.onWineMuted, lineHeight: 1.5, margin: "8px 0 26px" };
+  const primaryBtn = {
+    width: "auto", height: "52px", padding: "0 44px",
+    border: "none", borderRadius: "999px",
+    fontSize: "0.9375rem", fontWeight: 700, letterSpacing: "0.02em",
+    boxShadow: "0 6px 16px rgba(0,0,0,0.45), inset 0 1px 0 rgba(0,0,0,0.04)",
+  };
+
   return (
-    <div style={{
-      width: "100vw", minHeight: "100vh",
-      background: "linear-gradient(180deg, #A32424 0%, #320000 100%)",
-      display: "flex", alignItems: "center", justifyContent: "center",
-      padding: "24px",
-    }}>
-      <div style={{
-        width: "100%", maxWidth: "440px",
-        background: "white", borderRadius: "18px",
-        padding: "32px 28px", boxSizing: "border-box",
-      }}>
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginBottom: "20px" }}>
-          <img src={logo} alt="OJTern Logo" style={{ width: "64px", height: "64px", objectFit: "contain", marginBottom: "4px" }} />
-          <span style={{ fontFamily: "'Monomaniac One', sans-serif", fontSize: "1.6rem", color: darkRed, letterSpacing: "0.03em" }}>OJTern</span>
+    <div style={{ width: "100%", display: "flex", flexDirection: "column", fontFamily: font.ui }}>
+      <ResetPasswordStyles />
+
+      {verifying ? (
+        <p style={{ fontSize: "0.9375rem", color: color.onWineMuted, textAlign: "center", margin: "8px 0" }}>
+          Verifying your reset link…
+        </p>
+
+      ) : verifyError ? (
+        <div style={{ textAlign: "center" }}>
+          <h1 style={heading}>Invalid or expired link</h1>
+          <p style={subhead}>{verifyError}</p>
+          <div style={{ display: "flex", justifyContent: "center" }}>
+            <button onClick={() => onBack?.()} className="ojt-pill rp-primary-btn" style={{ ...primaryBtn, cursor: "pointer" }}>
+              Request a new link
+            </button>
+          </div>
         </div>
 
-        {verifying ? (
-          <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem", color: "#555", textAlign: "center" }}>
-            Verifying your reset link…
+      ) : !success ? (
+        <div>
+          <h1 style={heading}>Reset password</h1>
+          <p style={subhead}>
+            Resetting password for <span style={{ color: color.onWine, fontWeight: 600 }}>{verifiedEmail}</span>.
           </p>
-        ) : verifyError ? (
-          <>
-            <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.3rem", color: red, marginBottom: "8px", textAlign: "center" }}>
-              Invalid or Expired Link
-            </p>
-            <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#555", textAlign: "center", marginBottom: "20px" }}>
-              {verifyError}
-            </p>
-            <button
-              onClick={() => onBack?.()}
-              style={{
-                width: "100%", padding: "12px", borderRadius: "20px",
-                background: red, color: "white", border: "none",
-                fontFamily: "'Kufam', sans-serif", fontWeight: 700,
-                fontSize: "0.9rem", cursor: "pointer"
-              }}
-            >
-              Request a New Link
-            </button>
-          </>
-        ) : !success ? (
-          <>
-            <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.3rem", color: red, marginBottom: "8px", textAlign: "center" }}>
-              Reset Password
-            </p>
-            <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#555", textAlign: "center", marginBottom: "20px" }}>
-              Resetting password for <strong>{verifiedEmail}</strong>.
-            </p>
 
-            {/* New Password */}
-            <label style={{ ...labelStyle, marginTop: "14px" }}>New Password:</label>
-            <PasswordInput 
-              value={newPassword} 
-              onChange={e => setNewPassword(e.target.value)} 
-              onKeyDown={handleKeyDown} 
+          <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+            <PasswordInput
+              name="newPassword"
+              value={newPassword}
+              onChange={e => setNewPassword(e.target.value)}
+              onKeyDown={handleKeyDown}
+              focused={focused}
+              onFocus={() => setFocused("newPassword")}
+              onBlur={() => setFocused("")}
+              placeholder="New password"
             />
             {errors.newPassword && (
-              <p style={{ color: "red", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif", marginBottom: "6px" }}>
-                ⚠️ {errors.newPassword}
-              </p>
+              <p style={{ color: color.danger, fontSize: "0.8125rem", margin: "0 0 0 2px" }}>{errors.newPassword}</p>
             )}
             <PasswordChecklist password={newPassword} />
 
-            {/* Confirm Password */}
-            <label style={{ ...labelStyle, marginTop: "10px" }}>Confirm New Password:</label>
-            <PasswordInput 
-              value={confirmPassword} 
-              onChange={e => setConfirmPassword(e.target.value)} 
-              onKeyDown={handleKeyDown} 
+            <PasswordInput
+              name="confirmPassword"
+              value={confirmPassword}
+              onChange={e => setConfirmPassword(e.target.value)}
+              onKeyDown={handleKeyDown}
+              focused={focused}
+              onFocus={() => setFocused("confirmPassword")}
+              onBlur={() => setFocused("")}
+              placeholder="Confirm new password"
             />
             {errors.confirmPassword && (
-              <p style={{ color: "red", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif", marginBottom: "6px" }}>
-                ⚠️ {errors.confirmPassword}
-              </p>
+              <p style={{ color: color.danger, fontSize: "0.8125rem", margin: "0 0 0 2px" }}>{errors.confirmPassword}</p>
             )}
+          </div>
 
-            {saveError && (
-              <p style={{ color: "red", fontSize: "0.8rem", fontFamily: "'Kufam', sans-serif", textAlign: "center", marginTop: "12px" }}>
-                ⚠️ {saveError}
-              </p>
-            )}
+          {saveError && (
+            <p style={{ color: color.danger, fontSize: "0.8125rem", textAlign: "center", margin: "14px 0 0" }}>{saveError}</p>
+          )}
 
-            {/* Buttons */}
-            <div style={{ display: "flex", gap: "12px", marginTop: "20px" }}>
-              <button
-                onClick={handleSave}
-                disabled={saving}
-                style={{ 
-                  flex: 1, padding: "12px", borderRadius: "20px", 
-                  background: red, color: "white", border: "none", 
-                  fontFamily: "'Kufam', sans-serif", fontWeight: 700, 
-                  fontSize: "0.9rem", cursor: saving ? "not-allowed" : "pointer", 
-                  opacity: saving ? 0.7 : 1 
-                }}
-              >
-                {saving ? "Saving…" : "Save"}
-              </button>
-              <button
-                onClick={() => onBack?.()}
-                style={{ 
-                  flex: 1, padding: "12px", borderRadius: "20px", 
-                  background: "#555", color: "white", border: "none", 
-                  fontFamily: "'Kufam', sans-serif", fontWeight: 700, 
-                  fontSize: "0.9rem", cursor: "pointer" 
-                }}
-              >
-                Back
-              </button>
-            </div>
-          </>
-        ) : (
-          <>
-            <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.3rem", color: red, marginBottom: "8px", textAlign: "center" }}>
-              Password Reset!
-            </p>
-            <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#555", textAlign: "center", marginBottom: "20px" }}>
-              Your password has been successfully changed. You can now sign in with your new password.
-            </p>
+          <div style={{ display: "flex", gap: "12px", marginTop: "24px", justifyContent: "center" }}>
             <button
-              onClick={handleContinue}
-              style={{ 
-                width: "100%", padding: "12px", borderRadius: "20px", 
-                background: red, color: "white", border: "none", 
-                fontFamily: "'Kufam', sans-serif", fontWeight: 700, 
-                fontSize: "0.9rem", cursor: "pointer" 
-              }}
+              onClick={() => onBack?.()}
+              className="ojt-pill rp-secondary-btn"
+              style={{ height: "52px", padding: "0 32px", borderRadius: "999px", fontSize: "0.9375rem", fontWeight: 600, letterSpacing: "0.02em", cursor: "pointer" }}
             >
-              Continue to Sign In
+              Back
             </button>
-          </>
-        )}
-      </div>
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="ojt-pill rp-primary-btn"
+              style={{ ...primaryBtn, opacity: saving ? 0.65 : 1, cursor: saving ? "not-allowed" : "pointer" }}
+            >
+              {saving ? "Saving…" : "Save"}
+            </button>
+          </div>
+        </div>
+
+      ) : (
+        <div style={{ textAlign: "center" }}>
+          <h1 style={heading}>Password reset!</h1>
+          <p style={subhead}>
+            Your password has been successfully changed. You can now sign in with your new password.
+          </p>
+          <div style={{ display: "flex", justifyContent: "center" }}>
+            <button onClick={handleContinue} className="ojt-pill rp-primary-btn" style={{ ...primaryBtn, cursor: "pointer" }}>
+              Continue to sign in
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

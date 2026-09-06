@@ -1,179 +1,76 @@
 import React from "react";
-import checkIcon from "../icons/check.png";
+import { color, ease, font } from "./theme";
 
-// ─── Color Tokens ─────────────────────────────────────────────────────────────
-const darkRed = "#320000";
-const red = "#8B0000";
-
-// ── Responsive Styles ─────────────────────────────────────────────────────────
-const ResponsiveStyles = () => (
+// ── Hover-swap style for the primary button, same pattern as the other
+//    screens in this auth flow. ──────────────────────────────────────────────
+const SuccessScreenStyles = () => (
   <style>{`
-    @import url('https://fonts.googleapis.com/css2?family=Jersey+25&family=Jua&family=Kufam:wght@400;600;700&display=swap');
-    * { box-sizing: border-box; }
-
-    /* ── Outer wrapper ── */
-    .prss-wrapper {
-      width: 100%;
-      max-width: 370px;
-      margin: 0 auto;
-      padding: 0 12px;
-      height: 100%;
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-    }
-    @media (max-width: 400px) {
-      .prss-wrapper { padding: 0 6px; }
-    }
-
-    /* ── Card border ── */
-    .prss-card {
-      border: 2px solid #1a1a1a;
-      border-radius: 24px;
-      overflow: hidden;
-    }
-
-    /* ── Card header ── */
-    .prss-card-header {
-      background: ${red};
-      padding: 14px;
-      text-align: center;
-    }
-    @media (max-width: 360px) {
-      .prss-card-header { padding: 10px; }
-      .prss-card-header span { font-size: 1.1rem !important; }
-    }
-
-    /* ── Card body ── */
-    .prss-card-body {
-      padding: 32px 24px 28px;
-      background: white;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-    }
-    @media (max-width: 400px) {
-      .prss-card-body { padding: 24px 14px 22px; }
-    }
-
-    /* ── Success icon ── */
-    .prss-icon {
-      width: 64px;
-      height: 64px;
-      object-fit: contain;
-      margin-bottom: 20px;
-    }
-    @media (max-width: 360px) {
-      .prss-icon { width: 52px; height: 52px; margin-bottom: 16px; }
-    }
-
-    /* ── Divider ── */
-    .prss-divider {
-      border: none;
-      border-top: 1.5px solid #ddd;
-      width: 100%;
-      margin-bottom: 16px;
-    }
-    .prss-divider-bottom {
-      border: none;
-      border-top: 1.5px solid #ddd;
-      width: 100%;
-      margin-bottom: 20px;
-    }
-
-    /* ── Confirmation message ── */
-    .prss-message {
-      font-family: 'Kufam', sans-serif;
-      font-size: 0.88rem;
-      color: #333;
-      text-align: center;
-      margin-bottom: 20px;
-      line-height: 1.6;
-    }
-    @media (max-width: 360px) {
-      .prss-message { font-size: 0.82rem; }
-    }
-
-    /* ── Sign-In button ── */
     .prss-btn {
-      background: ${darkRed};
-      color: white;
-      border: none;
-      border-radius: 24px;
-      padding: 12px 48px;
-      font-family: 'Jua', sans-serif;
-      font-size: 1.1rem;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      cursor: pointer;
+      background: linear-gradient(180deg, #FFFFFF 0%, #F2F2F2 100%);
+      color: ${color.ink};
+      transition: background 160ms ${ease}, color 160ms ${ease};
     }
-    @media (max-width: 400px) {
-      .prss-btn { padding: 10px 36px; font-size: 0.95rem; }
-    }
-    @media (max-width: 360px) {
-      .prss-btn { width: 100%; }
+    .prss-btn:hover:not(:disabled) {
+      background: #898989;
+      color: ${color.white};
     }
   `}</style>
 );
 
-// ─── PasswordResetSuccessScreen Component ─────────────────────────────────────
+// Same stroke-icon language as the rest of this flow — a checkmark instead
+// of the imported PNG, so it inherits color.success rather than shipping a
+// separate fixed-color asset.
+const CheckIcon = () => (
+  <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke={color.success} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="4 12.5 9.5 18 20 6" />
+  </svg>
+);
+
+// Props:
+//   onSignIn — called when the person taps through to sign in again
 const PasswordResetSuccessScreen = ({ onSignIn }) => {
+  // Bare content only — no own panel, no own header/card chrome. The parent
+  // (SplashScreen) already supplies the dark rectangular panel for this flow,
+  // same as ForgotPasswordScreen and ForgotPasswordCodeScreen.
   return (
-    <>
-      <ResponsiveStyles />
-      <div className="prss-wrapper">
+    <div style={{ width: "100%", display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", fontFamily: font.ui }}>
+      <SuccessScreenStyles />
 
-        {/* ── Card Container ── */}
-        <div className="prss-card">
+      <span
+        aria-hidden="true"
+        style={{
+          width: "56px", height: "56px", borderRadius: "50%",
+          background: color.white,
+          display: "flex", alignItems: "center", justifyContent: "center",
+          marginBottom: "18px",
+        }}
+      >
+        <CheckIcon />
+      </span>
 
-          {/* ── Card Header ── */}
-          <div className="prss-card-header">
-            <span style={{
-              fontFamily: "'Jua', sans-serif",
-              fontSize: "1.4rem",
-              color: "white",
-              letterSpacing: "0.1em",
-              textTransform: "uppercase",
-            }}>
-              Password Reset!
-            </span>
-          </div>
+      <h1 style={{
+        fontSize: "1.75rem", fontWeight: 600, letterSpacing: "-0.02em",
+        lineHeight: 1.15, color: color.onWine, margin: 0,
+      }}>
+        Password Reset!
+      </h1>
 
-          {/* ── Card Body ── */}
-          <div className="prss-card-body">
+      <p style={{ fontSize: "0.9375rem", color: color.onWineMuted, lineHeight: 1.5, margin: "12px 0 4px" }}>
+        Your password has been reset successfully.
+      </p>
 
-            {/* ── Success Icon ── */}
-            <img
-              src={checkIcon}
-              alt="Success"
-              className="prss-icon"
-            />
+      <hr style={{ border: "none", borderTop: "1.5px solid rgba(255,255,255,0.15)", width: "100%", margin: "24px 0" }} />
 
-            {/* ── Divider ── */}
-            <hr className="prss-divider" />
-
-            {/* ── Confirmation Message ── */}
-            <p className="prss-message">
-              Your password has been reset successfully.
-            </p>
-
-            {/* ── Divider ── */}
-            <hr className="prss-divider-bottom" />
-
-            {/* ── Sign-In Button ── */}
-            <button onClick={() => onSignIn?.()} className="prss-btn">
-              Sign-In
-            </button>
-
-          </div>
-          {/* ── End Card Body ── */}
-
-        </div>
-        {/* ── End Card Container ── */}
-
-      </div>
-      {/* ── End Page Wrapper ── */}
-    </>
+      <button onClick={() => onSignIn?.()} className="ojt-pill prss-btn" style={{
+        width: "auto", height: "52px", padding: "0 44px",
+        border: "none", borderRadius: "999px",
+        fontSize: "0.9375rem", fontWeight: 700, letterSpacing: "0.02em",
+        cursor: "pointer",
+        boxShadow: "0 6px 16px rgba(0,0,0,0.45), inset 0 1px 0 rgba(0,0,0,0.04)",
+      }}>
+        Sign In
+      </button>
+    </div>
   );
 };
 
