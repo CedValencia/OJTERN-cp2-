@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { collection, onSnapshot, query, where, orderBy, limit, doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
 import { db } from "./firebase";
@@ -716,7 +716,7 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
   const [applyCompany, setApplyCompany]         = useState(null);
   const [pendingContact, setPendingContact]     = useState(null);
   const [pendingApplicationId, setPendingApplicationId] = useState(null);
-  const [showChangePass, setShowChangePass]     = useState(!user?.passwordChanged);
+  const [showChangePass, setShowChangePass]     = useState(false);
   const [showPassSuccess, setShowPassSuccess]   = useState(false);
   const [currentPass, setCurrentPass] = useState("");
   const [newPass, setNewPass]                   = useState("");
@@ -764,10 +764,22 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
 
     } catch (err) {
       setPassError(err.message || "Failed to change password.");
-    } finally {
+        } finally {
       setPassLoading(false);
     }
   };
+
+  // `user` ay null sa unang render pagka-refresh — naka-mount na ang dashboard
+  // bago pa dumating ang profile. Ang null ay "hindi pa alam", hindi "hindi pa
+  // nagpalit ng password", kaya hinihintay muna bago magpasya. Isang beses lang
+  // bawat user (didGateInit), para hindi muling bumukas ang modal matapos
+  // i-dismiss o matapos mag-save.
+  const didGateInit = useRef(false);
+  useEffect(() => {
+    if (!user || didGateInit.current) return;
+    didGateInit.current = true;
+    setShowChangePass(!user.passwordChanged);
+  }, [user]);
 
   const handleReportSubmit = (report) => {
     console.log("Report submitted:", report);

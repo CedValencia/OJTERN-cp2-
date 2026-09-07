@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { doc, updateDoc, getDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "./firebase";
+import { color, font, type, space, radius, shadow, ease } from "./theme";
 import {
   logActivity,
   applyCompanyEnforcement,
@@ -9,261 +10,342 @@ import {
   getCompanyActionHistory,
 } from "./AuthService";
 
-const red     = "#8B0000";
-const darkRed = "#590101";
+// ── CoordinatorStudentList theme ─────────────────────────────────────────────
+// Typography matches CoordinatorStudentListScreen through the shared theme.
+// ── Shared OJTERN black & white palette — matches CoordinatorStudentListScreen ──
+// ── Black & white UI palette ─────────────────────────────────────────────────
+// Matches the clean black/white visual language of CoordinatorStudentList.
+// Semantic status colors (success/warning/danger/info) remain unchanged.
+const ink        = "#111111";
+const inkBody    = "#222222";
+const inkMuted   = "#666666";
+const inkFaint   = "#999999";
+const surface    = "#FFFFFF";
+const page       = "#FFFFFF";
+const line       = "#E5E5E5";
+const lineSoft   = "#F4F4F4";
+const panel      = "#000000";
+const panelDeep  = "#222222";
+const onPanel    = "#FFFFFF";
+const onPanelDim = "#F5F5F5";
+
+const red      = "#111111";
+const darkRed = "#000000";
 
 // ── Responsive styles ─────────────────────────────────────────────────────────
 const ResponsiveStyles = () => (
   <style>{`
-    @import url('https://fonts.googleapis.com/css2?family=Jersey+25&family=Kufam:wght@400;600;700&family=Jua&display=swap');
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    ::-webkit-scrollbar { width: 4px; }
-    ::-webkit-scrollbar-thumb { background: #8B0000; border-radius: 4px; }
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
 
-    /* Main scroll area */
     .rc-screen {
-      flex: 1;
-      overflow-y: auto;
-      padding: 28px 32px;
-    }
-    @media (max-width: 560px) {
-      .rc-screen { padding: 18px 14px; }
+      width: 100% !important;
+      min-width: 0 !important;
+      min-height: 100% !important;
+      height: 100% !important;
+      overflow-y: auto !important;
+      overflow-x: hidden !important;
+      background: ${page} !important;
+      padding: clamp(16px, 4vw, 28px) clamp(16px, 4vw, 32px) !important;
+      color: ${ink} !important;
+      font-family: ${font.ui} !important;
     }
 
-    /* Header row */
+    .rc-screen,
+    .rc-screen * {
+      box-sizing: border-box;
+    }
+
+    .rc-screen h1,
+    .rc-screen h2,
+    .rc-screen h3,
+    .rc-screen p,
+    .rc-screen span,
+    .rc-screen td,
+    .rc-screen th {
+      color: inherit;
+    }
+
+    /* Header row — keeps the title panel and total badge as separate containers */
+    .rc-header-row {
+      display: flex !important;
+      align-items: center !important;
+      gap: 18px !important;
+      margin-bottom: 22px !important;
+    }
+
     .rc-header {
-      display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      margin-bottom: 24px;
+      flex: 1 !important;
+      min-width: 0 !important;
+      padding: 18px 28px !important;
+      background: ${panel} !important;
+      border: 1px solid ${line} !important;
+      border-radius: 18px !important;
+      box-shadow: none !important;
     }
 
-    /* Title */
     .rc-title {
-      font-family: 'Jersey 25', sans-serif;
-      font-size: 3rem;
-      color: ${darkRed};
-      line-height: 1.1;
-    }
-    @media (max-width: 480px) {
-      .rc-title { font-size: 2rem; }
+      margin: 0 !important;
+      font-family: ${font.ui} !important;
+      font-size: clamp(1rem, 4vw, 1.5rem) !important;
+      font-weight: 600 !important;
+      color: ${onPanel} !important;
+      line-height: 1 !important;
+      letter-spacing: -0.01em !important;
     }
 
-    /* Total badge */
+    /* Report total — separate white panel outside the black header */
     .rc-total-badge {
-      border: 2px solid #333;
-      border-radius: 12px;
-      padding: 10px 20px;
-      text-align: center;
-      min-width: 80px;
-    }
-    @media (max-width: 480px) {
-      .rc-total-badge { padding: 8px 14px; min-width: 60px; }
+      min-width: 82px !important;
+      height: 90px !important;
+      padding: 12px 16px !important;
+      border: 1px solid ${line} !important;
+      border-radius: 16px !important;
+      background: ${color.white} !important;
+      text-align: center !important;
+      box-shadow: none !important;
+      flex-shrink: 0 !important;
+      display: flex !important;
+      flex-direction: column !important;
+      align-items: center !important;
+      justify-content: center !important;
     }
 
-    /* ── TABLE — desktop only ── */
-    .rc-table-wrap { width: 100%; }
+    .rc-total-badge > div:first-child {
+      color: ${ink} !important;
+    }
+
+    .rc-total-badge > div:last-child {
+      color: ${inkMuted} !important;
+    }
+
+    .rc-table-wrap {
+      width: 100% !important;
+      overflow-x: auto !important;
+      border: 1px solid ${line} !important;
+      border-radius: 18px !important;
+      background: ${surface} !important;
+      box-shadow: none !important;
+    }
+
     .rc-table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 0.83rem;
-    }
-    .rc-th {
-      padding: 10px 14px;
-      text-align: left;
-      color: white;
-      font-family: 'Kufam', sans-serif;
-      font-weight: 600;
-      white-space: nowrap;
-    }
-    .rc-td {
-      padding: 12px 14px;
-      font-family: 'Kufam', sans-serif;
-      font-weight: 600;
-      border-bottom: 1px solid #eee;
+      width: 100% !important;
+      min-width: 680px !important;
+      border-collapse: separate !important;
+      border-spacing: 0 !important;
+      font-size: 0.90rem !important;
+      background: ${surface} !important;
     }
 
-    /* ── CARD LIST — mobile only ── */
-    .rc-card-list { display: none; flex-direction: column; gap: 10px; }
+    .rc-th {
+      padding: 13px 14px !important;
+      text-align: left !important;
+      color: ${onPanelDim} !important;
+      background: ${panel} !important;
+      border-bottom: 1px solid ${line} !important;
+      font-family: ${font.ui} !important;
+      font-size: 1rem !important;
+      font-weight: 700 !important;
+      letter-spacing: 0.02em !important;
+      white-space: nowrap !important;
+    }
+
+    .rc-td {
+      padding: 15px 14px !important;
+      color: ${ink} !important;
+      background: ${surface} !important;
+      font-family: ${font.ui} !important;
+      font-weight: 500 !important;
+      border-bottom: 1px solid ${line} !important;
+      vertical-align: middle !important;
+    }
+
+    .rc-modal-inner {
+      background: #ffffff !important;
+      opacity: 1 !important;
+      border-radius: 18px !important;
+      overflow: hidden !important;
+      width: min(680px, calc(100vw - 32px)) !important;
+      max-height: 90vh !important;
+      display: flex !important;
+      flex-direction: column !important;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.25) !important;
+    }
+
+    .rc-modal-header {
+      flex: 0 0 auto !important;
+      min-height: 60px !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: space-between !important;
+      gap: 12px !important;
+      padding: 14px 20px !important;
+      background: #000000 !important;
+      color: #ffffff !important;
+      border-bottom: 1px solid #222222 !important;
+    }
+
+    .rc-modal-header > span {
+      min-width: 0 !important;
+      flex: 1 1 auto !important;
+    }
+
+    .rc-modal-header button {
+      width: 30px !important;
+      height: 30px !important;
+      flex: 0 0 30px !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      background: #ffffff !important;
+      color: #111111 !important;
+      border: none !important;
+      border-radius: 50% !important;
+      cursor: pointer !important;
+    }
+
+    .rc-modal-body {
+      flex: 1 1 auto !important;
+      min-height: 0 !important;
+      overflow-y: auto !important;
+      overflow-x: hidden !important;
+      padding: 20px !important;
+      background: #ffffff !important;
+      color: #222222 !important;
+    }
+
+    .rc-modal-body p {
+      color: #222222;
+    }
+
+    .rc-modal-body button {
+      color: #ffffff !important;
+    }
+
+    .rc-modal-inner > div:last-child {
+      flex: 0 0 auto !important;
+      background: #ffffff !important;
+    }
+
+    @media (max-width: 560px) {
+      .rc-modal-inner {
+        width: calc(100vw - 24px) !important;
+        max-height: 94vh !important;
+        border-radius: 14px !important;
+      }
+
+      .rc-modal-header {
+        min-height: 54px !important;
+        padding: 12px 14px !important;
+      }
+
+      .rc-modal-body {
+        padding: 16px !important;
+      }
+    }
+
+    .rc-table tbody tr:last-child .rc-td {
+      border-bottom: none !important;
+    }
+
+    .rc-table tbody tr:hover .rc-td {
+      background: ${lineSoft} !important;
+    }
+
+    .rc-card-list {
+      display: none;
+      flex-direction: column;
+      gap: 10px;
+    }
 
     .rc-card {
-      background: #dadada;
-      border-radius: 12px;
-      padding: 14px 16px;
+      background: ${surface} !important;
+      border: 1px solid ${line} !important;
+      border-radius: 18px !important;
+      padding: 14px 16px !important;
       display: flex;
       flex-direction: column;
-      gap: 8px;
+      gap: 10px;
+      box-shadow: none !important;
     }
 
     .rc-card-top {
       display: flex;
       justify-content: space-between;
       align-items: flex-start;
-      gap: 8px;
+      gap: 10px;
     }
 
     .rc-card-bottom {
       display: flex;
       justify-content: space-between;
       align-items: flex-end;
-      gap: 8px;
+      gap: 12px;
+      padding-top: 8px;
+      border-top: 1px solid ${line} !important;
     }
 
     .rc-card-label {
-      font-family: 'Kufam', sans-serif;
-      font-size: 0.68rem;
-      color: #999;
-      margin-bottom: 2px;
+      font-family: ${font.ui} !important;
+      font-size: 0.66rem !important;
+      color: ${inkMuted} !important;
+      margin: 0 0 3px 0 !important;
     }
 
     .rc-card-value {
-      font-family: 'Kufam', sans-serif;
-      font-size: 0.84rem;
-      font-weight: 600;
-      color: #222;
+      font-family: ${font.ui} !important;
+      font-size: 0.82rem !important;
+      font-weight: 600 !important;
+      color: ${ink} !important;
+      margin: 0 !important;
     }
 
-    /* Switch between table and cards at 560px */
+    @media (max-width: 700px) {
+      .rc-table-wrap { display: none !important; }
+      .rc-card-list { display: flex !important; }
+    }
+
     @media (max-width: 560px) {
-      .rc-table-wrap { display: none; }
-      .rc-card-list  { display: flex; }
+      .rc-screen { padding: 16px !important; }
+
+      .rc-header-row {
+        gap: 10px !important;
+      }
+
+      .rc-header {
+        padding: 14px !important;
+      }
+
+      .rc-title {
+        font-size: 1.6rem !important;
+      }
+
+      .rc-total-badge {
+        min-width: 72px !important;
+        height: 78px !important;
+        padding: 8px 10px !important;
+      }
     }
 
-    /* Report detail modal */
-    .rc-modal-inner {
-      background: white;
-      border-radius: 16px;
-      width: 520px;
-      max-width: calc(100vw - 32px);
-      max-height: 85vh;
-      overflow: hidden;
-      display: flex;
-      flex-direction: column;
+    .rc-screen button {
+      font-family: ${font.ui};
     }
 
-    .rc-modal-header {
-      background: ${darkRed};
-      padding: 16px 20px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      flex-shrink: 0;
-    }
-
-    .rc-modal-body {
-      padding: 20px;
-      overflow-y: auto;
-      flex: 1;
-    }
-    @media (max-width: 480px) {
-      .rc-modal-body { padding: 14px; }
+    .rc-screen button:focus-visible,
+    .rc-screen :focus-visible {
+      outline: 2px solid ${color.white} !important;
+      outline-offset: 2px !important;
     }
   `}</style>
 );
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-const isAllowedType = (file) =>
-  file && (file.type === "image/png" || file.type === "application/pdf");
-
-const handleDownload = async (file) => {
-  try {
-    const res = await fetch(file.url);
-    const blob = await res.blob();
-    const blobUrl = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = blobUrl;
-    a.download = file.name || "download";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(blobUrl);
-  } catch (err) {
-    console.error("Download failed, falling back to opening in a new tab:", err);
-    window.open(file.url, "_blank", "noopener,noreferrer");
-  }
-};
-
-// ── Image Lightbox ────────────────────────────────────────────────────────────
-const ImageLightbox = ({ src, name, onClose }) => {
-  useEffect(() => {
-    const handler = (e) => { if (e.key === "Escape") onClose(); };
-    document.addEventListener("keydown", handler);
-    return () => document.removeEventListener("keydown", handler);
-  }, [onClose]);
-
-  return (
-    <div
-      onClick={onClose}
-      style={{
-        position: "fixed", inset: 0,
-        background: "rgba(0,0,0,0.88)",
-        display: "flex", alignItems: "center", justifyContent: "center",
-        zIndex: 9000, flexDirection: "column",
-      }}
-    >
-      <div
-        onClick={e => e.stopPropagation()}
-        style={{
-          position: "absolute", top: 0, left: 0, right: 0,
-          padding: "14px 20px",
-          display: "flex", alignItems: "center", justifyContent: "space-between",
-          background: "rgba(0,0,0,0.5)",
-        }}
-      >
-        <span style={{
-          fontFamily: "'Kufam', sans-serif", fontSize: "0.88rem",
-          color: "rgba(255,255,255,0.8)",
-          maxWidth: "70%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-        }}>
-          {name}
-        </span>
-        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-          <button
-            onClick={() => handleDownload({ url: src, name })}
-            style={{
-              background: "rgba(255,255,255,0.15)", border: "none", borderRadius: "8px",
-              padding: "7px 14px", color: "white",
-              fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem",
-              cursor: "pointer", display: "flex", alignItems: "center", gap: "6px",
-            }}
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-              <polyline points="7 10 12 15 17 10"/>
-              <line x1="12" y1="15" x2="12" y2="3"/>
-            </svg>
-            Download
-          </button>
-          <button
-            onClick={onClose}
-            style={{
-              background: "rgba(255,255,255,0.15)", border: "none", borderRadius: "50%",
-              width: "34px", height: "34px", color: "white", fontSize: "1.1rem",
-              cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
-            }}
-          >✕</button>
-        </div>
-      </div>
-
-      <img
-        src={src} alt={name}
-        onClick={e => e.stopPropagation()}
-        style={{
-          maxWidth: "90vw", maxHeight: "80vh",
-          borderRadius: "10px", objectFit: "contain",
-          boxShadow: "0 8px 40px rgba(0,0,0,0.6)",
-        }}
-      />
-    </div>
-  );
-};
 
 // ── Shared styles & icons ─────────────────────────────────────────────────────
 const downloadBtnStyle = {
   display: "flex", alignItems: "center", gap: "6px",
   padding: "7px 18px", borderRadius: "16px",
-  border: `1.5px solid ${red}`, background: "white", color: red,
-  fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem",
+  border: `1.5px solid ${panel}`, background: panel, color: "white",
+  fontFamily: font.ui, fontSize: "0.82rem",
   cursor: "pointer", fontWeight: 600,
 };
 
@@ -281,6 +363,103 @@ const PdfIcon = () => (
     <polyline points="14 2 14 8 20 8"/>
   </svg>
 );
+
+// ── Attachment helpers ────────────────────────────────────────────────────────
+
+const isAllowedType = (file) => {
+  if (!file) return false;
+
+  return (
+    file.type === "image/png" ||
+    file.type === "application/pdf"
+  );
+};
+
+const handleDownload = async (file) => {
+  if (!file?.url) return;
+
+  try {
+    const response = await fetch(file.url);
+    if (!response.ok) {
+      throw new Error(`Download failed: ${response.status}`);
+    }
+
+    const blob = await response.blob();
+    const blobUrl = window.URL.createObjectURL(blob);
+
+    const link = document.createElement("a");
+    link.href = blobUrl;
+    link.download = file.name || "attachment";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+
+    window.URL.revokeObjectURL(blobUrl);
+  } catch (err) {
+    console.error("Failed to download attachment:", err);
+
+    // Fallback if the file cannot be fetched as a blob.
+    window.open(file.url, "_blank", "noopener,noreferrer");
+  }
+};
+
+// ── Image Lightbox ───────────────────────────────────────────────────────────
+
+const ImageLightbox = ({ src, name, onClose }) => {
+  if (!src) return null;
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 2000,
+        background: "rgba(0,0,0,0.85)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "24px",
+        cursor: "zoom-out",
+      }}
+    >
+      <img
+        src={src}
+        alt={name || "Attachment preview"}
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          maxWidth: "95vw",
+          maxHeight: "90vh",
+          objectFit: "contain",
+          borderRadius: "10px",
+          boxShadow: "0 20px 60px rgba(0,0,0,0.5)",
+          cursor: "default",
+        }}
+      />
+
+      <button
+        onClick={onClose}
+        style={{
+          position: "absolute",
+          top: "20px",
+          right: "20px",
+          width: "38px",
+          height: "38px",
+          border: "none",
+          borderRadius: "50%",
+          background: color.white,
+          color: darkRed,
+          fontSize: "1.2rem",
+          fontWeight: "bold",
+          cursor: "pointer",
+        }}
+        aria-label="Close image preview"
+      >
+        ✕
+      </button>
+    </div>
+  );
+};
 
 // ── Report Detail Modal ───────────────────────────────────────────────────────
 // ── Resolution actions ─────────────────────────────────────────────────────
@@ -320,18 +499,18 @@ const buildNotificationText = (actionType, resolutionNotes) => {
 
 // ── Company account-status badge (Active/Approved, Suspended, Blocked) ────────
 const COMPANY_STATUS_BADGE = {
-  approved:  { bg: "#2a7a2a", label: "Active" },
-  active:    { bg: "#2a7a2a", label: "Active" },
-  pending:   { bg: "#e0a800", label: "Pending" },
-  rejected:  { bg: "#666",    label: "Rejected" },
-  suspended: { bg: "#e0a800", label: "Suspended" },
+  approved:  { bg: color.success, label: "Active" },
+  active:    { bg: color.success, label: "Active" },
+  pending:   { bg: color.warning, label: "Pending" },
+  rejected:  { bg: lineSoft, label: "Rejected" },
+  suspended: { bg: color.warning, label: "Suspended" },
   blocked:   { bg: red,       label: "Blocked" },
 };
 const CompanyStatusBadge = ({ status }) => {
-  const b = COMPANY_STATUS_BADGE[status] || { bg: "#999", label: status };
+  const b = COMPANY_STATUS_BADGE[status] || { bg: inkFaint, label: status };
   return (
     <span style={{
-      fontFamily: "'Kufam', sans-serif", fontSize: "0.7rem", fontWeight: 700,
+      fontFamily: font.ui, fontSize: "0.7rem", fontWeight: 700,
       background: b.bg, color: "white", borderRadius: "12px",
       padding: "3px 10px", whiteSpace: "nowrap",
     }}>{b.label}</span>
@@ -348,29 +527,29 @@ const ActionHistoryModal = ({ open, onClose, loading, history }) => {
       zIndex: 1300, padding: "16px",
     }}>
       <div style={{
-        background: "white", borderRadius: "18px", width: "100%", maxWidth: "460px",
+        background: color.white, borderRadius: "18px", width: "100%", maxWidth: "460px",
         maxHeight: "80vh", display: "flex", flexDirection: "column", overflow: "hidden",
         boxShadow: "0 24px 70px rgba(0,0,0,0.35)",
       }}>
         <div style={{ background: darkRed, padding: "16px 22px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <span style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.3rem", color: "white" }}>Action History</span>
-          <button onClick={onClose} style={{ background: "white", border: "none", borderRadius: "50%", width: "26px", height: "26px", cursor: "pointer", fontSize: "0.9rem", color: darkRed }}>✕</button>
+          <span style={{ fontFamily: font.ui, fontSize: "1.3rem", color: "white" }}>Action History</span>
+          <button onClick={onClose} style={{ background: color.white, border: "none", borderRadius: "50%", width: "26px", height: "26px", cursor: "pointer", fontSize: "0.9rem", color: darkRed }}>✕</button>
         </div>
         <div style={{ padding: "16px 20px", overflowY: "auto", flex: 1 }}>
-          {loading && <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#aaa", textAlign: "center", padding: "20px" }}>Loading…</p>}
+          {loading && <p style={{ fontFamily: font.ui, fontSize: "0.85rem", color: inkFaint, textAlign: "center", padding: "20px" }}>Loading…</p>}
           {!loading && history.length === 0 && (
-            <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#aaa", textAlign: "center", padding: "20px" }}>No actions recorded for this company yet.</p>
+            <p style={{ fontFamily: font.ui, fontSize: "0.85rem", color: inkFaint, textAlign: "center", padding: "20px" }}>No actions recorded for this company yet.</p>
           )}
           {!loading && history.map((h) => (
-            <div key={h.id} style={{ borderBottom: "1px solid #eee", padding: "12px 0" }}>
+            <div key={h.id} style={{ borderBottom: `1px solid ${line}`, padding: "12px 0" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px", marginBottom: "4px" }}>
-                <span style={{ fontFamily: "'Jua', sans-serif", fontSize: "0.85rem", color: "#1a1a1a" }}>{h.actionType}</span>
-                <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.7rem", color: "#999" }}>
+                <span style={{ fontFamily: font.ui, fontSize: "0.85rem", color: ink }}>{h.actionType}</span>
+                <span style={{ fontFamily: font.ui, fontSize: "0.7rem", color: inkMuted }}>
                   {h.createdAt?.toDate ? h.createdAt.toDate().toLocaleString() : ""}
                 </span>
               </div>
-              <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.78rem", color: "#555", marginBottom: "4px" }}>{h.reason}</p>
-              <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.72rem", color: "#999" }}>
+              <p style={{ fontFamily: font.ui, fontSize: "0.78rem", color: inkBody, marginBottom: "4px" }}>{h.reason}</p>
+              <p style={{ fontFamily: font.ui, fontSize: "0.72rem", color: inkMuted }}>
                 By {h.coordinatorName} • {h.previousAccountStatus} → {h.newAccountStatus}
               </p>
             </div>
@@ -599,14 +778,14 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid, coordinator
   return (
     <>
       <div style={{
-        position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)",
+        position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)",
         display: "flex", alignItems: "center", justifyContent: "center",
         zIndex: 1000, padding: "16px",
       }}>
         <div className="rc-modal-inner">
           <div className="rc-modal-header">
             <span style={{
-              fontFamily: "'Jersey 25', sans-serif",
+              fontFamily: font.ui,
               fontSize: "clamp(1.1rem, 4vw, 1.4rem)",
               color: "white",
               overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
@@ -614,7 +793,7 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid, coordinator
             }}>
               {report.company}
               <span style={{
-                fontFamily: "'Kufam', sans-serif", fontSize: "0.68rem", fontWeight: 700,
+                fontFamily: font.ui, fontSize: "0.68rem", fontWeight: 700,
                 background: badge.bg, color: "white", borderRadius: "12px",
                 padding: "3px 10px", whiteSpace: "nowrap", flexShrink: 0,
               }}>{badge.label}</span>
@@ -622,60 +801,60 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid, coordinator
             <button
               onClick={onClose}
               style={{
-                background: "white", border: "none", borderRadius: "50%",
+                background: color.white, border: "none", borderRadius: "50%",
                 width: "28px", height: "28px", cursor: "pointer",
-                fontWeight: "bold", fontSize: "1rem", color: "#333",
+                fontWeight: "bold", fontSize: "1rem", color: ink,
                 flexShrink: 0, marginLeft: "10px",
               }}
             >✕</button>
           </div>
 
           <div className="rc-modal-body">
-            <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem", marginBottom: "8px" }}>
+            <p style={{ fontFamily: font.ui, fontSize: "0.9rem", marginBottom: "8px" }}>
               <b>Reported Company:</b> {report.company}
             </p>
-            <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem", marginBottom: "8px" }}>
+            <p style={{ fontFamily: font.ui, fontSize: "0.9rem", marginBottom: "8px" }}>
               <b>Concern:</b> {report.concern}
             </p>
-            <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem", marginBottom: "8px" }}>
+            <p style={{ fontFamily: font.ui, fontSize: "0.9rem", marginBottom: "8px" }}>
               <b>Date:</b> {report.date}
             </p>
             <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "16px", flexWrap: "wrap" }}>
-              <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem", margin: 0 }}>
+              <p style={{ fontFamily: font.ui, fontSize: "0.9rem", margin: 0 }}>
                 <b>Company Account Status:</b>{" "}
                 {companyStatus
                   ? <CompanyStatusBadge status={companyStatus} />
-                  : <span style={{ color: "#aaa", fontSize: "0.8rem" }}>Loading…</span>}
+                  : <span style={{ color: inkFaint, fontSize: "0.8rem" }}>Loading…</span>}
               </p>
               <button
                 onClick={openHistory}
                 style={{
                   padding: "4px 14px", borderRadius: "14px",
-                  border: `1.5px solid ${red}`, background: "white", color: red,
-                  fontFamily: "'Kufam', sans-serif", fontSize: "0.74rem", fontWeight: 600,
+                  border: `1.5px solid ${panel}`, background: panel, color: "white",
+                  fontFamily: font.ui, fontSize: "0.74rem", fontWeight: 600,
                   cursor: "pointer",
                 }}
               >View Action History</button>
             </div>
-            <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem", fontWeight: 700, marginBottom: "6px" }}>
+            <p style={{ fontFamily: font.ui, fontSize: "0.9rem", fontWeight: 700, marginBottom: "6px" }}>
               DESCRIPTION:
             </p>
-            <div style={{ background: "#f5f5f5", borderRadius: "10px", padding: "14px", marginBottom: "16px" }}>
-              <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#444", lineHeight: 1.6 }}>
+            <div style={{ background: lineSoft, borderRadius: "10px", padding: "14px", marginBottom: "16px" }}>
+              <p style={{ fontFamily: font.ui, fontSize: "0.85rem", color: inkBody, lineHeight: 1.6 }}>
                 {report.description}
               </p>
             </div>
 
             {file && (
               <>
-                <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem", fontWeight: 700, marginBottom: "10px" }}>
+                <p style={{ fontFamily: font.ui, fontSize: "0.9rem", fontWeight: 700, marginBottom: "10px" }}>
                   Attached File:
                 </p>
                 {!allowed && (
                   <div style={{
-                    background: "#fff3f3", border: `1px solid ${red}`,
+                    background: lineSoft, border: `1px solid ${red}`,
                     borderRadius: "8px", padding: "12px 14px",
-                    fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", color: red,
+                    fontFamily: font.ui, fontSize: "0.82rem", color: red,
                   }}>
                     Unsupported file type. Only PNG images and PDF files can be previewed or downloaded.
                   </div>
@@ -688,7 +867,7 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid, coordinator
                     >
                       <img
                         src={file.url} alt="attachment"
-                        style={{ maxWidth: "100%", borderRadius: "8px", border: "1px solid #ddd", display: "block" }}
+                        style={{ maxWidth: "100%", borderRadius: "8px", border: `1px solid ${line}`, display: "block" }}
                       />
                       <div
                         style={{
@@ -717,11 +896,11 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid, coordinator
                   <div>
                     <div style={{
                       display: "flex", alignItems: "center", gap: "10px",
-                      background: "#f5f5f5", padding: "10px 14px",
+                      background: lineSoft, padding: "10px 14px",
                       borderRadius: "8px", marginBottom: "10px",
                     }}>
                       <PdfIcon />
-                      <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", color: "#555", flex: 1 }}>
+                      <span style={{ fontFamily: font.ui, fontSize: "0.82rem", color: inkBody, flex: 1 }}>
                         {file.name}
                       </span>
                     </div>
@@ -733,25 +912,25 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid, coordinator
               </>
             )}
             {status !== "pending" && savedAction && (
-              <div style={{ background: "#f2f8f2", borderRadius: "10px", padding: "12px 14px", marginBottom: "16px", display: "flex", gap: "10px", alignItems: "flex-start" }}>
+              <div style={{ background: lineSoft, borderRadius: "10px", padding: "12px 14px", marginBottom: "16px", display: "flex", gap: "10px", alignItems: "flex-start" }}>
                 <span style={{ fontSize: "1rem" }}>{RESOLUTION_ACTION_META[savedAction]?.icon || "📝"}</span>
                 <div>
-                  <p style={{ fontFamily: "'Jua', sans-serif", fontSize: "0.85rem", color: "#2a7a2a" }}>{savedAction}</p>
-                  <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.8rem", color: "#555", marginTop: "2px" }}>{savedNotes}</p>
+                  <p style={{ fontFamily: font.ui, fontSize: "0.85rem", color: color.success }}>{savedAction}</p>
+                  <p style={{ fontFamily: font.ui, fontSize: "0.8rem", color: inkBody, marginTop: "2px" }}>{savedNotes}</p>
                 </div>
               </div>
             )}
             {enforcementNote && (
-              <div style={{ background: "#fdf1f1", border: `1.5px solid ${red}`, borderRadius: "10px", padding: "12px 14px", marginBottom: "16px", display: "flex", gap: "10px", alignItems: "flex-start" }}>
+              <div style={{ background: lineSoft, border: `1.5px solid ${red}`, borderRadius: "10px", padding: "12px 14px", marginBottom: "16px", display: "flex", gap: "10px", alignItems: "flex-start" }}>
                 <span style={{ fontSize: "1rem" }}>⛔</span>
-                <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.8rem", color: darkRed }}>{enforcementNote}</p>
+                <p style={{ fontFamily: font.ui, fontSize: "0.8rem", color: darkRed }}>{enforcementNote}</p>
               </div>
             )}
           </div>
 
           <div style={{
             display: "flex", justifyContent: "flex-end", gap: "10px",
-            padding: "14px 20px", borderTop: "1px solid #eee",
+            padding: "14px 20px", borderTop: `1px solid ${line}`,
           }}>
             {status === "pending" ? (
               <>
@@ -759,8 +938,8 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid, coordinator
                   onClick={() => setConfirmingDismiss(true)}
                   disabled={working}
                   style={{
-                    padding: "9px 22px", borderRadius: "22px", background: "#666",
-                    color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif",
+                    padding: "9px 22px", borderRadius: "22px", background: lineSoft,
+                    color: "white", border: "none", fontFamily: font.ui,
                     fontSize: "1rem", cursor: working ? "not-allowed" : "pointer", opacity: working ? 0.7 : 1,
                   }}
                 >DISMISS</button>
@@ -768,14 +947,14 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid, coordinator
                   onClick={() => setResolvingPanel(true)}
                   disabled={working}
                   style={{
-                    padding: "9px 22px", borderRadius: "22px", background: "#2a7a2a",
-                    color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif",
+                    padding: "9px 22px", borderRadius: "22px", background: color.success,
+                    color: "white", border: "none", fontFamily: font.ui,
                     fontSize: "1rem", cursor: working ? "not-allowed" : "pointer", opacity: working ? 0.7 : 1,
                   }}
                 >RESOLVE</button>
               </>
             ) : (
-              <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.8rem", color: "#888", margin: 0 }}>
+              <p style={{ fontFamily: font.ui, fontSize: "0.8rem", color: inkMuted, margin: 0 }}>
                 This report has been {status} and can no longer be changed.
               </p>
             )}
@@ -843,14 +1022,14 @@ const ConfirmModal = ({ title, message, confirmLabel = "CONFIRM", working, onCan
     zIndex: 1200, padding: "16px",
   }}>
     <div style={{
-      background: "white", borderRadius: "18px", width: "100%", maxWidth: "380px",
+      background: color.white, borderRadius: "18px", width: "100%", maxWidth: "380px",
       overflow: "hidden", boxShadow: "0 24px 70px rgba(0,0,0,0.35)",
     }}>
       <div style={{ padding: "26px 24px 8px" }}>
-        <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.3rem", color: darkRed, marginBottom: "8px" }}>
+        <p style={{ fontFamily: font.ui, fontSize: "1.3rem", color: darkRed, marginBottom: "8px" }}>
           {title}
         </p>
-        <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#555", lineHeight: 1.5 }}>
+        <p style={{ fontFamily: font.ui, fontSize: "0.85rem", color: inkBody, lineHeight: 1.5 }}>
           {message}
         </p>
       </div>
@@ -859,8 +1038,8 @@ const ConfirmModal = ({ title, message, confirmLabel = "CONFIRM", working, onCan
           onClick={onCancel}
           disabled={working}
           style={{
-            padding: "9px 22px", borderRadius: "22px", background: "white",
-            color: "#666", border: "1.5px solid #ccc", fontFamily: "'Jersey 25', sans-serif",
+            padding: "9px 22px", borderRadius: "22px", background: color.white,
+            color: inkMuted, border: `1.5px solid ${line}`, fontFamily: font.ui,
             fontSize: "1rem", cursor: working ? "not-allowed" : "pointer",
           }}
         >CANCEL</button>
@@ -868,8 +1047,8 @@ const ConfirmModal = ({ title, message, confirmLabel = "CONFIRM", working, onCan
           onClick={onConfirm}
           disabled={working}
           style={{
-            padding: "9px 22px", borderRadius: "22px", background: "#666",
-            color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif",
+            padding: "9px 22px", borderRadius: "22px", background: lineSoft,
+            color: "white", border: "none", fontFamily: font.ui,
             fontSize: "1rem", cursor: working ? "not-allowed" : "pointer", opacity: working ? 0.7 : 1,
           }}
         >{working ? "..." : confirmLabel}</button>
@@ -893,22 +1072,22 @@ const ResolveActionModal = ({
     zIndex: 1100, padding: "16px",
   }}>
     <div style={{
-      background: "white", borderRadius: "18px", width: "100%", maxWidth: "480px",
+      background: color.white, borderRadius: "18px", width: "100%", maxWidth: "480px",
       maxHeight: "88vh", display: "flex", flexDirection: "column", overflow: "hidden",
       boxShadow: "0 24px 70px rgba(0,0,0,0.35)",
     }}>
       <div style={{ background: red, padding: "16px 22px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <span style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.4rem", color: "white", letterSpacing: "0.03em" }}>Resolve Report</span>
+        <span style={{ fontFamily: font.ui, fontSize: "1.4rem", color: "white", letterSpacing: "0.03em" }}>Resolve Report</span>
         <button
           onClick={onCancel}
           disabled={working}
-          style={{ background: "white", border: "none", borderRadius: "50%", width: "26px", height: "26px", cursor: working ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.9rem", color: darkRed, flexShrink: 0 }}
+          style={{ background: color.white, border: "none", borderRadius: "50%", width: "26px", height: "26px", cursor: working ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.9rem", color: darkRed, flexShrink: 0 }}
         >✕</button>
       </div>
 
       <div style={{ padding: "20px 22px", overflowY: "auto", flex: 1 }}>
-        <div style={{ background: "#fdf1f1", border: `1.5px solid ${red}`, borderRadius: "12px", padding: "16px" }}>
-          <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "1.1rem", color: darkRed, marginBottom: "10px" }}>
+        <div style={{ background: lineSoft, border: `1.5px solid ${red}`, borderRadius: "12px", padding: "16px" }}>
+          <p style={{ fontFamily: font.ui, fontSize: "1.1rem", color: darkRed, marginBottom: "10px" }}>
             What action was taken?
           </p>
           <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "16px" }}>
@@ -922,22 +1101,22 @@ const ResolveActionModal = ({
                   style={{
                     display: "flex", alignItems: "center", gap: "10px",
                     padding: "9px 12px", borderRadius: "10px", cursor: "pointer",
-                    border: `2px solid ${isSelected ? red : "#e5e5e5"}`,
-                    background: isSelected ? "white" : "#fbfbfb",
+                    border: `2px solid ${isSelected ? red : line}`,
+                    background: isSelected ? color.white : lineSoft,
                   }}
                 >
                   <span style={{ fontSize: "1rem" }}>{meta.icon}</span>
                   <div style={{ flex: 1 }}>
-                    <p style={{ fontFamily: "'Jua', sans-serif", fontSize: "0.85rem", color: "#1a1a1a" }}>{action}</p>
-                    <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.7rem", color: "#888" }}>{meta.desc}</p>
+                    <p style={{ fontFamily: font.ui, fontSize: "0.85rem", color: ink }}>{action}</p>
+                    <p style={{ fontFamily: font.ui, fontSize: "0.7rem", color: inkMuted }}>{meta.desc}</p>
                   </div>
                   <div style={{
                     width: "16px", height: "16px", borderRadius: "50%", flexShrink: 0,
-                    border: `2px solid ${isSelected ? red : "#bbb"}`,
+                    border: `2px solid ${isSelected ? red : inkFaint}`,
                     background: isSelected ? red : "transparent",
                     display: "flex", alignItems: "center", justifyContent: "center",
                   }}>
-                    {isSelected && <div style={{ width: "5px", height: "5px", borderRadius: "50%", background: "white" }} />}
+                    {isSelected && <div style={{ width: "5px", height: "5px", borderRadius: "50%", background: color.white }} />}
                   </div>
                 </div>
               );
@@ -946,7 +1125,7 @@ const ResolveActionModal = ({
 
           {selectedAction === "Others" && (
             <div style={{ marginBottom: "16px" }}>
-              <p style={{ fontFamily: "'Jua', sans-serif", fontSize: "0.9rem", color: "#1a1a1a", marginBottom: "6px" }}>
+              <p style={{ fontFamily: font.ui, fontSize: "0.9rem", color: ink, marginBottom: "6px" }}>
                 Specify the action taken
               </p>
               <input
@@ -956,9 +1135,9 @@ const ResolveActionModal = ({
                 placeholder=""
                 style={{
                   width: "100%", borderRadius: "10px",
-                  border: "1.5px solid #ddd", padding: "10px 12px",
-                  fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", color: "#1a1a1a",
-                  outline: "none", background: "white", boxSizing: "border-box",
+                  border: `1.5px solid ${line}`, padding: "10px 12px",
+                  fontFamily: font.ui, fontSize: "0.82rem", color: ink,
+                  outline: "none", background: color.white, boxSizing: "border-box",
                 }}
               />
             </div>
@@ -966,7 +1145,7 @@ const ResolveActionModal = ({
 
           {selectedAction === "Suspend Account" && (
             <div style={{ marginBottom: "16px" }}>
-              <p style={{ fontFamily: "'Jua', sans-serif", fontSize: "0.9rem", color: "#1a1a1a", marginBottom: "6px" }}>
+              <p style={{ fontFamily: font.ui, fontSize: "0.9rem", color: ink, marginBottom: "6px" }}>
                 Suspend for how many days?
               </p>
               <input
@@ -977,18 +1156,18 @@ const ResolveActionModal = ({
                 placeholder="e.g. 7"
                 style={{
                   width: "120px", borderRadius: "10px",
-                  border: "1.5px solid #ddd", padding: "10px 12px",
-                  fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", color: "#1a1a1a",
-                  outline: "none", background: "white", boxSizing: "border-box",
+                  border: `1.5px solid ${line}`, padding: "10px 12px",
+                  fontFamily: font.ui, fontSize: "0.82rem", color: ink,
+                  outline: "none", background: color.white, boxSizing: "border-box",
                 }}
               />
-              <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.7rem", color: "#888", marginTop: "6px" }}>
+              <p style={{ fontFamily: font.ui, fontSize: "0.7rem", color: inkMuted, marginTop: "6px" }}>
                 Account auto-reactivates once this period ends.
               </p>
             </div>
           )}
 
-          <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem", color: "#1a1a1a", marginBottom: "6px" }}>
+          <p style={{ fontFamily: font.ui, fontSize: "0.9rem", color: ink, marginBottom: "6px" }}>
             How was this resolved?
           </p>
           <textarea
@@ -997,21 +1176,21 @@ const ResolveActionModal = ({
             placeholder="Describe the resolution"
             style={{
               width: "100%", minHeight: "80px", borderRadius: "10px",
-              border: "1.5px solid #ddd", padding: "10px 12px",
-              fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", color: "#1a1a1a",
-              resize: "vertical", outline: "none", background: "white",
+              border: `1.5px solid ${line}`, padding: "10px 12px",
+              fontFamily: font.ui, fontSize: "0.82rem", color: ink,
+              resize: "vertical", outline: "none", background: color.white,
             }}
           />
         </div>
       </div>
 
-      <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", padding: "14px 20px", borderTop: "1px solid #eee" }}>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", padding: "14px 20px", borderTop: `1px solid ${line}` }}>
         <button
           onClick={onCancel}
           disabled={working}
           style={{
-            padding: "9px 22px", borderRadius: "22px", background: "white",
-            color: "#666", border: "1.5px solid #ccc", fontFamily: "'Jersey 25', sans-serif",
+            padding: "9px 22px", borderRadius: "22px", background: color.white,
+            color: inkMuted, border: `1.5px solid ${line}`, fontFamily: font.ui,
             fontSize: "1rem", cursor: working ? "not-allowed" : "pointer",
           }}
         >CANCEL</button>
@@ -1020,8 +1199,8 @@ const ResolveActionModal = ({
           disabled={working || !canConfirm}
           style={{
             padding: "9px 22px", borderRadius: "22px",
-            background: canConfirm ? "#2a7a2a" : "#ccc",
-            color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif",
+            background: canConfirm ? color.success : inkFaint,
+            color: "white", border: "none", fontFamily: font.ui,
             fontSize: "1rem", cursor: (working || !canConfirm) ? "not-allowed" : "pointer",
           }}
         >CONFIRM RESOLUTION</button>
@@ -1033,13 +1212,13 @@ const ResolveActionModal = ({
 // ── Empty State ───────────────────────────────────────────────────────────────
 const EmptyState = () => (
   <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "12px" }}>
-    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#ddd" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke={inkMuted} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="12" cy="12" r="10"/>
       <line x1="12" y1="8" x2="12" y2="12"/>
       <line x1="12" y1="16" x2="12.01" y2="16"/>
     </svg>
-    <p style={{ color: "#bbb", fontSize: "1rem", fontFamily: "'Jua', sans-serif" }}>No reports submitted yet.</p>
-    <p style={{ color: "#ccc", fontSize: "0.82rem", fontFamily: "'Kufam', sans-serif" }}>Reports submitted from a company profile will appear here.</p>
+    <p style={{ color: inkBody, fontSize: "1rem", fontFamily: font.ui }}>No reports submitted yet.</p>
+    <p style={{ color: inkMuted, fontSize: "0.82rem", fontFamily: font.ui }}>Reports submitted from a company profile will appear here.</p>
   </div>
 );
 
@@ -1049,8 +1228,8 @@ const ViewButton = ({ onClick }) => (
     onClick={onClick}
     style={{
       padding: "5px 16px", borderRadius: "16px",
-      border: `1.5px solid ${red}`, background: "white", color: red,
-      fontFamily: "'Kufam', sans-serif", fontSize: "0.78rem",
+      border: `1.5px solid ${red}`, background: color.white, color: red,
+      fontFamily: font.ui, fontSize: "0.78rem",
       cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0,
     }}
   >View</button>
@@ -1058,15 +1237,15 @@ const ViewButton = ({ onClick }) => (
 
 // ── Status badge (reused in table and cards) ──────────────────────────────────
 const REPORT_STATUS_BADGE = {
-  pending:   { bg: "#e0a800", label: "Pending" },
-  resolved:  { bg: "#2a7a2a", label: "Resolved" },
-  dismissed: { bg: "#666",    label: "Dismissed" },
+  pending:   { bg: inkFaint, label: "Pending" },
+  resolved:  { bg: color.success, label: "Resolved" },
+  dismissed: { bg: lineSoft, label: "Dismissed" },
 };
 const StatusBadge = ({ status }) => {
   const b = REPORT_STATUS_BADGE[status] || REPORT_STATUS_BADGE.pending;
   return (
     <span style={{
-      fontFamily: "'Kufam', sans-serif", fontSize: "0.7rem", fontWeight: 700,
+      fontFamily: font.ui, fontSize: "0.7rem", fontWeight: 700,
       background: b.bg, color: "white", borderRadius: "12px",
       padding: "3px 10px", whiteSpace: "nowrap",
     }}>{b.label}</span>
@@ -1077,16 +1256,34 @@ const StatusBadge = ({ status }) => {
 const CoordinatorReportCompanyScreen = ({ reports = [], onViewReport }) => (
   <>
     <ResponsiveStyles />
-    <div className="rc-screen">
+    <div className="rc-screen" style={{ background: page, color: ink }}>
 
-      {/* Header */}
-      <div className="rc-header">
-        <h1 className="rc-title">Report<br />List</h1>
-        <div className="rc-total-badge">
-          <div style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(1.4rem, 4vw, 2rem)", color: "#222" }}>
+      {/* Header — title and total are separate containers */}
+      <div className="rc-header-row">
+        <div className="rc-header">
+          <h1 className="rc-title">Report List</h1>
+        </div>
+
+        <div
+          className="rc-total-badge"
+          aria-label={`Total reports: ${reports.length}`}
+        >
+          <div style={{
+            fontFamily: font.ui,
+            fontSize: "clamp(1.5rem, 4vw, 2rem)",
+            color: ink,
+            lineHeight: 1,
+          }}>
             {reports.length}
           </div>
-          <div style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", fontWeight: 700, color: "#222" }}>
+
+          <div style={{
+            fontFamily: font.ui,
+            fontSize: "0.68rem",
+            fontWeight: 700,
+            color: inkMuted,
+            marginTop: "4px",
+          }}>
             Total
           </div>
         </div>
@@ -1096,27 +1293,34 @@ const CoordinatorReportCompanyScreen = ({ reports = [], onViewReport }) => (
       <div className="rc-table-wrap">
         <table className="rc-table">
           <thead>
-            <tr style={{ background: darkRed }}>
+            <tr>
               {["Reported Company", "Concern", "Date", "Status", "Action"].map(h => (
                 <th key={h} className="rc-th">{h}</th>
               ))}
             </tr>
           </thead>
+
           <tbody>
             {reports.map((r, i) => (
-              <tr key={i}>
+              <tr key={r.id || i}>
                 <td className="rc-td">{r.company}</td>
                 <td className="rc-td">{r.concern}</td>
                 <td className="rc-td">{r.date}</td>
-                <td className="rc-td"><StatusBadge status={r.status || "pending"} /></td>
+                <td className="rc-td">
+                  <StatusBadge status={r.status || "pending"} />
+                </td>
                 <td className="rc-td">
                   <ViewButton onClick={() => onViewReport && onViewReport(r)} />
                 </td>
               </tr>
             ))}
+
             {reports.length === 0 && (
               <tr>
-                <td colSpan={5} style={{ padding: "60px" }}>
+                <td colSpan={5} style={{
+                  padding: "60px 20px",
+                  background: surface,
+                }}>
                   <EmptyState />
                 </td>
               </tr>
@@ -1128,31 +1332,43 @@ const CoordinatorReportCompanyScreen = ({ reports = [], onViewReport }) => (
       {/* ── Mobile: cards ── */}
       <div className="rc-card-list">
         {reports.map((r, i) => (
-          <div key={i} className="rc-card">
+          <div key={r.id || i} className="rc-card">
             <div className="rc-card-top">
               <div style={{ flex: 1, minWidth: 0 }}>
                 <p className="rc-card-label">Reported Company</p>
-                <p className="rc-card-value" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                <p
+                  className="rc-card-value"
+                  style={{
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
                   {r.company}
                 </p>
               </div>
+
               <ViewButton onClick={() => onViewReport && onViewReport(r)} />
             </div>
+
             <div className="rc-card-bottom">
-              <div>
+              <div style={{ minWidth: 0 }}>
                 <p className="rc-card-label">Concern</p>
                 <p className="rc-card-value">{r.concern}</p>
               </div>
-              <div style={{ textAlign: "right" }}>
+
+              <div style={{ textAlign: "right", flexShrink: 0 }}>
                 <p className="rc-card-label">Date</p>
                 <p className="rc-card-value">{r.date}</p>
               </div>
             </div>
-            <div style={{ marginTop: "8px" }}>
+
+            <div style={{ marginTop: "2px" }}>
               <StatusBadge status={r.status || "pending"} />
             </div>
           </div>
         ))}
+
         {reports.length === 0 && (
           <div style={{ paddingTop: "60px" }}>
             <EmptyState />

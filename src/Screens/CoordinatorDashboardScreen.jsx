@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { changePassword, logOut, getUserProfile } from "./AuthService";
 import { collection, query, where, orderBy, limit, onSnapshot, doc, getDoc, setDoc, updateDoc, getDocs } from "firebase/firestore";
@@ -1018,10 +1018,10 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
   // from a student's Placement modal) or "dashboard" (a recent/registered
   // company row). Null means the profile was opened normally from within
   // Find Company's own list, so its default (show that list again) applies.
-  const [findCompanyOrigin, setFindCompanyOrigin]                = useState(null);
-  const [showChangePass, setShowChangePass] = useState(!user?.passwordChanged);
+  const [findCompanyOrigin, setFindCompanyOrigin]               = useState(null);
+  const [showChangePass, setShowChangePass] = useState(false);
   const [showPassSuccess, setShowPassSuccess]   = useState(false);
-  const [showEditInfo,   setShowEditInfo]   = useState(!!user?.passwordChanged && !user?.profileComplete);
+  const [showEditInfo,   setShowEditInfo]   = useState(false);
   const [currentPass, setCurrentPass]       = useState("");
   const [newPass, setNewPass]               = useState("");
   const [confirmPass, setConfirmPass]       = useState("");
@@ -1052,6 +1052,18 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
     }
   };
   
+  // `user` ay null sa unang render pagka-refresh — naka-mount na ang dashboard
+  // bago pa dumating ang profile. Ang null ay "hindi pa alam", hindi "hindi pa
+  // nagpalit ng password", kaya hinihintay muna bago magpasya. Isang beses lang
+  // bawat user (didGateInit), para hindi muling bumukas ang modal matapos
+  // i-dismiss o matapos mag-save.
+  const didGateInit = useRef(false);
+  useEffect(() => {
+    if (!user || didGateInit.current) return;
+    didGateInit.current = true;
+    setShowChangePass(!user.passwordChanged);
+    setShowEditInfo(!!user.passwordChanged && !user.profileComplete);
+  }, [user]);
 
   // Close drawer when resizing to desktop
   useEffect(() => { if (isDesktop) setDrawerOpen(false); }, [isDesktop]);
@@ -1285,14 +1297,14 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
                 <>
                   <div style={{ position: "fixed", inset: 0, zIndex: 40 }} onClick={() => setShowActivityDropdown(false)} />
                   <div style={(isMobile || isTablet) ? {
-                    position: "fixed", top: "76px", left: "12px", right: "12px", maxHeight: "70vh",
-                    overflowY: "auto", background: paper, border: `1px solid ${ink}`,
-                    borderRadius: "10px", boxShadow: "0 8px 24px rgba(0,0,0,0.18)", zIndex: 50,
-                  } : {
-                    position: "absolute", top: "48px", right: 0, width: "min(560px, 90vw)", maxHeight: "420px",
-                    overflowY: "auto", background: paper, border: `1px solid ${ink}`,
-                    borderRadius: "10px", boxShadow: "0 8px 24px rgba(0,0,0,0.18)", zIndex: 50,
-                  }}>
+                      position: "fixed", top: "76px", right: "12px", width: "min(320px, 88vw)", maxHeight: "min(45vh, 340px)",
+                      overflowY: "auto", overflowX: "hidden", background: paper, border: `1px solid ${ink}`,
+                      borderRadius: "10px", boxShadow: "0 8px 24px rgba(0,0,0,0.18)", zIndex: 50,
+                    } : {
+                      position: "absolute", top: "48px", right: 0, width: "min(560px, 90vw)", maxHeight: "320px",
+                      overflowY: "auto", background: paper, border: `1px solid ${ink}`,
+                      borderRadius: "10px", boxShadow: "0 8px 24px rgba(0,0,0,0.18)", zIndex: 50,
+                    }}>
                     <div style={{ padding: "12px 14px", borderBottom: `1px solid ${hairline}`, fontFamily: uiFont, fontWeight: 600, fontSize: "1rem", color: ink, position: "sticky", top: 0, background: paper }}>
                       Activity Log
                     </div>
@@ -1301,24 +1313,26 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
                         No recent activity yet.
                       </div>
                     ) : (
-                      <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: uiFont }}>
-                        <thead>
-                          <tr style={{ background: paperCard }}>
-                            <th style={{ textAlign: "left", padding: "8px 12px", fontSize: "0.72rem", color: inkMuted, fontWeight: 600 }}>Activity</th>
-                            <th style={{ textAlign: "left", padding: "8px 12px", fontSize: "0.72rem", color: inkMuted, fontWeight: 600, whiteSpace: "nowrap" }}>Date</th>
-                            <th style={{ textAlign: "left", padding: "8px 12px", fontSize: "0.72rem", color: inkMuted, fontWeight: 600, whiteSpace: "nowrap" }}>Coordinator</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {visibleActivity.map(entry => (
-                            <tr key={entry.id} className="notif-row" style={{ borderTop: `1px solid ${hairline}` }}>
-                              <td style={{ padding: "9px 12px", fontSize: "0.8rem", color: inkText }}>{entry.description}</td>
-                              <td style={{ padding: "9px 12px", fontSize: "0.74rem", color: inkMuted, whiteSpace: "nowrap" }}>{formatActivityTime(entry.createdAt)}</td>
-                              <td style={{ padding: "9px 12px", fontSize: "0.78rem", color: steel, whiteSpace: "nowrap" }}>{coordinatorNames[entry.coordinatorUid] || "Unknown"}</td>
+                      <div style={{ overflowX: "auto" }}>
+                        <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: uiFont }}>
+                          <thead>
+                            <tr style={{ background: paperCard }}>
+                              <th style={{ textAlign: "left", padding: "8px 12px", fontSize: "0.72rem", color: inkMuted, fontWeight: 600 }}>Activity</th>
+                              <th style={{ textAlign: "left", padding: "8px 12px", fontSize: "0.72rem", color: inkMuted, fontWeight: 600, whiteSpace: "nowrap" }}>Date</th>
+                              <th style={{ textAlign: "left", padding: "8px 12px", fontSize: "0.72rem", color: inkMuted, fontWeight: 600, whiteSpace: "nowrap" }}>Coordinator</th>
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                          </thead>
+                          <tbody>
+                            {visibleActivity.map(entry => (
+                              <tr key={entry.id} className="notif-row" style={{ borderTop: `1px solid ${hairline}` }}>
+                                <td style={{ padding: "9px 12px", fontSize: "0.8rem", color: inkText }}>{entry.description}</td>
+                                <td style={{ padding: "9px 12px", fontSize: "0.74rem", color: inkMuted, whiteSpace: "nowrap" }}>{formatActivityTime(entry.createdAt)}</td>
+                                <td style={{ padding: "9px 12px", fontSize: "0.78rem", color: steel, whiteSpace: "nowrap" }}>{coordinatorNames[entry.coordinatorUid] || "Unknown"}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
                     )}
                   </div>
                 </>
@@ -1349,14 +1363,14 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
                 <>
                   <div style={{ position: "fixed", inset: 0, zIndex: 40 }} onClick={() => setShowNotifDropdown(false)} />
                   <div style={(isMobile || isTablet) ? {
-                    position: "fixed", top: "76px", left: "12px", right: "12px", maxHeight: "70vh",
-                    overflowY: "auto", background: paper, border: `1px solid ${ink}`,
-                    borderRadius: "10px", boxShadow: "0 8px 24px rgba(0,0,0,0.18)", zIndex: 50,
-                  } : {
-                    position: "absolute", top: "48px", right: 0, width: "320px", maxHeight: "400px",
-                    overflowY: "auto", background: paper, border: `1px solid ${ink}`,
-                    borderRadius: "10px", boxShadow: "0 8px 24px rgba(0,0,0,0.18)", zIndex: 50,
-                  }}>
+                      position: "fixed", top: "76px", right: "12px", width: "min(320px, 88vw)", maxHeight: "min(45vh, 320px)",
+                      overflowY: "auto", background: paper, border: `1px solid ${ink}`,
+                      borderRadius: "10px", boxShadow: "0 8px 24px rgba(0,0,0,0.18)", zIndex: 50,
+                    } : {
+                      position: "absolute", top: "48px", right: 0, width: "320px", maxHeight: "300px",
+                      overflowY: "auto", background: paper, border: `1px solid ${ink}`,
+                      borderRadius: "10px", boxShadow: "0 8px 24px rgba(0,0,0,0.18)", zIndex: 50,
+                    }}>
                     <div style={{ padding: "12px 14px", borderBottom: `1px solid ${hairline}`, fontFamily: uiFont, fontWeight: 600, fontSize: "1rem", color: ink }}>
                       Notifications
                     </div>

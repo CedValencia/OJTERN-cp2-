@@ -1,26 +1,38 @@
 import React, { useState, useRef, useEffect } from "react";
 import { collection, onSnapshot, query, orderBy, where, getDocs } from "firebase/firestore";
 import { db } from "./firebase";
-import viewIcon from "../icons/view.png";
 import userIcon from "../icons/user.png";
+import { color, font, type, space, radius, shadow, ease } from "./theme";
 
-const red = "#8B0000";
-const darkRed = "#590101";
+// ── Design tokens, aliased for this screen ────────────────────────────────────
+// Same aliases as CoordinatorFindCompanyScreen so the two screens stay in sync.
+const ink        = color.ink;
+const inkBody    = color.inkBody;
+const inkMuted   = color.inkMuted;
+const inkFaint   = color.inkFaint;
+const surface    = color.wine600;      // rows, cards
+const page       = color.wine900;      // page background
+const line       = color.wine700;      // hairlines & borders
+const lineSoft   = color.wine800;
+const panel      = color.blush100;     // dark header bar
+const panelDeep  = color.blush50;
+const onPanel    = color.onWine;
+const onPanelDim = color.onWineMuted;
 
 // Colors for the small status pill shown on each student row / placement modal
 const STATUS_COLORS = {
-  "Accepted":    { bg: "#4CAF50", color: "white" },
-  "Declined":    { bg: "#c0392b", color: "white" },
-  "Pending":     { bg: "#bbb",    color: "white" },
-  "In Review":   { bg: "#e0a800", color: "white" },
-  "To Interview":{ bg: "#5b8def", color: "white" },
+  "Accepted":    { bg: color.success, color: color.white },
+  "Declined":    { bg: color.danger,  color: color.white },
+  "Pending":     { bg: color.wine400, color: ink },
+  "In Review":   { bg: color.warning, color: color.white },
+  "To Interview":{ bg: color.info,    color: color.white },
 };
 
 // When a student has more than one application, this decides which one
 // "represents" them at a glance (list row badge) — most-advanced/most-
 // relevant status wins, rather than whichever doc Firestore happened to
 // return first. Declined only wins if every single application was
-// declined (see getApplicationSummary below).
+// declined (see matchesStatusFilter below).
 const STATUS_PRIORITY = ["Accepted", "To Interview", "In Review", "Pending", "Declined"];
 
 const getBestApplication = (apps) => {
@@ -46,78 +58,105 @@ const matchesStatusFilter = (apps, filterValue) => {
 };
 
 // ── Responsive styles ─────────────────────────────────────────────────────────
+// Page shape mirrors Find Company (padded scroll area → floating dark bar →
+// chips), but the students themselves stay a full-width horizontal list.
 const ResponsiveStyles = () => (
   <style>{`
-    @import url('https://fonts.googleapis.com/css2?family=Jersey+25&family=Kufam:wght@400;600;700&family=Jua&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    ::-webkit-scrollbar { width: 4px; }
-    ::-webkit-scrollbar-thumb { background: #8B0000; border-radius: 4px; }
-    ::-webkit-scrollbar-track { background: #f0f0f0; }
-    .placement-row:hover { background: #d0d0d0 !important; }
-    .view-icon-btn img { border-radius: 50%; }
-    .view-icon-btn:hover { background: transparent !important; }
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-thumb { background: ${color.wine400}; border-radius: 999px; }
+    ::-webkit-scrollbar-track { background: transparent; }
 
-    /* Top bar: wraps on mobile */
-    .sp-topbar {
-      background: ${darkRed};
-      padding: 12px 24px;
+    /* List wrapper: vertical scroll only */
+    .sp-list-wrapper {
+      overflow-x: hidden;
+      overflow-y: auto;
+      width: 100%;
+      flex: 1;
+      background: ${page};
+      padding: clamp(16px, 4vw, 28px) clamp(16px, 4vw, 32px);
+    }
+
+    /* Floating dark header bar */
+    .sp-search-bar {
+      background: ${panel};
+      border-radius: ${radius.panel};
+      padding: 18px 22px;
+      margin-bottom: ${space.md};
       display: flex;
       align-items: center;
       justify-content: space-between;
-      flex-shrink: 0;
-      gap: 10px;
+      gap: ${space.md};
       flex-wrap: wrap;
     }
-    @media (max-width: 560px) {
-      .sp-topbar { padding: 10px 14px; }
+    @media (max-width: 480px) {
+      .sp-search-bar { padding: 14px; }
     }
 
-    /* Search input width */
-    .sp-search-input { width: 160px; }
+    .sp-search-input { width: 170px; }
+    .sp-search-input::placeholder { color: ${inkFaint}; }
     @media (max-width: 480px) {
       .sp-search-input { width: 110px; }
     }
 
-    /* Filter badge area */
-    .sp-filter-badges {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 8px 24px;
-      background: #f5f5f5;
-      flex-wrap: wrap;
-      border-bottom: 1px solid #e0e0e0;
-      flex-shrink: 0;
-    }
-    @media (max-width: 560px) {
-      .sp-filter-badges { padding: 8px 14px; }
-    }
-
-    /* Student list padding */
-    .sp-list-area {
-      flex: 1;
-      overflow-y: auto;
-      padding: 16px 24px;
+    /* Full-width student rows */
+    .sp-rows {
       display: flex;
       flex-direction: column;
-      gap: 10px;
+      gap: ${space.sm};
     }
+    .sp-row {
+      background: ${surface};
+      border: 1px solid ${line};
+      border-radius: ${radius.pill};
+      box-shadow: ${shadow.input};
+      padding: 10px 20px 10px 10px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      cursor: pointer;
+      transition: border-color 200ms ${ease}, box-shadow 200ms ${ease};
+    }
+    .sp-row:hover {
+      border-color: ${color.wine400};
+      box-shadow: 0 8px 22px rgba(10,10,10,0.08);
+    }
+    /* Row meta line: wraps gracefully on narrow screens */
+    .sp-row-meta {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 3px;
+      flex-wrap: wrap;
+      row-gap: 2px;
+    }
+    /* The "View placement" link is redundant on small screens — the whole
+       row is tappable, and the space is better spent on the name. */
     @media (max-width: 560px) {
-      .sp-list-area { padding: 10px 12px; }
+      .sp-row { padding: 10px 14px 10px 10px; gap: 10px; }
+      .sp-row-action { display: none; }
+    }
+
+    .sp-list-wrapper :focus-visible,
+    .sp-modal-inner :focus-visible {
+      outline: none;
+      box-shadow: ${shadow.focus};
+      border-radius: ${radius.pill};
     }
 
     /* Placement modal: full-width on mobile */
     .sp-modal-inner {
-      background: white;
-      border-radius: 24px;
+      background: ${surface};
+      border: 1px solid ${line};
+      border-radius: ${radius.panel};
       width: 480px;
       max-width: calc(100vw - 32px);
       max-height: 92vh;
       overflow-y: auto;
-      box-shadow: 0 24px 64px rgba(0,0,0,0.3);
+      box-shadow: ${shadow.panel};
     }
 
-    /* Modal header */
     .sp-modal-header {
       padding: 22px 26px 14px;
       display: flex;
@@ -125,49 +164,40 @@ const ResponsiveStyles = () => (
       justify-content: space-between;
     }
     @media (max-width: 480px) {
-      .sp-modal-header { padding: 14px 16px 10px; }
+      .sp-modal-header { padding: 16px 16px 10px; }
     }
 
-    /* Modal body */
-    .sp-modal-body {
-      padding: 0 26px 24px;
-    }
+    .sp-modal-body { padding: 0 26px 26px; }
     @media (max-width: 480px) {
-      .sp-modal-body { padding: 0 14px 18px; }
+      .sp-modal-body { padding: 0 16px 18px; }
     }
 
-    /* Student name pill in modal */
     .sp-name-pill {
       display: flex;
       align-items: center;
       gap: 14px;
-      background: #e8e8e8;
-      border-radius: 50px;
-      padding: 10px 18px 10px 10px;
-      margin-bottom: 22px;
+      background: ${lineSoft};
+      border: 1px solid ${line};
+      border-radius: ${radius.pill};
+      padding: 10px 20px 10px 10px;
+      margin-bottom: 20px;
     }
     @media (max-width: 400px) {
-      .sp-name-pill { padding: 8px 12px 8px 8px; gap: 10px; }
+      .sp-name-pill { padding: 8px 14px 8px 8px; gap: 10px; }
     }
 
     /* Detail grid in modal: 2-col → 1-col */
     .sp-detail-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 10px;
+      gap: 12px;
     }
     @media (max-width: 400px) {
       .sp-detail-grid { grid-template-columns: 1fr; }
     }
 
-    /* Row meta line: wraps gracefully on narrow screens */
-    .sp-row-meta {
-      display: flex;
-      align-items: center;
-      gap: 4px;
-      margin-top: 2px;
-      flex-wrap: wrap;
-      row-gap: 2px;
+    @media (prefers-reduced-motion: reduce) {
+      .sp-row { transition: none; }
     }
   `}</style>
 );
@@ -206,26 +236,26 @@ const YEAR_SECTIONS = ["4-A","4-B","4-C","4-D","4-E","4-F"];
 // Sex options
 const SEX_OPTIONS = ["Male", "Female"];
 
-// TODO: Replace with real data from backend
-
-// TODO: Replace with real data from backend
+// ── Shared chip style: one look for every selectable pill in this screen ──────
+const chip = (on) => ({
+  padding: "5px 12px",
+  borderRadius: radius.pill,
+  fontFamily: font.ui,
+  ...type.helper,
+  cursor: "pointer",
+  userSelect: "none",
+  background: on ? ink : color.wine800,
+  color: on ? color.white : inkBody,
+  border: `1px solid ${on ? ink : line}`,
+  transition: `all 160ms ${ease}`,
+});
 
 const StudentAvatar = ({ size = 42 }) => (
   <img
     src={userIcon}
-    alt="user"
+    alt=""
     style={{ width: size, height: size, objectFit: "contain", flexShrink: 0 }}
   />
-);
-
-const ViewIcon = ({ onClick }) => (
-  <div
-    onClick={(e) => onClick(e)}
-    className="view-icon-btn"
-    style={{ alignItems: "center", justifyContent: "center", cursor: "pointer" }}
-  >
-    <img src={viewIcon} alt="view" style={{ width: "35px", height: "35px", objectFit: "contain" }} />
-  </div>
 );
 
 const PlacementModal = ({ student, onClose, onNavigateToCompany, companies, onMessageStudent }) => {
@@ -253,30 +283,33 @@ const PlacementModal = ({ student, onClose, onNavigateToCompany, companies, onMe
   };
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: "16px" }}>
+    <div style={{ position: "fixed", inset: 0, background: "rgba(10,10,10,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: space.md }}>
       <div className="sp-modal-inner">
         <div className="sp-modal-header">
-          <h2 style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(1.2rem, 4vw, 1.55rem)", color: darkRed }}>Student Placement</h2>
-          <button onClick={onClose} style={{ background: darkRed, border: "none", borderRadius: "50%", width: "30px", height: "30px", color: "white", fontSize: "1rem", cursor: "pointer", fontWeight: "bold", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>✕</button>
+          <h2 style={{ fontFamily: font.ui, fontSize: "clamp(1.125rem, 4vw, 1.375rem)", fontWeight: 600, letterSpacing: "-0.01em", color: ink }}>Placement</h2>
+          <button onClick={onClose} aria-label="Close" style={{ background: lineSoft, border: `1px solid ${line}`, borderRadius: "50%", width: "30px", height: "30px", color: inkMuted, fontSize: "0.9rem", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>✕</button>
         </div>
 
         <div className="sp-modal-body">
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px" }}>
             <div className="sp-name-pill" style={{ flex: 1, minWidth: 0 }}>
-              <StudentAvatar size={44} />
-              <span style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(1rem, 4vw, 1.35rem)", color: "#222", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fullName}</span>
+              <StudentAvatar size={42} />
+              <span style={{ fontFamily: font.ui, fontSize: "clamp(0.95rem, 4vw, 1.0625rem)", fontWeight: 600, letterSpacing: "-0.01em", color: ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fullName}</span>
             </div>
             <button
               onClick={handleMessage}
               title={`Message ${fullName}`}
               style={{
-                display: "flex", alignItems: "center", gap: "6px", flexShrink: 0,
-                background: darkRed, color: "white", border: "none", borderRadius: "20px",
-                padding: "9px 16px", cursor: "pointer",
-                fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.8rem",
+                display: "flex", alignItems: "center", gap: "7px", flexShrink: 0,
+                background: panel, color: onPanel, border: "none", borderRadius: radius.pill,
+                padding: "10px 18px", cursor: "pointer", marginBottom: "20px",
+                fontFamily: font.ui, ...type.control,
+                transition: `background 220ms ${ease}`,
               }}
+              onMouseEnter={e => (e.currentTarget.style.background = panelDeep)}
+              onMouseLeave={e => (e.currentTarget.style.background = panel)}
             >
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
               </svg>
               Message
@@ -284,28 +317,32 @@ const PlacementModal = ({ student, onClose, onNavigateToCompany, companies, onMe
           </div>
 
           {applications.length === 0 ? (
-            <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#999", fontStyle: "italic" }}>No applications yet</p>
+            <div style={{ padding: `${space.lg} ${space.md}`, textAlign: "center", background: color.wine800, border: `1px dashed ${color.wine400}`, borderRadius: radius.card }}>
+              <p style={{ fontFamily: font.ui, ...type.body, color: inkBody }}>No applications yet</p>
+              <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, marginTop: "2px" }}>Applications appear here once this student applies to a company.</p>
+            </div>
           ) : (
             <div>
-              <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "0.95rem", color: "#222", marginBottom: "6px" }}>All Applications:</p>
+              <p style={{ fontFamily: font.ui, ...type.label, color: ink, marginBottom: space.sm }}>Applications</p>
               <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
                 {applications.map(app => {
                   const appCompany = companies.find(c => c.id === app.companyId);
+                  const sc = STATUS_COLORS[app.status] || { bg: color.wine400, color: ink };
                   return (
-                    <div key={app.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px", background: "#fafafa", border: "1px solid #f0e0e0", borderRadius: "10px", padding: "8px 12px" }}>
-                      <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.78rem", color: "#444", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {appCompany?.name || "Unknown Company"}
+                    <div key={app.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px", background: color.wine800, border: `1px solid ${line}`, borderRadius: radius.card, padding: "10px 14px" }}>
+                      <span style={{ fontFamily: font.ui, ...type.helper, color: inkBody, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {appCompany?.name || "Unknown company"}
                       </span>
-                      <div style={{ display: "flex", alignItems: "center", gap: "10px", flexShrink: 0 }}>
-                        <span style={{ background: (STATUS_COLORS[app.status] || { bg: "#888" }).bg, color: (STATUS_COLORS[app.status] || { color: "white" }).color, borderRadius: "20px", padding: "2px 11px", fontSize: "0.68rem", fontFamily: "'Kufam', sans-serif", fontWeight: 700 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "12px", flexShrink: 0 }}>
+                        <span style={{ background: sc.bg, color: sc.color, borderRadius: radius.pill, padding: "3px 11px", fontFamily: font.ui, fontSize: "0.75rem", fontWeight: 500 }}>
                           {app.status}
                         </span>
                         {appCompany && (
                           <span
                             onClick={() => handleVisitCompany(appCompany.id)}
-                            style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.68rem", color: red, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}
+                            style={{ fontFamily: font.ui, ...type.helper, fontWeight: 500, color: ink, cursor: "pointer", whiteSpace: "nowrap", textDecoration: "underline", textUnderlineOffset: "3px" }}
                           >
-                            Visit
+                            View post
                           </span>
                         )}
                       </div>
@@ -316,18 +353,18 @@ const PlacementModal = ({ student, onClose, onNavigateToCompany, companies, onMe
             </div>
           )}
 
-          <div style={{ marginTop: "18px", padding: "12px 14px", background: "#fafafa", borderRadius: "10px", border: "1px solid #f0e0e0" }}>
+          <div style={{ marginTop: space.lg, padding: "14px 16px", background: color.wine800, borderRadius: radius.card, border: `1px solid ${line}` }}>
             <div className="sp-detail-grid">
               {[
                 { label: "Student ID",     value: student.studentId },
                 { label: "Sex",            value: student.sex },
                 { label: "College",        value: student.college,        full: true },
                 { label: "Program",        value: student.program,        full: true },
-                { label: "Year & Section", value: student.yearSection },
+                { label: "Year & section", value: student.yearSection },
               ].map(({ label, value, full }) => (
                 <div key={label} style={{ gridColumn: full ? "1 / -1" : "auto" }}>
-                  <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.68rem", color: "#bbb", marginBottom: "2px" }}>{label}</p>
-                  <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.8rem", color: "#444", fontWeight: 600 }}>{value}</p>
+                  <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, marginBottom: "2px" }}>{label}</p>
+                  <p style={{ fontFamily: font.ui, ...type.label, color: ink }}>{value}</p>
                 </div>
               ))}
             </div>
@@ -354,7 +391,7 @@ const FilterPanel = ({ filters, setFilters, filterRef, coordinatorColleges = [] 
 
   const clearAll = () => {
     setExpandedCollege("");
-    setFilters({ college: "", program: "", specialization: "", sex: "", section: "" });
+    setFilters(prev => ({ ...prev, college: "", program: "", specialization: "", sex: "", section: "" }));
   };
 
   const toggleSex     = (val) => setFilters(prev => ({ ...prev, sex:     prev.sex     === val ? "" : val }));
@@ -374,93 +411,94 @@ const FilterPanel = ({ filters, setFilters, filterRef, coordinatorColleges = [] 
 
   const locationLevel = !expandedCollege ? "college" : !filters.program ? "program" : "specialization";
 
+  const groupLabel = { fontFamily: font.ui, ...type.label, color: ink };
+  const emptyNote  = { fontFamily: font.ui, ...type.helper, color: inkFaint };
+
+  const backRow = (label, onClick) => (
+    <div onClick={onClick} style={{ display: "flex", alignItems: "center", gap: space.xs, cursor: "pointer", marginBottom: space.sm, color: inkMuted, fontFamily: font.ui, ...type.helper }}>
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+      {label}
+    </div>
+  );
+
   return (
     <div
       ref={filterRef}
       style={{
-        position: "absolute", top: "48px", right: 0, width: "260px",
-        background: "white", border: `1.5px solid ${red}`, borderRadius: "10px",
-        boxShadow: "0 6px 24px rgba(0,0,0,0.18)", zIndex: 100, overflow: "hidden",
-        fontFamily: "'Kufam', sans-serif",
+        position: "absolute", top: "48px", right: 0, width: "266px",
+        background: surface, border: `1px solid ${line}`, borderRadius: radius.card,
+        boxShadow: shadow.panel, zIndex: 100, overflow: "hidden",
+        fontFamily: font.ui,
       }}
     >
-      {/* Sex + Clear All */}
-      <div style={{ padding: "10px 12px 4px" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
-          <p style={{ fontSize: "0.78rem", fontWeight: "bold", color: darkRed }}>Sex:</p>
-          <button onClick={clearAll} style={{ background: "none", border: "none", fontSize: "0.7rem", color: red, cursor: "pointer", fontFamily: "'Kufam', sans-serif", padding: 0, textDecoration: "underline" }}>Clear all</button>
+      {/* Sex + Clear all */}
+      <div style={{ padding: "12px 14px 6px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: space.sm }}>
+          <p style={groupLabel}>Sex</p>
+          <button onClick={clearAll} style={{ background: "none", border: "none", fontFamily: font.ui, ...type.helper, color: inkMuted, cursor: "pointer", padding: 0, textDecoration: "underline" }}>Clear all</button>
         </div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "5px" }}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
           {SEX_OPTIONS.length > 0 ? (
             SEX_OPTIONS.map(s => (
-              <span key={s} onClick={() => toggleSex(s)} style={{ padding: "3px 9px", borderRadius: "20px", fontSize: "0.72rem", cursor: "pointer", userSelect: "none", background: filters.sex === s ? red : "#f0e0e0", color: filters.sex === s ? "white" : darkRed, border: `1px solid ${red}`, transition: "all 0.15s" }}>
-                {s}
-              </span>
+              <span key={s} onClick={() => toggleSex(s)} style={chip(filters.sex === s)}>{s}</span>
             ))
           ) : (
-            <span style={{ fontSize: "0.72rem", color: "#bbb", fontStyle: "italic" }}>No options available</span>
+            <span style={emptyNote}>No options available</span>
           )}
         </div>
       </div>
 
-      <hr style={{ border: "none", borderTop: "1px solid #eee", margin: "6px 0" }} />
+      <hr style={{ border: "none", borderTop: `1px solid ${lineSoft}`, margin: "10px 0" }} />
 
       {/* Section */}
-      <div style={{ padding: "4px 12px 10px" }}>
-        <p style={{ fontSize: "0.78rem", fontWeight: "bold", color: darkRed, marginBottom: "6px" }}>Section:</p>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "5px" }}>
+      <div style={{ padding: "0 14px 12px" }}>
+        <p style={{ ...groupLabel, marginBottom: space.sm }}>Section</p>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
           {sectionLetters.length > 0 ? (
             sectionLetters.map(s => (
-              <span key={s} onClick={() => toggleSection(s)} style={{ padding: "3px 9px", borderRadius: "20px", fontSize: "0.72rem", cursor: "pointer", userSelect: "none", background: filters.section === s ? red : "#f0e0e0", color: filters.section === s ? "white" : darkRed, border: `1px solid ${red}`, transition: "all 0.15s" }}>
-                {s}
-              </span>
+              <span key={s} onClick={() => toggleSection(s)} style={chip(filters.section === s)}>{s}</span>
             ))
           ) : (
-            <span style={{ fontSize: "0.72rem", color: "#bbb", fontStyle: "italic" }}>No sections available</span>
+            <span style={emptyNote}>No sections available</span>
           )}
         </div>
       </div>
 
-      <hr style={{ border: "none", borderTop: "1px solid #eee", margin: "0" }} />
+      <hr style={{ border: "none", borderTop: `1px solid ${lineSoft}`, margin: 0 }} />
 
       {/* College → Program → Major */}
-      <div style={{ padding: "6px 12px 10px" }}>
-        <p style={{ fontSize: "0.78rem", fontWeight: "bold", color: darkRed, marginBottom: "6px" }}>
-          Department:
+      <div style={{ padding: "12px 14px 14px" }}>
+        <p style={{ ...groupLabel, marginBottom: space.sm }}>
+          Department
           {expandedCollege && (
-            <span style={{ fontWeight: "normal", color: "#888", marginLeft: "6px", fontSize: "0.68rem" }}>
+            <span style={{ fontWeight: 400, color: inkMuted, marginLeft: "6px", fontSize: "0.75rem" }}>
               {[expandedCollege, filters.program].filter(Boolean).join(" › ")}
             </span>
           )}
         </p>
 
         {locationLevel === "college" && (
-          <div style={{ maxHeight: "160px", overflowY: "auto", display: "flex", flexDirection: "column", gap: "3px" }}>
+          <div style={{ maxHeight: "160px", overflowY: "auto", display: "flex", flexDirection: "column", gap: "4px" }}>
             {allColleges.length > 0 ? (
               allColleges.map(col => (
                 <div key={col} onClick={() => toggleCollege(col)}
-                  style={{ padding: "4px 8px", borderRadius: "6px", fontSize: "0.72rem", cursor: "pointer", background: "#f7f0f0", color: darkRed, border: "1px solid #e0c0c0" }}
-                  onMouseEnter={e => e.currentTarget.style.background = "#f0d0d0"}
-                  onMouseLeave={e => e.currentTarget.style.background = "#f7f0f0"}
+                  style={{ padding: "7px 11px", borderRadius: "10px", fontFamily: font.ui, ...type.helper, color: inkBody, cursor: "pointer", background: color.wine800, border: `1px solid ${line}`, transition: `background 160ms ${ease}` }}
+                  onMouseEnter={e => e.currentTarget.style.background = color.wine700}
+                  onMouseLeave={e => e.currentTarget.style.background = color.wine800}
                 >{COLLEGE_DATA[col]?.label || col}</div>
               ))
             ) : (
-              <span style={{ fontSize: "0.72rem", color: "#bbb", fontStyle: "italic" }}>No colleges available</span>
+              <span style={emptyNote}>No colleges available</span>
             )}
           </div>
         )}
 
         {locationLevel === "program" && (
           <div>
-            <div onClick={() => toggleCollege(expandedCollege)} style={{ display: "flex", alignItems: "center", gap: "4px", cursor: "pointer", marginBottom: "8px", color: red, fontSize: "0.72rem" }}>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={red} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
-              {expandedCollege}
-            </div>
-            <div style={{ maxHeight: "150px", overflowY: "auto", display: "flex", flexWrap: "wrap", gap: "5px" }}>
+            {backRow(expandedCollege, () => toggleCollege(expandedCollege))}
+            <div style={{ maxHeight: "150px", overflowY: "auto", display: "flex", flexWrap: "wrap", gap: "6px" }}>
               {allPrograms.map(prog => (
-                <span key={prog} onClick={() => toggleProgram(prog)} style={{ padding: "3px 9px", borderRadius: "20px", fontSize: "0.71rem", cursor: "pointer", userSelect: "none", background: filters.program === prog ? red : "#f0e0e0", color: filters.program === prog ? "white" : darkRed, border: `1px solid ${red}`, transition: "all 0.15s" }}>
-                  {prog}
-                </span>
+                <span key={prog} onClick={() => toggleProgram(prog)} style={chip(filters.program === prog)}>{prog}</span>
               ))}
             </div>
           </div>
@@ -468,20 +506,15 @@ const FilterPanel = ({ filters, setFilters, filterRef, coordinatorColleges = [] 
 
         {locationLevel === "specialization" && (
           <div>
-            <div onClick={() => setFilters(prev => ({ ...prev, program: "", specialization: "" }))} style={{ display: "flex", alignItems: "center", gap: "4px", cursor: "pointer", marginBottom: "8px", color: red, fontSize: "0.72rem" }}>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={red} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
-              {filters.program}
-            </div>
+            {backRow(filters.program, () => setFilters(prev => ({ ...prev, program: "", specialization: "" })))}
             {allSpecializations.length > 0 ? (
-              <div style={{ maxHeight: "150px", overflowY: "auto", display: "flex", flexWrap: "wrap", gap: "5px" }}>
+              <div style={{ maxHeight: "150px", overflowY: "auto", display: "flex", flexWrap: "wrap", gap: "6px" }}>
                 {allSpecializations.map(spec => (
-                  <span key={spec} onClick={() => toggleSpec(spec)} style={{ padding: "3px 9px", borderRadius: "20px", fontSize: "0.71rem", cursor: "pointer", userSelect: "none", background: filters.specialization === spec ? red : "#f0e0e0", color: filters.specialization === spec ? "white" : darkRed, border: `1px solid ${red}`, transition: "all 0.15s" }}>
-                    {spec}
-                  </span>
+                  <span key={spec} onClick={() => toggleSpec(spec)} style={chip(filters.specialization === spec)}>{spec}</span>
                 ))}
               </div>
             ) : (
-              <p style={{ fontSize: "0.72rem", color: "#aaa", fontStyle: "italic" }}>No specializations for this program.</p>
+              <p style={emptyNote}>No specializations for this program.</p>
             )}
           </div>
         )}
@@ -578,7 +611,10 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  const hasFilter = Object.values(filters).some(Boolean);
+  // The status bar has its own row of chips, so the funnel dot only reflects
+  // the panel's own filters (sex, section, department).
+  const panelFilterKeys = ["college", "program", "specialization", "sex", "section"];
+  const hasFilter = panelFilterKeys.some(k => filters[k]);
 
   const filtered = students.filter(s => {
     const q        = search.toLowerCase();
@@ -589,48 +625,56 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
     const matchCollege = !filters.college || s.college  === filters.college;
     const matchProgram = !filters.program || s.program  === filters.program;
     const matchSpec    = !filters.specialization || s.major === filters.specialization;
-    
+
     // Status filter — non-exclusive, see matchesStatusFilter above.
     const matchStatus = matchesStatusFilter(applicationsByStudent[s.id], filters.status);
-    
+
     return matchSearch && matchSex && matchSection && matchCollege && matchProgram && matchSpec && matchStatus;
   });
 
+  const clearAllFilters = () => setFilters({ college: "", program: "", specialization: "", sex: "", section: "", status: "" });
+
+  // ── One full-width row per student ────────────────────────────────────────
   const renderStudentRow = (student) => {
     const fullName = `${student.firstName} ${student.middleInitial ? student.middleInitial + " " : ""}${student.lastName}${student.suffix && student.suffix !== "None" && student.suffix !== "N/A" ? " " + student.suffix : ""}`;
+    // The row badge shows the single most-advanced application status,
+    // so a coordinator can scan placement progress without opening anyone.
+    const best = getBestApplication(applicationsByStudent[student.id]);
+    const sc   = best ? (STATUS_COLORS[best.status] || { bg: color.wine400, color: ink }) : null;
+    const meta = { fontFamily: font.ui, ...type.helper, color: inkMuted, whiteSpace: "nowrap", flexShrink: 0 };
+    const dot  = <span style={{ color: color.wine400, flexShrink: 0 }}>·</span>;
+
     return (
-      <div
-        key={student.id}
-        className="placement-row"
-        onClick={() => setViewingStudent(student)}
-        style={{ background: "#dadada", borderRadius: "50px", padding: "8px 14px 8px 8px", display: "flex", alignItems: "center", gap: "14px", transition: "background 0.15s", cursor: "pointer" }}
-      >
+      <div key={student.id} className="sp-row" onClick={() => setViewingStudent(student)}>
         <StudentAvatar size={42} />
-        <div style={{ width: "1px", height: "32px", background: "rgba(0,0,0,0.12)", flexShrink: 0 }} />
+        <div style={{ width: "1px", height: "30px", background: line, flexShrink: 0 }} />
         <div style={{ flex: 1, minWidth: 0 }}>
-          <p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 600, fontSize: "0.92rem", color: "#222", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{fullName}</p>
-          {/* Meta line — reflects: Student ID, College, Program, Year & Section, Sex */}
+          <p style={{ fontFamily: font.ui, ...type.label, color: ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{fullName}</p>
+          {/* Meta line — Student ID, College, Program, Year & Section, Sex */}
           <div className="sp-row-meta">
-            <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.71rem", color: "#777", whiteSpace: "nowrap", flexShrink: 0 }}>{student.studentId}</span>
-            {student.college && (
-              <>
-                <span style={{ color: "#ccc", fontSize: "0.7rem", flexShrink: 0 }}>•</span>
-                <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.71rem", color: "#777", whiteSpace: "nowrap", flexShrink: 0 }}>{student.college}</span>
-              </>
-            )}
-            {student.program && (
-              <>
-                <span style={{ color: "#ccc", fontSize: "0.7rem", flexShrink: 0 }}>•</span>
-                <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.71rem", color: "#777", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0, maxWidth: "160px" }}>{student.program}</span>
-              </>
-            )}
-            <span style={{ color: "#ccc", fontSize: "0.7rem", flexShrink: 0 }}>•</span>
-            <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.71rem", color: "#777", whiteSpace: "nowrap", flexShrink: 0 }}>{student.yearSection}</span>
-            <span style={{ color: "#ccc", fontSize: "0.7rem", flexShrink: 0 }}>•</span>
-            <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.71rem", color: "#777", whiteSpace: "nowrap", flexShrink: 0 }}>{student.sex}</span>
+            <span style={meta}>{student.studentId}</span>
+            {student.college && <>{dot}<span style={meta}>{student.college}</span></>}
+            {student.program && <>{dot}<span style={{ ...meta, overflow: "hidden", textOverflow: "ellipsis", minWidth: 0, maxWidth: "220px" }}>{student.program}</span></>}
+            {dot}<span style={meta}>{student.yearSection}</span>
+            {dot}<span style={meta}>{student.sex}</span>
           </div>
         </div>
-        <ViewIcon onClick={(e) => { e.stopPropagation(); setViewingStudent(student); }} />
+        {sc ? (
+          <span style={{ background: sc.bg, color: sc.color, borderRadius: radius.pill, padding: "3px 11px", fontFamily: font.ui, fontSize: "0.75rem", fontWeight: 500, flexShrink: 0 }}>
+            {best.status}
+          </span>
+        ) : (
+          <span style={{ background: surface, border: `1px solid ${line}`, color: inkMuted, borderRadius: radius.pill, padding: "3px 11px", fontFamily: font.ui, fontSize: "0.75rem", flexShrink: 0 }}>
+            Not applied
+          </span>
+        )}
+        <span
+          className="sp-row-action"
+          onClick={(e) => { e.stopPropagation(); setViewingStudent(student); }}
+          style={{ fontFamily: font.ui, ...type.helper, fontWeight: 500, color: ink, cursor: "pointer", flexShrink: 0 }}
+        >
+          View placement
+        </span>
       </div>
     );
   };
@@ -638,95 +682,84 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
   return (
     <>
       <ResponsiveStyles />
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", background: "#f0f0f0", overflow: "hidden" }}>
+      <div className="sp-list-wrapper">
 
-        {/* Top bar */}
-        <div className="sp-topbar" style={{ justifyContent: "space-between" }}>
-          <span style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(1.2rem, 4vw, 1.6rem)", color: "white", letterSpacing: "0.04em" }}>Student List</span>
-          
-          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px", background: "white", borderRadius: "24px", padding: "7px 16px" }}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="black" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+        {/* Header bar — same floating dark panel as Find Company */}
+        <div className="sp-search-bar">
+          <div style={{ minWidth: 0 }}>
+            <span style={{ fontFamily: font.ui, fontSize: "clamp(1.1rem, 3.5vw, 1.375rem)", fontWeight: 600, letterSpacing: "-0.01em", color: onPanel }}>Students</span>
+            {!loadingStudents && (
+              <p style={{ fontFamily: font.ui, ...type.helper, color: onPanelDim, marginTop: "2px" }}>
+                {filtered.length} of {students.length} in your departments
+              </p>
+            )}
+          </div>
+
+          <div style={{ position: "relative", display: "flex", alignItems: "center", flexShrink: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: space.sm, background: color.white, borderRadius: radius.pill, padding: "9px 16px" }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={inkMuted} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
               </svg>
-              <div style={{ width: "1px", height: "16px", background: "rgba(0,0,0,0.2)" }} />
               <input
                 value={search}
                 onChange={e => setSearch(e.target.value)}
-                placeholder="Search Students"
+                placeholder="Search"
                 className="sp-search-input"
-                style={{ border: "none", background: "transparent", outline: "none", color: "black", fontFamily: "'Jersey 25', sans-serif", fontSize: "1.1rem" }}
+                style={{ border: "none", background: "transparent", outline: "none", color: ink, fontFamily: font.ui, ...type.control }}
               />
               {search && (
-                <button onClick={() => setSearch("")} style={{ background: "none", border: "none", color: "#999", cursor: "pointer", fontSize: "1rem", padding: 0, lineHeight: 1 }}>✕</button>
+                <button onClick={() => setSearch("")} aria-label="Clear search" style={{ background: "none", border: "none", color: inkMuted, cursor: "pointer", fontSize: "0.9rem", padding: 0, lineHeight: 1 }}>✕</button>
               )}
             </div>
 
-            {/* Filter icon */}
-            <div style={{ position: "relative" }}>
+            <div style={{ position: "relative", marginLeft: "10px" }}>
               <div
                 onClick={() => setShowFilter(v => !v)}
-                style={{ width: "36px", height: "36px", background: "white", borderRadius: "8px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", border: hasFilter ? `2px solid ${red}` : "none", position: "relative" }}
+                title="Filters"
+                style={{ width: "40px", height: "40px", background: hasFilter ? color.goldTint : color.white, borderRadius: radius.pill, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", border: hasFilter ? `1px solid ${color.onWineFaint}` : "none" }}
               >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={hasFilter ? red : "#555"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={hasFilter ? onPanel : inkMuted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>
                 </svg>
-                {hasFilter && <div style={{ position: "absolute", top: "-4px", right: "-4px", width: "10px", height: "10px", borderRadius: "50%", background: red }} />}
               </div>
               {showFilter && <FilterPanel filters={filters} setFilters={setFilters} filterRef={filterRef} coordinatorColleges={coordinatorColleges} />}
             </div>
           </div>
         </div>
 
-        {/* ── Horizontal Status Filter Bar ── */}
-        <div style={{ 
-          background: "#fff", 
-          padding: "12px 20px", 
-          display: "flex", 
-          gap: "10px", 
-          alignItems: "center",
-          flexWrap: "wrap",
-          borderBottom: "1px solid #e0e0e0",
-          flexShrink: 0,
-          overflowX: "auto"
-        }}>
+        {/* Status chips */}
+        <div style={{ display: "flex", gap: space.sm, alignItems: "center", flexWrap: "wrap", marginBottom: space.md }}>
           {["All", "Accepted", "In Progress", "All Declined", "No Applications yet"].map((statusOption) => {
             const isActive = statusOption === "All" ? filters.status === "" : filters.status === statusOption;
+            // Each option keeps the colour of the status it represents, so the
+            // chips and the row badges read as the same language.
             const statusColor =
-              statusOption === "Accepted" ? "#4CAF50" :
-              statusOption === "In Progress" ? "#5b8def" :
-              statusOption === "All Declined" ? "#e0a800" :
-              statusOption === "No Applications yet" ? "#c0392b" : "#666";
-            
+              statusOption === "Accepted"            ? color.success :
+              statusOption === "In Progress"         ? color.info    :
+              statusOption === "All Declined"        ? color.danger  :
+              statusOption === "No Applications yet" ? color.wine400 : ink;
+            const activeText = statusOption === "No Applications yet" ? ink : color.white;
+
             return (
               <button
                 key={statusOption}
-                onClick={() => {
-                  setFilters(p => ({
-                    ...p,
-                    status: statusOption === "All" ? "" : statusOption
-                  }));
-                }}
+                onClick={() => setFilters(p => ({ ...p, status: statusOption === "All" ? "" : statusOption }))}
                 style={{
-                  background: isActive ? statusColor : "transparent",
-                  color: isActive ? "white" : "#666",
-                  border: isActive ? "none" : "1px solid #ddd",
-                  borderRadius: "20px",
-                  padding: "6px 16px",
-                  fontFamily: "'Kufam', sans-serif",
-                  fontSize: "0.85rem",
-                  fontWeight: isActive ? 600 : 400,
+                  background: isActive ? statusColor : surface,
+                  color: isActive ? activeText : inkBody,
+                  border: isActive ? "none" : `1px solid ${line}`,
+                  borderRadius: radius.pill,
+                  padding: "7px 16px",
+                  fontFamily: font.ui,
+                  ...type.helper,
+                  fontWeight: isActive ? 500 : 400,
                   cursor: "pointer",
-                  transition: "all 0.2s",
+                  transition: `all 180ms ${ease}`,
                   whiteSpace: "nowrap",
-                  flexShrink: 0
+                  flexShrink: 0,
                 }}
-                onMouseEnter={e => {
-                  if (!isActive) e.target.style.borderColor = "#999";
-                }}
-                onMouseLeave={e => {
-                  if (!isActive) e.target.style.borderColor = "#ddd";
-                }}
+                onMouseEnter={e => { if (!isActive) e.currentTarget.style.borderColor = color.wine400; }}
+                onMouseLeave={e => { if (!isActive) e.currentTarget.style.borderColor = line; }}
               >
                 {statusOption}
               </button>
@@ -734,19 +767,33 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
           })}
         </div>
 
-
         {/* Student list */}
-        <div className="sp-list-area">
-          {filtered.length > 0 ? (
-            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-              {filtered.map(renderStudentRow)}
-            </div>
-          ) : (
-            <div style={{ textAlign: "center", padding: "60px", color: "#aaa", fontFamily: "'Kufam', sans-serif", fontSize: "0.95rem" }}>
-              {loadingStudents ? "Loading students..." : students.length === 0 ? "No students yet." : "No students match your search."}
-            </div>
-          )}
-        </div>
+        {loadingStudents ? (
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "72px 0" }}>
+            <p style={{ fontFamily: font.ui, ...type.body, color: inkFaint }}>Loading students…</p>
+          </div>
+        ) : filtered.length > 0 ? (
+          <div className="sp-rows">
+            {filtered.map(renderStudentRow)}
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", padding: "72px 24px", gap: space.xs, background: surface, border: `1px dashed ${color.wine400}`, borderRadius: radius.panel }}>
+            {students.length === 0 ? (
+              <>
+                <p style={{ fontFamily: font.ui, fontSize: "1.0625rem", fontWeight: 600, color: ink }}>No students in your departments yet</p>
+                <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, maxWidth: "44ch" }}>Students appear here once their accounts are created under the departments assigned to you.</p>
+              </>
+            ) : (
+              <>
+                <p style={{ fontFamily: font.ui, fontSize: "1.0625rem", fontWeight: 600, color: ink }}>No students match this search</p>
+                <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, maxWidth: "44ch" }}>Try a different name or ID, or clear a filter to widen the results.</p>
+                <button onClick={clearAllFilters} style={{ marginTop: space.sm, background: panel, color: onPanel, border: "none", borderRadius: radius.pill, padding: "9px 20px", fontFamily: font.ui, ...type.control, cursor: "pointer" }}>
+                  Clear filters
+                </button>
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       {viewingStudent && (

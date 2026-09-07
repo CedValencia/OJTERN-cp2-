@@ -10,9 +10,25 @@ import {
   collection, query, where,
   onSnapshot, doc, updateDoc, deleteDoc, serverTimestamp,
 } from "firebase/firestore";
+import { color, font, type, space, radius, shadow, ease } from "./theme";
 
-const red = "#8B0000";
-const darkRed = "#590101";
+// ── Design tokens, aliased for this screen ────────────────────────────────────
+// Same aliases as the other coordinator screens so all three stay in sync.
+const ink        = color.ink;
+const inkBody    = color.inkBody;
+const inkMuted   = color.inkMuted;
+const inkFaint   = color.inkFaint;
+const surface    = color.wine600;      // cards, modals
+const page       = color.wine900;      // page background
+const line       = color.wine700;      // hairlines & borders
+const lineSoft   = color.wine800;
+const panel      = color.blush100;     // dark header bar, primary buttons
+const panelDeep  = color.blush50;
+const onPanel    = color.onWine;
+const onPanelDim = color.onWineMuted;
+const danger     = color.danger;
+const success    = color.success;
+const warning    = color.warning;
 
 // Used by FilterPanel to switch to viewport-anchored positioning on narrow
 // screens, instead of positioning relative to the small filter icon button
@@ -30,7 +46,6 @@ const useBreakpoint = () => {
   }, []);
   return bp;
 };
-const black = "#000000";
 
 // ── College / Program / Specialization Data ───────────────────────────────────
 // Now loaded live from Firestore via useDepartmentsPrograms() (see
@@ -93,230 +108,239 @@ const MIDDLE_INITIAL_REGEX = /^[A-Z]\.$/;
 const GMAIL_REGEX = /^[a-zA-Z0-9._%+\-]+@gmail\.com$/;
 
 // ── Responsive styles ─────────────────────────────────────────────────────────
+// Page shape mirrors Find Company: padded scroll area → floating dark bar →
+// toolbar row → card grid.
 const ResponsiveStyles = () => (
   <style>{`
-    @import url('https://fonts.googleapis.com/css2?family=Jersey+25&family=Kufam:wght@400;600;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    ::-webkit-scrollbar { width: 4px; }
-    ::-webkit-scrollbar-thumb { background: #8B0000; border-radius: 4px; }
-    .student-row:hover { background: #d0d0d0 !important; }
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-thumb { background: ${color.wine400}; border-radius: 999px; }
+    ::-webkit-scrollbar-track { background: transparent; }
 
-    /* Top bar: wraps on mobile */
-    .sl-topbar {
-      background: ${darkRed};
-      padding: 12px 24px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      flex-shrink: 0;
-      gap: 10px;
-      flex-wrap: wrap;
-    }
-    @media (max-width: 560px) {
-      .sl-topbar { padding: 10px 14px; }
-    }
-
-    /* Search input width */
-    .sl-search-input { width: 160px; }
-    @media (max-width: 480px) {
-      .sl-search-input { width: 110px; }
-    }
-
-    /* Sub bar: wraps on mobile */
-    .sl-subbar {
-      background: #e0e0e0;
-      padding: 10px 24px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      border-bottom: 1px solid #ccc;
-      flex-shrink: 0;
-      gap: 8px;
-      flex-wrap: wrap;
-    }
-    @media (max-width: 560px) {
-      .sl-subbar { padding: 10px 14px; }
-    }
-
-    /* Action buttons in subbar: wrap and shrink on mobile */
-    .sl-action-btns {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-    }
-    @media (max-width: 400px) {
-      .sl-action-btns button { font-size: 0.82rem !important; padding: 6px 12px !important; }
-    }
-
-    /* Student list padding */
-    .sl-list-area {
-      flex: 1;
+    /* Page wrapper */
+    .sa-list-wrapper {
+      overflow-x: hidden;
       overflow-y: auto;
-      padding: 14px 24px;
+      width: 100%;
+      flex: 1;
+      background: ${page};
+      padding: clamp(16px, 4vw, 28px) clamp(16px, 4vw, 32px);
+    }
+
+    /* Floating dark header bar */
+    .sa-search-bar {
+      background: ${panel};
+      border-radius: ${radius.panel};
+      padding: 18px 22px;
+      margin-bottom: ${space.md};
       display: flex;
-      flex-direction: column;
-      gap: 8px;
+      align-items: center;
+      justify-content: space-between;
+      gap: ${space.md};
+      flex-wrap: wrap;
     }
-    @media (max-width: 560px) {
-      .sl-list-area { padding: 10px 12px; }
-    }
-
-    /* Student row: hide program on very small screens */
-    .sl-row-program {
-      display: inline;
-    }
-    @media (max-width: 400px) {
-      .sl-row-program { display: none; }
+    @media (max-width: 480px) {
+      .sa-search-bar { padding: 14px; }
     }
 
-    /* Student form modal: full-width on mobile */
-    .sl-modal-inner {
-      background: #d8d8d8;
-      border-radius: 18px;
+    .sa-search-input { width: 170px; }
+    .sa-search-input::placeholder { color: ${inkFaint}; }
+    @media (max-width: 480px) {
+      .sa-search-input { width: 110px; }
+    }
+
+    /* Toolbar row under the bar */
+    .sa-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: ${space.md};
+      flex-wrap: wrap;
+      margin-bottom: ${space.md};
+    }
+    .sa-toolbar-group {
+      display: flex;
+      align-items: center;
+      gap: ${space.sm};
+      flex-wrap: wrap;
+    }
+
+    /* Student grid: 2-col ≥768px, 1-col below */
+    .sa-student-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: ${space.md};
+    }
+    @media (max-width: 767px) {
+      .sa-student-grid { grid-template-columns: 1fr; }
+    }
+
+    .sa-card { transition: border-color 200ms ${ease}, box-shadow 200ms ${ease}; }
+    .sa-card:hover { border-color: ${color.wine400}; box-shadow: 0 10px 28px rgba(10,10,10,0.10); }
+
+    .sa-list-wrapper :focus-visible,
+    .sa-modal-inner :focus-visible,
+    .sa-import-inner :focus-visible {
+      outline: none;
+      box-shadow: ${shadow.focus};
+      border-radius: ${radius.pill};
+    }
+
+    /* Student form modal */
+    .sa-modal-inner {
+      background: ${surface};
+      border: 1px solid ${line};
+      border-radius: ${radius.panel};
       width: 760px;
       max-width: calc(100vw - 32px);
       max-height: 92vh;
       overflow: hidden;
       display: flex;
       flex-direction: column;
-      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+      box-shadow: ${shadow.panel};
     }
-
-    /* Modal header */
-    .sl-modal-header {
-      padding: 20px 28px 12px;
+    .sa-modal-header {
+      padding: 22px 28px 14px;
       display: flex;
       align-items: center;
       justify-content: space-between;
+      border-bottom: 1px solid ${line};
     }
     @media (max-width: 560px) {
-      .sl-modal-header { padding: 14px 16px 10px; }
+      .sa-modal-header { padding: 16px 16px 12px; }
     }
-
-    /* Modal body */
-    .sl-modal-body {
+    .sa-modal-body {
       overflow-y: auto;
-      padding: 0 28px 8px;
+      padding: 18px 28px 22px;
       flex: 1;
     }
     @media (max-width: 560px) {
-      .sl-modal-body { padding: 0 14px 8px; }
+      .sa-modal-body { padding: 14px 16px 18px; }
     }
-
-    /* Modal footer */
-    .sl-modal-footer {
-      background: #b0b0b0;
+    .sa-modal-footer {
+      background: ${color.wine800};
+      border-top: 1px solid ${line};
       padding: 14px 28px;
       display: flex;
       justify-content: flex-end;
-      gap: 10px;
-      border-bottom-left-radius: 18px;
-      border-bottom-right-radius: 18px;
+      gap: ${space.sm};
     }
     @media (max-width: 560px) {
-      .sl-modal-footer { padding: 12px 14px; }
+      .sa-modal-footer { padding: 12px 16px; }
     }
 
     /* Name grid: 4-col on desktop, 2-col on tablet, 1-col on mobile */
-    .sl-name-grid {
+    .sa-name-grid {
       display: grid;
       grid-template-columns: 1.2fr 0.7fr 1.2fr 0.6fr;
       gap: 12px;
       margin-bottom: 12px;
     }
     @media (max-width: 600px) {
-      .sl-name-grid { grid-template-columns: 1fr 1fr; }
+      .sa-name-grid { grid-template-columns: 1fr 1fr; }
     }
     @media (max-width: 380px) {
-      .sl-name-grid { grid-template-columns: 1fr; }
+      .sa-name-grid { grid-template-columns: 1fr; }
     }
 
-    /* College/program grid: 2-col → 1-col */
-    .sl-college-grid {
+    .sa-college-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 12px;
       margin-bottom: 12px;
     }
     @media (max-width: 600px) {
-      .sl-college-grid { grid-template-columns: 1fr; }
+      .sa-college-grid { grid-template-columns: 1fr; }
     }
 
-    /* Year/sex/age grid: 3-col → 1-col */
-    .sl-info-grid {
+    .sa-info-grid {
       display: grid;
       grid-template-columns: 1fr 1fr 1fr;
       gap: 12px;
       margin-bottom: 12px;
     }
     @media (max-width: 600px) {
-      .sl-info-grid { grid-template-columns: 1fr 1fr; }
+      .sa-info-grid { grid-template-columns: 1fr 1fr; }
     }
     @media (max-width: 380px) {
-      .sl-info-grid { grid-template-columns: 1fr; }
+      .sa-info-grid { grid-template-columns: 1fr; }
     }
 
     /* Import modal */
-    .sl-import-inner {
-      background: white;
-      border-radius: 18px;
+    .sa-import-inner {
+      background: ${surface};
+      border: 1px solid ${line};
+      border-radius: ${radius.panel};
       width: 620px;
       max-width: calc(100vw - 32px);
       max-height: 88vh;
       overflow: hidden;
       display: flex;
       flex-direction: column;
-      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+      box-shadow: ${shadow.panel};
     }
-    .sl-import-header {
+    .sa-import-header {
       padding: 22px 28px 14px;
       display: flex;
       align-items: center;
       justify-content: space-between;
       flex-shrink: 0;
+      border-bottom: 1px solid ${line};
     }
     @media (max-width: 560px) {
-      .sl-import-header { padding: 14px 16px 10px; }
-      .sl-import-header h2 { font-size: 1.3rem !important; }
+      .sa-import-header { padding: 16px 16px 12px; }
     }
-    .sl-import-body {
+    .sa-import-body {
       overflow-y: auto;
-      padding: 0 28px 4px;
+      padding: 18px 28px;
       flex: 1;
     }
     @media (max-width: 560px) {
-      .sl-import-body { padding: 0 14px 4px; }
+      .sa-import-body { padding: 14px 16px; }
     }
-    .sl-import-footer {
-      background: #d8d8d8;
+    .sa-import-footer {
+      background: ${color.wine800};
+      border-top: 1px solid ${line};
       padding: 14px 28px;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      border-bottom-left-radius: 18px;
-      border-bottom-right-radius: 18px;
+      gap: ${space.sm};
       flex-shrink: 0;
     }
     @media (max-width: 560px) {
-      .sl-import-footer { padding: 12px 14px; flex-wrap: wrap; gap: 8px; }
+      .sa-import-footer { padding: 12px 16px; flex-wrap: wrap; }
     }
 
-    /* Filter badge area */
-    .sl-filter-badges {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 8px 24px;
-      background: #f5f5f5;
-      flex-wrap: wrap;
-      border-bottom: 1px solid #e0e0e0;
-      flex-shrink: 0;
-    }
-    @media (max-width: 560px) {
-      .sl-filter-badges { padding: 8px 14px; }
+    @media (prefers-reduced-motion: reduce) {
+      .sa-card { transition: none; }
     }
   `}</style>
 );
+
+// ── Shared control styles ─────────────────────────────────────────────────────
+const chip = (on) => ({
+  padding: "5px 12px",
+  borderRadius: radius.pill,
+  fontFamily: font.ui,
+  ...type.helper,
+  cursor: "pointer",
+  userSelect: "none",
+  background: on ? ink : color.wine800,
+  color: on ? color.white : inkBody,
+  border: `1px solid ${on ? ink : line}`,
+  transition: `all 160ms ${ease}`,
+});
+
+const primaryBtn = {
+  padding: "9px 20px", borderRadius: radius.pill, background: panel, color: onPanel,
+  border: "none", fontFamily: font.ui, ...type.control, cursor: "pointer",
+};
+const ghostBtn = {
+  padding: "9px 20px", borderRadius: radius.pill, background: surface, color: inkBody,
+  border: `1px solid ${line}`, fontFamily: font.ui, ...type.control, cursor: "pointer",
+};
 
 const validators = {
   studentId: (v) => {
@@ -437,8 +461,9 @@ const downloadTemplateXLSX = () => {
     const headerCell = XLSX.utils.encode_cell({ r: 0, c });
     if (ws[headerCell]) {
       ws[headerCell].s = {
+        // Header fill follows the app's dark panel, not the old maroon.
         font: { bold: true, color: { rgb: "FFFFFF" } },
-        fill: { patternType: "solid", fgColor: { rgb: "8B0000" } },
+        fill: { patternType: "solid", fgColor: { rgb: "161616" } },
         alignment: { horizontal: "center" },
         protection: { locked: true },
       };
@@ -448,7 +473,7 @@ const downloadTemplateXLSX = () => {
     const cell = XLSX.utils.encode_cell({ r: 1, c });
     ws[cell].s = {
       fill: { patternType: "solid", fgColor: { rgb: "FFFFFF" } },
-      font: { name: "Calibri", sz: 11, bold: false, italic: false, color: { rgb: "FF0000" } },
+      font: { name: "Calibri", sz: 11, bold: false, italic: false, color: { rgb: "A85450" } },
       alignment: { horizontal: "left", vertical: "center" },
       border: {
         top:    { style: "thin", color: { rgb: "000000" } },
@@ -469,30 +494,30 @@ const StyledSelect = ({ value, onChange, options, placeholder, disabled, hasErro
   <div style={{ position: "relative" }}>
     <select
       value={value} onChange={e => onChange(e.target.value)} disabled={disabled}
-      style={{ width: "100%", appearance: "none", WebkitAppearance: "none", background: disabled ? "#e8e8e8" : "white", border: hasError ? "1.5px solid #c00" : "none", borderRadius: "20px", padding: "8px 36px 8px 14px", fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", color: disabled ? "#aaa" : (value ? "#222" : "#999"), cursor: disabled ? "not-allowed" : "pointer", outline: "none", boxShadow: hasError ? "none" : "inset 0 1px 3px rgba(0,0,0,0.08)" }}
+      style={{ width: "100%", appearance: "none", WebkitAppearance: "none", background: disabled ? color.wine800 : color.white, border: `1px solid ${hasError ? danger : line}`, borderRadius: radius.pill, padding: "9px 36px 9px 14px", fontFamily: font.ui, ...type.helper, color: disabled ? inkFaint : (value ? ink : inkFaint), cursor: disabled ? "not-allowed" : "pointer", outline: "none" }}
     >
-      <option value="">{placeholder || "Select..."}</option>
+      <option value="">{placeholder || "Select…"}</option>
       {options.map(o => typeof o === 'object' ? <option key={o.value} value={o.value}>{o.label}</option> : <option key={o} value={o}>{o}</option>)}
     </select>
-    <div style={{ position: "absolute", right: "12px", top: "50%", transform: "translateY(-50%)", pointerEvents: "none", color: disabled ? "#bbb" : darkRed }}>
+    <div style={{ position: "absolute", right: "14px", top: "50%", transform: "translateY(-50%)", pointerEvents: "none", color: disabled ? inkFaint : inkMuted }}>
       <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M7 10l5 5 5-5z"/></svg>
     </div>
   </div>
 );
 
-const StyledInput = ({ value, onChange, placeholder, type = "text", disabled, hasError }) => (
+const StyledInput = ({ value, onChange, placeholder, type: inputType = "text", disabled, hasError }) => (
   <input
-    type={type} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} disabled={disabled}
-    style={{ width: "100%", background: disabled ? "#e8e8e8" : "white", border: hasError ? "1.5px solid #c00" : "none", borderRadius: "20px", padding: "8px 14px", fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", color: "#222", outline: "none", boxShadow: hasError ? "none" : "inset 0 1px 3px rgba(0,0,0,0.08)", boxSizing: "border-box" }}
+    type={inputType} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} disabled={disabled}
+    style={{ width: "100%", background: disabled ? color.wine800 : color.white, border: `1px solid ${hasError ? danger : line}`, borderRadius: radius.pill, padding: "9px 14px", fontFamily: font.ui, ...type.helper, color: ink, outline: "none", boxSizing: "border-box" }}
   />
 );
 
 const FieldLabel = ({ children }) => (
-  <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.3rem", color: black, marginBottom: "5px", letterSpacing: "0.03em", marginTop: "10px" }}>{children}</p>
+  <p style={{ fontFamily: font.ui, ...type.label, color: ink, marginBottom: "6px", marginTop: "12px" }}>{children}</p>
 );
 
 const FieldError = ({ msg }) => msg ? (
-  <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.72rem", color: "#c00", marginTop: "3px", paddingLeft: "6px" }}>{msg}</p>
+  <p style={{ fontFamily: font.ui, ...type.helper, color: danger, marginTop: "4px", paddingLeft: "14px" }}>{msg}</p>
 ) : null;
 
 const useField = (initial = "", validatorKey) => {
@@ -506,7 +531,7 @@ const useField = (initial = "", validatorKey) => {
 };
 
 // ── Student Form ───────────────────────────────────────────────────────────────
-const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submitLabel = "CREATE ACCOUNT", coordinatorColleges = [], departments = {} }) => {
+const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submitLabel = "Create account", coordinatorColleges = [], departments = {} }) => {
   const studentId     = useField(initial.studentId || "", "studentId");
   const lastName      = useField(initial.lastName || "", "lastName");
   const middleInitial = useField(initial.middleInitial || "", "middleInitial");
@@ -574,7 +599,7 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
         age: age.value, email: email.value,
       });
     } catch (err) {
-      setSubmitError(err.message || "Failed. Please try again.");
+      setSubmitError(err.message || "That didn't save. Try again.");
     } finally {
       setSaving(false);
     }
@@ -591,7 +616,7 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
   const fullName =
     buildFullName(lastName.value, firstName.value, suffix.value) ||
     buildFullName(initial.lastName, initial.firstName, initial.suffix) ||
-    "New Student";
+    "New student";
 
   const onStudentIdChange     = (v) => { if (/^\d*$/.test(v) && v.length <= 9) studentId.onChange(v); };
   const onLastNameChange      = (v) => { lastName.onChange(v.replace(/[^A-Za-zÑñ\s\-]/g, "")); };
@@ -600,45 +625,48 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
   const onAgeChange           = (v) => { if (v === "" || /^\d+$/.test(v)) age.onChange(v); };
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: "16px" }}>
-      <div className="sl-modal-inner">
-        <div className="sl-modal-header">
-          <h2 style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(1.2rem, 4vw, 1.8rem)", color: darkRed }}>{fullName}</h2>
-          <button onClick={onClose} style={{ background: darkRed, border: "none", borderRadius: "50%", width: "30px", height: "30px", color: "white", fontSize: "1rem", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: "bold", flexShrink: 0 }}>✕</button>
+    <div style={{ position: "fixed", inset: 0, background: "rgba(10,10,10,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: space.md }}>
+      <div className="sa-modal-inner">
+        <div className="sa-modal-header">
+          <h2 style={{ fontFamily: font.ui, fontSize: "clamp(1.125rem, 4vw, 1.375rem)", fontWeight: 600, letterSpacing: "-0.01em", color: ink }}>{fullName}</h2>
+          <button onClick={onClose} aria-label="Close" style={{ background: lineSoft, border: `1px solid ${line}`, borderRadius: "50%", width: "30px", height: "30px", color: inkMuted, fontSize: "0.9rem", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>✕</button>
         </div>
-        <div className="sl-modal-body">
+
+        <div className="sa-modal-body">
           <div style={{ marginBottom: "12px" }}>
-            <FieldLabel>Student ID:</FieldLabel>
+            <FieldLabel>Student ID</FieldLabel>
             <div style={{ width: "min(220px, 100%)" }}>
               <StyledInput value={studentId.value} onChange={onStudentIdChange} placeholder="9-digit number" disabled={locked} hasError={!!studentId.error} />
               <FieldError msg={studentId.error} />
             </div>
           </div>
-          <div className="sl-name-grid">
+
+          <div className="sa-name-grid">
             <div>
-              <FieldLabel>Last Name:</FieldLabel>
-              <StyledInput value={lastName.value} onChange={onLastNameChange}placeholder="Dela Cruz" disabled={locked} hasError={!!lastName.error} />
+              <FieldLabel>Last name</FieldLabel>
+              <StyledInput value={lastName.value} onChange={onLastNameChange} placeholder="Dela Cruz" disabled={locked} hasError={!!lastName.error} />
               <FieldError msg={lastName.error} />
             </div>
             <div>
-              <FieldLabel>Middle Initial:</FieldLabel>
+              <FieldLabel>Middle initial</FieldLabel>
               <StyledInput value={middleInitial.value} onChange={onMiddleInitialChange} placeholder="M." disabled={locked} hasError={!!middleInitial.error} />
               <FieldError msg={middleInitial.error} />
             </div>
             <div>
-              <FieldLabel>First Name:</FieldLabel>
+              <FieldLabel>First name</FieldLabel>
               <StyledInput value={firstName.value} onChange={onFirstNameChange} placeholder="Juan" disabled={locked} hasError={!!firstName.error} />
               <FieldError msg={firstName.error} />
             </div>
             <div>
-              <FieldLabel>Suffix:</FieldLabel>
+              <FieldLabel>Suffix</FieldLabel>
               <StyledSelect value={suffix.value} onChange={(v) => suffix.onChange(v)} options={SUFFIX_OPTIONS} placeholder="None" disabled={locked} hasError={!!suffix.error} />
               <FieldError msg={suffix.error} />
             </div>
           </div>
-          <div className="sl-college-grid">
+
+          <div className="sa-college-grid">
             <div>
-              <FieldLabel>Department:</FieldLabel>
+              <FieldLabel>Department</FieldLabel>
               {/* Locked to the coordinator's own department(s) — never the
                   full college list. Single department → static label so it
                   can't be changed. Multiple → dropdown, but restricted to
@@ -656,62 +684,71 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
                 </>
               ) : (
                 <div style={{
-                  width: "100%", padding: "9px 14px", borderRadius: "10px",
-                  background: "#eee", color: "#555", fontFamily: "'Kufam', sans-serif",
-                  fontSize: "0.88rem", border: "1px solid #ddd",
+                  width: "100%", padding: "9px 14px", borderRadius: radius.pill,
+                  background: color.wine800, color: inkBody, fontFamily: font.ui,
+                  ...type.helper, border: `1px solid ${line}`,
                 }}>
                   {college || "—"}
                 </div>
               )}
             </div>
             <div>
-              <FieldLabel>Program:</FieldLabel>
+              <FieldLabel>Program</FieldLabel>
               <StyledSelect value={program} onChange={handleProgramChange} options={programs} placeholder="Select program" disabled={locked || !college} hasError={!!programError} />
               <FieldError msg={programError} />
             </div>
           </div>
-          <div className="sl-info-grid">
+
+          <div className="sa-info-grid">
             <div>
-              <FieldLabel>Year & Section:</FieldLabel>
+              <FieldLabel>Year & section</FieldLabel>
               <StyledSelect value={yearSection.value} onChange={(v) => yearSection.onChange(v)} options={YEAR_SECTIONS} placeholder="Select section" disabled={locked} hasError={!!yearSection.error} />
               <FieldError msg={yearSection.error} />
             </div>
             <div>
-              <FieldLabel>Sex:</FieldLabel>
+              <FieldLabel>Sex</FieldLabel>
               <StyledSelect value={sex.value} onChange={(v) => sex.onChange(v)} options={SEX_OPTIONS} placeholder="Select sex" disabled={locked} hasError={!!sex.error} />
               <FieldError msg={sex.error} />
             </div>
             <div>
-              <FieldLabel>Age:</FieldLabel>
-              <StyledInput value={age.value} onChange={onAgeChange}  type="text" disabled={locked} hasError={!!age.error} />
+              <FieldLabel>Age</FieldLabel>
+              <StyledInput value={age.value} onChange={onAgeChange} disabled={locked} hasError={!!age.error} />
               <FieldError msg={age.error} />
             </div>
           </div>
+
           <div style={{ marginBottom: "12px" }}>
-            <FieldLabel>Email Address:</FieldLabel>
+            <FieldLabel>Email address</FieldLabel>
             <StyledInput value={email.value} onChange={(v) => email.onChange(v)} type="email" placeholder="student@gmail.com" disabled={locked} hasError={!!email.error} />
             <FieldError msg={email.error} />
           </div>
 
           {/* Password preview — shown on create, and when coordinator views an existing student */}
           {lastName.value && college && (
-            <div style={{ background: "#fff8f8", border: "1.5px solid #f5c0c0", borderRadius: "10px", padding: "10px 14px", marginBottom: "10px" }}>
-              <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1rem", color: "#8B0000", marginBottom: "4px" }}>🔑 Default Password:</p>
-              <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.92rem", color: "#320000", fontWeight: "700", margin: 0 }}>
+            <div style={{ background: color.wine800, border: `1px solid ${line}`, borderRadius: radius.card, padding: "12px 16px", marginTop: space.md }}>
+              <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, marginBottom: "4px" }}>Default password</p>
+              <p style={{ fontFamily: font.ui, ...type.label, color: ink, margin: 0 }}>
                 {(firstName.value && lastName.value && studentId.value && college) ? generateStudentPassword(firstName.value, lastName.value, studentId.value, departments[college]?.abbr || college) : "—"}
               </p>
-              <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.7rem", color: "#888", margin: "4px 0 0" }}>
-                Format: lastname + 123. + college code (all lowercase). Student should change this after first login.
+              <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, margin: "6px 0 0" }}>
+                Built from the last name, 123., and the college code, all lowercase. The student should change it after signing in.
               </p>
             </div>
           )}
 
-          {!readOnly && (
-  <div className="sl-modal-footer">
-    <button onClick={handleSubmit} disabled={saving} style={{ padding: "10px 28px", borderRadius: "24px", background: saving ? "#aaa" : darkRed, color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(0.9rem, 2.5vw, 1.1rem)", cursor: saving ? "not-allowed" : "pointer" }}>{saving ? "CREATING…" : submitLabel}</button>
-  </div>
-)}
+          {submitError && (
+            <p style={{ fontFamily: font.ui, ...type.helper, color: danger, marginTop: space.md }}>{submitError}</p>
+          )}
         </div>
+
+        {!readOnly && (
+          <div className="sa-modal-footer">
+            <button onClick={onClose} style={ghostBtn}>Cancel</button>
+            <button onClick={handleSubmit} disabled={saving} style={{ ...primaryBtn, opacity: saving ? 0.6 : 1, cursor: saving ? "not-allowed" : "pointer" }}>
+              {saving ? "Creating…" : submitLabel}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -780,8 +817,8 @@ const ImportModal = ({ onClose, onImport, coordinatorColleges = [], departments 
 
   const checkFileType = (f) => {
     const valid = f.name.endsWith(".xlsx") || f.name.endsWith(".xls");
-    if (!valid) { setFileError("Only Excel (.xlsx / .xls) files are allowed."); return false; }
-    if (f.size > 10 * 1024 * 1024) { setFileError("File exceeds 10 MB limit."); return false; }
+    if (!valid) { setFileError("That file type isn't supported. Use an .xlsx or .xls file."); return false; }
+    if (f.size > 10 * 1024 * 1024) { setFileError("That file is over 10MB. Split it into smaller batches."); return false; }
     setFileError(""); return true;
   };
 
@@ -808,7 +845,7 @@ const ImportModal = ({ onClose, onImport, coordinatorColleges = [], departments 
         if (errs.length > 0) rowErrors.push(...errs); else valid.push(student);
       });
       setPreview({ valid, rowErrors, headerErrors: [] });
-    } catch (e) { setPreview({ valid: [], rowErrors: ["Failed to read file."], headerErrors: [] }); }
+    } catch (e) { setPreview({ valid: [], rowErrors: ["The file couldn't be read."], headerErrors: [] }); }
     setParsing(false);
   };
 
@@ -818,75 +855,84 @@ const ImportModal = ({ onClose, onImport, coordinatorColleges = [], departments 
   const handleImport = () => { if (!preview || preview.valid.length === 0) return; onImport(preview.valid); onClose(); };
   const canImport = preview && preview.valid.length > 0;
 
+  const noticeBox = (borderColor, children) => (
+    <div style={{ background: color.wine800, border: `1px solid ${borderColor}`, borderRadius: radius.card, padding: "12px 16px", marginBottom: space.sm }}>
+      {children}
+    </div>
+  );
+
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: "16px" }}>
-      <div className="sl-import-inner">
-        <div className="sl-import-header">
-          <h2 style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.7rem", color: darkRed }}>Import Students from Excel</h2>
-          <button onClick={onClose} style={{ background: darkRed, border: "none", borderRadius: "50%", width: "32px", height: "32px", color: "white", fontSize: "1.1rem", cursor: "pointer", fontWeight: "bold", flexShrink: 0 }}>✕</button>
+    <div style={{ position: "fixed", inset: 0, background: "rgba(10,10,10,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: space.md }}>
+      <div className="sa-import-inner">
+        <div className="sa-import-header">
+          <h2 style={{ fontFamily: font.ui, fontSize: "clamp(1.125rem, 4vw, 1.375rem)", fontWeight: 600, letterSpacing: "-0.01em", color: ink }}>Import students</h2>
+          <button onClick={onClose} aria-label="Close" style={{ background: lineSoft, border: `1px solid ${line}`, borderRadius: "50%", width: "30px", height: "30px", color: inkMuted, fontSize: "0.9rem", cursor: "pointer", flexShrink: 0 }}>✕</button>
         </div>
-        <div className="sl-import-body">
+
+        <div className="sa-import-body">
           <div onDrop={onDrop} onDragOver={e => { e.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onClick={() => !file && fileRef.current.click()}
-            style={{ border: `2px dashed ${dragging ? darkRed : "#ccc"}`, borderRadius: "14px", padding: file ? "16px 20px" : "32px 20px", textAlign: "center", background: dragging ? "#fff0f0" : "#f8f8f8", cursor: file ? "default" : "pointer", transition: "all 0.2s" }}>
+            style={{ border: `1px dashed ${dragging ? ink : color.wine400}`, borderRadius: radius.card, padding: file ? "16px 20px" : "32px 20px", textAlign: "center", background: dragging ? color.wine700 : color.wine800, cursor: file ? "default" : "pointer", transition: `all 180ms ${ease}` }}>
             <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{ display: "none" }} onChange={e => handleFile(e.target.files[0])} />
             {file ? (
               <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke={darkRed} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={inkMuted} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
                 <div style={{ textAlign: "left", flex: 1, minWidth: 0 }}>
-                  <p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, color: "#222", fontSize: "0.88rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{file.name}</p>
-                  <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.75rem", color: "#888" }}>{(file.size / 1024).toFixed(1)} KB</p>
+                  <p style={{ fontFamily: font.ui, ...type.label, color: ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{file.name}</p>
+                  <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted }}>{(file.size / 1024).toFixed(1)} KB</p>
                 </div>
-                {parsing && <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.78rem", color: "#888", flexShrink: 0 }}>Parsing…</span>}
-                <button onClick={e => { e.stopPropagation(); clearFile(); }} style={{ background: "none", border: "none", color: "#aaa", cursor: "pointer", fontSize: "1.1rem", flexShrink: 0 }}>✕</button>
+                {parsing && <span style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, flexShrink: 0 }}>Reading…</span>}
+                <button onClick={e => { e.stopPropagation(); clearFile(); }} aria-label="Remove file" style={{ background: "none", border: "none", color: inkMuted, cursor: "pointer", fontSize: "1rem", flexShrink: 0 }}>✕</button>
               </div>
             ) : (
               <>
-                <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#bbb" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginBottom: "8px" }}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                <p style={{ fontFamily: "'Kufam', sans-serif", color: "#555", marginBottom: "4px", fontSize: "0.9rem" }}>Drag & drop your Excel file here</p>
-                <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.83rem", color: darkRed, textDecoration: "underline" }}>or browse to upload</p>
-                <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.76rem", color: red, marginTop: "8px", fontWeight: 600 }}>XLSX / XLS – max 10 MB</p>
+                <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke={inkFaint} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginBottom: space.sm }}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                <p style={{ fontFamily: font.ui, ...type.body, color: inkBody, marginBottom: "4px" }}>Drop your Excel file here, or click to browse</p>
+                <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted }}>.xlsx or .xls, up to 10MB</p>
               </>
             )}
           </div>
-          {fileError && <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.8rem", color: "crimson", marginTop: "8px" }}>{fileError}</p>}
-          <div style={{ background: "#f0e8e8", borderRadius: "10px", padding: "10px 14px", marginTop: "12px" }}>
-            <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.73rem", color: darkRed, fontWeight: 700, marginBottom: "4px" }}>Required columns (in order):</p>
-            <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.7rem", color: "#555", lineHeight: 1.7 }}>{IMPORT_TEMPLATE_COLUMNS.join(" | ")}</p>
+
+          {fileError && <p style={{ fontFamily: font.ui, ...type.helper, color: danger, marginTop: space.sm }}>{fileError}</p>}
+
+          <div style={{ background: color.wine800, border: `1px solid ${line}`, borderRadius: radius.card, padding: "12px 16px", marginTop: space.md }}>
+            <p style={{ fontFamily: font.ui, ...type.label, color: ink, marginBottom: "4px" }}>Columns, in this order</p>
+            <p style={{ fontFamily: font.ui, ...type.helper, color: inkBody, lineHeight: 1.7 }}>{IMPORT_TEMPLATE_COLUMNS.join(" · ")}</p>
           </div>
-          <div style={{ marginTop: "10px", display: "flex", justifyContent: "flex-start" }}>
-            <button onClick={downloadTemplateXLSX} style={{ background: darkRed, border: "none", borderRadius: "20px", padding: "8px 16px", color: "white", fontFamily: "'Kufam', sans-serif", fontSize: "0.78rem", cursor: "pointer", fontWeight: 600 }}>Download XLSX Template</button>
+
+          <div style={{ marginTop: space.sm, display: "flex", justifyContent: "flex-start" }}>
+            <button onClick={downloadTemplateXLSX} style={{ ...ghostBtn, padding: "8px 16px" }}>Download the template</button>
           </div>
+
           {preview && !parsing && (
-            <div style={{ marginTop: "14px" }}>
-              {preview.headerErrors.length > 0 && (
-                <div style={{ background: "#fff0f0", border: "1px solid #f5c0c0", borderRadius: "10px", padding: "12px 14px", marginBottom: "10px" }}>
-                  <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1rem", color: "#b00", marginBottom: "6px" }}>✕ Column headers don't match</p>
-                  {preview.headerErrors.map((e, i) => <p key={i} style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.75rem", color: "#c00", lineHeight: 1.6 }}>• {e}</p>)}
-                </div>
-              )}
+            <div style={{ marginTop: space.md }}>
+              {preview.headerErrors.length > 0 && noticeBox(danger, (
+                <>
+                  <p style={{ fontFamily: font.ui, ...type.label, color: danger, marginBottom: "6px" }}>The column headers don't match the template</p>
+                  {preview.headerErrors.map((e, i) => <p key={i} style={{ fontFamily: font.ui, ...type.helper, color: inkBody, lineHeight: 1.6 }}>{e}</p>)}
+                </>
+              ))}
               {preview.rowErrors.length > 0 && preview.headerErrors.length === 0 && (
-                <div style={{ background: "#fff8f0", border: "1px solid #f5d8b0", borderRadius: "10px", padding: "12px 14px", marginBottom: "10px", maxHeight: "140px", overflowY: "auto" }}>
-                  <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1rem", color: "#a05000", marginBottom: "6px" }}>⚠ {preview.rowErrors.length} issue{preview.rowErrors.length !== 1 ? "s" : ""} found{preview.valid.length > 0 ? ` — ${preview.valid.length} valid row${preview.valid.length !== 1 ? "s" : ""} will still be imported` : ""}</p>
-                  {preview.rowErrors.map((e, i) => <p key={i} style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.75rem", color: "#a05000", lineHeight: 1.6 }}>• {e}</p>)}
+                <div style={{ background: color.wine800, border: `1px solid ${warning}`, borderRadius: radius.card, padding: "12px 16px", marginBottom: space.sm, maxHeight: "140px", overflowY: "auto" }}>
+                  <p style={{ fontFamily: font.ui, ...type.label, color: warning, marginBottom: "6px" }}>
+                    {preview.rowErrors.length} issue{preview.rowErrors.length !== 1 ? "s" : ""} found{preview.valid.length > 0 ? ` — the other ${preview.valid.length} row${preview.valid.length !== 1 ? "s" : ""} will still import` : ""}
+                  </p>
+                  {preview.rowErrors.map((e, i) => <p key={i} style={{ fontFamily: font.ui, ...type.helper, color: inkBody, lineHeight: 1.6 }}>{e}</p>)}
                 </div>
               )}
-              {preview.valid.length > 0 && preview.headerErrors.length === 0 && (
-                <div style={{ background: "#f0fff4", border: "1px solid #b0e8c0", borderRadius: "10px", padding: "10px 14px" }}>
-                  <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1rem", color: "#1a7a3a" }}>✓ {preview.valid.length} student{preview.valid.length !== 1 ? "s" : ""} ready to import</p>
-                </div>
-              )}
-              {preview.valid.length === 0 && preview.headerErrors.length === 0 && preview.rowErrors.length > 0 && (
-                <div style={{ background: "#fff0f0", border: "1px solid #f5c0c0", borderRadius: "10px", padding: "10px 14px" }}>
-                  <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1rem", color: "#b00" }}>No valid rows to import.</p>
-                </div>
-              )}
+              {preview.valid.length > 0 && preview.headerErrors.length === 0 && noticeBox(success, (
+                <p style={{ fontFamily: font.ui, ...type.label, color: success }}>{preview.valid.length} student{preview.valid.length !== 1 ? "s" : ""} ready to import</p>
+              ))}
+              {preview.valid.length === 0 && preview.headerErrors.length === 0 && preview.rowErrors.length > 0 && noticeBox(danger, (
+                <p style={{ fontFamily: font.ui, ...type.label, color: danger }}>No rows can be imported yet. Fix the issues above and upload again.</p>
+              ))}
             </div>
           )}
         </div>
-        <div className="sl-import-footer">
-          <button onClick={() => fileRef.current.click()} style={{ background: "none", border: `1px solid ${darkRed}`, borderRadius: "20px", padding: "8px 18px", color: darkRed, fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", cursor: "pointer" }}>Choose different file</button>
-          <button onClick={handleImport} disabled={!canImport} style={{ padding: "12px 36px", borderRadius: "28px", background: canImport ? darkRed : "#bbb", color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(0.9rem, 2.5vw, 1.1rem)", cursor: canImport ? "pointer" : "not-allowed" }}>
-            IMPORT {canImport ? `(${preview.valid.length})` : ""}
+
+        <div className="sa-import-footer">
+          <button onClick={() => fileRef.current.click()} style={ghostBtn}>Choose another file</button>
+          <button onClick={handleImport} disabled={!canImport} style={{ ...primaryBtn, opacity: canImport ? 1 : 0.5, cursor: canImport ? "pointer" : "not-allowed" }}>
+            Import{canImport ? ` ${preview.valid.length}` : ""}
           </button>
         </div>
       </div>
@@ -916,76 +962,86 @@ const FilterPanel = ({ filters, setFilters, filterRef, coordinatorColleges = [],
   const toggleProgram = (prog) => setFilters(prev => ({ ...prev, program: prev.program === prog ? "" : prog, specialization: "" }));
   const locationLevel = !expandedCollege ? "college" : "program";
 
-  const panelStyle = (isMobile || isTablet) ? {
-    position: "fixed", top: "76px", left: "12px", right: "12px", maxHeight: "70vh",
-    background: "white", border: `1.5px solid ${red}`, borderRadius: "10px",
-    boxShadow: "0 6px 24px rgba(0,0,0,0.18)", zIndex: 100, overflowY: "auto", fontFamily: "'Kufam', sans-serif",
-  } : {
-    position: "absolute", top: "48px", right: 0, width: "260px", background: "white",
-    border: `1.5px solid ${red}`, borderRadius: "10px", boxShadow: "0 6px 24px rgba(0,0,0,0.18)",
-    zIndex: 100, overflow: "hidden", fontFamily: "'Kufam', sans-serif",
+  const base = {
+    background: surface, border: `1px solid ${line}`, borderRadius: radius.card,
+    boxShadow: shadow.panel, zIndex: 100, fontFamily: font.ui,
   };
+  const panelStyle = (isMobile || isTablet)
+    ? { ...base, position: "fixed", top: "84px", left: "12px", right: "12px", maxHeight: "70vh", overflowY: "auto" }
+    : { ...base, position: "absolute", top: "48px", right: 0, width: "266px", overflow: "hidden" };
+
+  const groupLabel = { fontFamily: font.ui, ...type.label, color: ink };
+  const emptyNote  = { fontFamily: font.ui, ...type.helper, color: inkFaint };
 
   return (
     <div ref={filterRef} style={panelStyle}>
-      <div style={{ padding: "10px 12px 4px" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
-          <p style={{ fontSize: "0.78rem", fontWeight: "bold", color: darkRed }}>Sex:</p>
-          <button onClick={clearAll} style={{ background: "none", border: "none", fontSize: "0.7rem", color: red, cursor: "pointer", fontFamily: "'Kufam', sans-serif", padding: 0, textDecoration: "underline" }}>Clear all</button>
+      <div style={{ padding: "12px 14px 6px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: space.sm }}>
+          <p style={groupLabel}>Sex</p>
+          <button onClick={clearAll} style={{ background: "none", border: "none", fontFamily: font.ui, ...type.helper, color: inkMuted, cursor: "pointer", padding: 0, textDecoration: "underline" }}>Clear all</button>
         </div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "5px" }}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
           {SEX_OPTIONS.length > 0 ? (
-            SEX_OPTIONS.map(s => (<span key={s} onClick={() => toggleSex(s)} style={{ padding: "3px 9px", borderRadius: "20px", fontSize: "0.72rem", cursor: "pointer", userSelect: "none", background: filters.sex === s ? red : "#f0e0e0", color: filters.sex === s ? "white" : darkRed, border: `1px solid ${red}`, transition: "all 0.15s" }}>{s}</span>))
+            SEX_OPTIONS.map(s => (<span key={s} onClick={() => toggleSex(s)} style={chip(filters.sex === s)}>{s}</span>))
           ) : (
-            <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.72rem", color: "#bbb", fontStyle: "italic" }}>No options available</span>
+            <span style={emptyNote}>No options available</span>
           )}
         </div>
       </div>
-      <hr style={{ border: "none", borderTop: "1px solid #eee", margin: "6px 0" }} />
-      <div style={{ padding: "4px 12px 10px" }}>
-        <p style={{ fontSize: "0.78rem", fontWeight: "bold", color: darkRed, marginBottom: "6px" }}>Section:</p>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "5px" }}>
+
+      <hr style={{ border: "none", borderTop: `1px solid ${lineSoft}`, margin: "10px 0" }} />
+
+      <div style={{ padding: "0 14px 12px" }}>
+        <p style={{ ...groupLabel, marginBottom: space.sm }}>Section</p>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
           {sectionLetters.length > 0 ? (
-            sectionLetters.map(s => (<span key={s} onClick={() => toggleSection(s)} style={{ padding: "3px 9px", borderRadius: "20px", fontSize: "0.72rem", cursor: "pointer", userSelect: "none", background: filters.section === s ? red : "#f0e0e0", color: filters.section === s ? "white" : darkRed, border: `1px solid ${red}`, transition: "all 0.15s" }}>{s}</span>))
+            sectionLetters.map(s => (<span key={s} onClick={() => toggleSection(s)} style={chip(filters.section === s)}>{s}</span>))
           ) : (
-            <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.72rem", color: "#bbb", fontStyle: "italic" }}>No sections available</span>
+            <span style={emptyNote}>No sections available</span>
           )}
         </div>
       </div>
-      <hr style={{ border: "none", borderTop: "1px solid #eee", margin: "0" }} />
-      <div style={{ padding: "6px 12px 10px" }}>
-        <p style={{ fontSize: "0.78rem", fontWeight: "bold", color: darkRed, marginBottom: "6px" }}>
-          Department:
-          {expandedCollege && <span style={{ fontWeight: "normal", color: "#888", marginLeft: "6px", fontSize: "0.68rem" }}>{[expandedCollege, filters.program].filter(Boolean).join(" › ")}</span>}
+
+      <hr style={{ border: "none", borderTop: `1px solid ${lineSoft}`, margin: 0 }} />
+
+      <div style={{ padding: "12px 14px 14px" }}>
+        <p style={{ ...groupLabel, marginBottom: space.sm }}>
+          Department
+          {expandedCollege && <span style={{ fontWeight: 400, color: inkMuted, marginLeft: "6px", fontSize: "0.75rem" }}>{[expandedCollege, filters.program].filter(Boolean).join(" › ")}</span>}
         </p>
         {locationLevel === "college" && (
-          <div style={{ maxHeight: "160px", overflowY: "auto", display: "flex", flexDirection: "column", gap: "3px" }}>
+          <div style={{ maxHeight: "160px", overflowY: "auto", display: "flex", flexDirection: "column", gap: "4px" }}>
             {allColleges.length > 0 ? (
-              allColleges.map(col => (<div key={col} onClick={() => toggleCollege(col)} style={{ padding: "4px 8px", borderRadius: "6px", fontSize: "0.72rem", cursor: "pointer", background: "#f7f0f0", color: darkRed, border: "1px solid #e0c0c0" }} onMouseEnter={e => e.currentTarget.style.background = "#f0d0d0"} onMouseLeave={e => e.currentTarget.style.background = "#f7f0f0"}>{col}</div>))
+              allColleges.map(col => (
+                <div key={col} onClick={() => toggleCollege(col)}
+                  style={{ padding: "7px 11px", borderRadius: "10px", fontFamily: font.ui, ...type.helper, color: inkBody, cursor: "pointer", background: color.wine800, border: `1px solid ${line}`, transition: `background 160ms ${ease}` }}
+                  onMouseEnter={e => e.currentTarget.style.background = color.wine700}
+                  onMouseLeave={e => e.currentTarget.style.background = color.wine800}
+                >{col}</div>
+              ))
             ) : (
-              <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.72rem", color: "#bbb", fontStyle: "italic" }}>No departments available</span>
+              <span style={emptyNote}>No departments available</span>
             )}
           </div>
         )}
         {locationLevel === "program" && (
           <div>
-            <div onClick={() => toggleCollege(expandedCollege)} style={{ display: "flex", alignItems: "center", gap: "4px", cursor: "pointer", marginBottom: "8px", color: red, fontSize: "0.72rem" }}>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={red} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+            <div onClick={() => toggleCollege(expandedCollege)} style={{ display: "flex", alignItems: "center", gap: space.xs, cursor: "pointer", marginBottom: space.sm, color: inkMuted, fontFamily: font.ui, ...type.helper }}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
               {expandedCollege}
             </div>
-            <div style={{ maxHeight: "150px", overflowY: "auto", display: "flex", flexWrap: "wrap", gap: "5px" }}>
-              {allPrograms.map(prog => (<span key={prog} onClick={() => toggleProgram(prog)} style={{ padding: "3px 9px", borderRadius: "20px", fontSize: "0.71rem", cursor: "pointer", userSelect: "none", background: filters.program === prog ? red : "#f0e0e0", color: filters.program === prog ? "white" : darkRed, border: `1px solid ${red}`, transition: "all 0.15s" }}>{prog}</span>))}
+            <div style={{ maxHeight: "150px", overflowY: "auto", display: "flex", flexWrap: "wrap", gap: "6px" }}>
+              {allPrograms.map(prog => (<span key={prog} onClick={() => toggleProgram(prog)} style={chip(filters.program === prog)}>{prog}</span>))}
             </div>
           </div>
         )}
-
       </div>
     </div>
   );
 };
 
-const StudentAvatar = ({ size = 42 }) => (
-  <img src={userIcon} alt="user" style={{ width: size, height: size, objectFit: "contain", flexShrink: 0 }} />
+const StudentAvatar = ({ size = 34 }) => (
+  <img src={userIcon} alt="" style={{ width: size, height: size, objectFit: "contain", flexShrink: 0 }} />
 );
 
 const StudentRowMenu = ({ onView, onDelete }) => {
@@ -994,7 +1050,7 @@ const StudentRowMenu = ({ onView, onDelete }) => {
 
   // Close the menu on any click/tap outside of it — not just when the
   // ⋮ button is pressed again. Using mousedown (not click) so it closes
-  // before a click on, say, the row underneath registers.
+  // before a click on, say, the card underneath registers.
   useEffect(() => {
     if (!showMenu) return;
     const handler = (e) => {
@@ -1004,19 +1060,40 @@ const StudentRowMenu = ({ onView, onDelete }) => {
     return () => document.removeEventListener("mousedown", handler);
   }, [showMenu]);
 
+  const item = (label, onClick, danger_) => (
+    <button
+      onClick={onClick}
+      style={{ width: "100%", border: "none", background: surface, padding: "10px 14px", textAlign: "left", cursor: "pointer", fontFamily: font.ui, ...type.helper, color: danger_ ? danger : inkBody }}
+      onMouseEnter={e => e.currentTarget.style.background = color.wine800}
+      onMouseLeave={e => e.currentTarget.style.background = surface}
+    >
+      {label}
+    </button>
+  );
+
   return (
     <div ref={menuRef} style={{ position: "relative" }}>
-      <button onClick={(e) => { e.stopPropagation(); setShowMenu(v => !v); }} style={{ background: "none", border: "none", cursor: "pointer", padding: "2px 6px", color: "#555", fontSize: "1.2rem", lineHeight: 1, fontWeight: "bold" }}>⋮</button>
+      <button onClick={(e) => { e.stopPropagation(); setShowMenu(v => !v); }} aria-label="More actions" style={{ background: "none", border: "none", cursor: "pointer", padding: "2px 6px", color: inkMuted, fontSize: "1.1rem", lineHeight: 1 }}>⋮</button>
       {showMenu && (
-        <div style={{ position: "absolute", top: "28px", right: 0, background: "white", borderRadius: "10px", boxShadow: "0 4px 16px rgba(0,0,0,0.18)", zIndex: 100, minWidth: "90px", overflow: "hidden" }}>
-          <button onClick={() => { onView(); setShowMenu(false); }} style={{ width: "100%", border: "none", background: "white", padding: "9px 14px", textAlign: "left", cursor: "pointer", fontSize: "0.78rem", fontFamily: "'Kufam', sans-serif", fontWeight: 600, color: "#222" }} onMouseEnter={e => e.currentTarget.style.background = "#f5f5f5"} onMouseLeave={e => e.currentTarget.style.background = "white"}>View</button>
-          <div style={{ height: "1px", background: "#e0e0e0", margin: "0 8px" }} />
-          <button onClick={(e) => { e.stopPropagation(); onDelete(); setShowMenu(false); }} style={{ width: "100%", border: "none", background: "white", padding: "9px 14px", textAlign: "left", cursor: "pointer", fontSize: "0.78rem", color: "#c62828", fontFamily: "'Kufam', sans-serif", fontWeight: 600 }} onMouseEnter={e => e.currentTarget.style.background = "#fff0f0"} onMouseLeave={e => e.currentTarget.style.background = "white"}>Delete</button>
+        <div style={{ position: "absolute", top: "28px", right: 0, background: surface, border: `1px solid ${line}`, borderRadius: radius.card, boxShadow: shadow.panel, zIndex: 100, minWidth: "110px", overflow: "hidden" }}>
+          {item("View", (e) => { e.stopPropagation(); onView(); setShowMenu(false); })}
+          <div style={{ height: "1px", background: lineSoft }} />
+          {item("Delete", (e) => { e.stopPropagation(); onDelete(); setShowMenu(false); }, true)}
         </div>
       )}
     </div>
   );
 };
+
+// ── Checkbox ──────────────────────────────────────────────────────────────────
+const Checkbox = ({ checked, onClick }) => (
+  <div
+    onClick={onClick}
+    style={{ width: "18px", height: "18px", border: `1.5px solid ${checked ? ink : color.wine400}`, borderRadius: "5px", background: checked ? ink : color.white, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 }}
+  >
+    {checked && <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={color.white} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>}
+  </div>
+);
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const mapStudentDoc = (docSnap) => {
@@ -1039,6 +1116,79 @@ const mapStudentDoc = (docSnap) => {
     status:         d.status         || "active",
   };
 };
+
+// ── Student Card ──────────────────────────────────────────────────────────────
+// Same anatomy as the Find Company card: name + badge on the top row, meta
+// lines, a hairline, then a footer with a meta note and the action.
+const StudentCard = ({ student: s, selectMode, isSelected, onToggleSelect, onView, onDelete }) => {
+  const meta = { fontFamily: font.ui, ...type.helper, color: inkMuted };
+  return (
+    <div
+      className="sa-card"
+      onClick={() => onView(s)}
+      style={{
+        background: surface,
+        borderRadius: radius.card,
+        border: `1px solid ${isSelected ? ink : line}`,
+        padding: "20px 22px",
+        display: "flex", flexDirection: "column", gap: "6px",
+        boxShadow: shadow.input,
+        cursor: "pointer",
+        position: "relative",
+        minWidth: 0, overflow: "hidden",
+      }}
+    >
+      <div style={{ position: "absolute", top: "18px", right: "14px", display: "flex", alignItems: "center", gap: space.sm }}>
+        {s.yearSection && (
+          <span style={{ background: surface, border: `1px solid ${line}`, color: inkMuted, borderRadius: radius.pill, padding: "3px 10px", fontFamily: font.ui, fontSize: "0.75rem" }}>
+            {s.yearSection}
+          </span>
+        )}
+        <div onClick={e => e.stopPropagation()}>
+          <StudentRowMenu onView={() => onView(s)} onDelete={() => onDelete(s.id)} />
+        </div>
+      </div>
+
+      <div style={{ display: "flex", alignItems: "center", gap: "10px", paddingRight: "104px", minWidth: 0 }}>
+        {selectMode && (
+          <div onClick={(e) => { e.stopPropagation(); onToggleSelect(s.id); }}>
+            <Checkbox checked={isSelected} />
+          </div>
+        )}
+        <StudentAvatar size={34} />
+        <h3 style={{ fontFamily: font.ui, fontSize: "1.0625rem", fontWeight: 600, letterSpacing: "-0.01em", color: ink, lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {s.firstName} {s.middleInitial ? s.middleInitial + " " : ""}{s.lastName}{isRealSuffix(s.suffix) ? ` ${s.suffix}` : ""}
+        </h3>
+      </div>
+
+      <p style={{ ...meta, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.program || "—"}</p>
+      <p style={{ ...meta, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        {[s.studentId, s.sex].filter(Boolean).join(" · ")}
+      </p>
+
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: space.sm, marginTop: "10px", paddingTop: "10px", borderTop: `1px solid ${lineSoft}` }}>
+        <span style={{ ...meta, color: inkFaint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.email}</span>
+        <span
+          onClick={(e) => { e.stopPropagation(); onView(s); }}
+          style={{ fontFamily: font.ui, ...type.helper, fontWeight: 500, color: ink, cursor: "pointer", flexShrink: 0 }}
+        >
+          View
+        </span>
+      </div>
+    </div>
+  );
+};
+
+// ── Confirm / notice dialog ───────────────────────────────────────────────────
+const Dialog = ({ title, body, children }) => (
+  <div style={{ position: "fixed", inset: 0, background: "rgba(10,10,10,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2100, padding: space.md }}>
+    <div style={{ background: surface, border: `1px solid ${line}`, borderRadius: radius.panel, padding: `${space.xl} ${space.lg}`, width: "100%", maxWidth: "360px", boxShadow: shadow.panel, textAlign: "center" }}>
+      <p style={{ fontFamily: font.ui, fontSize: "1.125rem", fontWeight: 600, letterSpacing: "-0.01em", color: ink, marginBottom: body ? space.sm : space.lg }}>{title}</p>
+      {body && <p style={{ fontFamily: font.ui, ...type.body, color: inkBody, marginBottom: space.lg }}>{body}</p>}
+      <div style={{ display: "flex", gap: space.sm, justifyContent: "center", flexWrap: "wrap" }}>{children}</div>
+    </div>
+  </div>
+);
 
 // ── Main Screen ────────────────────────────────────────────────────────────────
 // Props:
@@ -1229,8 +1379,8 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
 
   if (loading) {
     return (
-      <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", background: "#f0f0f0" }}>
-        <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.95rem", color: "#888" }}>Loading students…</p>
+      <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", background: page }}>
+        <p style={{ fontFamily: font.ui, ...type.body, color: inkFaint }}>Loading students…</p>
       </div>
     );
   }
@@ -1238,182 +1388,180 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
   return (
     <>
       <ResponsiveStyles />
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", background: "#f0f0f0", overflow: "hidden" }}>
+      <div className="sa-list-wrapper">
 
-        {/* Top Bar */}
-        <div className="sl-topbar">
-          <span style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(1.2rem, 4vw, 1.6rem)", color: "white", letterSpacing: "0.04em" }}>Student Account</span>
-          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px", background: "white", borderRadius: "24px", padding: "7px 16px" }}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="black" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-              <div style={{ width: "1px", height: "16px", background: "rgba(0,0,0,0.2)" }} />
+        {/* Header bar — same floating dark panel as Find Company */}
+        <div className="sa-search-bar">
+          <div style={{ minWidth: 0 }}>
+            <span style={{ fontFamily: font.ui, fontSize: "clamp(1.1rem, 3.5vw, 1.375rem)", fontWeight: 600, letterSpacing: "-0.01em", color: onPanel }}>Student accounts</span>
+            <p style={{ fontFamily: font.ui, ...type.helper, color: onPanelDim, marginTop: "2px" }}>
+              {filtered.length} of {students.length} in your departments
+            </p>
+          </div>
+
+          <div style={{ position: "relative", display: "flex", alignItems: "center", flexShrink: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: space.sm, background: color.white, borderRadius: radius.pill, padding: "9px 16px" }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={inkMuted} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
               <input
-                value={search} onChange={e => setSearch(e.target.value)} placeholder="Search Students"
-                className="sl-search-input"
-                style={{ border: "none", background: "transparent", outline: "none", color: "black", fontFamily: "'Jersey 25'", fontSize: "1.1rem" }}
+                value={search} onChange={e => setSearch(e.target.value)} placeholder="Search"
+                className="sa-search-input"
+                style={{ border: "none", background: "transparent", outline: "none", color: ink, fontFamily: font.ui, ...type.control }}
               />
-              {search && <button onClick={() => setSearch("")} style={{ background: "none", border: "none", color: "#999", cursor: "pointer", fontSize: "1rem", padding: 0, lineHeight: 1 }}>✕</button>}
+              {search && <button onClick={() => setSearch("")} aria-label="Clear search" style={{ background: "none", border: "none", color: inkMuted, cursor: "pointer", fontSize: "0.9rem", padding: 0, lineHeight: 1 }}>✕</button>}
             </div>
-            <div style={{ position: "relative" }}>
-              <div onClick={() => setShowFilterDrawer(v => !v)} style={{ width: "36px", height: "36px", background: "white", borderRadius: "8px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", border: hasFilter ? `2px solid ${red}` : "none", position: "relative" }}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={hasFilter ? red : "#555"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
-                {hasFilter && <div style={{ position: "absolute", top: "-4px", right: "-4px", width: "10px", height: "10px", borderRadius: "50%", background: red }} />}
+            <div style={{ position: "relative", marginLeft: "10px" }}>
+              <div
+                onClick={() => setShowFilterDrawer(v => !v)}
+                title="Filters"
+                style={{ width: "40px", height: "40px", background: hasFilter ? color.goldTint : color.white, borderRadius: radius.pill, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", border: hasFilter ? `1px solid ${color.onWineFaint}` : "none" }}
+              >
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={hasFilter ? onPanel : inkMuted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
               </div>
               {showFilterDrawer && <FilterPanel filters={filters} setFilters={setFilters} filterRef={filterRef} coordinatorColleges={normalizedCoordinatorColleges} departments={departments} departmentNames={departmentNames} />}
             </div>
           </div>
         </div>
 
-        {/* Sub Bar */}
-        <div className="sl-subbar">
-          <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+        {/* Toolbar */}
+        <div className="sa-toolbar">
+          <div className="sa-toolbar-group">
             {!selectMode ? (
-              <span onClick={enterSelectMode} style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(0.9rem, 2.5vw, 1.1rem)", color: darkRed, cursor: "pointer" }}>Select</span>
+              <button onClick={enterSelectMode} style={ghostBtn}>Select</button>
             ) : (
               <>
-                <div onClick={toggleAll} style={{ display: "flex", alignItems: "center", gap: "10px", cursor: "pointer" }}>
-                  <div style={{ width: "18px", height: "18px", border: `2px solid ${darkRed}`, borderRadius: "3px", background: allSelected ? darkRed : "white", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                    {allSelected && <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>}
-                  </div>
-                  <span style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(0.9rem, 2.5vw, 1.1rem)", color: darkRed }}>Select All</span>
+                <div onClick={toggleAll} style={{ display: "flex", alignItems: "center", gap: space.sm, cursor: "pointer", padding: "9px 16px", background: surface, border: `1px solid ${line}`, borderRadius: radius.pill }}>
+                  <Checkbox checked={allSelected} />
+                  <span style={{ fontFamily: font.ui, ...type.control, color: inkBody }}>Select all</span>
                 </div>
-                <button onClick={handleDeleteSelected} disabled={selected.size === 0} style={{ display: "flex", alignItems: "center", gap: "6px", padding: "5px 14px", borderRadius: "20px", background: "#8B0000", color: "white", border: "none", fontFamily: "'Kufam', sans-serif", fontSize: "0.8rem", cursor: selected.size === 0 ? "default" : "pointer", fontWeight: 600, opacity: selected.size === 0 ? 0.5 : 1 }}>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
-                  {allSelected && selected.size > 0 ? "Delete All" : `Delete${selected.size > 0 ? ` (${selected.size})` : ""}`}
+                <button
+                  onClick={handleDeleteSelected}
+                  disabled={selected.size === 0}
+                  style={{ ...ghostBtn, color: danger, borderColor: selected.size === 0 ? line : danger, opacity: selected.size === 0 ? 0.5 : 1, cursor: selected.size === 0 ? "default" : "pointer" }}
+                >
+                  {allSelected && selected.size > 0 ? "Delete all" : `Delete${selected.size > 0 ? ` (${selected.size})` : ""}`}
                 </button>
-                <span onClick={exitSelectMode} style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.8rem", color: "#888", cursor: "pointer", textDecoration: "underline" }}>Cancel</span>
+                <button onClick={exitSelectMode} style={{ background: "none", border: "none", fontFamily: font.ui, ...type.helper, color: inkMuted, cursor: "pointer", textDecoration: "underline" }}>Cancel</button>
               </>
             )}
           </div>
-          <div className="sl-action-btns">
-            {[
-              { label: "Export",        onClick: handleExport,                   color: darkRed },
-              { label: "Import",        onClick: () => setShowImportModal(true),  color: darkRed },
-              { label: "+ New Student", onClick: () => setShowNewModal(true),     color: "#222"  },
-            ].map(btn => (
-              <button key={btn.label} onClick={btn.onClick} style={{ padding: "7px 18px", borderRadius: "24px", background: btn.color, color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif", fontSize: "0.95rem", cursor: "pointer" }}>{btn.label}</button>
-            ))}
+          <div className="sa-toolbar-group">
+            <button onClick={handleExport} style={ghostBtn}>Export</button>
+            <button onClick={() => setShowImportModal(true)} style={ghostBtn}>Import</button>
+            <button onClick={() => setShowNewModal(true)} style={primaryBtn}>New student</button>
           </div>
         </div>
 
-        {/* Filter badges */}
+        {/* Active filter chips */}
         {hasFilter && (
-          <div className="sl-filter-badges">
-            <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.78rem", color: "#888" }}>Filters:</span>
-            {filters.sex && <span style={{ background: "#f0e0e0", color: darkRed, border: `1px solid ${red}`, borderRadius: "20px", padding: "2px 10px", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif", display: "flex", alignItems: "center", gap: "5px" }}>{filters.sex}<span onClick={() => setFilters(prev => ({ ...prev, sex: "" }))} style={{ cursor: "pointer", fontWeight: "bold" }}>×</span></span>}
-            {filters.section && <span style={{ background: "#f0e0e0", color: darkRed, border: `1px solid ${red}`, borderRadius: "20px", padding: "2px 10px", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif", display: "flex", alignItems: "center", gap: "5px" }}>4-{filters.section}<span onClick={() => setFilters(prev => ({ ...prev, section: "" }))} style={{ cursor: "pointer", fontWeight: "bold" }}>×</span></span>}
-            {filters.college && <span style={{ background: "#f0e0e0", color: darkRed, border: `1px solid ${red}`, borderRadius: "20px", padding: "2px 10px", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif", display: "flex", alignItems: "center", gap: "5px" }}>{[filters.college, filters.program].filter(Boolean).join(" › ")}<span onClick={() => setFilters(prev => ({ ...prev, college: "", program: "" }))} style={{ cursor: "pointer", fontWeight: "bold" }}>×</span></span>}
-            <span onClick={() => setFilters({ college: "", program: "", sex: "", section: "" })} style={{ fontSize: "0.74rem", color: red, cursor: "pointer", fontFamily: "'Kufam', sans-serif", textDecoration: "underline" }}>Clear all</span>
+          <div style={{ display: "flex", alignItems: "center", gap: space.sm, marginBottom: space.md, flexWrap: "wrap" }}>
+            {[
+              filters.sex     && { label: filters.sex,          clear: () => setFilters(prev => ({ ...prev, sex: "" })) },
+              filters.section && { label: `4-${filters.section}`, clear: () => setFilters(prev => ({ ...prev, section: "" })) },
+              filters.college && { label: [filters.college, filters.program].filter(Boolean).join(" › "), clear: () => setFilters(prev => ({ ...prev, college: "", program: "" })) },
+            ].filter(Boolean).map(({ label, clear }) => (
+              <span key={label} style={{ background: surface, color: inkBody, border: `1px solid ${line}`, borderRadius: radius.pill, padding: "4px 12px", fontFamily: font.ui, ...type.helper, display: "flex", alignItems: "center", gap: "6px" }}>
+                {label}<span onClick={clear} style={{ cursor: "pointer", color: inkMuted }}>✕</span>
+              </span>
+            ))}
+            <span onClick={() => setFilters({ college: "", program: "", sex: "", section: "" })} style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, cursor: "pointer", textDecoration: "underline" }}>Clear all</span>
           </div>
         )}
 
-        {/* Student List */}
-        <div className="sl-list-area">
-          {filtered.map(s => (
-            <div key={s.id} className="student-row" onClick={() => setViewingStudent(s)}
-              style={{ background: selected.has(s.id) ? "#d0cece" : "#dadada", borderRadius: "10px", padding: "10px 14px", display: "flex", alignItems: "center", gap: "12px", transition: "background 0.15s", cursor: "pointer" }}
-            >
-              {selectMode && (
-                <div onClick={(e) => { e.stopPropagation(); toggleSelect(s.id); }} style={{ width: "18px", height: "18px", border: `2px solid ${darkRed}`, borderRadius: "3px", background: selected.has(s.id) ? darkRed : "white", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 }}>
-                  {selected.has(s.id) && <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>}
-                </div>
-              )}
-              <StudentAvatar />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <span style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 600, fontSize: "0.9rem", color: "#222", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>
-                  {s.firstName} {s.middleInitial ? s.middleInitial + " " : ""}{s.lastName}{isRealSuffix(s.suffix) ? ` ${s.suffix}` : ""}
-                </span>
-                <div style={{ display: "flex", gap: "8px", marginTop: "2px", flexWrap: "wrap" }}>
-                  <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.72rem", color: "#666" }}>{s.studentId}</span>
-                  {s.yearSection && <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.72rem", color: "#888" }}>• {s.yearSection}</span>}
-                  <span className="sl-row-program">{s.program && <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.72rem", color: "#888" }}>• {s.program}</span>}</span>
-                </div>
-              </div>
-              <StudentRowMenu onView={() => setViewingStudent(s)} onDelete={() => handleDelete(s.id)} />
+        {/* Student grid */}
+        {filtered.length > 0 ? (
+          <>
+            <div className="sa-student-grid">
+              {filtered.map(s => (
+                <StudentCard
+                  key={s.id}
+                  student={s}
+                  selectMode={selectMode}
+                  isSelected={selected.has(s.id)}
+                  onToggleSelect={toggleSelect}
+                  onView={setViewingStudent}
+                  onDelete={handleDelete}
+                />
+              ))}
             </div>
-          ))}
-          {filtered.length === 0 && (
-            <div style={{ textAlign: "center", padding: "60px", color: "#aaa", fontFamily: "'Kufam', sans-serif", fontSize: "0.95rem" }}>
-              {students.length === 0 ? "No students yet. Add a new student to get started." : "No students match your search or filters."}
-            </div>
-          )}
-          {filtered.length > 0 && (
-            <p style={{ textAlign: "center", fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", color: "#aaa", padding: "16px 0" }}>
+            <p style={{ textAlign: "center", fontFamily: font.ui, ...type.helper, color: inkFaint, padding: "20px 0 4px" }}>
               Showing {filtered.length} of {students.length} student{students.length !== 1 ? "s" : ""}
             </p>
-          )}
-        </div>
+          </>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", padding: "72px 24px", gap: space.xs, background: surface, border: `1px dashed ${color.wine400}`, borderRadius: radius.panel }}>
+            {students.length === 0 ? (
+              <>
+                <p style={{ fontFamily: font.ui, fontSize: "1.0625rem", fontWeight: 600, color: ink }}>No student accounts yet</p>
+                <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, maxWidth: "44ch" }}>Add students one at a time, or import a whole section from a spreadsheet.</p>
+                <div style={{ display: "flex", gap: space.sm, marginTop: space.sm, flexWrap: "wrap", justifyContent: "center" }}>
+                  <button onClick={() => setShowNewModal(true)} style={primaryBtn}>New student</button>
+                  <button onClick={() => setShowImportModal(true)} style={ghostBtn}>Import</button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p style={{ fontFamily: font.ui, fontSize: "1.0625rem", fontWeight: 600, color: ink }}>No students match this search</p>
+                <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, maxWidth: "44ch" }}>Try a different name, ID, or email, or clear a filter to widen the results.</p>
+              </>
+            )}
+          </div>
+        )}
       </div>
 
-      {showNewModal    && <StudentForm coordinatorColleges={normalizedCoordinatorColleges} departments={departments} onClose={() => setShowNewModal(false)} onSubmit={handleCreate} submitLabel="CREATE ACCOUNT" />}
+      {showNewModal    && <StudentForm coordinatorColleges={normalizedCoordinatorColleges} departments={departments} onClose={() => setShowNewModal(false)} onSubmit={handleCreate} submitLabel="Create account" />}
       {viewingStudent  && <StudentForm initial={viewingStudent} readOnly coordinatorColleges={normalizedCoordinatorColleges} departments={departments} onClose={() => setViewingStudent(null)} onSubmit={handleSave} />}
       {showImportModal && <ImportModal coordinatorColleges={normalizedCoordinatorColleges} departments={departments} onClose={() => setShowImportModal(false)} onImport={handleImport} />}
 
-      {/* ── Warning modal: no students selected for export ── */}
+      {/* ── Nothing selected for export ── */}
       {exportEmptyWarning && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2100, padding: "16px" }}>
-          <div style={{ background: "white", borderRadius: "20px", padding: "28px 24px", width: "100%", maxWidth: "340px", boxShadow: "0 8px 32px rgba(0,0,0,0.22)", textAlign: "center" }}>
-            <div style={{ fontSize: "2.2rem", marginBottom: "8px" }}>⚠️</div>
-            <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.2rem", color: "#1a1a1a", marginBottom: "18px" }}>
-              Select the student(s) you want to export first.
-            </p>
-            <button onClick={() => setExportEmptyWarning(false)} style={{ background: darkRed, color: "white", border: "none", borderRadius: "20px", padding: "10px 28px", fontFamily: "'Jersey 25', sans-serif", fontSize: "0.95rem", cursor: "pointer" }}>OK</button>
-          </div>
-        </div>
+        <Dialog title="Select the students to export first" body="Tap Select, tick the students you need, then choose Export.">
+          <button onClick={() => setExportEmptyWarning(false)} style={primaryBtn}>OK</button>
+        </Dialog>
       )}
 
-      {/* ── Export confirmation modal ── */}
+      {/* ── Export confirmation ── */}
       {confirmExport && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2100, padding: "16px" }}>
-          <div style={{ background: "white", borderRadius: "20px", padding: "28px 24px", width: "100%", maxWidth: "340px", boxShadow: "0 8px 32px rgba(0,0,0,0.22)", textAlign: "center" }}>
-            <div style={{ fontSize: "2.2rem", marginBottom: "8px" }}>📤</div>
-            <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.3rem", color: "#1a1a1a", marginBottom: "8px" }}>
-              Are you sure you want to export {selected.size} student{selected.size !== 1 ? "s" : ""}?
-            </p>
-            <div style={{ display: "flex", gap: "10px", justifyContent: "center", marginTop: "14px" }}>
-              <button onClick={() => setConfirmExport(false)} style={{ background: "white", color: darkRed, border: `2px solid ${darkRed}`, borderRadius: "20px", padding: "10px 22px", fontFamily: "'Jersey 25', sans-serif", fontSize: "0.95rem", cursor: "pointer" }}>Cancel</button>
-              <button onClick={doExport} style={{ background: darkRed, color: "white", border: "none", borderRadius: "20px", padding: "10px 22px", fontFamily: "'Jersey 25', sans-serif", fontSize: "0.95rem", cursor: "pointer" }}>Export</button>
-            </div>
-          </div>
-        </div>
+        <Dialog
+          title={`Export ${selected.size} student${selected.size !== 1 ? "s" : ""}?`}
+          body="The file includes each student's ID, full name, and default password."
+        >
+          <button onClick={() => setConfirmExport(false)} style={ghostBtn}>Cancel</button>
+          <button onClick={doExport} style={primaryBtn}>Export</button>
+        </Dialog>
       )}
 
-      {/* ── Delete confirmation modal (replaces window.confirm) ── */}
+      {/* ── Delete confirmation (replaces window.confirm) ── */}
       {confirmDeleteInfo && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2100, padding: "16px" }}>
-          <div style={{ background: "white", borderRadius: "20px", padding: "28px 24px", width: "100%", maxWidth: "340px", boxShadow: "0 8px 32px rgba(0,0,0,0.22)", textAlign: "center" }}>
-            <div style={{ fontSize: "2.2rem", marginBottom: "8px" }}>🗑️</div>
-            <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.3rem", color: "#1a1a1a", marginBottom: "8px" }}>
-              {confirmDeleteInfo.type === "single" ? "Delete this student?" : `Delete ${confirmDeleteInfo.count} selected student(s)?`}
-            </p>
-            <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", color: "#555", marginBottom: "22px" }}>This cannot be undone.</p>
-            <div style={{ display: "flex", gap: "10px", justifyContent: "center" }}>
-              <button onClick={() => setConfirmDeleteInfo(null)} style={{ background: "white", color: darkRed, border: `2px solid ${darkRed}`, borderRadius: "20px", padding: "10px 22px", fontFamily: "'Jersey 25', sans-serif", fontSize: "0.95rem", cursor: "pointer" }}>Cancel</button>
-              <button onClick={confirmDelete} style={{ background: darkRed, color: "white", border: "none", borderRadius: "20px", padding: "10px 22px", fontFamily: "'Jersey 25', sans-serif", fontSize: "0.95rem", cursor: "pointer" }}>Delete</button>
-            </div>
-          </div>
-        </div>
+        <Dialog
+          title={confirmDeleteInfo.type === "single" ? "Delete this student account?" : `Delete ${confirmDeleteInfo.count} student account${confirmDeleteInfo.count !== 1 ? "s" : ""}?`}
+          body="This can't be undone."
+        >
+          <button onClick={() => setConfirmDeleteInfo(null)} style={ghostBtn}>Cancel</button>
+          <button onClick={confirmDelete} style={{ ...primaryBtn, background: danger }}>Delete</button>
+        </Dialog>
       )}
 
-      {/* ── Success modal after creating a student ── */}
+      {/* ── Success after creating a student ── */}
       {successInfo && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2000, padding: "16px" }}>
-          <div style={{ background: "white", borderRadius: "20px", padding: "28px 24px", width: "100%", maxWidth: "340px", boxShadow: "0 8px 32px rgba(0,0,0,0.22)", textAlign: "center" }}>
-            <div style={{ fontSize: "2.2rem", marginBottom: "8px" }}>✅</div>
-            <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.3rem", color: "#1a1a1a", marginBottom: "6px" }}>Account Created!</p>
-            <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", color: "#555", marginBottom: "14px" }}>Share these credentials with the student:</p>
-            <div style={{ background: "#f9f9f9", borderRadius: "12px", padding: "12px 16px", textAlign: "left", marginBottom: "18px" }}>
-              {[["Student ID", successInfo.studentId], ["Full Name", successInfo.fullName], ["Email", successInfo.email], ["Password", successInfo.password]].map(([label, val]) => (
-                <div key={label} style={{ marginBottom: "6px" }}>
-                  <span style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "0.85rem", color: darkRed }}>{label}: </span>
-                  <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#1a1a1a", fontWeight: label === "Password" ? "700" : "400" }}>{val}</span>
+        <div style={{ position: "fixed", inset: 0, background: "rgba(10,10,10,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2000, padding: space.md }}>
+          <div style={{ background: surface, border: `1px solid ${line}`, borderRadius: radius.panel, padding: `${space.xl} ${space.lg}`, width: "100%", maxWidth: "380px", boxShadow: shadow.panel, textAlign: "center" }}>
+            <div style={{ width: "52px", height: "52px", borderRadius: "50%", background: lineSoft, display: "flex", alignItems: "center", justifyContent: "center", margin: `0 auto ${space.md}` }}>
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke={success} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            </div>
+            <p style={{ fontFamily: font.ui, fontSize: "1.125rem", fontWeight: 600, letterSpacing: "-0.01em", color: ink, marginBottom: space.xs }}>Account created</p>
+            <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, marginBottom: space.md }}>Share these details with the student.</p>
+            <div style={{ background: color.wine800, border: `1px solid ${line}`, borderRadius: radius.card, padding: "14px 16px", textAlign: "left", marginBottom: space.md }}>
+              {[["Student ID", successInfo.studentId], ["Full name", successInfo.fullName], ["Email", successInfo.email], ["Password", successInfo.password]].map(([label, val]) => (
+                <div key={label} style={{ marginBottom: space.sm }}>
+                  <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted }}>{label}</p>
+                  <p style={{ fontFamily: font.ui, ...type.label, color: ink, wordBreak: "break-all" }}>{val}</p>
                 </div>
               ))}
             </div>
-            <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.7rem", color: "#aaa", marginBottom: "18px" }}>Remind the student to change their password after first login.</p>
-            <div style={{ display: "flex", gap: "10px", justifyContent: "center" }}>
-              <button onClick={() => { setSuccessInfo(null); setShowNewModal(true); }} style={{ background: darkRed, color: "white", border: "none", borderRadius: "20px", padding: "10px 22px", fontFamily: "'Jersey 25', sans-serif", fontSize: "0.95rem", cursor: "pointer" }}>Add Another</button>
-              <button onClick={() => setSuccessInfo(null)} style={{ background: "white", color: darkRed, border: `2px solid ${darkRed}`, borderRadius: "20px", padding: "10px 22px", fontFamily: "'Jersey 25', sans-serif", fontSize: "0.95rem", cursor: "pointer" }}>Done</button>
+            <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, marginBottom: space.md }}>Remind them to change the password after signing in.</p>
+            <div style={{ display: "flex", gap: space.sm, justifyContent: "center" }}>
+              <button onClick={() => { setSuccessInfo(null); setShowNewModal(true); }} style={ghostBtn}>Add another</button>
+              <button onClick={() => setSuccessInfo(null)} style={primaryBtn}>Done</button>
             </div>
           </div>
         </div>

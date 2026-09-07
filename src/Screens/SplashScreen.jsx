@@ -187,6 +187,156 @@ const CapsuleField = () => (
   </div>
 );
 
+// How long the auth gate takes to dissolve. Shared by the overlay's own
+// transitions and by the delayed-unmount timer that keeps it mounted long
+// enough to actually play that transition.
+const GATE_FADE_MS = 300;
+
+// Pinakamaikling panahon na nananatili ang gate, kahit gaano kabilis bumalik
+// ang Firebase. Kung wala nito, sa mabilis na koneksyon ay kumikislap lang ito
+// at nawawala bago pa maabot ng tubig ang kalahati. Itugma sa haba ng isang
+// cycle ng ojtWaterRise (1.5s) — kung babaguhin ang isa, palitan din ang isa.
+const GATE_MIN_MS = 800;
+
+// Module scope rather than inside SplashScreen.
+const wineSurface = {
+  backgroundColor: color.wine700,
+  backgroundImage: wineField,
+  backgroundSize: "cover",
+  backgroundPosition: "center center",
+  backgroundRepeat: "no-repeat",
+};
+
+// The auth gate. Sits ON TOP of whatever is already rendered rather than
+// replacing it, so on a dashboard refresh you watch the real screen come into
+// focus as the blur lifts instead of cutting to it.
+//
+// The mark fills with water rather than a determinate bar — there's no real
+// progress signal to read from onAuthStateChanged, so the loop just keeps
+// going for as long as the network takes.
+//
+// `visible` drives the dissolve; the parent keeps this mounted for
+// GATE_FADE_MS after flipping it to false.
+const LoadingOverlay = ({ visible = true }) => (
+  <div
+    role="status"
+    aria-label="Loading OJTern"
+    aria-hidden={!visible}
+    style={{
+      position: "fixed", inset: 0, zIndex: 9999,
+      display: "flex", alignItems: "center", justifyContent: "center",
+      // Both blur properties must match — the unprefixed one is Chrome/Firefox,
+      // the -webkit- one is Safari and older Chrome. Different values there
+      // means the gate looks different depending on the browser.
+      background: visible ? "rgba(0,0,0,0.50)" : "rgba(0,0,0,0)",
+      backdropFilter: visible ? "blur(2px)" : "blur(0px)",
+      WebkitBackdropFilter: visible ? "blur(2px)" : "blur(0px)",
+      opacity: visible ? 1 : 0,
+      pointerEvents: visible ? "auto" : "none",
+      transition: `opacity ${GATE_FADE_MS}ms ${ease}, background ${GATE_FADE_MS}ms ${ease}, backdrop-filter ${GATE_FADE_MS}ms ${ease}, -webkit-backdrop-filter ${GATE_FADE_MS}ms ${ease}`,
+    }}
+  >
+    {/* Its own rules: on dashboard routes FontImport never mounts, and a hard
+        refresh can land straight on /coordinator/dashboard. */}
+    <style>{`
+      @keyframes ojtLoaderPulse {
+        0%, 100% { transform: scale(1); }
+        50%      { transform: scale(1.045); }
+      }
+      /* Ang tubig mismo — umaangat, humihinto sandali kapag puno, tapos naglalaho. */
+      @keyframes ojtWaterRise {
+        0%   { height: 0%;   opacity: 1; }
+        68%  { height: 100%; opacity: 1; }
+        86%  { height: 100%; opacity: 1; }
+        100% { height: 100%; opacity: 0; }
+      }
+      /* Ang alon ay hindi umaangat — dumadausdos lang pahalang. Ang pag-angat
+         galing sa water body sa ilalim nito, kaya nananatiling buo ang gilid.
+         Ang distansya rito ay katumbas ng isang buong haba ng alon, kaya
+         walang tatalon kapag umulit. */
+      @keyframes ojtWaveDriftL { to { background-position-x: -76px; } }
+      @keyframes ojtWaveDriftR { to { background-position-x:  98px; } }
+
+      .ojt-loader-badge { animation: ojtLoaderPulse 2.2s ease-in-out infinite; }
+
+      /* Mask = hugis ng logo. Lahat ng nasa loob ay naipuputol sa silhouette,
+         kaya ang tubig mismo ang nagiging marka — hindi puting kahon. */
+      .ojt-loader-mask {
+        position: absolute;
+        width: 132px; height: 132px;
+        overflow: hidden;
+        -webkit-mask-image: url(${logo});
+                mask-image: url(${logo});
+        -webkit-mask-size: contain;     mask-size: contain;
+        -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+        -webkit-mask-position: center;  mask-position: center;
+      }
+      /* Ang tagal dito ang bilis ng pagpuno — isabay sa GATE_MIN_MS sa itaas. */
+      .ojt-loader-water {
+        position: absolute; left: 0; right: 0; bottom: 0;
+        height: 0%;
+        background: #fff;
+        animation: ojtWaterRise 1.8s cubic-bezier(0.55,0,0.35,1) infinite;
+      }
+      /* Nakasakay sa ibabaw ng tubig (bottom:100%), kaya kasama itong umaangat. */
+      .ojt-wave {
+        position: absolute; left: -28px; right: -28px; bottom: 100%;
+        background-repeat: repeat-x;
+        background-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2040%2010'%20preserveAspectRatio='none'%3E%3Cpath%20d='M0%206%20Q10%200%2020%206%20T40%206%20V10%20H0%20Z'%20fill='%23fff'/%3E%3C/svg%3E");
+      }
+      /* Dalawang layer sa magkaibang laki at direksyon — ang pagsasapaw nila
+         ang nagbibigay ng hindi paulit-ulit na galaw ng tubig. */
+      .ojt-wave-a {
+        height: 13px; background-size: 76px 13px;
+        animation: ojtWaveDriftL 1.9s linear infinite;
+      }
+      .ojt-wave-b {
+        height: 10px; background-size: 98px 10px;
+        animation: ojtWaveDriftR 2.7s linear infinite;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .ojt-loader-badge { animation: none !important; }
+        .ojt-loader-water { animation: none !important; height: 45% !important; opacity: 1 !important; }
+        .ojt-wave-a, .ojt-wave-b { animation: none !important; }
+      }
+    `}</style>
+
+    {/* Wrapper carries the exit scale — it can't live on the badge itself,
+        the pulse keyframes own that element's transform. */}
+    <div style={{
+      transform: visible ? "scale(1)" : "scale(1.05)",
+      transition: `transform ${GATE_FADE_MS}ms ${ease}`,
+    }}>
+      <div
+        className="ojt-loader-badge"
+        style={{
+          position: "relative",
+          width: "132px", height: "132px",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          flex: "none",
+        }}
+      >
+        {/* Nakapahingang outline — laging nandiyan sa mababang opacity */}
+        <img
+          src={logo} alt=""
+          style={{
+            position: "absolute", width: "132px", height: "132px",
+            objectFit: "contain", filter: "invert(1)", opacity: 0.3,
+          }}
+        />
+        {/* Tubig na nagpupuno sa loob ng parehong hugis */}
+        <div className="ojt-loader-mask" aria-hidden="true">
+          <div className="ojt-loader-water">
+            <div className="ojt-wave ojt-wave-a" />
+            <div className="ojt-wave ojt-wave-b" />
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+);
+
 const BrandLockup = ({ markPx, wordRem }) => (
   <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
       <img
@@ -436,6 +586,48 @@ const SplashScreen = () => {
   const isAuthorizedForView = !requiredRoleForView
     || (!!currentUser && currentUser.role === requiredRoleForView);
 
+  // Dashboard routes lang ang may gate. Sa splash/signin/signup ay hindi na
+  // kailangan — ang splash entrance mismo ang panakip habang nagre-resolve
+  // ang session, kaya wala nang dagdag na overlay doon.
+  const gateActive = !!requiredRoleForView && (authChecking || !isAuthorizedForView);
+
+  // Kailan unang lumitaw ang gate — ang batayan ng minimum na tagal.
+  const gateShownAt = useRef(Date.now());
+  // Nagsisimulang bukas lang kung may gate talaga sa unang render (dashboard
+  // route). Kung `true` ang default, kumikislap din ito sa signin bago
+  // makahabol ang effect.
+    const [gateHeld, setGateHeld] = useState(gateActive);
+    useEffect(() => {
+      if (gateActive) {
+        gateShownAt.current = Date.now();
+        setGateHeld(true);
+        return;
+      }
+
+      // Walang gate sa route na ito (logout, o public route) — bitawan agad.
+      // Ang minimum ay para lang sa refresh sa loob ng dashboard, hindi para
+      // sa pag-alis papunta sa signin.
+      if (!requiredRoleForView) { setGateHeld(false); return; }
+
+      // Tapos na ang trabaho, pero hawakan pa hanggang maabot ang minimum.
+      const remaining = GATE_MIN_MS - (Date.now() - gateShownAt.current);
+      if (remaining <= 0) { setGateHeld(false); return; }
+      const t = setTimeout(() => setGateHeld(false), remaining);
+      return () => clearTimeout(t);
+    }, [gateActive, requiredRoleForView]);
+
+  // Nananatiling nakikita hangga't may trabaho O hawak pa ng minimum.
+  const gateVisible = gateActive || gateHeld;
+
+  // Delayed unmount — dropping the overlay the instant the gate clears would
+  // leave nothing to play the dissolve.
+  const [gateMounted, setGateMounted] = useState(gateActive);
+  useEffect(() => {
+    if (gateVisible) { setGateMounted(true); return; }
+    const t = setTimeout(() => setGateMounted(false), GATE_FADE_MS);
+    return () => clearTimeout(t);
+  }, [gateVisible]);
+
   const isInitialAuthCheck = useRef(true);
 
   // ── Restore session after page refresh ────────────────────────────────────
@@ -492,6 +684,10 @@ const SplashScreen = () => {
   // Splash → hub. If the URL already points at a form (a refresh mid-sign-up,
   // or a forgot-password link), skip the hub and open straight into the form.
   useEffect(() => {
+    // Hintayin ang session bago simulan ang entrance — kung hindi, kikislap
+    // ang splash bago mag-redirect papunta sa dashboard ng naka-login na.
+    if (authChecking) return;
+
     const deepLinked = currentView === "signup1" || currentView === "signup2" || currentView === "forgot_password";
     const settle = () => {
       if (deepLinked) {
@@ -505,7 +701,7 @@ const SplashScreen = () => {
     if (prefersReducedMotion) { settle(); return; }
     const t = setTimeout(settle, timing.hold);
     return () => clearTimeout(t);
-  }, [prefersReducedMotion]);
+  }, [prefersReducedMotion, authChecking]);
 
   useEffect(() => {
     if (location.pathname === "/" && !authChecking && !currentUser) {
@@ -546,52 +742,31 @@ const SplashScreen = () => {
     return <AboutUsScreen onBack={() => setLegalView(null)} />;
   }
 
-  const wineSurface = {
-    backgroundColor: color.wine700,
-    backgroundImage: wineField,
-    backgroundSize: "cover",
-    backgroundPosition: "center center",
-    backgroundRepeat: "no-repeat",
-  };
+  const gate = gateMounted ? <LoadingOverlay visible={gateVisible} /> : null;
 
-  const LoadingSplash = () => (
-    <div
-      role="status"
-      aria-label="Loading OJTern"
-      style={{
-        width: "100%", minHeight: "100dvh", position: "relative",
-        ...wineSurface,
-        display: "flex", alignItems: "center", justifyContent: "center",
-      }}
-    >
-      <CapsuleField />
-      <div style={{ position: "relative", zIndex: 1 }}>
-        <BrandLockup markPx={stageGeom?.markSplashPx ?? 210} wordRem={stageGeom?.wordSplashRem ?? 4.4} />
-      </div>
-    </div>
-  );
+  // ── Protected dashboard routes ────────────────────────────────────────────
+  // Ang dashboard ay naka-mount agad base sa URL, bago pa makumpirma ang role,
+  // para may aktwal na screen sa likod ng blur pagka-refresh. Ang pagsusuri ay
+  // tumatakbo pa rin: kapag mali ang role, sinasara ito ng redirect effect sa
+  // itaas — kaya sandaling makikita ang maling dashboard bago mag-redirect.
+  // Sinasadya ang trade-off na ito.
+  if (requiredRoleForView) {
+    const handleLogout = () => {
+      navigate("/signin");   // route muna: iisang render, kaya hindi kumukurap
+      setCurrentUser(null);  // ang gate paalis
+    };
+    const Dashboard = {
+      coordinator_dashboard: CoordinatorDashboardScreen,
+      company_dashboard:     CompanyDashboardScreen,
+      student_dashboard:     StudentDashboardScreen,
+    }[currentView];
 
-  if (authChecking) return <LoadingSplash />;
-  if (requiredRoleForView && !isAuthorizedForView) return <LoadingSplash />;
-
-  // ── Dashboard routes ───────────────────────────────────────────────────────
-  if (currentView === "coordinator_dashboard") {
-    return <CoordinatorDashboardScreen user={currentUser} onLogout={() => { 
-      setCurrentUser(null); 
-      navigate("/signin"); 
-    }} />;
-  }
-  if (currentView === "company_dashboard") {
-    return <CompanyDashboardScreen user={currentUser} onLogout={() => { 
-      setCurrentUser(null); 
-      navigate("/signin"); 
-    }} />;
-  }
-  if (currentView === "student_dashboard") {
-    return <StudentDashboardScreen user={currentUser} onLogout={() => { 
-      setCurrentUser(null); 
-      navigate("/signin"); 
-    }} />;
+    return (
+      <>
+        {Dashboard && <Dashboard user={currentUser} onLogout={handleLogout} />}
+        {gate}
+      </>
+    );
   }
 
   // ── Stage transitions ─────────────────────────────────────────────────────
@@ -910,6 +1085,7 @@ const SplashScreen = () => {
             </div>
           </div>
         </div>
+        {gate}
       </>
     );
   }
@@ -972,6 +1148,7 @@ const SplashScreen = () => {
         </div>
 
       </div>
+      {gate}
     </>
   );
 };
