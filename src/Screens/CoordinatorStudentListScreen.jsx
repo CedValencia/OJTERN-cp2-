@@ -144,17 +144,23 @@ const ResponsiveStyles = () => (
       box-shadow: ${shadow.focus};
       border-radius: ${radius.pill};
     }
-
-    /* Placement modal: full-width on mobile */
     .sp-modal-inner {
       background: ${surface};
       border: 1px solid ${line};
       border-radius: ${radius.panel};
-      width: 480px;
+      width: 420px;
       max-width: calc(100vw - 32px);
-      max-height: 92vh;
+      max-height: 80vh;
       overflow-y: auto;
       box-shadow: ${shadow.panel};
+    }
+
+    @media (max-width: 560px) {
+      .sp-modal-inner {
+        max-width: calc(100vw - 72px);
+        max-height: 46vh;
+        border-radius: ${radius.card};
+      }
     }
 
     .sp-modal-header {

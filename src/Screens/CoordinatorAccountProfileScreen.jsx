@@ -170,17 +170,16 @@ const ResponsiveStyles = () => (
     /* ── Modal inner ── */
     .cap-modal-inner {
       background: ${surface};
-      border: 1px solid ${line};
+      /* border: 1px solid ${line};  ← tanggalin */
       border-radius: ${radius.panel};
       box-shadow: ${shadow.panel};
-      width: 520px;
-      max-width: 95vw;
-      max-height: 88vh;
+      width: 420px;
+      max-width: 88vw;
+      max-height: 62vh;
       overflow: hidden;
       display: flex;
       flex-direction: column;
     }
-
     /* ── Modal scroll body ── */
     .cap-modal-body {
       flex: 1;
@@ -189,12 +188,14 @@ const ResponsiveStyles = () => (
       padding: ${space.lg};
     }
     @media (max-width: 480px) {
+      .cap-modal-inner { max-width: 84vw; max-height: 48vh; }
       .cap-modal-body { padding: ${space.md}; }
     }
 
     /* ── Modal footer ── */
     .cap-modal-footer {
       background: ${panel};
+      border-top: 1px solid ${line};
       padding: 12px ${space.lg};
       display: flex;
       justify-content: flex-end;
@@ -253,12 +254,16 @@ const LegalStyles = () => (
   <style>{`
     .legal-panel { display: flex; flex-direction: column; flex: 1; min-height: 0; background: ${page}; }
     .legal-progress-track { height: 3px; flex-shrink: 0; background: ${lineSoft}; }
-    .legal-progress-fill { height: 100%; background: ${panel}; transition: width 120ms linear; }
+    .legal-progress-fill {
+      height: 100%;
+      background: ${inkMuted};          /* dating ${panel} */
+      transition: width 120ms linear;
+    }
 
     .legal-cols { flex: 1; min-height: 0; display: flex; }
 
     .legal-toc {
-      width: clamp(180px, 22vw, 240px);
+      width: clamp(130px, 30vw, 240px);
       flex-shrink: 0;
       overflow-y: auto;
       padding: clamp(20px, 3vw, 28px) 0 40px clamp(16px, 3vw, 28px);
@@ -291,8 +296,11 @@ const LegalStyles = () => (
 
     /* Below this width the rail would eat the reading column, so the
        document runs full-width and sections are reached by scrolling. */
-    @media (max-width: 900px) {
-      .legal-toc { display: none; }
+
+    @media (max-width: 480px) {
+      .legal-toc { padding-left: 12px; padding-right: 8px; }
+      .legal-toc-heading { font-size: 0.75rem; }
+      .legal-toc-btn { font-size: 0.75rem; padding: 6px 0 6px 8px; }
     }
 
     @media (prefers-reduced-motion: reduce) {

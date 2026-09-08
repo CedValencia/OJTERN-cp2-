@@ -130,7 +130,8 @@ const MapZoomModal = ({ lat, lng, onClose }) => {
     >
       <div
         onClick={e => e.stopPropagation()}
-        style={{ width: "min(92vw, 800px)", height: "min(85vh, 560px)", borderRadius: radius.panel, overflow: "hidden", position: "relative", boxShadow: shadow.panel }}
+        className="map-zoom-inner"
+        style={{ borderRadius: radius.panel, overflow: "hidden", position: "relative", boxShadow: shadow.panel }}
       >
         <div ref={mapContainerRef} style={{ width: "100%", height: "100%" }} />
         <button
@@ -282,6 +283,17 @@ const ResponsiveStyles = () => (
       outline: none;
       box-shadow: ${shadow.focus};
       border-radius: ${radius.pill};
+    }
+
+    .map-zoom-inner {
+      width: min(80vw, 620px);
+      height: min(70vh, 440px);
+    }
+    @media (max-width: 560px) {
+      .map-zoom-inner {
+        width: calc(100vw - 72px);
+        height: 46vh;
+      }
     }
 
     /* Company profile content padding */

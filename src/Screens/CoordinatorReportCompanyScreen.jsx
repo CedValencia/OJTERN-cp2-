@@ -164,8 +164,8 @@ const ResponsiveStyles = () => (
       opacity: 1 !important;
       border-radius: 18px !important;
       overflow: hidden !important;
-      width: min(680px, calc(100vw - 32px)) !important;
-      max-height: 90vh !important;
+      width: min(460px, calc(100vw - 48px)) !important;
+      max-height: 62vh !important;
       display: flex !important;
       flex-direction: column !important;
       box-shadow: 0 20px 50px rgba(0, 0, 0, 0.25) !important;
@@ -230,18 +230,18 @@ const ResponsiveStyles = () => (
 
     @media (max-width: 560px) {
       .rc-modal-inner {
-        width: calc(100vw - 24px) !important;
-        max-height: 94vh !important;
+        width: calc(100vw - 72px) !important;
+        max-height: 46vh !important;
         border-radius: 14px !important;
       }
 
       .rc-modal-header {
-        min-height: 54px !important;
-        padding: 12px 14px !important;
+        min-height: 48px !important;
+        padding: 10px 14px !important;
       }
 
       .rc-modal-body {
-        padding: 16px !important;
+        padding: 14px !important;
       }
     }
 
