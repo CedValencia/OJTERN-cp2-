@@ -190,7 +190,7 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
         display: flex;
         justify-content: flex-end;
         gap: ${space.md};
-        padding: ${space.lg} 0;
+        padding: 24px 0 0;
       }
 
     `}</style>
@@ -2816,51 +2816,74 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
 
   // ── Company Profile View ──────────────────────────────────────────────────────
   // ── Generic confirm dialog (e.g. "are you sure?") ─────────────────────────────
-  const ConfirmModal = ({ title, message, confirmLabel = "CONFIRM", working, onCancel, onConfirm }) => (
-    <div style={{
-      position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)",
-      display: "flex", alignItems: "center", justifyContent: "center",
-      zIndex: 1200, padding: "16px",
-    }}>
-      <div style={{
-        background: "white", borderRadius: "18px", width: "100%", maxWidth: "380px",
-        overflow: "hidden", boxShadow: "0 24px 70px rgba(0,0,0,0.35)",
-      }}>
-        <div style={{ padding: "26px 24px 8px" }}>
-          <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.3rem", color: darkRed, marginBottom: "8px" }}>
-            {title}
-          </p>
-          <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#555", lineHeight: 1.5 }}>
-            {message}
-          </p>
-        </div>
-        <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", padding: "18px 22px" }}>
-          <button
-            onClick={onCancel}
-            disabled={working}
-            style={{
-              padding: "9px 22px", borderRadius: "22px", background: "white",
-              color: "#666", border: "1.5px solid #ccc", fontFamily: "'Jersey 25', sans-serif",
-              fontSize: "1rem", cursor: working ? "not-allowed" : "pointer",
-            }}
-          >CANCEL</button>
-          <button
-            onClick={onConfirm}
-            disabled={working}
-            style={{
-              padding: "9px 22px", borderRadius: "22px", background: darkRed,
-              color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif",
-              fontSize: "1rem", cursor: working ? "not-allowed" : "pointer", opacity: working ? 0.7 : 1,
-            }}
-          >{working ? "..." : confirmLabel}</button>
+  const ConfirmModal = ({ title, message, confirmLabel = "Confirm", tone = "accept", working, onCancel, onConfirm }) => {
+    const hoverAccent = tone === "decline" ? color.danger : "#2a7a2a";
+    const [cancelHover, setCancelHover]   = useState(false);
+    const [confirmHover, setConfirmHover] = useState(false);
+
+    return (
+      <div
+        onClick={working ? undefined : onCancel}
+        style={{
+          position: "fixed", inset: 0, background: "rgba(10,10,10,0.55)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          zIndex: 1200, padding: space.md,
+        }}
+      >
+        <div
+          onClick={e => e.stopPropagation()}
+          style={{
+            background: color.white, borderRadius: radius.panel, width: "100%", maxWidth: "380px",
+            overflow: "hidden", boxShadow: shadow.panel,
+          }}
+        >
+          <div style={{ padding: `${space.lg} ${space.lg} ${space.md}`, display: "flex", flexDirection: "column", alignItems: "flex-start", gap: space.sm }}>
+            <p style={{ fontFamily: font.ui, fontSize: "clamp(1.15rem, 3vw, 1.4rem)", fontWeight: 700, letterSpacing: "-0.01em", color: color.ink, margin: 0 }}>
+              {title}
+            </p>
+            <p style={{ fontFamily: font.ui, fontSize: "0.92rem", lineHeight: 1.5, color: color.inkMuted, margin: 0 }}>
+              {message}
+            </p>
+          </div>
+
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: space.sm, padding: `${space.md} ${space.lg} ${space.lg}` }}>
+            <button
+              onClick={onCancel}
+              disabled={working}
+              onMouseEnter={() => setCancelHover(true)}
+              onMouseLeave={() => setCancelHover(false)}
+              style={{
+                padding: "10px 22px", borderRadius: radius.pill,
+                background: cancelHover ? "#f2f2f2" : color.white,
+                color: "#000000", border: "1.5px solid #000000", fontFamily: font.ui, ...type.control, fontWeight: 600,
+                cursor: working ? "not-allowed" : "pointer", transition: `background 180ms ${ease}`,
+              }}
+            >Cancel</button>
+            <button
+              onClick={onConfirm}
+              disabled={working}
+              onMouseEnter={() => setConfirmHover(true)}
+              onMouseLeave={() => setConfirmHover(false)}
+              style={{
+                padding: "10px 24px", borderRadius: radius.pill, background: confirmHover ? hoverAccent : "#000000",
+                color: color.white, border: "none", fontFamily: font.ui, ...type.control, fontWeight: 600,
+                cursor: working ? "not-allowed" : "pointer", opacity: working ? 0.7 : 1,
+                boxShadow: confirmHover && !working ? shadow.pill : "none",
+                transform: confirmHover && !working ? "translateY(-1px)" : "none",
+                transition: `background 180ms ${ease}, box-shadow 180ms ${ease}, transform 180ms ${ease}, opacity 180ms ${ease}`,
+              }}
+            >{working ? "Working…" : confirmLabel}</button>
+          </div>
         </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   const CompanyProfileView = ({ company, onBack, onAccept, onDeny }) => {
     const [confirmingAction, setConfirmingAction] = useState(null); // "accept" | "decline" | null
     const [working, setWorking] = useState(false);
+    const [declineHover, setDeclineHover] = useState(false);
+    const [acceptHover, setAcceptHover]   = useState(false);
 
     const runConfirmedAction = async () => {
       setWorking(true);
@@ -2960,7 +2983,7 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
           <hr style={{ borderColor: "#eee", marginBottom: "24px" }} />
 
           {/* Attached Verification Documents — Cloudinary URLs */}
-          <div style={{ marginBottom: "40px" }}>
+          <div style={{ marginBottom: "16px" }}>
             <p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "clamp(0.95rem, 2.5vw, 1.1rem)", color: "#111", marginBottom: "14px" }}>Verification Documents:</p>
             {company.verificationDocs && company.verificationDocs.length > 0 ? (
               <div style={{ display: "flex", flexWrap: "wrap", gap: "16px" }}>
@@ -2975,11 +2998,35 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
 
           {/* Accept / Decline buttons (review only) */}
           {company.deptSelections?.some(d => d.status === "pending") && (
-            <div className="clist-action-row">
-              <button onClick={() => setConfirmingAction("decline")} style={{ padding: "12px 32px", borderRadius: "24px", background: darkRed, color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(1rem, 3vw, 1.2rem)", cursor: "pointer", letterSpacing: "0.04em" }}>
+            <div className="clist-action-row" style={{ borderTop: `1px solid ${color.wine700}` }}>
+              <button
+                onClick={() => setConfirmingAction("decline")}
+                onMouseEnter={() => setDeclineHover(true)}
+                onMouseLeave={() => setDeclineHover(false)}
+                style={{
+                  padding: "12px 30px", borderRadius: radius.pill,
+                  background: declineHover ? "#f2f2f2" : color.white,
+                  color: "#000000", border: "1.5px solid #000000",
+                  fontFamily: font.ui, ...type.control, fontWeight: 600,
+                  cursor: "pointer", transition: `background 180ms ${ease}`,
+                }}
+              >
                 Decline
               </button>
-              <button onClick={() => setConfirmingAction("accept")} style={{ padding: "12px 32px", borderRadius: "24px", background: darkRed, color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(1rem, 3vw, 1.2rem)", cursor: "pointer", letterSpacing: "0.04em" }}>
+              <button
+                onClick={() => setConfirmingAction("accept")}
+                onMouseEnter={() => setAcceptHover(true)}
+                onMouseLeave={() => setAcceptHover(false)}
+                style={{
+                  padding: "12px 30px", borderRadius: radius.pill,
+                  background: acceptHover ? "#2b2b2b" : "#000000", color: color.white, border: "none",
+                  fontFamily: font.ui, ...type.control, fontWeight: 600,
+                  cursor: "pointer",
+                  boxShadow: acceptHover ? shadow.pill : "none",
+                  transform: acceptHover ? "translateY(-1px)" : "none",
+                  transition: `background 180ms ${ease}, box-shadow 180ms ${ease}, transform 180ms ${ease}`,
+                }}
+              >
                 Accept
               </button>
             </div>
@@ -2988,13 +3035,14 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
 
         {confirmingAction && (
           <ConfirmModal
-            title={confirmingAction === "accept" ? "Accept Company?" : "Decline Company?"}
+            tone={confirmingAction}
+            title={confirmingAction === "accept" ? "Accept company?" : "Decline company?"}
             message={
               confirmingAction === "accept"
-                ? `Are you sure you want to accept ${company.companyName || company.name || "this company"}?`
-                : `Are you sure you want to decline ${company.companyName || company.name || "this company"}?`
+                ? `Are you sure you want to accept ${company.companyName || company.name || "this company"}? They'll be notified and added to your registered companies.`
+                : `Are you sure you want to decline ${company.companyName || company.name || "this company"}? This action can't be undone.`
             }
-            confirmLabel={confirmingAction === "accept" ? "ACCEPT" : "DECLINE"}
+            confirmLabel={confirmingAction === "accept" ? "Accept" : "Decline"}
             working={working}
             onCancel={() => setConfirmingAction(null)}
             onConfirm={runConfirmedAction}

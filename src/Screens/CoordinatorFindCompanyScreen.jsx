@@ -951,7 +951,7 @@ const CoordinatorFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onM
         {/* Search + Filter bar */}
         <div className="coord-search-bar" style={{ background: panel, borderRadius: radius.panel }}>
           <div style={{ minWidth: 0 }}>
-            <span style={{ fontFamily: font.ui, fontSize: "clamp(1.1rem, 3.5vw, 1.375rem)", fontWeight: 600, letterSpacing: "-0.01em", color: onPanel }}>Find a company</span>
+            <span style={{ fontFamily: font.ui, fontSize: "clamp(1.1rem, 3.5vw, 1.375rem)", fontWeight: 600, letterSpacing: "-0.01em", color: onPanel }}>Find Company</span>
             {!loading && (
               <p style={{ fontFamily: font.ui, ...type.helper, color: onPanelDim, marginTop: "2px" }}>
                 {filtered.length} open {filtered.length === 1 ? "post" : "posts"} for your programs

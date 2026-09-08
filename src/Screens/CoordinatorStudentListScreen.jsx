@@ -693,7 +693,7 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
         {/* Header bar — same floating dark panel as Find Company */}
         <div className="sp-search-bar">
           <div style={{ minWidth: 0 }}>
-            <span style={{ fontFamily: font.ui, fontSize: "clamp(1.1rem, 3.5vw, 1.375rem)", fontWeight: 600, letterSpacing: "-0.01em", color: onPanel }}>Students</span>
+            <span style={{ fontFamily: font.ui, fontSize: "clamp(1.1rem, 3.5vw, 1.375rem)", fontWeight: 600, letterSpacing: "-0.01em", color: onPanel }}>Students List</span>
             {!loadingStudents && (
               <p style={{ fontFamily: font.ui, ...type.helper, color: onPanelDim, marginTop: "2px" }}>
                 {filtered.length} of {students.length} in your departments
