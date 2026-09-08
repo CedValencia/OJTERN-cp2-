@@ -24,10 +24,8 @@ const Styles = () => (
   <style>{`
     @import url('https://fonts.googleapis.com/css2?family=Jersey+25&family=Jua&family=Kufam:wght@400;500;600;700&display=swap');
 
-    .au-root { width: 100%; min-height: 100dvh; display: flex; flex-direction: column; background: ${color.wine800}; }
+    .au-root { width: 100%; display: flex; flex-direction: column; background: ${color.wine800}; }
 
-    /* ── Header: flush against the top edge, rounded only on the bottom
-       corners, with extra padding so the logo badge has breathing room ── */
     .au-header {
       position: relative; flex-shrink: 0;
       background: linear-gradient(165deg, ${color.blush100} 0%, #0c0c0c 100%);
@@ -84,7 +82,6 @@ const Styles = () => (
 
     /* ── Body: wider content column so the story + team panel gets more room ── */
     .au-body {
-      flex: 1; overflow-y: auto; min-height: 0;
       padding: 76px 24px 40px;
       display: flex; flex-direction: column; align-items: center; gap: 22px;
       max-width: 1600px; width: 100%; margin: 0 auto;

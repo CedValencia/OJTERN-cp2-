@@ -10,7 +10,7 @@ import StudentFindCompanyScreen, { useOjtPosts } from "./StudentFindCompanyScree
 import StudentApplicationScreen from "./StudentApplicationScreen";
 import StudentMessagesScreen from "./StudentMessagesScreen";
 import StudentAccountProfileScreen from "./StudentAccountProfileScreen";
-import AboutScreen from "./AboutScreen";
+import AboutUsScreen from "./AboutUsScreen";
 
 import logo from "../icons/ojtern.png";
 import dashboardIcon      from "../icons/dashboard.png";
@@ -277,7 +277,7 @@ const FontImport = () => (
     /* ── Main content ── */
     .smain-content {
       flex: 1; display: flex; flex-direction: column;
-      overflow-y: auto; background: ${paperTint}; min-width: 0;
+      overflow-y: auto; background: ${paperTint}; min-width: 0; min-height: 0;
     }
   `}</style>
 );
@@ -890,7 +890,7 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
     );
 
     if (activeNav === "accountprofile") return <StudentAccountProfileScreen user={user} onLogout={onLogout} />;
-    if (activeNav === "about")          return <AboutScreen />;
+    if (activeNav === "about")          return <AboutUsScreen onBack={() => navigate("dashboard")} />;
   };
 
   const currentLabel = navItems.find(n => n.key === activeNav)?.label ?? "";
@@ -1022,7 +1022,7 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
         </div>
 
         {/* ── Body ── */}
-        <div style={{ display: "flex", flex: 1, overflow: "hidden", position: "relative" }}>
+        <div style={{ display: "flex", flex: 1, overflow: "hidden", position: "relative", minHeight: 0 }}>
 
           {/* Desktop static sidebar */}
           {isDesktop && (

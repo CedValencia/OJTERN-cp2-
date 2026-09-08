@@ -318,7 +318,7 @@ const ResponsiveStyles = () => (
       }
 
       .rc-title {
-        font-size: 1.6rem !important;
+        font-size: 1.1rem !important;
       }
 
       .rc-total-badge {

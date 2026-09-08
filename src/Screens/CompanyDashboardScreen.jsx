@@ -11,7 +11,7 @@ import CompanyApplicantsScreen     from "./CompanyApplicantsScreen";
 import CompanyMessageScreen        from "./CompanyMessagesScreen";
 import CompanyCoordinatorsScreen   from "./CompanyCoordinatorsScreen";
 import CompanyAccountProfileScreen from "./CompanyAccountProfileScreen";
-import AboutScreen                 from "./AboutScreen";
+import AboutUsScreen                from "./AboutUsScreen"; 
 
 import logo              from "../icons/ojtern.png";
 import dashboardIcon     from "../icons/dashboard.png";
@@ -253,7 +253,7 @@ const FontImport = () => (
     /* ── Main content area ── */
     .cmain-content {
       flex: 1; display: flex; flex-direction: column;
-      overflow-y: auto; background: ${paperTint}; min-width: 0;
+      overflow-y: auto; background: ${paperTint}; min-width: 0; min-height: 0;
     }
   `}</style>
 );
@@ -904,7 +904,7 @@ const CompanyDashboardScreen = ({ user, onLogout, onAuthStateChange }) => {
           />
         );
       case "about":
-        return <AboutScreen />;
+        return <AboutUsScreen onBack={() => navigate("dashboard")} />;
       default:
         return <DashboardContent onNavigate={navigate} applications={applications} posts={posts} />;
     }
@@ -1005,7 +1005,7 @@ const CompanyDashboardScreen = ({ user, onLogout, onAuthStateChange }) => {
         </div>
 
         {/* ── Body ── */}
-        <div style={{ display: "flex", flex: 1, overflow: "hidden", position: "relative" }}>
+        <div style={{ display: "flex", flex: 1, overflow: "hidden", position: "relative", minHeight: 0 }}>
 
           {/* Desktop static sidebar */}
           {isDesktop && (

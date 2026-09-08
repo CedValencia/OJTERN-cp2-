@@ -14,7 +14,7 @@ import CoordinatorMessagesScreen          from "./CoordinatorMessagesScreen";
 import CoordinatorAccountProfileScreen    from "./CoordinatorAccountProfileScreen";
 import CoordinatorViewCompanyScreen       from "./CoordinatorFindCompanyScreen";
 import CoordinatorReportCompanyScreen, { ReportDetailModal } from "./CoordinatorReportCompanyScreen";
-import AboutScreen from "./AboutScreen";
+import AboutUsScreen from "./AboutUsScreen";
 
 import logo                 from "../icons/ojtern.png";
 import dashboardIcon        from "../icons/dashboard.png";
@@ -343,7 +343,7 @@ const FontImport = () => (
     /* ── Main content area ── */
     .main-content {
       flex: 1; display: flex; flex-direction: column;
-      overflow-y: auto; background: ${paperTint}; min-width: 0;
+      overflow-y: auto; background: ${paperTint}; min-width: 0; min-height: 0;
     }
   `}</style>
 );
@@ -1231,7 +1231,7 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
     );
 
     if (activeNav === "accountprofile") return <CoordinatorAccountProfileScreen user={user} onLogout={onLogout} />;
-    if (activeNav === "about")          return <AboutScreen />;
+    if (activeNav === "about") return <AboutUsScreen onBack={() => navigate("dashboard")} />;
 
     if (activeNav === "reportcompany") return (
       <CoordinatorReportCompanyScreen
@@ -1408,7 +1408,7 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
         </div>
 
         {/* ── Body ── */}
-        <div style={{ display: "flex", flex: 1, overflow: "hidden", position: "relative" }}>
+        <div style={{ display: "flex", flex: 1, overflow: "hidden", position: "relative", minHeight: 0 }}>
 
           {/* Desktop static sidebar */}
           {isDesktop && (
