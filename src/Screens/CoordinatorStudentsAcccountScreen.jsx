@@ -18,7 +18,7 @@ const ink        = color.ink;
 const inkBody    = color.inkBody;
 const inkMuted   = color.inkMuted;
 const inkFaint   = color.inkFaint;
-const surface    = color.wine600;      // cards, modals
+const surface    = color.wine600;      // rows, modals
 const page       = color.wine900;      // page background
 const line       = color.wine700;      // hairlines & borders
 const lineSoft   = color.wine800;
@@ -109,7 +109,7 @@ const GMAIL_REGEX = /^[a-zA-Z0-9._%+\-]+@gmail\.com$/;
 
 // ── Responsive styles ─────────────────────────────────────────────────────────
 // Page shape mirrors Find Company: padded scroll area → floating dark bar →
-// toolbar row → card grid.
+// toolbar row → student list.
 const ResponsiveStyles = () => (
   <style>{`
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
@@ -166,18 +166,42 @@ const ResponsiveStyles = () => (
       flex-wrap: wrap;
     }
 
-    /* Student grid: 2-col ≥768px, 1-col below */
-    .sa-student-grid {
-      display: grid;
-      grid-template-columns: repeat(2, 1fr);
-      gap: ${space.md};
-    }
-    @media (max-width: 767px) {
-      .sa-student-grid { grid-template-columns: 1fr; }
+    /* Student list — full-width rows, so bulk-select checkboxes line up in
+       one vertical column and a whole section scans in a single glance. */
+    .sa-student-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
     }
 
-    .sa-card { transition: border-color 200ms ${ease}, box-shadow 200ms ${ease}; }
-    .sa-card:hover { border-color: ${color.wine400}; box-shadow: 0 10px 28px rgba(10,10,10,0.10); }
+    .sa-row {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      background: ${surface};
+      border: 1px solid ${line};
+      border-radius: ${radius.card};
+      padding: 14px 20px;
+      cursor: pointer;
+      min-width: 0;
+      box-shadow: ${shadow.input};
+      transition: border-color 200ms ${ease}, box-shadow 200ms ${ease};
+    }
+    .sa-row:hover {
+      border-color: ${color.wine400};
+      box-shadow: 0 6px 20px rgba(10,10,10,0.08);
+    }
+
+    .sa-row-main    { flex: 1; min-width: 0; }
+    .sa-row-actions { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+
+    @media (max-width: 560px) {
+      .sa-row { padding: 12px 14px; gap: 10px; }
+      /* The section already shows in the meta line, and View lives in the
+         ⋮ menu, so both can go on narrow screens. */
+      .sa-row-badge,
+      .sa-row-view { display: none; }
+    }
 
     .sa-list-wrapper :focus-visible,
     .sa-modal-inner :focus-visible,
@@ -192,9 +216,9 @@ const ResponsiveStyles = () => (
       background: ${surface};
       border: 1px solid ${line};
       border-radius: ${radius.panel};
-      width: 760px;
+      width: 660px;
       max-width: calc(100vw - 32px);
-      max-height: 92vh;
+      max-height: 80vh;
       overflow: hidden;
       display: flex;
       flex-direction: column;
@@ -207,7 +231,12 @@ const ResponsiveStyles = () => (
       justify-content: space-between;
       border-bottom: 1px solid ${line};
     }
-    @media (max-width: 560px) {
+     @media (max-width: 560px) {
+      .sa-modal-inner {
+        max-width: calc(100vw - 72px);
+        max-height: 46vh;
+        border-radius: ${radius.card};
+      }
       .sa-modal-header { padding: 16px 16px 12px; }
     }
     .sa-modal-body {
@@ -272,9 +301,9 @@ const ResponsiveStyles = () => (
       background: ${surface};
       border: 1px solid ${line};
       border-radius: ${radius.panel};
-      width: 620px;
+      width: 540px;
       max-width: calc(100vw - 32px);
-      max-height: 88vh;
+      max-height: 76vh;
       overflow: hidden;
       display: flex;
       flex-direction: column;
@@ -299,6 +328,11 @@ const ResponsiveStyles = () => (
     @media (max-width: 560px) {
       .sa-import-body { padding: 14px 16px; }
     }
+      .sa-import-inner {
+        max-width: calc(100vw - 56px);
+        max-height: 78vh;
+        border-radius: ${radius.card};
+      }
     .sa-import-footer {
       background: ${color.wine800};
       border-top: 1px solid ${line};
@@ -314,7 +348,7 @@ const ResponsiveStyles = () => (
     }
 
     @media (prefers-reduced-motion: reduce) {
-      .sa-card { transition: none; }
+      .sa-row { transition: none; }
     }
   `}</style>
 );
@@ -625,7 +659,7 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
   const onAgeChange           = (v) => { if (v === "" || /^\d+$/.test(v)) age.onChange(v); };
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(10,10,10,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: space.md }}>
+      <div style={{ position: "fixed", inset: 0, background: "rgba(10,10,10,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: "clamp(16px, 5vw, 24px)" }}>
       <div className="sa-modal-inner">
         <div className="sa-modal-header">
           <h2 style={{ fontFamily: font.ui, fontSize: "clamp(1.125rem, 4vw, 1.375rem)", fontWeight: 600, letterSpacing: "-0.01em", color: ink }}>{fullName}</h2>
@@ -1040,17 +1074,19 @@ const FilterPanel = ({ filters, setFilters, filterRef, coordinatorColleges = [],
   );
 };
 
+// ── Student avatar ────────────────────────────────────────────────────────────
 const StudentAvatar = ({ size = 34 }) => (
   <img src={userIcon} alt="" style={{ width: size, height: size, objectFit: "contain", flexShrink: 0 }} />
 );
 
+// ── Row overflow menu ─────────────────────────────────────────────────────────
 const StudentRowMenu = ({ onView, onDelete }) => {
   const [showMenu, setShowMenu] = useState(false);
   const menuRef = useRef();
 
   // Close the menu on any click/tap outside of it — not just when the
   // ⋮ button is pressed again. Using mousedown (not click) so it closes
-  // before a click on, say, the card underneath registers.
+  // before a click on the row underneath registers and opens the profile.
   useEffect(() => {
     if (!showMenu) return;
     const handler = (e) => {
@@ -1060,10 +1096,10 @@ const StudentRowMenu = ({ onView, onDelete }) => {
     return () => document.removeEventListener("mousedown", handler);
   }, [showMenu]);
 
-  const item = (label, onClick, danger_) => (
+  const item = (label, onClick, isDanger) => (
     <button
       onClick={onClick}
-      style={{ width: "100%", border: "none", background: surface, padding: "10px 14px", textAlign: "left", cursor: "pointer", fontFamily: font.ui, ...type.helper, color: danger_ ? danger : inkBody }}
+      style={{ width: "100%", border: "none", background: surface, padding: "10px 14px", textAlign: "left", cursor: "pointer", fontFamily: font.ui, ...type.helper, color: isDanger ? danger : inkBody }}
       onMouseEnter={e => e.currentTarget.style.background = color.wine800}
       onMouseLeave={e => e.currentTarget.style.background = surface}
     >
@@ -1117,63 +1153,70 @@ const mapStudentDoc = (docSnap) => {
   };
 };
 
-// ── Student Card ──────────────────────────────────────────────────────────────
-// Same anatomy as the Find Company card: name + badge on the top row, meta
-// lines, a hairline, then a footer with a meta note and the action.
-const StudentCard = ({ student: s, selectMode, isSelected, onToggleSelect, onView, onDelete }) => {
-  const meta = { fontFamily: font.ui, ...type.helper, color: inkMuted };
+// ── Student Row ───────────────────────────────────────────────────────────────
+// Full-width row, matching the Student List screen: avatar + name on top, a
+// single meta line under it, then the badge/action cluster on the right. Rows
+// rather than a card grid because bulk-select is the core workflow here — the
+// checkboxes stack into one vertical column, so a ticked set reads at a glance.
+// The email lives in the row's tooltip instead of the meta line: it's the one
+// field long enough to break the alignment everything else depends on.
+const StudentRow = ({ student: s, selectMode, isSelected, onToggleSelect, onView, onDelete }) => {
+  const meta = [s.studentId, s.program, s.yearSection, s.sex].filter(Boolean).join(" · ");
+
   return (
     <div
-      className="sa-card"
+      className="sa-row"
       onClick={() => onView(s)}
-      style={{
-        background: surface,
-        borderRadius: radius.card,
-        border: `1px solid ${isSelected ? ink : line}`,
-        padding: "20px 22px",
-        display: "flex", flexDirection: "column", gap: "6px",
-        boxShadow: shadow.input,
-        cursor: "pointer",
-        position: "relative",
-        minWidth: 0, overflow: "hidden",
-      }}
+      style={{ borderColor: isSelected ? ink : undefined }}
     >
-      <div style={{ position: "absolute", top: "18px", right: "14px", display: "flex", alignItems: "center", gap: space.sm }}>
+      {selectMode && (
+        <div onClick={(e) => { e.stopPropagation(); onToggleSelect(s.id); }}>
+          <Checkbox checked={isSelected} />
+        </div>
+      )}
+
+      <StudentAvatar size={38} />
+
+      <div className="sa-row-main">
+        <h3 style={{
+          fontFamily: font.ui, fontSize: "1rem", fontWeight: 600,
+          letterSpacing: "-0.01em", color: ink, lineHeight: 1.35,
+          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+        }}>
+          {s.firstName} {s.middleInitial ? s.middleInitial + " " : ""}{s.lastName}
+          {isRealSuffix(s.suffix) ? ` ${s.suffix}` : ""}
+        </h3>
+        <p
+          title={s.email}
+          style={{
+            fontFamily: font.ui, ...type.helper, color: inkMuted, marginTop: "2px",
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+          }}
+        >
+          {meta || "—"}
+        </p>
+      </div>
+
+      <div className="sa-row-actions">
         {s.yearSection && (
-          <span style={{ background: surface, border: `1px solid ${line}`, color: inkMuted, borderRadius: radius.pill, padding: "3px 10px", fontFamily: font.ui, fontSize: "0.75rem" }}>
+          <span className="sa-row-badge" style={{
+            background: color.wine800, border: `1px solid ${line}`, color: inkMuted,
+            borderRadius: radius.pill, padding: "3px 11px",
+            fontFamily: font.ui, fontSize: "0.75rem", whiteSpace: "nowrap",
+          }}>
             {s.yearSection}
           </span>
         )}
-        <div onClick={e => e.stopPropagation()}>
-          <StudentRowMenu onView={() => onView(s)} onDelete={() => onDelete(s.id)} />
-        </div>
-      </div>
-
-      <div style={{ display: "flex", alignItems: "center", gap: "10px", paddingRight: "104px", minWidth: 0 }}>
-        {selectMode && (
-          <div onClick={(e) => { e.stopPropagation(); onToggleSelect(s.id); }}>
-            <Checkbox checked={isSelected} />
-          </div>
-        )}
-        <StudentAvatar size={34} />
-        <h3 style={{ fontFamily: font.ui, fontSize: "1.0625rem", fontWeight: 600, letterSpacing: "-0.01em", color: ink, lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {s.firstName} {s.middleInitial ? s.middleInitial + " " : ""}{s.lastName}{isRealSuffix(s.suffix) ? ` ${s.suffix}` : ""}
-        </h3>
-      </div>
-
-      <p style={{ ...meta, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.program || "—"}</p>
-      <p style={{ ...meta, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-        {[s.studentId, s.sex].filter(Boolean).join(" · ")}
-      </p>
-
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: space.sm, marginTop: "10px", paddingTop: "10px", borderTop: `1px solid ${lineSoft}` }}>
-        <span style={{ ...meta, color: inkFaint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.email}</span>
         <span
+          className="sa-row-view"
           onClick={(e) => { e.stopPropagation(); onView(s); }}
-          style={{ fontFamily: font.ui, ...type.helper, fontWeight: 500, color: ink, cursor: "pointer", flexShrink: 0 }}
+          style={{ fontFamily: font.ui, ...type.helper, fontWeight: 500, color: ink, cursor: "pointer", whiteSpace: "nowrap" }}
         >
           View
         </span>
+        <div onClick={(e) => e.stopPropagation()}>
+          <StudentRowMenu onView={() => onView(s)} onDelete={() => onDelete(s.id)} />
+        </div>
       </div>
     </div>
   );
@@ -1393,7 +1436,7 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
         {/* Header bar — same floating dark panel as Find Company */}
         <div className="sa-search-bar">
           <div style={{ minWidth: 0 }}>
-            <span style={{ fontFamily: font.ui, fontSize: "clamp(1.1rem, 3.5vw, 1.375rem)", fontWeight: 600, letterSpacing: "-0.01em", color: onPanel }}>Student accounts</span>
+            <span style={{ fontFamily: font.ui, fontSize: "clamp(1.1rem, 3.5vw, 1.375rem)", fontWeight: 600, letterSpacing: "-0.01em", color: onPanel }}>Student Accounts</span>
             <p style={{ fontFamily: font.ui, ...type.helper, color: onPanelDim, marginTop: "2px" }}>
               {filtered.length} of {students.length} in your departments
             </p>
@@ -1467,12 +1510,12 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
           </div>
         )}
 
-        {/* Student grid */}
+        {/* Student list */}
         {filtered.length > 0 ? (
           <>
-            <div className="sa-student-grid">
+            <div className="sa-student-list">
               {filtered.map(s => (
-                <StudentCard
+                <StudentRow
                   key={s.id}
                   student={s}
                   selectMode={selectMode}

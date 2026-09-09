@@ -36,7 +36,8 @@ const Styles = () => (
       overflow: visible;
     }
     @media (max-width: 520px) {
-      .au-header { padding: 52px 16px 42px; }
+      .au-header { padding: 52px 16px 68px; }
+      .au-logo-badge { margin-top: -32px; }
     }
 
     .au-back-btn {

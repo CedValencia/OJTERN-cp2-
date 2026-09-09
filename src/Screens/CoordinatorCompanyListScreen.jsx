@@ -1,4 +1,4 @@
-  import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect } from "react";
 
   import downloadIcon from "../icons/download.png";
   import pdfIcon      from "../icons/pdf.png";
@@ -139,39 +139,43 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
         margin-bottom: ${space.sm};
       }
 
-      .clist-profile-top {
+            .clist-profile-top {
         display: flex;
         align-items: flex-start;
         gap: ${space.lg};
-        margin-bottom: ${space.md};
+        margin-bottom: ${space.lg};
       }
 
-      @media (max-width: 700px) {
-        .clist-profile-top {
-          flex-direction: column;
-        }
+      @media (max-width: 640px) {
+        .clist-profile-top { flex-direction: column; }
       }
 
       .clist-map-box {
-        width: 280px;
-        min-width: 280px;
-        height: 190px;
-        border-radius: ${radius.card};
-        overflow: hidden;
-        border: 1px solid ${color.wine700};
-        background: ${color.wine600};
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
+        width: 320px;
+        height: 260px;
         flex-shrink: 0;
       }
 
-      .clist-map-box img {
-        width: 100% !important;
-        height: 100% !important;
-        min-height: 0 !important;
-        object-fit: cover;
+      .map-zoom-inner {
+        width: min(80vw, 620px);
+        height: min(70vh, 440px);
+      }
+
+      @media (max-width: 560px) {
+        .map-zoom-inner {
+          width: calc(100vw - 72px);
+          height: 46vh;
+        }
+      }
+
+      @media (max-width: 640px) {
+        .clist-map-box { width: 100%; height: 240px; }
+      }
+
+      /* IDAGDAG ITO — para umabot sa buong container ang MapThumbnail wrapper */
+      .clist-map-box > div {
+        width: 100%;
+        height: 100%;
       }
 
       @media (max-width: 700px) {
@@ -186,7 +190,7 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
         display: flex;
         justify-content: flex-end;
         gap: ${space.md};
-        padding: ${space.lg} 0;
+        padding: 24px 0 0;
       }
 
     `}</style>
@@ -2487,17 +2491,27 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
         <button
           onClick={() => (isPdf ? handleDocDownload(url, fileName) : setPreviewOpen(true))}
           title={isPdf ? `Download ${fileName}` : `View ${fileName}`}
-          style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", gap: "4px", textDecoration: "none", background: "none", border: "none", cursor: "pointer", padding: 0 }}
+          style={{
+            display: "inline-flex", flexDirection: "column", alignItems: "center",
+            gap: "6px", background: "none", border: "none", cursor: "pointer", padding: 0,
+          }}
         >
-          <div style={{ position: "relative", width: "72px", height: "82px", borderRadius: "8px", overflow: "hidden", border: "1px solid #ddd", background: color.wine900, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ position: "relative", display: "inline-block", lineHeight: 0 }}>
             {isPdf ? (
-              <img src={pdfIcon} alt="PDF" style={{ width: "56px", height: "66px", objectFit: "contain" }} />
+              <img src={pdfIcon} alt="PDF" style={{ width: "62px", height: "auto", objectFit: "contain", display: "block" }} />
             ) : (
-              <img src={url} alt={fileName} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+              <img src={url} alt={fileName} style={{ width: "62px", height: "74px", objectFit: "cover", borderRadius: "6px", display: "block" }} />
             )}
-            <img src={downloadIcon} alt="Download" style={{ position: "absolute", top: "-4px", right: "-4px", width: "22px", height: "22px", objectFit: "contain" }} />
+            <img
+              src={downloadIcon}
+              alt="Download"
+              style={{ position: "absolute", top: "-4px", right: "-10px", width: "20px", height: "20px", objectFit: "contain" }}
+            />
           </div>
-          <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.58rem", color: "#555", textAlign: "center", wordBreak: "break-all", maxWidth: "80px", lineHeight: 1.3, marginTop: "4px" }}>
+          <span style={{
+            fontFamily: "'Kufam', sans-serif", fontSize: "0.58rem", color: "#555",
+            textAlign: "center", wordBreak: "break-all", maxWidth: "80px", lineHeight: 1.3,
+          }}>
             {fileName}
           </span>
         </button>
@@ -2675,10 +2689,79 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
     );
   };
 
-  // ── Mapbox Interactive Map Modal ─────────────────────────────────────────────
+    // ── Mapbox map view ─────────────────────────────────────────────────────────
   const MAPBOX_TOKEN = "pk.eyJ1IjoibWFraWlpaS0iLCJhIjoiY21wbTgybHVmMmc1ZzJycTFuZXRlb3NoNCJ9.FIpjF2lKTHkbU1e6qrL_Pw";
 
-  const MapModal = ({ lat, lng, onClose }) => {
+  // Buhay na map agad sa profile — hindi na static image na kailangan pang
+  // i-click. Pinupuno nito ang buong container, kaya wala nang blangko sa
+  // taas at baba. Katulad ng ginagawa sa Find Company screen.
+  const MapboxStaticView = ({ lat, lng, address }) => {
+    const mapContainer = useRef(null);
+    const mapRef       = useRef(null);
+    const [showZoom, setShowZoom] = useState(false);
+
+    useEffect(() => {
+      if (!mapContainer.current || mapRef.current) return;
+      if (!lat || !lng) return;
+
+      const link = document.createElement("link");
+      link.rel  = "stylesheet";
+      link.href = "https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.css";
+      document.head.appendChild(link);
+
+      const initMap = () => {
+        const mapboxgl = window.mapboxgl;
+        mapboxgl.accessToken = MAPBOX_TOKEN;
+        const map = new mapboxgl.Map({
+          container: mapContainer.current,
+          style: "mapbox://styles/mapbox/streets-v12",
+          center: [lng, lat],
+          zoom: 15,
+          interactive: true,
+        });
+        map.addControl(new mapboxgl.NavigationControl(), "top-right");
+        new mapboxgl.Marker({ color: color.danger }).setLngLat([lng, lat]).addTo(map);
+        mapRef.current = map;
+      };
+
+      if (window.mapboxgl) { initMap(); return; }
+      const script = document.createElement("script");
+      script.src = "https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.js";
+      script.onload = initMap;
+      document.head.appendChild(script);
+    }, [lat, lng]);
+
+    if (!lat || !lng) {
+      return (
+        <div style={{ width: "100%", height: "100%", minHeight: "200px", borderRadius: radius.card, background: color.wine700, border: `1px solid ${color.wine700}`, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: space.sm }}>
+          <svg width="26" height="32" viewBox="0 0 24 30" fill={color.inkFaint}><path d="M12 0C7.58 0 4 3.58 4 8c0 5.25 8 16 8 16s8-10.75 8-16c0-4.42-3.58-8-8-8zm0 11c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3z"/></svg>
+          <span style={{ fontFamily: font.ui, ...type.helper, color: color.inkMuted, textAlign: "center", padding: `0 ${space.md}` }}>{address || "No location set"}</span>
+        </div>
+      );
+    }
+
+    return (
+      <div style={{ position: "relative", width: "100%", height: "100%" }}>
+        <div ref={mapContainer} style={{ width: "100%", height: "100%", borderRadius: radius.card, overflow: "hidden", border: `1px solid ${color.wine700}` }} />
+        <button
+          onClick={() => setShowZoom(true)}
+          title="Open the full map"
+          style={{
+            position: "absolute", bottom: "10px", left: "50%", transform: "translateX(-50%)",
+            background: color.blush50, color: color.onWine, border: "none", borderRadius: radius.pill,
+            padding: "6px 14px", fontFamily: font.ui, ...type.helper, fontWeight: 500,
+            cursor: "pointer", zIndex: 5, boxShadow: shadow.pill,
+          }}
+        >
+          Open full map
+        </button>
+        {showZoom && <MapZoomModal lat={lat} lng={lng} onClose={() => setShowZoom(false)} />}
+      </div>
+    );
+  };
+
+  // ── Fullscreen map modal ────────────────────────────────────────────────────
+  const MapZoomModal = ({ lat, lng, onClose }) => {
     const mapContainerRef = useRef(null);
     const mapRef          = useRef(null);
 
@@ -2693,23 +2776,18 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
           zoom:      15,
         });
         mapRef.current.addControl(new window.mapboxgl.NavigationControl(), "top-right");
-        new window.mapboxgl.Marker({ color: "#8B0000" })
-          .setLngLat([lng, lat])
-          .addTo(mapRef.current);
+        new window.mapboxgl.Marker({ color: color.danger }).setLngLat([lng, lat]).addTo(mapRef.current);
       };
 
-      if (window.mapboxgl) {
-        loadMap();
-      } else {
-        const script = document.createElement("script");
-        script.src = "https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.js";
-        script.onload = loadMap;
-        document.head.appendChild(script);
-        const link = document.createElement("link");
-        link.rel  = "stylesheet";
-        link.href = "https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.css";
-        document.head.appendChild(link);
-      }
+      if (window.mapboxgl) { loadMap(); return; }
+      const link = document.createElement("link");
+      link.rel  = "stylesheet";
+      link.href = "https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.css";
+      document.head.appendChild(link);
+      const script = document.createElement("script");
+      script.src = "https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.js";
+      script.onload = loadMap;
+      document.head.appendChild(script);
 
       return () => { if (mapRef.current) { mapRef.current.remove(); mapRef.current = null; } };
     }, [lat, lng]);
@@ -2717,117 +2795,95 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
     return (
       <div
         onClick={onClose}
-        style={{
-          position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)",
-          zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center",
-        }}
+        style={{ position: "fixed", inset: 0, background: "rgba(10,10,10,0.55)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: space.md }}
       >
         <div
           onClick={e => e.stopPropagation()}
-          style={{
-            width: "min(90vw, 700px)", height: "min(80vh, 500px)",
-            borderRadius: "16px", overflow: "hidden", position: "relative",
-            boxShadow: "0 8px 32px rgba(0,0,0,0.4)",
-          }}
+          className="map-zoom-inner"
+          style={{ borderRadius: radius.panel, overflow: "hidden", position: "relative", boxShadow: shadow.panel }}
         >
           <div ref={mapContainerRef} style={{ width: "100%", height: "100%" }} />
           <button
             onClick={onClose}
-            style={{
-              position: "absolute", top: "12px", left: "12px", zIndex: 10,
-              background: "#8B0000", color: "white", border: "none",
-              borderRadius: "20px", padding: "6px 16px",
-              fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem",
-              cursor: "pointer", boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
-            }}
+            style={{ position: "absolute", top: space.md, left: space.md, zIndex: 10, background: color.blush100, color: color.onWine, border: "none", borderRadius: radius.pill, padding: "8px 18px", fontFamily: font.ui, ...type.control, cursor: "pointer", boxShadow: shadow.pill }}
           >
-            ✕ Close
+            Close
           </button>
         </div>
       </div>
     );
   };
 
-  const MapThumbnail = ({ lat, lng }) => {
-    const [showModal, setShowModal] = useState(false);
-    if (!lat || !lng) return (
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "130px", color: "#aaa", fontFamily: "'Kufam', sans-serif", fontSize: "0.8rem" }}>
-        No location data
-      </div>
-    );
-    return (
-      <>
-        <div
-          onClick={() => setShowModal(true)}
-          style={{ position: "relative", cursor: "zoom-in" }}
-          title="Click to view interactive map"
-        >
-          <img
-            alt="Company location map"
-            style={{ width: "100%", minHeight: "130px", objectFit: "cover", display: "block", borderRadius: "8px" }}
-            src={`https://api.mapbox.com/styles/v1/mapbox/streets-v12/static/pin-s+8B0000(${lng},${lat})/${lng},${lat},14,0/400x200?access_token=${MAPBOX_TOKEN}`}
-          />
-          <div style={{
-            position: "absolute", bottom: "8px", left: "50%", transform: "translateX(-50%)",
-            background: "rgba(0,0,0,0.55)", color: "white", borderRadius: "12px",
-            padding: "3px 10px", fontSize: "0.7rem", fontFamily: "'Kufam', sans-serif",
-            whiteSpace: "nowrap", pointerEvents: "none",
-          }}>
-            🔍 Click to zoom
-          </div>
-        </div>
-        {showModal && <MapModal lat={lat} lng={lng} onClose={() => setShowModal(false)} />}
-      </>
-    );
-  };
-
   // ── Company Profile View ──────────────────────────────────────────────────────
   // ── Generic confirm dialog (e.g. "are you sure?") ─────────────────────────────
-  const ConfirmModal = ({ title, message, confirmLabel = "CONFIRM", working, onCancel, onConfirm }) => (
-    <div style={{
-      position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)",
-      display: "flex", alignItems: "center", justifyContent: "center",
-      zIndex: 1200, padding: "16px",
-    }}>
-      <div style={{
-        background: "white", borderRadius: "18px", width: "100%", maxWidth: "380px",
-        overflow: "hidden", boxShadow: "0 24px 70px rgba(0,0,0,0.35)",
-      }}>
-        <div style={{ padding: "26px 24px 8px" }}>
-          <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.3rem", color: darkRed, marginBottom: "8px" }}>
-            {title}
-          </p>
-          <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#555", lineHeight: 1.5 }}>
-            {message}
-          </p>
-        </div>
-        <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", padding: "18px 22px" }}>
-          <button
-            onClick={onCancel}
-            disabled={working}
-            style={{
-              padding: "9px 22px", borderRadius: "22px", background: "white",
-              color: "#666", border: "1.5px solid #ccc", fontFamily: "'Jersey 25', sans-serif",
-              fontSize: "1rem", cursor: working ? "not-allowed" : "pointer",
-            }}
-          >CANCEL</button>
-          <button
-            onClick={onConfirm}
-            disabled={working}
-            style={{
-              padding: "9px 22px", borderRadius: "22px", background: darkRed,
-              color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif",
-              fontSize: "1rem", cursor: working ? "not-allowed" : "pointer", opacity: working ? 0.7 : 1,
-            }}
-          >{working ? "..." : confirmLabel}</button>
+  const ConfirmModal = ({ title, message, confirmLabel = "Confirm", tone = "accept", working, onCancel, onConfirm }) => {
+    const hoverAccent = tone === "decline" ? color.danger : "#2a7a2a";
+    const [cancelHover, setCancelHover]   = useState(false);
+    const [confirmHover, setConfirmHover] = useState(false);
+
+    return (
+      <div
+        onClick={working ? undefined : onCancel}
+        style={{
+          position: "fixed", inset: 0, background: "rgba(10,10,10,0.55)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          zIndex: 1200, padding: space.md,
+        }}
+      >
+        <div
+          onClick={e => e.stopPropagation()}
+          style={{
+            background: color.white, borderRadius: radius.panel, width: "100%", maxWidth: "380px",
+            overflow: "hidden", boxShadow: shadow.panel,
+          }}
+        >
+          <div style={{ padding: `${space.lg} ${space.lg} ${space.md}`, display: "flex", flexDirection: "column", alignItems: "flex-start", gap: space.sm }}>
+            <p style={{ fontFamily: font.ui, fontSize: "clamp(1.15rem, 3vw, 1.4rem)", fontWeight: 700, letterSpacing: "-0.01em", color: color.ink, margin: 0 }}>
+              {title}
+            </p>
+            <p style={{ fontFamily: font.ui, fontSize: "0.92rem", lineHeight: 1.5, color: color.inkMuted, margin: 0 }}>
+              {message}
+            </p>
+          </div>
+
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: space.sm, padding: `${space.md} ${space.lg} ${space.lg}` }}>
+            <button
+              onClick={onCancel}
+              disabled={working}
+              onMouseEnter={() => setCancelHover(true)}
+              onMouseLeave={() => setCancelHover(false)}
+              style={{
+                padding: "10px 22px", borderRadius: radius.pill,
+                background: cancelHover ? "#f2f2f2" : color.white,
+                color: "#000000", border: "1.5px solid #000000", fontFamily: font.ui, ...type.control, fontWeight: 600,
+                cursor: working ? "not-allowed" : "pointer", transition: `background 180ms ${ease}`,
+              }}
+            >Cancel</button>
+            <button
+              onClick={onConfirm}
+              disabled={working}
+              onMouseEnter={() => setConfirmHover(true)}
+              onMouseLeave={() => setConfirmHover(false)}
+              style={{
+                padding: "10px 24px", borderRadius: radius.pill, background: confirmHover ? hoverAccent : "#000000",
+                color: color.white, border: "none", fontFamily: font.ui, ...type.control, fontWeight: 600,
+                cursor: working ? "not-allowed" : "pointer", opacity: working ? 0.7 : 1,
+                boxShadow: confirmHover && !working ? shadow.pill : "none",
+                transform: confirmHover && !working ? "translateY(-1px)" : "none",
+                transition: `background 180ms ${ease}, box-shadow 180ms ${ease}, transform 180ms ${ease}, opacity 180ms ${ease}`,
+              }}
+            >{working ? "Working…" : confirmLabel}</button>
+          </div>
         </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   const CompanyProfileView = ({ company, onBack, onAccept, onDeny }) => {
     const [confirmingAction, setConfirmingAction] = useState(null); // "accept" | "decline" | null
     const [working, setWorking] = useState(false);
+    const [declineHover, setDeclineHover] = useState(false);
+    const [acceptHover, setAcceptHover]   = useState(false);
 
     const runConfirmedAction = async () => {
       setWorking(true);
@@ -2863,18 +2919,12 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
                 <h1 style={{ fontFamily: "'Kufam', sans-serif", fontSize: "clamp(1.4rem, 4vw, 2.2rem)", fontWeight: 700, color: "#111", margin: 0 }}>{company.name}</h1>
               </div>
             </div>
-            <div className="clist-map-box" style={{ padding: 0, overflow: "hidden" }}>
-              {company.lat && company.lng ? (
-                <MapThumbnail lat={company.lat} lng={company.lng} />
-              ) : (
-                <>
-                  <svg width="30" height="36" viewBox="0 0 24 30" fill={red}>
-                    <path d="M12 0C7.58 0 4 3.58 4 8c0 5.25 8 16 8 16s8-10.75 8-16c0-4.42-3.58-8-8-8zm0 11c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3z" />
-                  </svg>
-                  <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.7rem", color: "#555", textAlign: "center", padding: "0 8px" }}>{fullAddress || company.location}</span>
-                  <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.65rem", color: "#888" }}>No coordinates available</span>
-                </>
-              )}
+            <div className="clist-map-box" style={{ borderRadius: radius.card, overflow: "hidden" }}>
+              <MapboxStaticView
+                lat={company.lat}
+                lng={company.lng}
+                address={fullAddress || company.location}
+              />
             </div>
           </div>
 
@@ -2933,7 +2983,7 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
           <hr style={{ borderColor: "#eee", marginBottom: "24px" }} />
 
           {/* Attached Verification Documents — Cloudinary URLs */}
-          <div style={{ marginBottom: "40px" }}>
+          <div style={{ marginBottom: "16px" }}>
             <p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "clamp(0.95rem, 2.5vw, 1.1rem)", color: "#111", marginBottom: "14px" }}>Verification Documents:</p>
             {company.verificationDocs && company.verificationDocs.length > 0 ? (
               <div style={{ display: "flex", flexWrap: "wrap", gap: "16px" }}>
@@ -2948,11 +2998,35 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
 
           {/* Accept / Decline buttons (review only) */}
           {company.deptSelections?.some(d => d.status === "pending") && (
-            <div className="clist-action-row">
-              <button onClick={() => setConfirmingAction("decline")} style={{ padding: "12px 32px", borderRadius: "24px", background: darkRed, color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(1rem, 3vw, 1.2rem)", cursor: "pointer", letterSpacing: "0.04em" }}>
+            <div className="clist-action-row" style={{ borderTop: `1px solid ${color.wine700}` }}>
+              <button
+                onClick={() => setConfirmingAction("decline")}
+                onMouseEnter={() => setDeclineHover(true)}
+                onMouseLeave={() => setDeclineHover(false)}
+                style={{
+                  padding: "12px 30px", borderRadius: radius.pill,
+                  background: declineHover ? "#f2f2f2" : color.white,
+                  color: "#000000", border: "1.5px solid #000000",
+                  fontFamily: font.ui, ...type.control, fontWeight: 600,
+                  cursor: "pointer", transition: `background 180ms ${ease}`,
+                }}
+              >
                 Decline
               </button>
-              <button onClick={() => setConfirmingAction("accept")} style={{ padding: "12px 32px", borderRadius: "24px", background: darkRed, color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(1rem, 3vw, 1.2rem)", cursor: "pointer", letterSpacing: "0.04em" }}>
+              <button
+                onClick={() => setConfirmingAction("accept")}
+                onMouseEnter={() => setAcceptHover(true)}
+                onMouseLeave={() => setAcceptHover(false)}
+                style={{
+                  padding: "12px 30px", borderRadius: radius.pill,
+                  background: acceptHover ? "#2b2b2b" : "#000000", color: color.white, border: "none",
+                  fontFamily: font.ui, ...type.control, fontWeight: 600,
+                  cursor: "pointer",
+                  boxShadow: acceptHover ? shadow.pill : "none",
+                  transform: acceptHover ? "translateY(-1px)" : "none",
+                  transition: `background 180ms ${ease}, box-shadow 180ms ${ease}, transform 180ms ${ease}`,
+                }}
+              >
                 Accept
               </button>
             </div>
@@ -2961,13 +3035,14 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
 
         {confirmingAction && (
           <ConfirmModal
-            title={confirmingAction === "accept" ? "Accept Company?" : "Decline Company?"}
+            tone={confirmingAction}
+            title={confirmingAction === "accept" ? "Accept company?" : "Decline company?"}
             message={
               confirmingAction === "accept"
-                ? `Are you sure you want to accept ${company.companyName || company.name || "this company"}?`
-                : `Are you sure you want to decline ${company.companyName || company.name || "this company"}?`
+                ? `Are you sure you want to accept ${company.companyName || company.name || "this company"}? They'll be notified and added to your registered companies.`
+                : `Are you sure you want to decline ${company.companyName || company.name || "this company"}? This action can't be undone.`
             }
-            confirmLabel={confirmingAction === "accept" ? "ACCEPT" : "DECLINE"}
+            confirmLabel={confirmingAction === "accept" ? "Accept" : "Decline"}
             working={working}
             onCancel={() => setConfirmingAction(null)}
             onConfirm={runConfirmedAction}

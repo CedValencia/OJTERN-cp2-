@@ -278,17 +278,23 @@ const ResponsiveStyles = () => (
       box-shadow: ${shadow.focus};
       border-radius: ${radius.pill};
     }
-
-    /* Placement modal: full-width on mobile */
     .sp-modal-inner {
       background: ${surface};
       border: 1px solid ${line};
       border-radius: ${radius.panel};
-      width: 480px;
+      width: 420px;
       max-width: calc(100vw - 32px);
-      max-height: 92vh;
+      max-height: 80vh;
       overflow-y: auto;
       box-shadow: ${shadow.panel};
+    }
+
+    @media (max-width: 560px) {
+      .sp-modal-inner {
+        max-width: calc(100vw - 72px);
+        max-height: 46vh;
+        border-radius: ${radius.card};
+      }
     }
 
     .sp-modal-header {
@@ -863,7 +869,7 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
         {/* Header bar — same floating dark panel as Find Company */}
         <div className="sp-search-bar">
           <div style={{ minWidth: 0 }}>
-            <span style={{ fontFamily: font.ui, fontSize: "clamp(1.1rem, 3.5vw, 1.375rem)", fontWeight: 600, letterSpacing: "-0.01em", color: onPanel }}>Students</span>
+            <span style={{ fontFamily: font.ui, fontSize: "clamp(1.1rem, 3.5vw, 1.375rem)", fontWeight: 600, letterSpacing: "-0.01em", color: onPanel }}>Students List</span>
             {!loadingStudents && (
               <p style={{ fontFamily: font.ui, ...type.helper, color: onPanelDim, marginTop: "2px" }}>
                 {filtered.length} of {students.length} in your departments

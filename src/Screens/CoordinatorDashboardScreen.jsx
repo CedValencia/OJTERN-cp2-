@@ -1274,15 +1274,6 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
                 OJTern
               </span>
             </button>
-            {/* Current page label — mobile only */}
-            {isMobile && (
-              <span style={{
-                fontFamily: uiFont, fontWeight: 500, fontSize: "0.9rem", color: "rgba(255,255,255,0.7)", marginLeft: "4px",
-                whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0,
-              }}>
-                / {currentLabel}
-              </span>
-            )}
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: "4px", flexShrink: 0 }}>
             {/* Activity Log */}

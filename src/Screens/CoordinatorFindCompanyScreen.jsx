@@ -130,7 +130,8 @@ const MapZoomModal = ({ lat, lng, onClose }) => {
     >
       <div
         onClick={e => e.stopPropagation()}
-        style={{ width: "min(92vw, 800px)", height: "min(85vh, 560px)", borderRadius: radius.panel, overflow: "hidden", position: "relative", boxShadow: shadow.panel }}
+        className="map-zoom-inner"
+        style={{ borderRadius: radius.panel, overflow: "hidden", position: "relative", boxShadow: shadow.panel }}
       >
         <div ref={mapContainerRef} style={{ width: "100%", height: "100%" }} />
         <button
@@ -282,6 +283,17 @@ const ResponsiveStyles = () => (
       outline: none;
       box-shadow: ${shadow.focus};
       border-radius: ${radius.pill};
+    }
+
+    .map-zoom-inner {
+      width: min(80vw, 620px);
+      height: min(70vh, 440px);
+    }
+    @media (max-width: 560px) {
+      .map-zoom-inner {
+        width: calc(100vw - 72px);
+        height: 46vh;
+      }
     }
 
     /* Company profile content padding */
@@ -939,7 +951,7 @@ const CoordinatorFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onM
         {/* Search + Filter bar */}
         <div className="coord-search-bar" style={{ background: panel, borderRadius: radius.panel }}>
           <div style={{ minWidth: 0 }}>
-            <span style={{ fontFamily: font.ui, fontSize: "clamp(1.1rem, 3.5vw, 1.375rem)", fontWeight: 600, letterSpacing: "-0.01em", color: onPanel }}>Find a company</span>
+            <span style={{ fontFamily: font.ui, fontSize: "clamp(1.1rem, 3.5vw, 1.375rem)", fontWeight: 600, letterSpacing: "-0.01em", color: onPanel }}>Find Company</span>
             {!loading && (
               <p style={{ fontFamily: font.ui, ...type.helper, color: onPanelDim, marginTop: "2px" }}>
                 {filtered.length} open {filtered.length === 1 ? "post" : "posts"} for your programs
