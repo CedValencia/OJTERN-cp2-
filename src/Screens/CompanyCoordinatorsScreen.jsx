@@ -2,9 +2,11 @@ import React, { useState, useEffect, useRef } from "react";
 import { collection, onSnapshot } from "firebase/firestore";
 import { db } from "./firebase";
 import userIcon from "../icons/user.png";
+import { color, font, type, space, radius, shadow, ease } from "./theme";
 
-const red     = "#8B0000";
+const red = "#8B0000";
 const darkRed = "#590101";
+const border = "#E5E5E5";
 
 // Canonical college order — keeps the grouping consistent with the rest of
 // the app instead of falling back to alphabetical sorting.
@@ -98,7 +100,6 @@ const CoordinatorAvatar = ({ size = 44 }) => (
 // ── FilterPanel ───────────────────────────────────────────────────────────────
 const FilterPanel = ({ filterRef, filterCollege, filterProgram, setFilterCollege, setFilterProgram }) => {
   const colleges = Object.keys(COLLEGE_DATA);
-
   const programs = filterCollege
     ? Object.keys(COLLEGE_DATA[filterCollege]?.programs || {})
     : [];
@@ -112,48 +113,95 @@ const FilterPanel = ({ filterRef, filterCollege, filterProgram, setFilterCollege
     <div
       ref={filterRef}
       style={{
-        position: "absolute", top: "48px", right: 0, width: "260px",
-        background: "white", border: `1.5px solid ${red}`, borderRadius: "10px",
-        boxShadow: "0 6px 24px rgba(0,0,0,0.18)", zIndex: 100, overflow: "hidden",
-        fontFamily: "'Kufam', sans-serif",
+        position: "absolute",
+        top: "calc(100% + 10px)",
+        right: 0,
+        width: "min(330px, calc(100vw - 32px))",
+        background: color.white,
+        border: `1px solid ${border}`,
+        borderRadius: radius.card,
+        boxShadow: shadow.panel,
+        zIndex: 100,
+        overflow: "hidden",
+        fontFamily: font.ui,
       }}
     >
-      {/* College / Program */}
-      <div style={{ padding: "10px 12px 10px" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
-          <p style={{ fontSize: "0.78rem", fontWeight: "bold", color: darkRed }}>College:</p>
-          <button onClick={clearAll} style={{ background: "none", border: "none", fontSize: "0.7rem", color: red, cursor: "pointer", fontFamily: "'Kufam', sans-serif", padding: 0, textDecoration: "underline" }}>Clear all</button>
-        </div>
-        {colleges.length > 0 ? (
-          <div style={{ maxHeight: "160px", overflowY: "auto", display: "flex", flexDirection: "column", gap: "3px" }}>
-            {colleges.map(col => (
-              <div key={col}
-                onClick={() => { setFilterCollege(filterCollege === col ? "" : col); setFilterProgram(""); }}
-                style={{ padding: "4px 8px", borderRadius: "6px", fontSize: "0.72rem", cursor: "pointer", background: filterCollege === col ? "#f0d0d0" : "#f7f0f0", color: darkRed, border: "1px solid #e0c0c0" }}
-                onMouseEnter={e => e.currentTarget.style.background = "#f0d0d0"}
-                onMouseLeave={e => e.currentTarget.style.background = filterCollege === col ? "#f0d0d0" : "#f7f0f0"}
-              >{col}</div>
-            ))}
+      <div style={{ padding: space.md }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: space.sm }}>
+          <div>
+            <p style={{ ...type.label, color: color.ink, margin: 0 }}>Filter coordinators</p>
+            <p style={{ ...type.helper, color: color.inkMuted, margin: "3px 0 0" }}>Narrow the directory by college and program.</p>
           </div>
-        ) : (
-          <p style={{ fontSize: "0.72rem", color: "#bbb", fontStyle: "italic" }}>No options available.</p>
-        )}
+          {(filterCollege || filterProgram) && (
+            <button
+              onClick={clearAll}
+              style={{
+                background: "none", border: "none", color: red, cursor: "pointer",
+                fontFamily: font.ui, fontSize: "0.78rem", fontWeight: 600, padding: "4px 0",
+              }}
+            >
+              Clear
+            </button>
+          )}
+        </div>
+
+        <p style={{ ...type.helper, color: color.inkMuted, margin: "16px 0 7px", textTransform: "uppercase", letterSpacing: "0.07em", fontWeight: 600 }}>
+          College
+        </p>
+        <div style={{ maxHeight: "190px", overflowY: "auto", display: "grid", gap: "5px" }}>
+          {colleges.map((col) => {
+            const selected = filterCollege === col;
+            return (
+              <button
+                key={col}
+                onClick={() => { setFilterCollege(selected ? "" : col); setFilterProgram(""); }}
+                style={{
+                  width: "100%", textAlign: "left", padding: "9px 10px", borderRadius: "10px",
+                  border: `1px solid ${selected ? "#D9A4A4" : border}`,
+                  background: selected ? "#F8EDED" : color.wine900,
+                  color: selected ? darkRed : color.inkBody,
+                  cursor: "pointer", fontFamily: font.ui, fontSize: "0.8rem",
+                  fontWeight: selected ? 600 : 500, transition: `all 160ms ${ease}`,
+                }}
+              >
+                <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <span style={{
+                    width: "7px", height: "7px", borderRadius: "50%",
+                    background: selected ? red : "#D0D0D0", flexShrink: 0,
+                  }} />
+                  {col}
+                </span>
+              </button>
+            );
+          })}
+        </div>
 
         {filterCollege && (
           <>
-            <p style={{ fontSize: "0.78rem", fontWeight: "bold", color: darkRed, margin: "8px 0 6px" }}>Program:</p>
-            {programs.length > 0 ? (
-              <div style={{ maxHeight: "120px", overflowY: "auto", display: "flex", flexWrap: "wrap", gap: "5px" }}>
-                {programs.map(prog => (
-                  <span key={prog} onClick={() => setFilterProgram(filterProgram === prog ? "" : prog)}
-                    style={{ padding: "3px 9px", borderRadius: "20px", fontSize: "0.71rem", cursor: "pointer", userSelect: "none", background: filterProgram === prog ? red : "#f0e0e0", color: filterProgram === prog ? "white" : darkRed, border: `1px solid ${red}`, transition: "all 0.15s" }}>
+            <p style={{ ...type.helper, color: color.inkMuted, margin: "16px 0 7px", textTransform: "uppercase", letterSpacing: "0.07em", fontWeight: 600 }}>
+              Program
+            </p>
+            <div style={{ maxHeight: "145px", overflowY: "auto", display: "flex", flexWrap: "wrap", gap: "6px" }}>
+              {programs.map((prog) => {
+                const selected = filterProgram === prog;
+                return (
+                  <button
+                    key={prog}
+                    onClick={() => setFilterProgram(selected ? "" : prog)}
+                    style={{
+                      padding: "7px 10px", borderRadius: radius.pill,
+                      border: `1px solid ${selected ? red : border}`,
+                      background: selected ? red : color.wine900,
+                      color: selected ? color.white : color.inkBody,
+                      cursor: "pointer", fontFamily: font.ui, fontSize: "0.76rem",
+                      fontWeight: selected ? 600 : 500, transition: `all 160ms ${ease}`,
+                    }}
+                  >
                     {prog}
-                  </span>
-                ))}
-              </div>
-            ) : (
-              <p style={{ fontSize: "0.72rem", color: "#bbb", fontStyle: "italic" }}>No options available.</p>
-            )}
+                  </button>
+                );
+              })}
+            </div>
           </>
         )}
       </div>
@@ -260,47 +308,102 @@ const CompanyCoordinatorsScreen = ({ embedded, user, onNavigateToMessages }) => 
   };
 
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "#f5f5f5", height: embedded ? "100%" : "100vh" }}>
-      {/* ── Header bar ── */}
-      <div style={{
-        background: darkRed, padding: isMobile ? "10px 14px" : "12px 20px",
-        display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "10px",
-      }}>
-        <h2 style={{ fontFamily: "'Kufam', sans-serif", fontSize: "1.3rem", fontWeight: 700, color: "white", margin: 0 }}>
-          Coordinators
-        </h2>
+    <div
+      style={{
+        flex: 1, display: "flex", flexDirection: "column", overflow: "hidden",
+        background: color.wine500, height: embedded ? "100%" : "100vh",
+        fontFamily: font.ui, color: color.ink,
+      }}
+    >
+      {/* Header */}
+      <header
+        style={{
+          background: color.white,
+          borderBottom: `1px solid ${border}`,
+          padding: isMobile ? "18px 16px" : "22px 32px",
+          display: "flex", alignItems: isMobile ? "stretch" : "center",
+          justifyContent: "space-between", gap: space.md, flexWrap: "wrap",
+        }}
+      >
+        <div>
+          <div style={{ display: "flex", alignItems: "center", gap: "9px" }}>
+            <div style={{ width: "5px", height: "28px", borderRadius: radius.pill, background: red }} />
+            <h2 style={{ ...type.heading, fontSize: isMobile ? "1.45rem" : "1.7rem", margin: 0, color: color.ink }}>
+              Coordinators
+            </h2>
+          </div>
+          <p style={{ ...type.helper, color: color.inkMuted, margin: "6px 0 0 14px" }}>
+            Connect with your assigned college coordinators.
+          </p>
+        </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px", background: "white", borderRadius: "24px", padding: "7px 16px" }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="black" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-            <div style={{ width: "1px", height: "16px", background: "rgba(0,0,0,0.2)" }} />
-            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search Coordinator"
-              style={{ border: "none", background: "transparent", outline: "none", color: "black", fontFamily: "'Jersey 25', sans-serif", fontSize: "1.05rem", width: isMobile ? "110px" : "160px" }} />
+        <div style={{ display: "flex", alignItems: "center", gap: "8px", width: isMobile ? "100%" : "auto" }}>
+          <div
+            style={{
+              flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: "9px",
+              background: color.wine900, border: `1px solid ${border}`,
+              borderRadius: radius.field, padding: "9px 13px",
+              boxShadow: shadow.input,
+            }}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={color.inkMuted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="11" cy="11" r="7.5" /><line x1="16.5" y1="16.5" x2="21" y2="21" />
+            </svg>
+            <input
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Search coordinators"
+              aria-label="Search coordinators"
+              style={{
+                width: isMobile ? "100%" : "205px", border: "none", background: "transparent",
+                outline: "none", color: color.ink, fontFamily: font.ui, fontSize: "0.875rem",
+              }}
+            />
             {search && (
-              <button onClick={() => setSearch("")} style={{ background: "none", border: "none", color: "#999", cursor: "pointer", fontSize: "1rem", padding: 0, lineHeight: 1 }}>✕</button>
+              <button
+                onClick={() => setSearch("")}
+                aria-label="Clear search"
+                style={{ background: "none", border: "none", color: color.inkMuted, cursor: "pointer", fontSize: "0.95rem", padding: 0 }}
+              >
+                ×
+              </button>
             )}
           </div>
 
-          <div style={{ position: "relative", flexShrink: 0 }}>
+          <div ref={filterRef} style={{ position: "relative", flexShrink: 0 }}>
             <button
               onClick={() => setShowFilter(v => !v)}
+              aria-label="Filter coordinators"
+              aria-expanded={showFilter}
               style={{
-                width: "36px", height: "36px", background: "white", borderRadius: "8px",
-                border: activeFilterCount > 0 ? `2px solid ${red}` : "none", cursor: "pointer",
-                display: "flex", alignItems: "center", justifyContent: "center", position: "relative",
+                width: "40px", height: "40px", borderRadius: "12px",
+                background: activeFilterCount > 0 ? "#F8EDED" : color.white,
+                border: `1px solid ${activeFilterCount > 0 ? "#D9A4A4" : border}`,
+                cursor: "pointer", display: "flex", alignItems: "center",
+                justifyContent: "center", position: "relative",
               }}
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={activeFilterCount > 0 ? red : "#555"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none"
+                stroke={activeFilterCount > 0 ? red : color.inkBody}
+                strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M4 5h16l-6.5 7.2v5.1l-3 1.7v-6.8L4 5z" />
               </svg>
               {activeFilterCount > 0 && (
-                <div style={{ position: "absolute", top: "-4px", right: "-4px", width: "10px", height: "10px", borderRadius: "50%", background: red }} />
+                <span style={{
+                  position: "absolute", top: "-5px", right: "-5px",
+                  minWidth: "17px", height: "17px", padding: "0 4px",
+                  borderRadius: radius.pill, background: red, color: color.white,
+                  fontSize: "0.62rem", fontWeight: 700, display: "flex",
+                  alignItems: "center", justifyContent: "center", border: `2px solid ${color.white}`,
+                }}>
+                  {activeFilterCount}
+                </span>
               )}
             </button>
 
             {showFilter && (
               <FilterPanel
-                filterRef={filterRef}
+                filterRef={undefined}
                 filterCollege={filterCollege}
                 filterProgram={filterProgram}
                 setFilterCollege={setFilterCollege}
@@ -309,62 +412,159 @@ const CompanyCoordinatorsScreen = ({ embedded, user, onNavigateToMessages }) => 
             )}
           </div>
         </div>
-      </div>
+      </header>
 
-      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: isMobile ? "14px 16px" : "16px 24px" }}>
-        {loading && (
-          <div style={{ padding: "24px", textAlign: "center" }}>
-            <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.88rem", color: "#aaa" }}>Loading coordinators…</p>
+      <main style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: isMobile ? "18px 16px 28px" : "24px 32px 36px" }}>
+        {!loading && coordinators.length > 0 && (
+          <div style={{
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+            marginBottom: "18px", gap: "12px",
+          }}>
+            <p style={{ ...type.helper, color: color.inkMuted, margin: 0 }}>
+              {filtered.length} {filtered.length === 1 ? "coordinator" : "coordinators"} shown
+            </p>
+            {(search || activeFilterCount > 0) && (
+              <button
+                onClick={() => { setSearch(""); setFilterCollege(""); setFilterProgram(""); }}
+                style={{
+                  background: "none", border: "none", color: red, cursor: "pointer",
+                  fontFamily: font.ui, fontSize: "0.78rem", fontWeight: 600, padding: 0,
+                }}
+              >
+                Reset filters
+              </button>
+            )}
           </div>
         )}
+
+        {loading && (
+          <div style={{ maxWidth: "760px", margin: "50px auto", textAlign: "center" }}>
+            <div style={{
+              width: "34px", height: "34px", margin: "0 auto 12px",
+              borderRadius: "50%", border: "3px solid #E8E8E8", borderTopColor: red,
+              animation: "cc-spin 0.8s linear infinite",
+            }} />
+            <p style={{ ...type.helper, color: color.inkMuted, margin: 0 }}>Loading coordinators…</p>
+            <style>{`@keyframes cc-spin { to { transform: rotate(360deg); } }`}</style>
+          </div>
+        )}
+
         {!loading && groupNames.length === 0 && (
-          <div style={{ padding: "24px", textAlign: "center" }}>
-            <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.88rem", color: "#aaa" }}>
-              {coordinators.length === 0 ? "No coordinators found." : `No results for "${search}"`}
+          <div style={{
+            maxWidth: "560px", margin: "50px auto", padding: "34px 24px",
+            background: color.white, border: `1px solid ${border}`,
+            borderRadius: radius.card, textAlign: "center",
+          }}>
+            <div style={{
+              width: "48px", height: "48px", margin: "0 auto 14px",
+              borderRadius: "14px", background: "#F8EDED", color: red,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: "1.35rem", fontWeight: 700,
+            }}>
+              {coordinators.length === 0 ? "C" : "⌕"}
+            </div>
+            <p style={{ ...type.label, color: color.ink, margin: 0 }}>
+              {coordinators.length === 0 ? "No coordinators yet" : "No matching coordinators"}
+            </p>
+            <p style={{ ...type.helper, color: color.inkMuted, margin: "6px 0 0" }}>
+              {coordinators.length === 0
+                ? "Coordinator profiles will appear here when they are available."
+                : "Try a different name or clear your filters."}
             </p>
           </div>
         )}
 
         {groupNames.map((college, gIdx) => (
-          <div key={college} style={{ marginBottom: gIdx < groupNames.length - 1 ? "22px" : 0 }}>
-            <p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 800, fontSize: isMobile ? "0.85rem" : "0.92rem", color: darkRed, margin: "0 0 8px 4px" }}>
-              {college} ({groups[college].length})
-            </p>
-            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+          <section key={college} style={{ marginBottom: gIdx < groupNames.length - 1 ? "28px" : 0 }}>
+            <div style={{
+              display: "flex", alignItems: "center", gap: "9px",
+              marginBottom: "10px", paddingLeft: "2px",
+            }}>
+              <div style={{ width: "4px", height: "18px", borderRadius: radius.pill, background: red }} />
+              <h3 style={{ ...type.label, color: color.ink, fontWeight: 650, margin: 0 }}>
+                {college}
+              </h3>
+              <span style={{
+                minWidth: "23px", height: "23px", padding: "0 7px",
+                borderRadius: radius.pill, background: color.wine700, color: color.inkMuted,
+                display: "inline-flex", alignItems: "center", justifyContent: "center",
+                fontSize: "0.7rem", fontWeight: 600,
+              }}>
+                {groups[college].length}
+              </span>
+            </div>
+
+            <div style={{
+              display: "grid",
+              gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fit, minmax(300px, 1fr))",
+              gap: "10px",
+            }}>
               {groups[college].map((coord) => (
-                <div key={coord.id}
-                  style={{ display: "flex", alignItems: "center", gap: isMobile ? "10px" : "14px", padding: isMobile ? "10px 14px" : "12px 18px", background: "#e0e0e0", borderRadius: "12px" }}
+                <article
+                  key={coord.id}
+                  style={{
+                    display: "flex", alignItems: "center", gap: "12px",
+                    padding: isMobile ? "13px" : "14px 16px",
+                    background: color.white, border: `1px solid ${border}`,
+                    borderRadius: radius.card, boxShadow: "0 1px 2px rgba(0,0,0,0.03)",
+                    transition: `transform 160ms ${ease}, box-shadow 160ms ${ease}, border-color 160ms ${ease}`,
+                  }}
+                  onMouseEnter={e => {
+                    e.currentTarget.style.transform = "translateY(-1px)";
+                    e.currentTarget.style.boxShadow = "0 8px 22px rgba(0,0,0,0.07)";
+                    e.currentTarget.style.borderColor = "#D7D7D7";
+                  }}
+                  onMouseLeave={e => {
+                    e.currentTarget.style.transform = "translateY(0)";
+                    e.currentTarget.style.boxShadow = "0 1px 2px rgba(0,0,0,0.03)";
+                    e.currentTarget.style.borderColor = border;
+                  }}
                 >
-                  <CoordinatorAvatar size={isMobile ? 36 : 42} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: isMobile ? "0.85rem" : "0.92rem", color: "#222", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", margin: 0 }}>{coord.name}</p>
-                    {coord.programs?.length > 0 && (
-                      <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.74rem", color: "#888", margin: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                        {coord.programs.join(", ")}
-                      </p>
-                    )}
+                  <div style={{
+                    width: "44px", height: "44px", borderRadius: "14px",
+                    background: color.wine800, display: "flex", alignItems: "center",
+                    justifyContent: "center", flexShrink: 0, overflow: "hidden",
+                  }}>
+                    <CoordinatorAvatar size={38} />
                   </div>
+
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{
+                      ...type.label, color: color.ink, fontWeight: 650, margin: 0,
+                      whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+                    }}>
+                      {coord.name}
+                    </p>
+                    <p style={{
+                      ...type.helper, color: color.inkMuted, margin: "4px 0 0",
+                      whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+                    }}>
+                      {coord.programs?.length > 0 ? coord.programs.join(", ") : "Coordinator"}
+                    </p>
+                  </div>
+
                   <button
                     onClick={() => handleMessage(coord)}
                     style={{
-                      background: red, color: "white", border: "none", borderRadius: "18px",
-                      padding: isMobile ? "6px 14px" : "8px 18px", cursor: "pointer",
-                      fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: isMobile ? "0.74rem" : "0.8rem",
-                      flexShrink: 0,
+                      background: "#000000", color: color.white, border: "none",
+                      borderRadius: radius.pill, padding: "9px 14px", cursor: "pointer",
+                      fontFamily: font.ui, fontWeight: 600, fontSize: "0.76rem",
+                      flexShrink: 0, transition: `background 160ms ${ease}`,
                     }}
-                    onMouseEnter={e => e.currentTarget.style.background = darkRed}
-                    onMouseLeave={e => e.currentTarget.style.background = red}
+                    onMouseEnter={e => { e.currentTarget.style.background = "#FFFFFF"; e.currentTarget.style.color = "#000000"; e.currentTarget.style.border = "1px solid #000000"; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = "#000000"; e.currentTarget.style.color = "#FFFFFF"; e.currentTarget.style.border = "none"; }}
                   >
                     Message
                   </button>
-                </div>
+                </article>
               ))}
             </div>
-          </div>
+          </section>
         ))}
-      </div>
+      </main>
     </div>
   );
+
 };
 
 export default CompanyCoordinatorsScreen;

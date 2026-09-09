@@ -1,10 +1,13 @@
 import React, { useState, useEffect } from "react";
 import { collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, query, where, serverTimestamp } from "firebase/firestore";
 import { db } from "./firebase";
+import { color } from "./theme";
 
 const MAPBOX_TOKEN = "pk.eyJ1IjoibWFraWlpaS0iLCJhIjoiY21wbTgybHVmMmc1ZzJycTFuZXRlb3NoNCJ9.FIpjF2lKTHkbU1e6qrL_Pw";
-const darkRed = "#590101";
-const red     = "#8B0000";
+// Aliases kept so the rest of this file reads the same — values now come
+// from theme.js instead of the old hardcoded maroon hex.
+const darkRed = color.ink;      // primary accent / CTA (was #590101)
+const red     = color.inkMuted; // secondary/decorative accent (was #8B0000)
 
 // ── Responsive styles ─────────────────────────────────────────────────────────
 const ResponsiveStyles = () => (
@@ -163,7 +166,7 @@ const GlobalFonts = () => {
     style.id = "ojt-font-override";
     style.textContent = `
       .ojt-field { font-family: 'Kufam', sans-serif !important; }
-      .ojt-field::placeholder { font-family: 'Kufam', sans-serif !important; color: #aaa; }
+      .ojt-field::placeholder { font-family: 'Kufam', sans-serif !important; color: ${color.inkFaint}; }
       .ojt-textarea::-webkit-scrollbar { width: 6px; }
       .ojt-textarea::-webkit-scrollbar-track { background: transparent; border-radius: 10px; }
       .ojt-textarea::-webkit-scrollbar-thumb { background: ${darkRed}; border-radius: 10px; }
@@ -187,10 +190,10 @@ const GlobalFonts = () => {
 const pillInputStyle = {
   width: "100%",
   padding: "8px 14px",
-  background: "white",
+  background: color.white,
   border: "none",
   borderRadius: "20px",
-  color: "#1a1a1a",
+  color: color.ink,
   fontSize: "0.82rem",
   fontFamily: "'Kufam', sans-serif",
   outline: "none",
@@ -200,8 +203,8 @@ const pillInputStyle = {
 
 const pillInputReadonly = {
   ...pillInputStyle,
-  background: "#e8e8e8",
-  color: "#555",
+  background: color.wine700,
+  color: color.inkMuted,
   cursor: "default",
 };
 
@@ -218,8 +221,8 @@ const pillTextareaStyle = {
 
 const pillTextareaReadonly = {
   ...pillTextareaStyle,
-  background: "#e8e8e8",
-  color: "#555",
+  background: color.wine700,
+  color: color.inkMuted,
   cursor: "default",
 };
 
@@ -233,8 +236,8 @@ const pillSelectStyle = {
 
 const pillSelectReadonly = {
   ...pillSelectStyle,
-  background: "#e8e8e8",
-  color: "#555",
+  background: color.wine700,
+  color: color.inkMuted,
   cursor: "default",
 };
 
@@ -260,7 +263,7 @@ const inlineLabelStyle = {
 
 // ── Field Error ───────────────────────────────────────────────────────────────
 const FieldError = ({ msg }) => msg
-  ? <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.72rem", color: "#c00", marginTop: "3px", paddingLeft: "6px" }}>{msg}</p>
+  ? <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.72rem", color: color.danger, marginTop: "3px", paddingLeft: "6px" }}>{msg}</p>
   : null;
 
 // ── Pill Select with arrow ────────────────────────────────────────────────────
@@ -273,14 +276,14 @@ const PillSelect = ({ value, onChange, options, placeholder, disabled, hasError 
       onChange={e => onChange(e.target.value)}
       style={{
         ...(disabled ? pillSelectReadonly : pillSelectStyle),
-        border: hasError ? "1.5px solid #c00" : "none",
-        color: value ? "#1a1a1a" : "#aaa",
+        border: hasError ? `1.5px solid ${color.danger}` : "none",
+        color: value ? color.ink : color.inkFaint,
       }}
     >
       <option value="">{placeholder || "Select..."}</option>
       {options.map(o => <option key={o} value={o}>{o}</option>)}
     </select>
-    <div style={{ position: "absolute", right: "12px", top: "50%", transform: "translateY(-50%)", pointerEvents: "none", color: disabled ? "#bbb" : darkRed }}>
+    <div style={{ position: "absolute", right: "12px", top: "50%", transform: "translateY(-50%)", pointerEvents: "none", color: disabled ? color.inkFaint : darkRed }}>
       <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M7 10l5 5 5-5z"/></svg>
     </div>
   </div>
@@ -318,7 +321,7 @@ const ApprovedDepartmentPicker = ({ approvedDeptSelections, selections, onChange
 
   if (approvedDeptSelections.length === 0) {
     return (
-      <div style={{ background: "#fff3f3", border: `1.5px solid ${red}`, borderRadius: "14px", padding: "12px 14px", fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", color: darkRed }}>
+      <div style={{ background: `${color.warning}1A`, border: `1.5px solid ${color.warning}`, borderRadius: "14px", padding: "12px 14px", fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", color: color.warning }}>
         You don't have any approved department yet. A coordinator needs to approve at least one of your registered departments before you can post here — check your registration status.
       </div>
     );
@@ -333,7 +336,7 @@ const ApprovedDepartmentPicker = ({ approvedDeptSelections, selections, onChange
             key={idx}
             style={{
               display: "flex", alignItems: "center", gap: "10px",
-              background: "#ececec", borderRadius: "14px", padding: "10px 14px",
+              background: color.wine700, borderRadius: "14px", padding: "10px 14px",
               marginBottom: "8px",
             }}
           >
@@ -345,14 +348,14 @@ const ApprovedDepartmentPicker = ({ approvedDeptSelections, selections, onChange
                 onChange={() => toggle(s.department, s.program)}
                 style={{ width: "17px", height: "17px", accentColor: darkRed, cursor: readOnly ? "default" : "pointer", flexShrink: 0 }}
               />
-              <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#222", overflow: "hidden", textOverflow: "ellipsis" }}>
+              <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: color.ink, overflow: "hidden", textOverflow: "ellipsis" }}>
                 <span style={{ fontWeight: 700 }}>{s.department}</span>
-                {s.program && <span style={{ color: "#666" }}> — {s.program}</span>}
+                {s.program && <span style={{ color: color.inkMuted }}> — {s.program}</span>}
               </span>
             </label>
             {checked && (
               <div style={{ display: "flex", alignItems: "center", gap: "6px", flexShrink: 0 }}>
-                <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.72rem", color: "#888", whiteSpace: "nowrap" }}>Slots:</span>
+                <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.72rem", color: color.inkMuted, whiteSpace: "nowrap" }}>Slots:</span>
                 <input
                   type="number"
                   min={1}
@@ -364,8 +367,8 @@ const ApprovedDepartmentPicker = ({ approvedDeptSelections, selections, onChange
                     borderRadius: "10px", border: "none",
                     fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem",
                     boxShadow: "inset 0 1px 3px rgba(0,0,0,0.08)",
-                    background: readOnly ? "#e0e0e0" : "white",
-                    color: readOnly ? "#555" : "#1a1a1a",
+                    background: readOnly ? color.wine700 : color.white,
+                    color: readOnly ? color.inkMuted : color.ink,
                   }}
                 />
               </div>
@@ -456,7 +459,7 @@ const WorkingHoursInput = ({ value, onChange, readOnly, hasError }) => {
 
   const timeStyle = { ...(readOnly ? pillInputReadonly : pillInputStyle), colorScheme: "light" };
 
-  const toLabelStyle = { fontFamily: "'Kufam', sans-serif", fontSize: "0.78rem", color: "#888", flexShrink: 0, width: "20px", textAlign: "center" };
+  const toLabelStyle = { fontFamily: "'Kufam', sans-serif", fontSize: "0.78rem", color: color.inkMuted, flexShrink: 0, width: "20px", textAlign: "center" };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
@@ -473,13 +476,13 @@ const WorkingHoursInput = ({ value, onChange, readOnly, hasError }) => {
         <div style={{ flex: 1, minWidth: 0 }}>
           <input type="time" className="ojt-field" disabled={readOnly} value={timeFrom}
             onChange={e => setTimeFrom(e.target.value)}
-            style={{ ...timeStyle, width: "100%", border: hasError && !timeFrom ? "1.5px solid #c00" : "none" }} />
+            style={{ ...timeStyle, width: "100%", border: hasError && !timeFrom ? `1.5px solid ${color.danger}` : "none" }} />
         </div>
         <span style={toLabelStyle}>to</span>
         <div style={{ flex: 1, minWidth: 0 }}>
           <input type="time" className="ojt-field" disabled={readOnly} value={timeTo}
             onChange={e => setTimeTo(e.target.value)}
-            style={{ ...timeStyle, width: "100%", border: hasError && !timeTo ? "1.5px solid #c00" : "none" }} />
+            style={{ ...timeStyle, width: "100%", border: hasError && !timeTo ? `1.5px solid ${color.danger}` : "none" }} />
         </div>
       </div>
     </div>
@@ -503,7 +506,7 @@ const PhoneInput = ({ value, onChange, readOnly, hasError }) => {
     <input className="ojt-field" type="text" disabled={readOnly}
       placeholder="+63 000-000-0000"
       value={value} onChange={handleChange}
-      style={{ ...(readOnly ? pillInputReadonly : pillInputStyle), border: hasError ? "1.5px solid #c00" : "none" }} />
+      style={{ ...(readOnly ? pillInputReadonly : pillInputStyle), border: hasError ? `1.5px solid ${color.danger}` : "none" }} />
   );
 };
 
@@ -513,7 +516,7 @@ const GmailInput = ({ value, onChange, readOnly, error, onBlur }) => (
     <input className="ojt-field" type="email" disabled={readOnly}
       placeholder="example@gmail.com"
       value={value} onChange={e => onChange(e.target.value)} onBlur={onBlur}
-      style={{ ...(readOnly ? pillInputReadonly : pillInputStyle), border: error ? "1.5px solid #cc0000" : "none" }} />
+      style={{ ...(readOnly ? pillInputReadonly : pillInputStyle), border: error ? `1.5px solid ${color.danger}` : "none" }} />
     <FieldError msg={error} />
   </div>
 );
@@ -555,7 +558,7 @@ const MapboxLocationPicker = ({ value, lat, lng, onChange, readOnly }) => {
       // the address text if we don't have coordinates at all (e.g. older
       // company records saved before pins were stored).
       if (lat != null && lng != null) {
-        markerRef.current = new mapboxgl.Marker({ color: "#8B0000" }).setLngLat([lng, lat]).addTo(map);
+        markerRef.current = new mapboxgl.Marker({ color: color.ink }).setLngLat([lng, lat]).addTo(map);
         onChange?.({ address: value, lat, lng });
       } else if (value) {
         geocodeAndPin(value, map);
@@ -579,7 +582,7 @@ const MapboxLocationPicker = ({ value, lat, lng, onChange, readOnly }) => {
       if (!m) return;
       m.flyTo({ center: [lng, lat], zoom: 15, speed: 1.4 });
       if (markerRef.current) markerRef.current.remove();
-      markerRef.current = new window.mapboxgl.Marker({ color: "#8B0000" })
+      markerRef.current = new window.mapboxgl.Marker({ color: color.ink })
         .setLngLat([lng, lat])
         .addTo(m);
       onChange({ address: text, lat, lng });
@@ -618,7 +621,7 @@ const MapboxLocationPicker = ({ value, lat, lng, onChange, readOnly }) => {
     if (!m) return;
     m.flyTo({ center: [lng, lat], zoom: 15, speed: 1.4 });
     if (markerRef.current) markerRef.current.remove();
-    markerRef.current = new window.mapboxgl.Marker({ color: "#8B0000" })
+    markerRef.current = new window.mapboxgl.Marker({ color: color.ink })
       .setLngLat([lng, lat])
       .addTo(m);
   };
@@ -637,15 +640,15 @@ const MapboxLocationPicker = ({ value, lat, lng, onChange, readOnly }) => {
             style={{ ...pillInputStyle, width: "100%", boxSizing: "border-box", paddingRight: geocoding ? "40px" : "16px" }}
           />
           {geocoding && (
-            <span style={{ position: "absolute", right: "12px", top: "50%", transform: "translateY(-50%)", fontSize: "0.75rem", color: "#888" }}>Searching…</span>
+            <span style={{ position: "absolute", right: "12px", top: "50%", transform: "translateY(-50%)", fontSize: "0.75rem", color: color.inkMuted }}>Searching…</span>
           )}
           {suggestions.length > 0 && (
-            <div style={{ position: "absolute", top: "100%", left: 0, right: 0, background: "white", border: "1px solid #ddd", borderRadius: "10px", zIndex: 999, boxShadow: "0 4px 16px rgba(0,0,0,0.12)", overflow: "hidden" }}>
+            <div style={{ position: "absolute", top: "100%", left: 0, right: 0, background: color.white, border: `1px solid ${color.wine700}`, borderRadius: "10px", zIndex: 999, boxShadow: "0 4px 16px rgba(0,0,0,0.12)", overflow: "hidden" }}>
               {suggestions.map((s, i) => (
                 <div key={i} onClick={() => handleSelect(s)}
-                  style={{ padding: "9px 14px", cursor: "pointer", fontSize: "0.82rem", fontFamily: "'Kufam', sans-serif", color: "#222", borderBottom: i < suggestions.length - 1 ? "1px solid #f0f0f0" : "none" }}
-                  onMouseEnter={e => e.currentTarget.style.background = "#f8f0f0"}
-                  onMouseLeave={e => e.currentTarget.style.background = "white"}
+                  style={{ padding: "9px 14px", cursor: "pointer", fontSize: "0.82rem", fontFamily: "'Kufam', sans-serif", color: color.ink, borderBottom: i < suggestions.length - 1 ? `1px solid ${color.wine700}` : "none" }}
+                  onMouseEnter={e => e.currentTarget.style.background = color.wine500}
+                  onMouseLeave={e => e.currentTarget.style.background = color.white}
                 >
                   📍 {s.place_name}
                 </div>
@@ -667,16 +670,16 @@ const MapboxLocationPicker = ({ value, lat, lng, onChange, readOnly }) => {
 // ── Discard-changes confirm modal ──────────────────────────────────────────────
 const ConfirmDiscardModal = ({ onKeepEditing, onDiscard }) => (
   <div className="post-confirm-overlay">
-    <div style={{ background: "#fff", borderRadius: "18px", maxWidth: "360px", width: "90%", padding: "26px 22px", boxShadow: "0 8px 40px rgba(0,0,0,0.35)", textAlign: "center" }}>
+    <div style={{ background: color.white, borderRadius: "18px", maxWidth: "360px", width: "90%", padding: "26px 22px", boxShadow: "0 8px 40px rgba(0,0,0,0.35)", textAlign: "center" }}>
       <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.4rem", color: darkRed, margin: "0 0 10px" }}>Discard changes?</p>
-      <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem", color: "#333", margin: "0 0 22px", lineHeight: 1.4 }}>
+      <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem", color: color.inkBody, margin: "0 0 22px", lineHeight: 1.4 }}>
         All your changes will be lost. Are you sure you want to cancel this change?
       </p>
       <div style={{ display: "flex", justifyContent: "center", gap: "10px" }}>
-        <button onClick={onKeepEditing} style={{ padding: "9px 22px", borderRadius: "22px", background: "#e6e6e6", color: "#333", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.85rem", cursor: "pointer" }}>
+        <button onClick={onKeepEditing} style={{ padding: "9px 22px", borderRadius: "22px", background: color.wine700, color: color.inkBody, border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.85rem", cursor: "pointer" }}>
           Keep Editing
         </button>
-        <button onClick={onDiscard} style={{ padding: "9px 22px", borderRadius: "22px", background: darkRed, color: "white", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.85rem", cursor: "pointer" }}>
+        <button onClick={onDiscard} style={{ padding: "9px 22px", borderRadius: "22px", background: darkRed, color: color.white, border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.85rem", cursor: "pointer" }}>
           Yes, Discard
         </button>
       </div>
@@ -687,15 +690,15 @@ const ConfirmDiscardModal = ({ onKeepEditing, onDiscard }) => (
 // ── Saved-successfully modal ───────────────────────────────────────────────────
 const SavedSuccessModal = ({ onClose }) => (
   <div className="post-confirm-overlay">
-    <div style={{ background: "#fff", borderRadius: "18px", maxWidth: "320px", width: "90%", padding: "30px 22px 24px", boxShadow: "0 8px 40px rgba(0,0,0,0.35)", textAlign: "center" }}>
-      <div style={{ width: "56px", height: "56px", borderRadius: "50%", background: "#e6f7ec", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 14px", fontSize: "1.8rem", color: "#1f9254" }}>
+    <div style={{ background: color.white, borderRadius: "18px", maxWidth: "320px", width: "90%", padding: "30px 22px 24px", boxShadow: "0 8px 40px rgba(0,0,0,0.35)", textAlign: "center" }}>
+      <div style={{ width: "56px", height: "56px", borderRadius: "50%", background: `${color.success}22`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 14px", fontSize: "1.8rem", color: color.success }}>
         ✓
       </div>
       <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.4rem", color: darkRed, margin: "0 0 6px" }}>Saved successfully!</p>
-      <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#555", margin: "0 0 20px" }}>
+      <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: color.inkMuted, margin: "0 0 20px" }}>
         Your post has been updated.
       </p>
-      <button onClick={onClose} style={{ padding: "9px 30px", borderRadius: "22px", background: darkRed, color: "white", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.85rem", cursor: "pointer" }}>
+      <button onClick={onClose} style={{ padding: "9px 30px", borderRadius: "22px", background: darkRed, color: color.white, border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.85rem", cursor: "pointer" }}>
         OK
       </button>
     </div>
@@ -705,16 +708,16 @@ const SavedSuccessModal = ({ onClose }) => (
 // ── Generic confirm-action modal (used for Delete / Disable / Enable) ─────────
 const ConfirmActionModal = ({ title, message, confirmLabel, danger = false, onCancel, onConfirm }) => (
   <div className="post-confirm-overlay">
-    <div style={{ background: "#fff", borderRadius: "18px", maxWidth: "360px", width: "90%", padding: "26px 22px", boxShadow: "0 8px 40px rgba(0,0,0,0.35)", textAlign: "center" }}>
+    <div style={{ background: color.white, borderRadius: "18px", maxWidth: "360px", width: "90%", padding: "26px 22px", boxShadow: "0 8px 40px rgba(0,0,0,0.35)", textAlign: "center" }}>
       <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.4rem", color: darkRed, margin: "0 0 10px" }}>{title}</p>
-      <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem", color: "#333", margin: "0 0 22px", lineHeight: 1.4 }}>
+      <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem", color: color.inkBody, margin: "0 0 22px", lineHeight: 1.4 }}>
         {message}
       </p>
       <div style={{ display: "flex", justifyContent: "center", gap: "10px" }}>
-        <button onClick={onCancel} style={{ padding: "9px 22px", borderRadius: "22px", background: "#e6e6e6", color: "#333", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.85rem", cursor: "pointer" }}>
+        <button onClick={onCancel} style={{ padding: "9px 22px", borderRadius: "22px", background: color.wine700, color: color.inkBody, border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.85rem", cursor: "pointer" }}>
           Cancel
         </button>
-        <button onClick={onConfirm} style={{ padding: "9px 22px", borderRadius: "22px", background: danger ? red : darkRed, color: "white", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.85rem", cursor: "pointer" }}>
+        <button onClick={onConfirm} style={{ padding: "9px 22px", borderRadius: "22px", background: danger ? color.danger : darkRed, color: color.white, border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.85rem", cursor: "pointer" }}>
           {confirmLabel}
         </button>
       </div>
@@ -833,10 +836,10 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile }) =>
 
   return (
     <div className="post-modal-overlay">
-      <div className="post-modal-inner" style={{ background: "#d8d8d8", borderRadius: "20px", maxHeight: "90vh", overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: "0 8px 40px rgba(0,0,0,0.3)" }}>
+      <div className="post-modal-inner" style={{ background: color.wine400, borderRadius: "20px", maxHeight: "90vh", overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: "0 8px 40px rgba(0,0,0,0.3)" }}>
 
         {/* Header */}
-        <div className="post-modal-header" style={{ background: "#d8d8d8", flexShrink: 0 }}>
+        <div className="post-modal-header" style={{ background: color.wine400, flexShrink: 0 }}>
           <h2 style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(1.2rem, 4vw, 1.8rem)", fontWeight: "400", margin: 0, color: darkRed }}>
             {post?.companyName || post?.company || user?.companyName || "New Post"}
           </h2>
@@ -852,14 +855,14 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile }) =>
               <textarea className="ojt-field ojt-textarea" disabled={readOnly} value={form.description}
                 onChange={e => { set("description", e.target.value); setErrors(p => ({ ...p, description: "" })); }}
                 placeholder="Enter description..." rows={3}
-                style={{ ...(readOnly ? pillTextareaReadonly : pillTextareaStyle), border: errors.description ? "1.5px solid #c00" : "none" }} />
+                style={{ ...(readOnly ? pillTextareaReadonly : pillTextareaStyle), border: errors.description ? `1.5px solid ${color.danger}` : "none" }} />
               <FieldError msg={errors.description} />
 
               <FieldLabel>Requirements:</FieldLabel>
               <textarea className="ojt-field ojt-textarea" disabled={readOnly} value={form.requirements}
                 onChange={e => { set("requirements", e.target.value); setErrors(p => ({ ...p, requirements: "" })); }}
                 placeholder="Enter requirements..." rows={2}
-                style={{ ...(readOnly ? pillTextareaReadonly : pillTextareaStyle), border: errors.requirements ? "1.5px solid #c00" : "none" }} />
+                style={{ ...(readOnly ? pillTextareaReadonly : pillTextareaStyle), border: errors.requirements ? `1.5px solid ${color.danger}` : "none" }} />
               <FieldError msg={errors.requirements} />
             </div>
 
@@ -871,7 +874,7 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile }) =>
                   <div style={{ ...pillInputReadonly, marginBottom: "8px", display: "flex", alignItems: "center", boxSizing: "border-box", gap: "8px" }}>
                     <span>📍 {fixedAddress}</span>
                     {profileLoc.isManual && (
-                      <span style={{ background: darkRed, color: "white", fontFamily: "'Kufam', sans-serif", fontSize: "0.65rem", padding: "2px 8px", borderRadius: "10px", whiteSpace: "nowrap" }}>
+                      <span style={{ background: darkRed, color: color.white, fontFamily: "'Kufam', sans-serif", fontSize: "0.65rem", padding: "2px 8px", borderRadius: "10px", whiteSpace: "nowrap" }}>
                         
                       </span>
                     )}
@@ -886,11 +889,11 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile }) =>
                   />
                 </>
               ) : (
-                <div style={{ background: "#f0e0e0", border: `1px dashed ${darkRed}`, borderRadius: "14px", padding: "14px 16px", fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", color: darkRed }}>
+                <div style={{ background: `${color.warning}1A`, border: `1px dashed ${color.warning}`, borderRadius: "14px", padding: "14px 16px", fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", color: color.warning }}>
                   No location set yet. Please set your company location first.
                 </div>
               )}
-              <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.7rem", color: "#888", margin: "4px 0 0" }}>
+              <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.7rem", color: color.inkMuted, margin: "4px 0 0" }}>
                 This follows your company's location.
               </p>
             </div>
@@ -924,7 +927,7 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile }) =>
                           const u = [...form.workingHoursList]; u.splice(idx, 1); set("workingHoursList", u);
                           const we = [...workingHoursErrors]; we.splice(idx, 1); setWorkingHoursErrors(we);
                         }}
-                        style={{ width: "28px", height: "28px", borderRadius: "50%", background: darkRed, border: "none", color: "white", fontFamily: "'Jua', sans-serif", fontSize: "0.85rem", cursor: "pointer", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
+                        style={{ width: "28px", height: "28px", borderRadius: "50%", background: darkRed, border: "none", color: color.white, fontFamily: "'Jua', sans-serif", fontSize: "0.85rem", cursor: "pointer", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
                     )}
                   </div>
                   {workingHoursErrors[idx] && <FieldError msg={workingHoursErrors[idx]} />}
@@ -965,7 +968,7 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile }) =>
           <textarea className="ojt-field ojt-textarea" disabled={readOnly} value={form.benefits}
             onChange={e => { set("benefits", e.target.value); setErrors(p => ({ ...p, benefits: "" })); }}
             placeholder="Enter benefits..." rows={2}
-            style={{ ...(readOnly ? pillTextareaReadonly : pillTextareaStyle), border: errors.benefits ? "1.5px solid #c00" : "none" }} />
+            style={{ ...(readOnly ? pillTextareaReadonly : pillTextareaStyle), border: errors.benefits ? `1.5px solid ${color.danger}` : "none" }} />
           <FieldError msg={errors.benefits} />
 
           {/* Industry — fixed to Account Profile's industry, not editable here */}
@@ -992,18 +995,18 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile }) =>
           <textarea className="ojt-field ojt-textarea" disabled={readOnly} value={form.skillsRequired}
             onChange={e => { set("skillsRequired", e.target.value); setErrors(p => ({ ...p, skillsRequired: "" })); }}
             placeholder="Enter required skills..." rows={2}
-            style={{ ...(readOnly ? pillTextareaReadonly : pillTextareaStyle), border: errors.skillsRequired ? "1.5px solid #c00" : "none" }} />
+            style={{ ...(readOnly ? pillTextareaReadonly : pillTextareaStyle), border: errors.skillsRequired ? `1.5px solid ${color.danger}` : "none" }} />
           <FieldError msg={errors.skillsRequired} />
         </div>
 
         {/* Footer */}
-        <div className="post-modal-footer" style={{ background: "#b0b0b0", display: "flex", justifyContent: "flex-end", gap: "10px", borderBottomLeftRadius: "20px", borderBottomRightRadius: "20px", flexShrink: 0 }}>
-          <button onClick={handleCloseClick} style={{ padding: "10px 28px", borderRadius: "24px", background: "#555", color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(0.9rem, 2.5vw, 1.1rem)", cursor: "pointer" }}>Close</button>
+        <div className="post-modal-footer" style={{ background: color.inkFaint, display: "flex", justifyContent: "flex-end", gap: "10px", borderBottomLeftRadius: "20px", borderBottomRightRadius: "20px", flexShrink: 0 }}>
+          <button onClick={handleCloseClick} style={{ padding: "10px 28px", borderRadius: "24px", background: color.inkMuted, color: color.white, border: "none", fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(0.9rem, 2.5vw, 1.1rem)", cursor: "pointer" }}>Close</button>
           {mode === "view" && !isEditing && (
-            <button onClick={() => setIsEditing(true)} style={{ padding: "10px 28px", borderRadius: "24px", background: darkRed, color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(0.9rem, 2.5vw, 1.1rem)", cursor: "pointer" }}>Edit</button>
+            <button onClick={() => setIsEditing(true)} style={{ padding: "10px 28px", borderRadius: "24px", background: darkRed, color: color.white, border: "none", fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(0.9rem, 2.5vw, 1.1rem)", cursor: "pointer" }}>Edit</button>
           )}
           {isEditing && mode !== "create" && (
-            <button onClick={handleSave} style={{ padding: "10px 28px", borderRadius: "24px", background: darkRed, color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(0.9rem, 2.5vw, 1.1rem)", cursor: "pointer" }}>Save</button>
+            <button onClick={handleSave} style={{ padding: "10px 28px", borderRadius: "24px", background: darkRed, color: color.white, border: "none", fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(0.9rem, 2.5vw, 1.1rem)", cursor: "pointer" }}>Save</button>
           )}
           {mode === "create" && (
             <button
@@ -1011,8 +1014,8 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile }) =>
               disabled={approvedDeptSelections.length === 0}
               style={{
                 padding: "10px 28px", borderRadius: "24px",
-                background: approvedDeptSelections.length === 0 ? "#999" : darkRed,
-                color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif",
+                background: approvedDeptSelections.length === 0 ? color.inkFaint : darkRed,
+                color: color.white, border: "none", fontFamily: "'Jersey 25', sans-serif",
                 fontSize: "clamp(0.9rem, 2.5vw, 1.1rem)",
                 cursor: approvedDeptSelections.length === 0 ? "not-allowed" : "pointer",
               }}
@@ -1042,7 +1045,7 @@ const menuItemStyle = {
   display: "block", width: "100%", padding: "10px 16px",
   background: "none", border: "none", textAlign: "left",
   fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem",
-  cursor: "pointer", color: "#1a1a1a",
+  cursor: "pointer", color: color.ink,
 };
 
 const ThreeDotMenu = ({ isDisabled, onView, onToggleDisable, onDelete }) => {
@@ -1050,15 +1053,15 @@ const ThreeDotMenu = ({ isDisabled, onView, onToggleDisable, onDelete }) => {
   return (
     <div style={{ position: "relative" }}>
       <button onClick={e => { e.stopPropagation(); setOpen(!open); }}
-        style={{ background: "none", border: "none", cursor: "pointer", fontSize: "1.2rem", color: "#555", padding: "4px 8px", lineHeight: 1 }}>⋮</button>
+        style={{ background: "none", border: "none", cursor: "pointer", fontSize: "1.2rem", color: color.inkMuted, padding: "4px 8px", lineHeight: 1 }}>⋮</button>
       {open && (
         <div
-          style={{ position: "absolute", right: 0, top: "100%", background: "white", border: "1px solid #ddd", borderRadius: "10px", boxShadow: "0 4px 16px rgba(0,0,0,0.15)", zIndex: 100, minWidth: "120px", overflow: "hidden" }}
+          style={{ position: "absolute", right: 0, top: "100%", background: color.white, border: `1px solid ${color.wine700}`, borderRadius: "10px", boxShadow: "0 4px 16px rgba(0,0,0,0.15)", zIndex: 100, minWidth: "120px", overflow: "hidden" }}
           onClick={e => e.stopPropagation()}
         >
           <button onClick={() => { setOpen(false); onView(); }}             style={menuItemStyle}>View</button>
           <button onClick={() => { setOpen(false); onToggleDisable(); }}    style={menuItemStyle}>{isDisabled ? "Enable" : "Disable"}</button>
-          <button onClick={() => { setOpen(false); onDelete(); }}           style={{ ...menuItemStyle, color: red, fontWeight: "700" }}>Delete</button>
+          <button onClick={() => { setOpen(false); onDelete(); }}           style={{ ...menuItemStyle, color: color.danger, fontWeight: "700" }}>Delete</button>
         </div>
       )}
     </div>
@@ -1168,22 +1171,22 @@ const PostOJTContent = ({ user, openPostId, onPostOpened }) => {
 
   return (
     <div className="post-screen-padding" style={{ overflowY: "auto", flex: 1 }}>
-      <div style={{ background: "#e0e0e0", borderRadius: "16px", padding: "18px 20px", minHeight: "80vh" }}>
+      <div style={{ background: color.wine700, borderRadius: "16px", padding: "18px 20px", minHeight: "80vh" }}>
 
         <div className="post-header-row">
-          <h2 style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(1.4rem, 4vw, 2rem)", fontWeight: "400", margin: 0, color: "#1a1a1a" }}>
+          <h2 style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(1.4rem, 4vw, 2rem)", fontWeight: "400", margin: 0, color: color.ink }}>
             Recent Post
           </h2>
           <button
             className="post-btn"
             onClick={openCreate}
-            style={{ background: darkRed, color: "white", border: "none", borderRadius: "24px", fontFamily: "'Jersey 25', sans-serif", cursor: "pointer", display: "flex", alignItems: "center", gap: "6px" }}
+            style={{ background: darkRed, color: color.white, border: "none", borderRadius: "24px", fontFamily: "'Jersey 25', sans-serif", cursor: "pointer", display: "flex", alignItems: "center", gap: "6px" }}
           >
             Post <span>+</span>
           </button>
         </div>
 
-        <hr style={{ border: "none", borderTop: "2px solid #aaa", marginBottom: "16px" }} />
+        <hr style={{ border: "none", borderTop: `2px solid ${color.inkFaint}`, marginBottom: "16px" }} />
 
         {posts.length > 0 ? (
           <div className="post-grid">
@@ -1192,13 +1195,13 @@ const PostOJTContent = ({ user, openPostId, onPostOpened }) => {
                 key={post.id}
                 onClick={() => !post.disabled && openView(post)}
                 style={{
-                  background: post.disabled ? "#b8b8b8" : "white",
+                  background: post.disabled ? color.wine400 : color.white,
                   borderRadius: "14px", padding: "14px 16px",
                   display: "flex", justifyContent: "space-between", alignItems: "center",
                   cursor: post.disabled ? "default" : "pointer",
                   boxShadow: post.disabled ? "none" : "0 2px 8px rgba(0,0,0,0.08)",
                   opacity: post.disabled ? 0.75 : 1,
-                  border: post.disabled ? "none" : "1.5px solid #e8e8e8",
+                  border: post.disabled ? "none" : `1.5px solid ${color.wine700}`,
                   minWidth: 0,
                 }}
               >
@@ -1206,12 +1209,12 @@ const PostOJTContent = ({ user, openPostId, onPostOpened }) => {
                   <p style={{
                     fontFamily: "'Jersey 25', sans-serif",
                     fontSize: "clamp(0.9rem, 2.5vw, 1.1rem)",
-                    margin: "0 0 4px", color: post.disabled ? "#666" : "#1a1a1a",
+                    margin: "0 0 4px", color: post.disabled ? color.inkMuted : color.ink,
                     fontWeight: "400", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                   }}>
                     {post.companyName || post.company || "Unnamed Company"}
                   </p>
-                  <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.78rem", margin: 0, color: "#888" }}>
+                  <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.78rem", margin: 0, color: color.inkMuted }}>
                     {post.industry || post.subtitle || (post.courseSelections?.[0] ? post.courseSelections[0].college : "OJT Post")}
                   </p>
                 </div>
@@ -1228,7 +1231,7 @@ const PostOJTContent = ({ user, openPostId, onPostOpened }) => {
           </div>
         ) : (
           <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "80px" }}>
-            <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "1rem", color: "#aaa" }}>No posts yet.</p>
+            <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "1rem", color: color.inkFaint }}>No posts yet.</p>
           </div>
         )}
       </div>
@@ -1280,7 +1283,7 @@ const CompanyCreatePostScreen = ({ embedded = false, user, openPostId, onPostOpe
     {embedded
       ? <PostOJTContent user={user} openPostId={openPostId} onPostOpened={onPostOpened} />
       : (
-        <div style={{ display: "flex", flexDirection: "column", height: "100vh", background: "#f0f0f0" }}>
+        <div style={{ display: "flex", flexDirection: "column", height: "100vh", background: color.wine800 }}>
           <PostOJTContent user={user} openPostId={openPostId} onPostOpened={onPostOpened} />
         </div>
       )
