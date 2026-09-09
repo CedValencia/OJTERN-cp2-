@@ -91,7 +91,7 @@ exports.sendRegistrationReceivedEmail = onDocumentCreated(
     const html = `
       <h2>We've Received Your Registration</h2>
       <p>Hi <strong>${company.companyName || "there"}</strong>,</p>
-      <p>Thanks for signing up on OJTern! Your company registration has been submitted and is now pending review by our coordinator.</p>
+      <p>Thank you for signing up on OJTern! Your company registration has been submitted and is now pending review by our coordinator.</p>
       <p>We'll email you again as soon as a decision is made — no action is needed from you in the meantime.</p>
       <p>Best regards,<br/>OJTern Team</p>
     `;
@@ -99,7 +99,7 @@ exports.sendRegistrationReceivedEmail = onDocumentCreated(
 
 Hi ${company.companyName || "there"},
 
-Thanks for signing up on OJTern! Your company registration has been submitted and is now pending review by our coordinator.
+Thank you for signing up on OJTern! Your company registration has been submitted and is now pending review by our coordinator.
 
 We'll email you again as soon as a decision is made — no action is needed from you in the meantime.
 
@@ -218,11 +218,23 @@ exports.sendRejectionEmail = onDocumentUpdated(
     const oldData = event.data.before.data();
 
     if (oldData.status !== "rejected" && newData.status === "rejected") {
+      // Coordinators can reject without typing a reason, and the old fallback
+      // ("Please contact support.") was the worst thing to show in that case:
+      // it reads as an instruction, sends the company chasing a support
+      // channel we don't actually staff, and still tells them nothing about
+      // what to do next. This fixed line at least names a concrete next step
+      // they can take on their own.
+      const REASON_NOT_GIVEN =
+        "Your registration did not meet the requirements for approval at this time. " +
+        "You may submit a new registration with complete and accurate company details.";
+
+      const reason = (newData.rejectionReason || "").trim() || REASON_NOT_GIVEN;
+
       const html = `
         <h2>Registration Not Approved</h2>
         <p>Hi <strong>${newData.companyName}</strong>,</p>
         <p>Your registration was not approved.</p>
-        <p><strong>Reason:</strong> ${newData.rejectionReason || "Please contact support."}</p>
+        <p><strong>Reason:</strong> ${reason}</p>
       `;
       const text = `Registration Not Approved
 
@@ -230,7 +242,7 @@ Hi ${newData.companyName},
 
 Your registration was not approved.
 
-Reason: ${newData.rejectionReason || "Please contact support."}`;
+Reason: ${reason}`;
 
       try {
         await sendMail({ to: newData.email, subject: "OJTern - Registration Status Update", html, text });
