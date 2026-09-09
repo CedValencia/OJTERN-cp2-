@@ -3,6 +3,26 @@ import reportIcon from "../icons/report.png";
 import { ApplyModal } from "./StudentApplicationScreen";
 import { collection, onSnapshot, query, where, addDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "./firebase";
+import { color, font, type, space, radius, shadow, ease } from "./theme";
+
+// ── Design tokens, aliased for this screen ────────────────────────────────────
+// Kapareho ng CoordinatorFindCompanyScreen — lahat galing sa theme.js.
+// Walang hardcoded hex dito; kung magbabago ang palette, sa theme.js lang.
+const ink        = color.ink;          // primary text on light surfaces
+const inkBody    = color.inkBody;      // body copy
+const inkMuted   = color.inkMuted;     // secondary/meta text
+const inkFaint   = color.inkFaint;     // placeholders, empty states
+const surface    = color.wine600;      // cards
+const page       = color.wine900;      // page background
+const field      = color.wine700;      // inputs / neutral fills
+const line       = color.wine700;      // hairlines & borders
+const lineSoft   = color.wine800;
+const panel      = color.blush100;     // dark panels (header bar, modal footer)
+const panelDeep  = color.blush50;
+const onPanel    = color.onWine;
+const onPanelDim = color.onWineMuted;
+const danger     = color.danger;
+const success    = color.success;
 
 const CLOUDINARY_CLOUD_NAME    = "doalndt5l";
 const CLOUDINARY_UPLOAD_PRESET = "ojtern_docs";
@@ -29,13 +49,13 @@ const MapboxStaticView = ({ lat, lng, address }) => {
       mapboxgl.accessToken = MAPBOX_TOKEN;
       const map = new mapboxgl.Map({
         container: mapContainer.current,
-        style: "mapbox://styles/mapbox/standard-satellite",
+        style: "mapbox://styles/mapbox/streets-v12",
         center: [lng, lat],
         zoom: 15,
         interactive: true,
       });
       map.addControl(new mapboxgl.NavigationControl(), "top-right");
-      new mapboxgl.Marker({ color: "#8B0000" }).setLngLat([lng, lat]).addTo(map);
+      new mapboxgl.Marker({ color: danger }).setLngLat([lng, lat]).addTo(map);
       mapRef.current = map;
     };
 
@@ -48,34 +68,34 @@ const MapboxStaticView = ({ lat, lng, address }) => {
 
   if (!lat || !lng) {
     return (
-      <div style={{ width: "100%", height: "100%", minHeight: "200px", borderRadius: "14px", background: "#d0d8e0", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "6px" }}>
-        <svg width="30" height="36" viewBox="0 0 24 30" fill="#8B0000"><path d="M12 0C7.58 0 4 3.58 4 8c0 5.25 8 16 8 16s8-10.75 8-16c0-4.42-3.58-8-8-8zm0 11c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3z"/></svg>
-        <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.75rem", color: "#555", textAlign: "center", padding: "0 12px" }}>{address || "No location set"}</span>
+      <div style={{ width: "100%", height: "100%", minHeight: "200px", borderRadius: radius.card, background: field, border: `1px solid ${line}`, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: space.sm }}>
+        <svg width="26" height="32" viewBox="0 0 24 30" fill={inkFaint}><path d="M12 0C7.58 0 4 3.58 4 8c0 5.25 8 16 8 16s8-10.75 8-16c0-4.42-3.58-8-8-8zm0 11c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3z"/></svg>
+        <span style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, textAlign: "center", padding: `0 ${space.md}` }}>{address || "No location set"}</span>
       </div>
     );
   }
 
   return (
     <div style={{ position: "relative", width: "100%", height: "100%" }}>
-      <div ref={mapContainer} style={{ width: "100%", height: "100%", borderRadius: "14px", overflow: "hidden" }} />
+      <div ref={mapContainer} style={{ width: "100%", height: "100%", borderRadius: radius.card, overflow: "hidden", border: `1px solid ${line}` }} />
       <button
         onClick={() => setShowZoom(true)}
-        title="Click to view fullscreen"
+        title="Open the full map"
         style={{
           position: "absolute", bottom: "10px", left: "50%", transform: "translateX(-50%)",
-          background: "rgba(0,0,0,0.6)", color: "white", border: "none", borderRadius: "16px",
-          padding: "4px 12px", fontSize: "0.72rem", fontFamily: "'Kufam', sans-serif",
-          cursor: "pointer", display: "flex", alignItems: "center", gap: "4px", zIndex: 5,
+          background: panelDeep, color: onPanel, border: "none", borderRadius: radius.pill,
+          padding: "6px 14px", fontFamily: font.ui, ...type.helper, fontWeight: 500,
+          cursor: "pointer", zIndex: 5, boxShadow: shadow.pill,
         }}
       >
-        🔍 Click to zoom
+        Open full map
       </button>
       {showZoom && <MapZoomModal lat={lat} lng={lng} onClose={() => setShowZoom(false)} />}
     </div>
   );
 };
 
-// ── Fullscreen map modal, opened via "Click to zoom" ───────────────────────────
+// ── Fullscreen map modal ──────────────────────────────────────────────────────
 const MapZoomModal = ({ lat, lng, onClose }) => {
   const mapContainerRef = useRef(null);
   const mapRef          = useRef(null);
@@ -91,7 +111,7 @@ const MapZoomModal = ({ lat, lng, onClose }) => {
         zoom:      15,
       });
       mapRef.current.addControl(new window.mapboxgl.NavigationControl(), "top-right");
-      new window.mapboxgl.Marker({ color: "#8B0000" }).setLngLat([lng, lat]).addTo(mapRef.current);
+      new window.mapboxgl.Marker({ color: danger }).setLngLat([lng, lat]).addTo(mapRef.current);
     };
 
     if (window.mapboxgl) { loadMap(); return; }
@@ -110,83 +130,78 @@ const MapZoomModal = ({ lat, lng, onClose }) => {
   return (
     <div
       onClick={onClose}
-      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: "16px" }}
+      style={{ position: "fixed", inset: 0, background: "rgba(10,10,10,0.55)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: space.md }}
     >
       <div
         onClick={e => e.stopPropagation()}
-        style={{ width: "min(92vw, 800px)", height: "min(85vh, 560px)", borderRadius: "16px", overflow: "hidden", position: "relative", boxShadow: "0 8px 32px rgba(0,0,0,0.4)" }}
+        className="stud-map-zoom-inner"
+        style={{ borderRadius: radius.panel, overflow: "hidden", position: "relative", boxShadow: shadow.panel }}
       >
         <div ref={mapContainerRef} style={{ width: "100%", height: "100%" }} />
         <button
           onClick={onClose}
-          style={{ position: "absolute", top: "12px", left: "12px", zIndex: 10, background: "#8B0000", color: "white", border: "none", borderRadius: "20px", padding: "6px 16px", fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", cursor: "pointer", boxShadow: "0 2px 8px rgba(0,0,0,0.3)" }}
+          style={{ position: "absolute", top: space.md, left: space.md, zIndex: 10, background: panel, color: onPanel, border: "none", borderRadius: radius.pill, padding: "8px 18px", fontFamily: font.ui, ...type.control, cursor: "pointer", boxShadow: shadow.pill }}
         >
-          ✕ Close
+          Close
         </button>
       </div>
     </div>
   );
 };
-
-// ─── COLORS ───────────────────────────────────────────────────────────────────
-const red     = "#8B0000";
-const darkRed = "#590101";
 
 // ─── SUCCESS MODAL ────────────────────────────────────────────────────────────
-const SuccessModal = ({ onClose }) => {
-  return (
+const SuccessModal = ({ onClose }) => (
+  <div
+    style={{
+      position: "fixed",
+      inset: 0,
+      background: "rgba(10,10,10,0.5)",
+      zIndex: 2000,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      padding: space.md,
+    }}
+  >
     <div
       style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(0,0,0,0.5)",
-        zIndex: 2000,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: "16px",
+        background: surface,
+        borderRadius: radius.panel,
+        padding: `${space.xl} ${space.lg}`,
+        textAlign: "center",
+        maxWidth: "380px",
+        border: `1px solid ${line}`,
+        boxShadow: shadow.panel,
       }}
     >
-      <div
-        style={{
-          background: "white",
-          borderRadius: "16px",
-          padding: "32px 24px",
-          textAlign: "center",
-          maxWidth: "360px",
-          boxShadow: "0 8px 32px rgba(0,0,0,0.3)",
-        }}
-      >
-        <div style={{ marginBottom: "16px" }}>
-          <svg width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="#8B0000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ margin: "0 auto" }}>
-            <polyline points="20 6 9 17 4 12" />
-          </svg>
-        </div>
-        <h3 style={{ fontFamily: "'Kufam', sans-serif", fontSize: "1.3rem", color: "#333", marginBottom: "8px" }}>Report Submitted Successfully</h3>
-        <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.95rem", color: "#666", marginBottom: "24px" }}>Thank you for reporting. Our team will review your report shortly.</p>
-        <button
-          onClick={onClose}
-          style={{
-            background: "#8B0000",
-            color: "white",
-            border: "none",
-            borderRadius: "8px",
-            padding: "10px 32px",
-            fontFamily: "'Kufam', sans-serif",
-            fontSize: "1rem",
-            fontWeight: "600",
-            cursor: "pointer",
-            transition: "background 0.2s ease",
-          }}
-          onMouseEnter={(e) => (e.target.style.background = "#590101")}
-          onMouseLeave={(e) => (e.target.style.background = "#8B0000")}
-        >
-          Okay
-        </button>
+      <div style={{ width: "56px", height: "56px", borderRadius: "50%", background: lineSoft, display: "flex", alignItems: "center", justifyContent: "center", margin: `0 auto ${space.md}` }}>
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke={success} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="20 6 9 17 4 12" />
+        </svg>
       </div>
+      <h3 style={{ fontFamily: font.ui, fontSize: "1.25rem", fontWeight: 600, letterSpacing: "-0.01em", color: ink, marginBottom: space.sm }}>Report sent</h3>
+      <p style={{ fontFamily: font.ui, ...type.body, color: inkBody, marginBottom: space.lg }}>The review team will look into it and get back to you here.</p>
+      <button
+        onClick={onClose}
+        style={{
+          background: panel,
+          color: onPanel,
+          border: "none",
+          borderRadius: radius.pill,
+          padding: "11px 34px",
+          fontFamily: font.ui,
+          ...type.control,
+          cursor: "pointer",
+          transition: `background 240ms ${ease}`,
+        }}
+        onMouseEnter={(e) => (e.currentTarget.style.background = panelDeep)}
+        onMouseLeave={(e) => (e.currentTarget.style.background = panel)}
+      >
+        Done
+      </button>
     </div>
-  );
-};
+  </div>
+);
 
 // ─── INDUSTRIES ───────────────────────────────────────────────────────────────
 const INDUSTRIES = [];
@@ -213,56 +228,75 @@ export const useOjtPosts = () => {
 
 // ─── REPORT CATEGORIES ────────────────────────────────────────────────────────
 const reportCategories = [
-  { label: "Fraud and Scam", description: "Job scams are fraudulent schemes where scammers impersonate employers to steal money, personal information, or coerce victims into fake work activities.", details: ["Fake job postings requiring payment","Identity theft","Misrepresentation of company"] },
-  { label: "Discrimination", description: "Discrimination in the workplace involves unfair treatment of individuals based on race, gender, age, religion, disability, or other protected characteristics.", details: ["Racial discrimination","Gender-based bias","Age discrimination","Religious intolerance"] },
-  { label: "Sexual Harassment", description: "Sexual harassment includes any unwelcome sexual advances, requests for sexual favors, or other verbal or physical conduct of a sexual nature in the workplace.", details: ["Unwanted physical contact","Verbal harassment","Hostile work environment","Quid pro quo harassment"] },
-  { label: "Harmful Misinformation", description: "Spreading false information about OJT programs, company practices, or student requirements that can mislead or harm students.", details: ["False program descriptions","Fake requirements","Misleading slot information"] },
-  { label: "Workplace Misconduct", description: "Workplace misconduct refers to behavior that violates company policies or professional standards, including unsafe working conditions.", details: ["Unsafe working conditions","Violation of OJT agreement","Forced overtime","Unpaid work"] },
+  { label: "Fraud and Scam", description: "Job scams are fraudulent schemes where scammers impersonate employers to steal money, personal information, or coerce victims into fake work activities.", details: ["Fake job postings requiring payment", "Identity theft", "Misrepresentation of company"] },
+  { label: "Discrimination", description: "Discrimination in the workplace involves unfair treatment of individuals based on race, gender, age, religion, disability, or other protected characteristics.", details: ["Racial discrimination", "Gender-based bias", "Age discrimination", "Religious intolerance"] },
+  { label: "Sexual Harassment", description: "Sexual harassment includes any unwelcome sexual advances, requests for sexual favors, or other verbal or physical conduct of a sexual nature in the workplace.", details: ["Unwanted physical contact", "Verbal harassment", "Hostile work environment", "Quid pro quo harassment"] },
+  { label: "Harmful Misinformation", description: "Spreading false information about OJT programs, company practices, or student requirements that can mislead or harm students.", details: ["False program descriptions", "Fake requirements", "Misleading slot information"] },
+  { label: "Workplace Misconduct", description: "Workplace misconduct refers to behavior that violates company policies or professional standards, including unsafe working conditions.", details: ["Unsafe working conditions", "Violation of OJT agreement", "Forced overtime", "Unpaid work"] },
   { label: "Others", description: "Any other concern not listed above. Please provide a detailed description of the issue.", details: [] },
 ];
 
-// ── Responsive styles injected once ──────────────────────────────────────────
+// ── Responsive styles injected once ───────────────────────────────────────────
 const ResponsiveStyles = () => (
   <style>{`
-    @import url('https://fonts.googleapis.com/css2?family=Jersey+25&family=Jua&family=Kufam:wght@400;600;700&family=Monomaniac+One&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
 
-    /* Company grid: 2-col ≥768px, 1-col below */
+    /* Company grid: 2-col ≥768px, 1-col below — NO horizontal scroll */
     .stud-company-grid {
       display: grid;
       grid-template-columns: repeat(2, 1fr);
-      gap: 16px;
+      gap: ${space.md};
     }
     @media (max-width: 767px) {
       .stud-company-grid { grid-template-columns: 1fr; }
     }
 
-    /* Search bar input shrinks on mobile */
-    .stud-search-input {
-      width: 160px;
-    }
+    /* Search bar shrinks on mobile */
+    .stud-search-input { width: 170px; }
+    .stud-search-input::placeholder { color: ${inkFaint}; }
     @media (max-width: 480px) {
       .stud-search-input { width: 110px; }
     }
 
-    /* Profile content padding */
+    /* Visible keyboard focus on every control in this screen */
+    .stud-list-wrapper :focus-visible,
+    .stud-profile-content :focus-visible,
+    .stud-modal :focus-visible {
+      outline: none;
+      box-shadow: ${shadow.focus};
+      border-radius: ${radius.pill};
+    }
+
+    .stud-map-zoom-inner {
+      width: min(80vw, 620px);
+      height: min(70vh, 440px);
+    }
+    @media (max-width: 560px) {
+      .stud-map-zoom-inner {
+        width: calc(100vw - 72px);
+        height: 46vh;
+      }
+    }
+
+    /* Company profile content padding */
     .stud-profile-content {
-      padding: 28px 32px 100px;
+      padding: 28px 32px 108px;
     }
     @media (max-width: 640px) {
-      .stud-profile-content { padding: 16px 16px 100px; }
+      .stud-profile-content { padding: 16px 16px 132px; }
     }
 
     /* Profile top row: side-by-side on desktop, stacked on mobile */
     .stud-profile-top {
       display: flex;
-      gap: 24px;
-      margin-bottom: 20px;
+      gap: ${space.lg};
+      margin-bottom: ${space.lg};
     }
     @media (max-width: 640px) {
       .stud-profile-top { flex-direction: column; }
     }
 
-    /* Map placeholder: fixed width on desktop, full width on mobile */
+    /* Map: full width on mobile */
     .stud-map-box {
       width: 320px;
       height: 260px;
@@ -272,91 +306,75 @@ const ResponsiveStyles = () => (
       .stud-map-box { width: 100%; height: 240px; }
     }
 
-    /* Profile bottom bar padding */
-    .stud-profile-bar {
-      padding: 14px 32px;
-    }
+    /* Profile bottom bar */
+    .stud-profile-bar { padding: 14px 32px; }
     @media (max-width: 640px) {
       .stud-profile-bar { padding: 12px 16px; }
     }
 
-    /* Action buttons in bottom bar: wrap on very small screens */
     .stud-action-buttons {
       display: flex;
-      gap: 12px;
+      gap: ${space.sm};
+      min-width: 0;
     }
     @media (max-width: 400px) {
-      .stud-action-buttons { flex-direction: column; gap: 8px; }
+      .stud-action-buttons { flex-direction: column; }
     }
 
-    /* Search + filter bar */
+    /* Search+filter bar layout */
     .stud-search-bar {
-      padding: 16px 20px;
-      margin-bottom: 24px;
+      padding: 18px 22px;
+      margin-bottom: ${space.lg};
       display: flex;
       align-items: center;
       justify-content: space-between;
+      gap: ${space.md};
     }
     @media (max-width: 480px) {
-      .stud-search-bar { padding: 12px 14px; }
+      .stud-search-bar { padding: 14px; }
     }
 
-    /* List wrapper: vertical scroll only */
+    /* List wrapper: vertical scroll only, no horizontal overflow */
     .stud-list-wrapper {
       overflow-x: hidden;
       width: 100%;
     }
 
-    /* Report modal: full-width on mobile */
-    .stud-report-modal-inner {
-      background: white;
-      border-radius: 16px;
-      width: 100%;
-      max-width: 520px;
-      max-height: 85vh;
-      overflow: hidden;
-      display: flex;
-      flex-direction: column;
-    }
-
-    /* Company card: prevent location overflow */
-    .stud-card-location {
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
+    @media (prefers-reduced-motion: reduce) {
+      .stud-card { transition: none !important; }
     }
   `}</style>
 );
 
 // ── Alert Modal (replaces native window.alert with an in-app styled dialog) ──
 const AlertModal = ({ message, onClose }) => (
-  <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1100, padding: "16px" }}>
-    <div style={{ background: "white", borderRadius: "14px", width: "100%", maxWidth: "340px", overflow: "hidden", textAlign: "center" }}>
-      <div style={{ padding: "26px 22px 18px" }}>
-        <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.92rem", color: "#333", margin: 0, lineHeight: 1.5 }}>{message}</p>
+  <div className="stud-modal" style={{ position: "fixed", inset: 0, background: "rgba(10,10,10,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1100, padding: space.md }}>
+    <div style={{ background: surface, borderRadius: radius.card, width: "100%", maxWidth: "340px", overflow: "hidden", textAlign: "center", border: `1px solid ${line}`, boxShadow: shadow.panel }}>
+      <div style={{ padding: `${space.lg} ${space.lg} ${space.md}` }}>
+        <p style={{ fontFamily: font.ui, ...type.body, color: inkBody, margin: 0 }}>{message}</p>
       </div>
-      <button onClick={onClose} style={{ width: "100%", padding: "13px", border: "none", borderTop: "1px solid #eee", background: "white", color: darkRed, fontFamily: "'Jersey 25', sans-serif", fontSize: "1.1rem", cursor: "pointer" }}>OK</button>
+      <button onClick={onClose} style={{ width: "100%", padding: "13px", border: "none", borderTop: `1px solid ${line}`, background: surface, color: ink, fontFamily: font.ui, ...type.control, cursor: "pointer" }}>OK</button>
     </div>
   </div>
 );
 
 // ─── REPORT MODAL ─────────────────────────────────────────────────────────────
 const ReportModal = ({ company, onClose, onSubmit, reporter }) => {
-  const [step, setStep] = useState(1);
-  const [selected, setSelected] = useState(null);
-  const [description, setDescription] = useState("");
-  const [attachedFile, setAttachedFile] = useState(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [submitError, setSubmitError] = useState("");
-  const [alertMsg, setAlertMsg] = useState("");
+  const [step, setStep]                 = useState(1);
+  const [selected, setSelected]         = useState(null);
+  const [description, setDescription]   = useState("");
+  const [attachedFile, setAttachedFile] = useState(null); // { name, type, url (local preview), file (raw) }
+  const [submitting, setSubmitting]     = useState(false);
+  const [submitError, setSubmitError]   = useState("");
+  const [alertMsg, setAlertMsg]         = useState("");
   const fileRef = useRef();
 
   const handleFile = (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    if (!["image/png","application/pdf"].includes(file.type)) { setAlertMsg("Only PNG and PDF files are allowed."); return; }
+    if (!["image/png", "application/pdf"].includes(file.type)) { setAlertMsg("That file type isn't supported. Attach a PNG or a PDF."); return; }
     const MAX_SIZE = 10 * 1024 * 1024; // 10MB
-    if (file.size > MAX_SIZE) { setAlertMsg("File size must not exceed 10MB."); return; }
+    if (file.size > MAX_SIZE) { setAlertMsg("That file is over 10MB. Attach a smaller one."); return; }
     setAttachedFile({ name: file.name, type: file.type, url: URL.createObjectURL(file), file });
   };
 
@@ -369,14 +387,14 @@ const ReportModal = ({ company, onClose, onSubmit, reporter }) => {
       method: "POST",
       body: formData,
     });
-    if (!res.ok) throw new Error("File upload failed.");
+    if (!res.ok) throw new Error("The file didn't upload. Try again.");
     const data = await res.json();
     return { url: data.secure_url, name: file.name, type: file.type };
   };
 
   const handleSubmit = async () => {
-    if (!description.trim()) { setAlertMsg("Please write a description."); return; }
-    if (!attachedFile)        { setAlertMsg("Please attach a file."); return; }
+    if (!description.trim()) { setAlertMsg("Add a description of what happened."); return; }
+    if (!attachedFile)       { setAlertMsg("Attach a file that supports your report."); return; }
     setSubmitting(true);
     setSubmitError("");
     try {
@@ -407,7 +425,7 @@ const ReportModal = ({ company, onClose, onSubmit, reporter }) => {
       onSubmit?.({ ...reportDoc, attachedFile: fileData || attachedFile });
       onClose();
     } catch (err) {
-      setSubmitError(err.message || "Failed to submit report. Please try again.");
+      setSubmitError(err.message || "The report didn't send. Try again.");
     } finally {
       setSubmitting(false);
     }
@@ -416,79 +434,121 @@ const ReportModal = ({ company, onClose, onSubmit, reporter }) => {
   const cat = reportCategories.find(c => c.label === selected?.label);
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: "16px" }}>
-      <div className="stud-report-modal-inner">
-        <div style={{ padding: "16px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "1px solid #eee" }}>
-          <span style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.5rem", color: darkRed }}>Reports:</span>
-          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: "1.3rem", cursor: "pointer", color: "#555" }}>✕</button>
+    <div className="stud-modal" style={{ position: "fixed", inset: 0, background: "rgba(10,10,10,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: space.md }}>
+      <div style={{ background: surface, borderRadius: radius.panel, width: "100%", maxWidth: "540px", maxHeight: "86vh", overflow: "hidden", display: "flex", flexDirection: "column", border: `1px solid ${line}`, boxShadow: shadow.panel }}>
+        <div style={{ padding: `${space.md} ${space.lg}`, display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: `1px solid ${line}` }}>
+          <div>
+            <span style={{ fontFamily: font.ui, fontSize: "1.125rem", fontWeight: 600, letterSpacing: "-0.01em", color: ink }}>Report this company</span>
+            <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, marginTop: "2px" }}>Step {step} of 3</p>
+          </div>
+          <button onClick={onClose} aria-label="Close" style={{ background: "none", border: "none", fontSize: "1.15rem", cursor: "pointer", color: inkMuted, lineHeight: 1 }}>✕</button>
         </div>
-        <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px" }}>
+
+        {/* Progress hairline — three segments, one per step */}
+        <div style={{ display: "flex", gap: "3px", padding: `0 ${space.lg}`, marginTop: "10px" }}>
+          {[1, 2, 3].map(n => (
+            <div key={n} style={{ flex: 1, height: "3px", borderRadius: radius.pill, background: n <= step ? ink : line, transition: `background 260ms ${ease}` }} />
+          ))}
+        </div>
+
+        <div style={{ flex: 1, overflowY: "auto", padding: `${space.md} ${space.lg} ${space.lg}` }}>
           {step === 1 && (
             <>
-              <p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.95rem", marginBottom: "14px" }}>Please select:</p>
-              {reportCategories.map((cat) => (
-                <div key={cat.label} onClick={() => setSelected(cat)} style={{ display: "flex", alignItems: "center", gap: "12px", padding: "10px 0", cursor: "pointer", borderBottom: "1px solid #f0f0f0" }}>
-                  <div style={{ width: "22px", height: "22px", borderRadius: "50%", border: `2px solid ${red}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, background: selected?.label === cat.label ? red : "white" }}>
-                    {selected?.label === cat.label && <div style={{ width: "8px", height: "8px", borderRadius: "50%", background: "white" }} />}
+              <p style={{ fontFamily: font.ui, ...type.label, color: ink, marginBottom: "12px" }}>What is the concern?</p>
+              {reportCategories.map((c) => {
+                const isOn = selected?.label === c.label;
+                return (
+                  <div key={c.label} onClick={() => setSelected(c)} style={{ display: "flex", alignItems: "center", gap: "12px", padding: "12px 0", cursor: "pointer", borderBottom: `1px solid ${lineSoft}` }}>
+                    <div style={{ width: "20px", height: "20px", borderRadius: "50%", border: `1.5px solid ${isOn ? ink : color.wine400}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, background: isOn ? ink : surface, transition: `all 180ms ${ease}` }}>
+                      {isOn && <div style={{ width: "7px", height: "7px", borderRadius: "50%", background: color.white }} />}
+                    </div>
+                    <span style={{ fontFamily: font.ui, ...type.body, color: isOn ? ink : inkBody }}>{c.label}</span>
                   </div>
-                  <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.93rem", color: "#222" }}>{cat.label}</span>
-                </div>
-              ))}
+                );
+              })}
             </>
           )}
           {step === 2 && cat && (
             <>
-              <p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "1rem", marginBottom: "6px" }}>{cat.label}</p>
-              <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", color: "#666", marginBottom: "12px" }}>More about this reason:</p>
-              <hr style={{ borderColor: "#eee", marginBottom: "14px" }} />
-              <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#444", lineHeight: 1.7, marginBottom: "14px" }}>{cat.description}</p>
-              {cat.details.length > 0 && (<><p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.88rem", marginBottom: "8px" }}>Common Types:</p><ul style={{ paddingLeft: "18px" }}>{cat.details.map((d, i) => <li key={i} style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.83rem", color: "#555", marginBottom: "4px" }}>{d}</li>)}</ul></>)}
+              <p style={{ fontFamily: font.ui, fontSize: "1rem", fontWeight: 600, color: ink, marginBottom: space.sm }}>{cat.label}</p>
+              <p style={{ fontFamily: font.ui, ...type.body, color: inkBody, marginBottom: space.md, maxWidth: "62ch" }}>{cat.description}</p>
+              {cat.details.length > 0 && (
+                <>
+                  <p style={{ fontFamily: font.ui, ...type.label, color: ink, marginBottom: space.sm }}>Common forms this takes</p>
+                  <ul style={{ paddingLeft: "18px", margin: 0 }}>
+                    {cat.details.map((d, i) => <li key={i} style={{ fontFamily: font.ui, ...type.helper, color: inkBody, marginBottom: space.xs }}>{d}</li>)}
+                  </ul>
+                </>
+              )}
             </>
           )}
           {step === 3 && (
             <>
-              <p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.95rem", marginBottom: "10px" }}>Write a description:</p>
+              <p style={{ fontFamily: font.ui, ...type.label, color: ink, marginBottom: space.sm }}>Describe what happened</p>
               <textarea
                 value={description}
                 onChange={e => setDescription(e.target.value)}
-                placeholder="Describe the issue..."
-                style={{
-                  width: "100%", minHeight: "100px",
-                  border: "none", borderBottom: `2px solid ${red}`,
-                  outline: "none", fontFamily: "'Kufam', sans-serif",
-                  fontSize: "0.88rem", resize: "none",
-                  background: "transparent", color: "#222", marginBottom: "20px",
-                  overflowY: "auto",
-                  scrollbarWidth: "thin",
-                  scrollbarColor: `${darkRed} transparent`,
-                  boxSizing: "border-box",
-                }}
+                placeholder="Include dates, names, and anything the review team should see."
+                style={{ width: "100%", minHeight: "112px", border: `1px solid ${line}`, borderRadius: radius.card, padding: "12px 14px", outline: "none", fontFamily: font.ui, ...type.body, resize: "vertical", background: color.wine800, color: ink, marginBottom: space.lg, boxSizing: "border-box" }}
               />
-              <p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.95rem", marginBottom: "10px" }}>Attach File:</p>
+              <p style={{ fontFamily: font.ui, ...type.label, color: ink, marginBottom: space.xs }}>Attach evidence</p>
+              <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, marginBottom: space.sm }}>PNG or PDF, up to 10MB.</p>
               <input ref={fileRef} type="file" accept=".png,.pdf" style={{ display: "none" }} onChange={handleFile} />
               {!attachedFile ? (
-                <div onClick={() => fileRef.current.click()} style={{ width: "80px", height: "80px", background: "#e8c8c8", borderRadius: "14px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
-                  <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
-                </div>
+                <button onClick={() => fileRef.current.click()} style={{ display: "flex", alignItems: "center", gap: space.sm, background: color.wine800, border: `1px dashed ${color.wine400}`, borderRadius: radius.card, padding: "12px 18px", cursor: "pointer", fontFamily: font.ui, ...type.control, color: ink }}>
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={inkMuted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+                  </svg>
+                  Choose a file
+                </button>
               ) : (
-                <div style={{ display: "flex", alignItems: "center", gap: "10px", background: "#f5f5f5", padding: "10px 14px", borderRadius: "8px" }}>
-                  {attachedFile.type.startsWith("image/") ? <img src={attachedFile.url} alt="preview" style={{ width: "50px", height: "50px", objectFit: "cover", borderRadius: "6px" }} /> : <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={red} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>}
-                  <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", color: "#555" }}>{attachedFile.name}</span>
-                  <button onClick={() => setAttachedFile(null)} style={{ marginLeft: "auto", background: "none", border: "none", cursor: "pointer", color: "#aaa", fontSize: "1rem" }}>✕</button>
+                <div style={{ display: "flex", alignItems: "center", gap: "10px", background: color.wine800, border: `1px solid ${line}`, padding: "10px 14px", borderRadius: radius.card }}>
+                  {attachedFile.type.startsWith("image/") ? (
+                    <img src={attachedFile.url} alt="Attachment preview" style={{ width: "44px", height: "44px", objectFit: "cover", borderRadius: "10px" }} />
+                  ) : (
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={inkMuted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                      <polyline points="14 2 14 8 20 8"/>
+                    </svg>
+                  )}
+                  <span style={{ fontFamily: font.ui, ...type.helper, color: inkBody, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{attachedFile.name}</span>
+                  <button onClick={() => setAttachedFile(null)} aria-label="Remove file" style={{ marginLeft: "auto", background: "none", border: "none", cursor: "pointer", color: inkMuted, fontSize: "0.95rem" }}>✕</button>
                 </div>
               )}
             </>
           )}
         </div>
-        <div style={{ background: darkRed, padding: "12px 20px", display: "flex", flexDirection: "column", gap: "8px" }}>
-          {submitError && (
-            <div style={{ color: "#ffdada", fontFamily: "'Kufam', sans-serif", fontSize: "0.78rem" }}>{submitError}</div>
-          )}
-          <div style={{ display: "flex", justifyContent: "flex-end" }}>
+
+        <div style={{ background: panel, padding: `12px ${space.lg}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: space.md }}>
+          <div style={{ minWidth: 0 }}>
+            {submitError
+              ? <p style={{ fontFamily: font.ui, ...type.helper, color: "#E8A5A2", margin: 0 }}>{submitError}</p>
+              : <p style={{ fontFamily: font.ui, ...type.helper, color: onPanelDim, margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{company.companyName || company.name}</p>}
+          </div>
+          <div style={{ display: "flex", gap: space.sm, flexShrink: 0 }}>
+            {step > 1 && (
+              <button
+                onClick={() => setStep(step - 1)}
+                style={{ padding: "9px 18px", borderRadius: radius.pill, background: "transparent", color: onPanelDim, border: `1px solid ${color.onWineFaint}`, fontFamily: font.ui, ...type.control, cursor: "pointer" }}
+              >
+                Back
+              </button>
+            )}
             {step < 3 ? (
-              <button onClick={() => { if (step === 1 && !selected) { setAlertMsg("Please select a concern."); return; } setStep(step + 1); }} style={{ padding: "8px 20px", borderRadius: "20px", background: "rgba(255,255,255,0.2)", color: "white", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 600, cursor: "pointer", fontSize: "0.85rem" }}>Next {step}/3</button>
+              <button
+                onClick={() => { if (step === 1 && !selected) { setAlertMsg("Pick a concern to continue."); return; } setStep(step + 1); }}
+                style={{ padding: "9px 22px", borderRadius: radius.pill, background: color.white, color: ink, border: "none", fontFamily: font.ui, ...type.control, cursor: "pointer" }}
+              >
+                Continue
+              </button>
             ) : (
-              <button onClick={handleSubmit} disabled={submitting} style={{ padding: "8px 20px", borderRadius: "20px", background: "rgba(255,255,255,0.2)", color: "white", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 600, cursor: submitting ? "default" : "pointer", fontSize: "0.85rem", opacity: submitting ? 0.7 : 1 }}>{submitting ? "Submitting..." : "Submit report"}</button>
+              <button
+                onClick={handleSubmit}
+                disabled={submitting}
+                style={{ padding: "9px 22px", borderRadius: radius.pill, background: color.white, color: ink, border: "none", fontFamily: font.ui, ...type.control, cursor: submitting ? "not-allowed" : "pointer", opacity: submitting ? 0.6 : 1 }}
+              >
+                {submitting ? "Sending…" : "Send report"}
+              </button>
             )}
           </div>
         </div>
@@ -498,98 +558,136 @@ const ReportModal = ({ company, onClose, onSubmit, reporter }) => {
   );
 };
 
+// ── Small section heading used across the profile ─────────────────────────────
+const SectionTitle = ({ children }) => (
+  <h2 style={{ fontFamily: font.ui, fontSize: "1.0625rem", fontWeight: 600, letterSpacing: "-0.01em", color: ink, marginBottom: space.sm }}>{children}</h2>
+);
+
 // ─── COMPANY PROFILE ──────────────────────────────────────────────────────────
 const CompanyProfile = ({ company, onBack, onReport, onMessageNow, onApplyNow }) => {
   const _s = company?.slots || "0/0";
   const isFull = _s.split("/")[0] === _s.split("/")[1];
   const loc = company.location || {};
-  const locationLines = [
-    loc.region   ? `Region: ${loc.region}`          : null,
-    loc.province ? `Province: ${loc.province}`      : null,
-    loc.city     ? `City/Municipality: ${loc.city}` : null,
-    loc.barangay ? `Barangay: ${loc.barangay}`      : null,
-    loc.street   ? `Street/Building: ${loc.street}` : null,
-  ].filter(Boolean);
-
   const locationParts = [loc.street, loc.barangay, loc.city, loc.province, loc.region].filter(Boolean);
   const fullLocation = loc.fullAddress || locationParts.join(", ");
+  const locationLines = [
+    loc.region   ? ["Region", loc.region]             : null,
+    loc.province ? ["Province", loc.province]         : null,
+    loc.city     ? ["City or municipality", loc.city] : null,
+    loc.barangay ? ["Barangay", loc.barangay]         : null,
+    loc.street   ? ["Street or building", loc.street] : null,
+  ].filter(Boolean);
+
+  const bodyStyle = { fontFamily: font.ui, ...type.body, color: inkBody, maxWidth: "68ch" };
 
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", background: "#f5f5f5", overflow: "hidden", position: "relative" }}>
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", background: page, overflow: "hidden", position: "relative" }}>
       <div className="stud-profile-content" style={{ flex: 1, overflowY: "auto" }}>
 
         {/* Top row: description + map */}
         <div className="stud-profile-top">
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "14px", flexWrap: "wrap" }}>
-              <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "'Monomaniac One', sans-serif", fontSize: "3rem", color: "#1a1a1a", lineHeight: 1, padding: 0, flexShrink: 0 }}>←</button>
-              <h1 style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(1.4rem, 4vw, 2.2rem)", color: "#111" }}>{company.companyName || company.name}</h1>
-            </div>
-            <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "clamp(0.8rem, 2vw, 0.88rem)", color: "#444", lineHeight: 1.7 }}>{company.description}</p>
+            <button
+              onClick={onBack}
+              style={{ display: "inline-flex", alignItems: "center", gap: "6px", background: "none", border: "none", cursor: "pointer", fontFamily: font.ui, ...type.helper, color: inkMuted, padding: 0, marginBottom: "10px" }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+              Back
+            </button>
+            <h1 style={{ fontFamily: font.ui, fontSize: "clamp(1.5rem, 4vw, 2rem)", fontWeight: 600, lineHeight: 1.15, letterSpacing: "-0.02em", color: ink, marginBottom: "10px" }}>{company.companyName || company.name}</h1>
+            <p style={bodyStyle}>{company.description}</p>
           </div>
-          <div className="stud-map-box" style={{ borderRadius: "14px", overflow: "hidden" }}>
+          <div className="stud-map-box" style={{ borderRadius: radius.card, overflow: "hidden" }}>
             <MapboxStaticView
-              lat={company.postLocation?.lat}
-              lng={company.postLocation?.lng}
+              lat={company.postLocation?.lat || company.location?.lat}
+              lng={company.postLocation?.lng || company.location?.lng}
               address={company.postLocation?.address || fullLocation}
             />
           </div>
         </div>
 
-        <hr style={{ borderColor: "#ddd", marginBottom: "20px" }} />
+        <hr style={{ border: "none", borderTop: `1px solid ${line}`, margin: `0 0 ${space.lg}` }} />
 
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "20px", flexWrap: "wrap", gap: "12px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: space.lg, flexWrap: "wrap", gap: space.md }}>
           <div>
-            <h2 style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(1.2rem, 3vw, 1.5rem)", color: "#111", marginBottom: "8px" }}>Requirements</h2>
-            <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "clamp(0.8rem, 2vw, 0.87rem)", color: "#444", whiteSpace: "pre-line" }}>{Array.isArray(company.requirements) ? company.requirements.join("\n") : (company.requirements || "N/A")}</p>
+            <SectionTitle>Requirements</SectionTitle>
+            <p style={{ ...bodyStyle, whiteSpace: "pre-line" }}>{Array.isArray(company.requirements) ? company.requirements.join("\n") : (company.requirements || "Not listed")}</p>
           </div>
-          <div>
-            <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "1rem", fontWeight: 700, color: "#111" }}>Slot: </span>
-            <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "1rem", fontWeight: 700, color: isFull ? red : "#2a7a2a" }}>{company.slot}</span>
+          <div style={{ display: "inline-flex", alignItems: "center", gap: space.sm, background: surface, border: `1px solid ${line}`, borderRadius: radius.pill, padding: "8px 16px" }}>
+            <span style={{ fontFamily: font.ui, ...type.helper, color: inkMuted }}>Slots</span>
+            <span style={{ fontFamily: font.ui, ...type.control, color: isFull ? danger : success }}>{company.slot || company.slots}</span>
           </div>
         </div>
 
-        <h2 style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(1.2rem, 3vw, 1.5rem)", color: "#111", marginBottom: "8px" }}>Working Hours</h2>
-        <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "clamp(0.8rem, 2vw, 0.87rem)", color: "#444", marginBottom: "20px", whiteSpace: "pre-line" }}>{company.workingHours}</p>
+        <SectionTitle>Working hours</SectionTitle>
+        <p style={{ ...bodyStyle, marginBottom: space.lg, whiteSpace: "pre-line" }}>{company.workingHours}</p>
 
-        <h2 style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(1.2rem, 3vw, 1.5rem)", color: "#111", marginBottom: "8px" }}>Contact Information</h2>
-        <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "clamp(0.8rem, 2vw, 0.87rem)", color: "#444", marginBottom: "4px" }}>Phone Number: {company.phone || company.contact?.phone || "N/A"}</p>
-        <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "clamp(0.8rem, 2vw, 0.87rem)", color: "#444", marginBottom: "20px" }}>Email: {company.contactEmail || company.contact?.email || company.email || "N/A"}</p>
+        <SectionTitle>Contact</SectionTitle>
+        <p style={{ ...bodyStyle, marginBottom: space.xs }}>Phone: {company.phone || company.contact?.phone || "Not listed"}</p>
+        <p style={{ ...bodyStyle, marginBottom: space.lg }}>Email: {company.contactEmail || company.contact?.email || company.email || "Not listed"}</p>
 
-        <h2 style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(1.2rem, 3vw, 1.5rem)", color: "#111", marginBottom: "8px" }}>Location</h2>
-        <div style={{ marginBottom: "20px" }}>
+        <SectionTitle>Location</SectionTitle>
+        <div style={{ marginBottom: space.lg }}>
           {locationLines.length > 0 ? (
-            locationLines.map((line, i) => <p key={i} style={{ fontFamily: "'Kufam', sans-serif", fontSize: "clamp(0.8rem, 2vw, 0.87rem)", color: "#444", marginBottom: "3px" }}>{line}</p>)
+            locationLines.map(([k, v], i) => (
+              <p key={i} style={{ ...bodyStyle, marginBottom: "3px" }}>
+                <span style={{ color: inkMuted }}>{k}: </span>{v}
+              </p>
+            ))
           ) : (
-            <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "clamp(0.8rem, 2vw, 0.87rem)", color: "#444" }}>{company.postLocation?.address || "No location set"}</p>
+            <p style={bodyStyle}>{company.postLocation?.address || "No location set"}</p>
           )}
         </div>
 
-        <h2 style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(1.2rem, 3vw, 1.5rem)", color: "#111", marginBottom: "8px" }}>Benefits</h2>
-        <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "clamp(0.8rem, 2vw, 0.87rem)", color: "#444", whiteSpace: "pre-line", marginBottom: "20px" }}>{Array.isArray(company.benefits) ? company.benefits.join("\n") : (company.benefits || "N/A")}</p>
+        <SectionTitle>Benefits</SectionTitle>
+        <p style={{ ...bodyStyle, whiteSpace: "pre-line", marginBottom: space.lg }}>{Array.isArray(company.benefits) ? company.benefits.join("\n") : (company.benefits || "Not listed")}</p>
 
-        <h2 style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(1.2rem, 3vw, 1.5rem)", color: "#111", marginBottom: "10px" }}>Course / Program:</h2>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", marginBottom: "20px" }}>
+        <SectionTitle>Open to these programs</SectionTitle>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: space.sm, marginBottom: space.lg }}>
           {(Array.isArray(company.courseSelections) ? company.courseSelections : []).map((cp, i) => {
-            const label = [cp.college, cp.program, cp.specialization].filter(Boolean).join(" – ");
-            return <span key={i} style={{ padding: "4px 14px", borderRadius: "20px", background: "#e0f0e0", color: "#2a7a2a", fontFamily: "'Kufam', sans-serif", fontSize: "0.8rem", fontWeight: 600 }}>{label}</span>;
+            const label = [cp.college, cp.program, cp.specialization].filter(Boolean).join(" · ");
+            return (
+              <span key={i} style={{ padding: "5px 14px", borderRadius: radius.pill, background: color.wine800, border: `1px solid ${line}`, color: inkBody, fontFamily: font.ui, ...type.helper }}>
+                {label}
+              </span>
+            );
           })}
         </div>
 
-        <h2 style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(1.2rem, 3vw, 1.5rem)", color: "#111", marginBottom: "10px" }}>Skills Required</h2>
-        <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "clamp(0.8rem, 2vw, 0.87rem)", color: "#444", whiteSpace: "pre-line" }}>{Array.isArray(company.skillsRequired) ? company.skillsRequired.join("\n") : (company.skillsRequired || company.skills?.join(", ") || "N/A")}</p>
+        <SectionTitle>Skills required</SectionTitle>
+        <p style={{ ...bodyStyle, whiteSpace: "pre-line" }}>{Array.isArray(company.skillsRequired) ? company.skillsRequired.join("\n") : (company.skillsRequired || company.skills?.join(", ") || "Not listed")}</p>
       </div>
 
       {/* Bottom action bar */}
-      <div className="stud-profile-bar" style={{ position: "absolute", bottom: 0, left: 0, right: 0, background: "white", borderTop: "1px solid #eee", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+      <div className="stud-profile-bar" style={{ position: "absolute", bottom: 0, left: 0, right: 0, background: surface, borderTop: `1px solid ${line}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: space.md }}>
         <div className="stud-action-buttons">
-          <button onClick={onApplyNow} style={{ background: darkRed, color: "white", border: "none", borderRadius: "24px", padding: "12px 28px", fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(0.9rem, 2.5vw, 1.1rem)", cursor: "pointer" }}>Apply Now!</button>
-          <button onClick={onMessageNow} style={{ background: darkRed, color: "white", border: "none", borderRadius: "24px", padding: "12px 28px", fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(0.9rem, 2.5vw, 1.1rem)", cursor: "pointer" }}>Message Now!</button>
+          <button
+            onClick={onApplyNow}
+            style={{ background: panel, color: onPanel, border: "none", borderRadius: radius.pill, padding: "12px 28px", fontFamily: font.ui, ...type.control, cursor: "pointer", boxShadow: shadow.pill, transition: `background 240ms ${ease}`, whiteSpace: "nowrap" }}
+            onMouseEnter={e => (e.currentTarget.style.background = panelDeep)}
+            onMouseLeave={e => (e.currentTarget.style.background = panel)}
+          >
+            Apply now
+          </button>
+          <button
+            onClick={onMessageNow}
+            style={{ background: surface, color: ink, border: `1px solid ${color.wine400}`, borderRadius: radius.pill, padding: "12px 24px", fontFamily: font.ui, ...type.control, cursor: "pointer", transition: `background 240ms ${ease}`, whiteSpace: "nowrap" }}
+            onMouseEnter={e => (e.currentTarget.style.background = color.wine800)}
+            onMouseLeave={e => (e.currentTarget.style.background = surface)}
+          >
+            Message company
+          </button>
         </div>
-        <div onClick={onReport} style={{ cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: "4px" }}>
-          <img src={reportIcon} alt="Report" style={{ width: "44px", height: "44px", objectFit: "contain" }} />
-          <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.72rem", color: darkRed, fontWeight: 600 }}>Report!</span>
-        </div>
+        <button
+          onClick={onReport}
+          title="Report this company"
+          style={{ display: "inline-flex", alignItems: "center", gap: space.sm, background: "transparent", border: `1px solid ${line}`, borderRadius: radius.pill, padding: "9px 16px", cursor: "pointer", fontFamily: font.ui, ...type.helper, color: inkMuted, flexShrink: 0, whiteSpace: "nowrap" }}
+          onMouseEnter={e => { e.currentTarget.style.borderColor = color.wine400; e.currentTarget.style.color = ink; }}
+          onMouseLeave={e => { e.currentTarget.style.borderColor = line; e.currentTarget.style.color = inkMuted; }}
+        >
+          <img src={reportIcon} alt="" style={{ width: "18px", height: "18px", objectFit: "contain", opacity: 0.75 }} />
+          Report
+        </button>
       </div>
     </div>
   );
@@ -598,33 +696,37 @@ const CompanyProfile = ({ company, onBack, onReport, onMessageNow, onApplyNow })
 // ─── FILTER PANEL ─────────────────────────────────────────────────────────────
 const FilterPanel = ({ selectedIndustries, setSelectedIndustries, citySearch, setCitySearch }) => {
   const toggleIndustry = (ind) =>
-    setSelectedIndustries(prev =>
-      prev.includes(ind) ? prev.filter(i => i !== ind) : [...prev, ind]
-    );
+    setSelectedIndustries(prev => prev.includes(ind) ? prev.filter(i => i !== ind) : [...prev, ind]);
+
   const clearAll = () => { setSelectedIndustries([]); setCitySearch(""); };
 
   return (
-    <div style={{ position: "absolute", top: "48px", right: 0, width: "240px", background: "white", border: `1.5px solid ${red}`, borderRadius: "10px", boxShadow: "0 6px 24px rgba(0,0,0,0.18)", zIndex: 100, overflow: "hidden", fontFamily: "'Kufam', sans-serif" }}>
-      <div style={{ padding: "10px 12px 4px" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
-          <p style={{ fontSize: "0.78rem", fontWeight: "bold", color: darkRed, margin: 0 }}>Industry:</p>
-          <button onClick={clearAll} style={{ background: "none", border: "none", fontSize: "0.7rem", color: red, cursor: "pointer", fontFamily: "'Kufam', sans-serif", padding: 0, textDecoration: "underline" }}>Clear all</button>
+    <div style={{ position: "absolute", top: "48px", right: 0, width: "250px", background: surface, border: `1px solid ${line}`, borderRadius: radius.card, boxShadow: shadow.panel, zIndex: 100, overflow: "hidden", fontFamily: font.ui }}>
+      <div style={{ padding: "12px 14px 6px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: space.sm }}>
+          <p style={{ ...type.label, color: ink }}>Industry</p>
+          <button onClick={clearAll} style={{ background: "none", border: "none", ...type.helper, color: inkMuted, cursor: "pointer", fontFamily: font.ui, padding: 0, textDecoration: "underline" }}>Clear all</button>
         </div>
-        <div style={{ maxHeight: "130px", overflowY: "auto", display: "flex", flexWrap: "wrap", gap: "5px" }}>
-          {INDUSTRIES.map(ind => (
-            <span key={ind} onClick={() => toggleIndustry(ind)} style={{ padding: "3px 9px", borderRadius: "20px", fontSize: "0.72rem", cursor: "pointer", userSelect: "none", background: selectedIndustries.includes(ind) ? red : "#f0e0e0", color: selectedIndustries.includes(ind) ? "white" : darkRed, border: `1px solid ${red}`, transition: "all 0.15s" }}>{ind}</span>
-          ))}
+        <div style={{ maxHeight: "130px", overflowY: "auto", display: "flex", flexWrap: "wrap", gap: "6px" }}>
+          {INDUSTRIES.map(ind => {
+            const on = selectedIndustries.includes(ind);
+            return (
+              <span key={ind} onClick={() => toggleIndustry(ind)} style={{ padding: "4px 11px", borderRadius: radius.pill, ...type.helper, cursor: "pointer", userSelect: "none", background: on ? ink : color.wine800, color: on ? color.white : inkBody, border: `1px solid ${on ? ink : line}`, transition: `all 160ms ${ease}` }}>{ind}</span>
+            );
+          })}
         </div>
       </div>
-      <hr style={{ border: "none", borderTop: "1px solid #eee", margin: "6px 0" }} />
-      <div style={{ padding: "4px 12px 10px" }}>
-        <p style={{ fontSize: "0.78rem", fontWeight: "bold", color: darkRed, marginBottom: "6px" }}>Location:</p>
+
+      <hr style={{ border: "none", borderTop: `1px solid ${lineSoft}`, margin: "10px 0" }} />
+
+      <div style={{ padding: "0 14px 14px" }}>
+        <p style={{ ...type.label, color: ink, marginBottom: space.sm }}>Location</p>
         <input
           type="text"
           value={citySearch}
           onChange={e => setCitySearch(e.target.value)}
-          placeholder="e.g. Batangas City, Tarlac, Region III..."
-          style={{ width: "100%", padding: "6px 10px", borderRadius: "8px", border: `1px solid ${red}`, fontSize: "0.76rem", fontFamily: "'Kufam', sans-serif", outline: "none", boxSizing: "border-box", color: darkRed }}
+          placeholder="City, province, or region"
+          style={{ width: "100%", padding: "9px 14px", borderRadius: radius.pill, border: `1px solid ${line}`, background: color.wine800, ...type.helper, fontFamily: font.ui, outline: "none", boxSizing: "border-box", color: ink }}
         />
       </div>
     </div>
@@ -635,7 +737,7 @@ const FilterPanel = ({ selectedIndustries, setSelectedIndustries, citySearch, se
 const CompanyCard = ({ company, onViewProfile }) => {
   // Support both old static shape ({ slots: "0/10" }) and Firestore shape ({ slot: 10 })
   const isActive = company.disabled === false || company.active !== false;
-  const displayName = company.companyName || company.name || "Unnamed Company";
+  const displayName = company.companyName || company.name || "Unnamed company";
   const displayIndustry = Array.isArray(company.industry) ? (company.industry.join(", ") || "—") : (company.industry || "—");
   const displayLocation = typeof company.location === "object"
     ? [company.location?.barangay, company.location?.city, company.location?.province, company.location?.region].filter(Boolean).join(", ")
@@ -648,23 +750,42 @@ const CompanyCard = ({ company, onViewProfile }) => {
     ? new Date(company.createdAt.seconds * 1000).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
     : (company.posted || "");
 
+  const meta = { fontFamily: font.ui, ...type.helper, color: inkMuted };
+
   return (
     <div
+      className="stud-card"
       onClick={() => isActive && onViewProfile(company)}
-      style={{ background: isActive ? "white" : "#f0f0f0", borderRadius: "14px", border: `1.5px solid ${isActive ? "#ddd" : "#ccc"}`, padding: "18px 20px", display: "flex", flexDirection: "column", gap: "6px", boxShadow: isActive ? "0 2px 10px rgba(0,0,0,0.08)" : "none", opacity: isActive ? 1 : 0.7, transition: "box-shadow 0.2s, transform 0.2s", cursor: isActive ? "pointer" : "default", position: "relative", minWidth: 0, overflow: "hidden" }}
-      onMouseEnter={e => { if (isActive) { e.currentTarget.style.boxShadow = "0 6px 20px rgba(139,0,0,0.15)"; e.currentTarget.style.transform = "translateY(-2px)"; } }}
-      onMouseLeave={e => { e.currentTarget.style.boxShadow = isActive ? "0 2px 10px rgba(0,0,0,0.08)" : "none"; e.currentTarget.style.transform = "translateY(0)"; }}
+      style={{
+        background: isActive ? surface : color.wine800,
+        borderRadius: radius.card,
+        border: `1px solid ${line}`,
+        padding: "20px 22px",
+        display: "flex", flexDirection: "column", gap: "6px",
+        boxShadow: isActive ? shadow.input : "none",
+        opacity: isActive ? 1 : 0.72,
+        transition: `box-shadow 220ms ${ease}, border-color 220ms ${ease}`,
+        cursor: isActive ? "pointer" : "default",
+        position: "relative",
+        minWidth: 0, overflow: "hidden",
+      }}
+      onMouseEnter={e => { if (isActive) { e.currentTarget.style.boxShadow = "0 10px 28px rgba(10,10,10,0.10)"; e.currentTarget.style.borderColor = color.wine400; } }}
+      onMouseLeave={e => { e.currentTarget.style.boxShadow = isActive ? shadow.input : "none"; e.currentTarget.style.borderColor = line; }}
     >
-      <div style={{ position: "absolute", top: "14px", right: "14px", background: isFull ? "#e0e0e0" : "#fff0f0", border: `1px solid ${isFull ? "#bbb" : red}`, borderRadius: "20px", padding: "2px 8px", fontSize: "0.68rem", color: isFull ? "#888" : red, fontFamily: "'Kufam', sans-serif", fontWeight: "bold" }}>
+      <div style={{ position: "absolute", top: "18px", right: "18px", background: isFull ? color.wine700 : surface, border: `1px solid ${isFull ? color.wine400 : line}`, borderRadius: radius.pill, padding: "3px 10px", fontFamily: font.ui, ...type.helper, color: isFull ? inkMuted : success, fontWeight: 500 }}>
         {isFull ? "Full" : `${totalSlots} slot${totalSlots !== 1 ? "s" : ""}`}
       </div>
-      <h3 style={{ fontFamily: "'Jua', sans-serif", fontSize: isActive ? "1.05rem" : "0.95rem", color: isActive ? "#1a1a1a" : "#555", paddingRight: "60px", lineHeight: 1.3 }}>{displayName}</h3>
-      <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.8rem", color: "#555" }}>Industry: {displayIndustry}</p>
-      <p className="stud-card-location" style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.8rem", color: "#555" }}>Location: {displayLocation}</p>
-      <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.8rem", color: "#555" }}>Slots Available: {totalSlots}</p>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "8px" }}>
-        <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.75rem", color: "#999", fontStyle: "italic" }}>{postedDate ? `Posted ${postedDate}` : ""}</span>
-        <span onClick={() => isActive && onViewProfile(company)} style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.8rem", color: isActive ? red : "#aaa", fontWeight: "bold", cursor: isActive ? "pointer" : "default", display: "flex", alignItems: "center", gap: "4px", flexShrink: 0 }}>View Post<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></span>
+      <h3 style={{ fontFamily: font.ui, fontSize: "1.0625rem", fontWeight: 600, letterSpacing: "-0.01em", color: isActive ? ink : inkMuted, paddingRight: "76px", lineHeight: 1.3, margin: 0 }}>{displayName}</h3>
+      <p style={meta}>{displayIndustry}</p>
+      <p style={{ ...meta, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{displayLocation}</p>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "10px", paddingTop: "10px", borderTop: `1px solid ${lineSoft}` }}>
+        <span style={{ ...meta, color: inkFaint }}>{postedDate ? `Posted ${postedDate}` : ""}</span>
+        <span
+          onClick={() => isActive && onViewProfile(company)}
+          style={{ fontFamily: font.ui, ...type.helper, fontWeight: 500, color: isActive ? ink : inkFaint, cursor: isActive ? "pointer" : "default", flexShrink: 0 }}
+        >
+          View post
+        </span>
       </div>
     </div>
   );
@@ -751,20 +872,22 @@ const StudentFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onMessa
       locObj.region,
       typeof c.location === "string" ? c.location : null,
     ].filter(Boolean).join(", ").toLowerCase();
-    const matchSearch = name.includes(search.toLowerCase()) || industry.includes(search.toLowerCase()) || fullLocationText.includes(search.toLowerCase());
+    const matchSearch   = name.includes(search.toLowerCase()) || industry.includes(search.toLowerCase()) || fullLocationText.includes(search.toLowerCase());
     const matchIndustry = selectedIndustries.length === 0 || industryArr.some(ind => selectedIndustries.includes(ind));
-    const matchCity = !citySearch.trim() || fullLocationText.includes(citySearch.trim().toLowerCase());
+    const matchCity     = !citySearch.trim() || fullLocationText.includes(citySearch.trim().toLowerCase());
     return matchSearch && matchIndustry && matchCity;
   });
 
-  const activeBadgeLabel = () => citySearch.trim() ? `Location: ${citySearch.trim()}` : null;
+  const activeBadgeLabel = () => citySearch.trim() ? citySearch.trim() : null;
   const clearAllFilters = () => { setSelectedIndustries([]); setCitySearch(""); };
 
-  const handleReportSubmit = (report) => { 
-    onReportSubmit?.(report); 
-    setShowReportModal(false); 
-    setShowSuccessModal(true); 
+  const handleReportSubmit = (report) => {
+    onReportSubmit?.(report);
+    setShowReportModal(false);
+    setShowSuccessModal(true);
   };
+
+  const chipStyle = { background: surface, color: inkBody, border: `1px solid ${line}`, borderRadius: radius.pill, padding: "4px 12px", fontFamily: font.ui, ...type.helper, display: "flex", alignItems: "center", gap: "6px" };
 
   if (view === "profile" && selectedCompany) {
     return (
@@ -775,9 +898,11 @@ const StudentFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onMessa
           onBack={() => setView("list")}
           onReport={() => setShowReportModal(true)}
           onMessageNow={() => onMessageNow?.({ ...selectedCompany, fromMessageNow: true })}
-          onApplyNow={() => setShowApplyModal(true)}
+          onApplyNow={() => { onApplyNow?.(selectedCompany); setShowApplyModal(true); }}
         />
-        {showReportModal && <ReportModal company={selectedCompany} onClose={() => setShowReportModal(false)} onSubmit={handleReportSubmit} reporter={user} />}
+        {showReportModal && (
+          <ReportModal company={selectedCompany} onClose={() => setShowReportModal(false)} onSubmit={handleReportSubmit} reporter={user} />
+        )}
         {showSuccessModal && (
           <SuccessModal onClose={() => { setShowSuccessModal(false); onNavigateToReports?.(); }} />
         )}
@@ -802,29 +927,37 @@ const StudentFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onMessa
     <>
       <ResponsiveStyles />
       {/* Outer: vertical scroll only, no horizontal overflow */}
-      <div className="stud-list-wrapper" style={{ padding: "clamp(16px, 4vw, 28px) clamp(16px, 4vw, 32px)", overflowY: "auto", flex: 1, background: "#f5f5f5" }}>
+      <div className="stud-list-wrapper" style={{ padding: "clamp(16px, 4vw, 28px) clamp(16px, 4vw, 32px)", overflowY: "auto", flex: 1, background: page }}>
 
         {/* Search + Filter bar */}
-        <div className="stud-search-bar" style={{ background: darkRed, borderRadius: "14px" }}>
-          <span style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(1.2rem, 4vw, 1.6rem)", color: "white", letterSpacing: "0.04em" }}>Find Company</span>
-
-          <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px", background: "white", borderRadius: "24px", padding: "7px 16px" }}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="black" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-              <div style={{ width: "2px", height: "16px", background: "rgba(0,0,0,0.3)" }} />
+        <div className="stud-search-bar" style={{ background: panel, borderRadius: radius.panel }}>
+          <div style={{ minWidth: 0 }}>
+            <span style={{ fontFamily: font.ui, fontSize: "clamp(1.1rem, 3.5vw, 1.375rem)", fontWeight: 600, letterSpacing: "-0.01em", color: onPanel }}>Find Company</span>
+            {!loading && (
+              <p style={{ fontFamily: font.ui, ...type.helper, color: onPanelDim, marginTop: "2px" }}>
+                {filtered.length} open {filtered.length === 1 ? "post" : "posts"} for your program
+              </p>
+            )}
+          </div>
+          <div style={{ position: "relative", display: "flex", alignItems: "center", flexShrink: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: space.sm, background: color.white, borderRadius: radius.pill, padding: "9px 16px" }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={inkMuted} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
               <input
                 value={search}
                 onChange={e => setSearch(e.target.value)}
-                placeholder="Search Companies"
+                placeholder="Search"
                 className="stud-search-input"
-                style={{ border: "none", background: "transparent", outline: "none", color: "black", fontFamily: "'Jersey 25', sans-serif", fontSize: "1.1rem" }}
+                style={{ border: "none", background: "transparent", outline: "none", color: ink, fontFamily: font.ui, ...type.control }}
               />
-              {search && <button onClick={() => setSearch("")} style={{ background: "none", border: "none", color: "#555", cursor: "pointer", fontSize: "1rem", padding: "0", lineHeight: 1 }}>✕</button>}
+              {search && <button onClick={() => setSearch("")} aria-label="Clear search" style={{ background: "none", border: "none", color: inkMuted, cursor: "pointer", fontSize: "0.9rem", padding: 0, lineHeight: 1 }}>✕</button>}
             </div>
             <div ref={filterRef} style={{ position: "relative", marginLeft: "10px" }}>
-              <div onClick={() => setShowFilter(v => !v)} style={{ width: "38px", height: "38px", background: "white", borderRadius: "8px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", border: hasFilter ? `2px solid ${red}` : "none", position: "relative" }}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={hasFilter ? red : "#555"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
-                {hasFilter && <div style={{ position: "absolute", top: "-4px", right: "-4px", width: "10px", height: "10px", borderRadius: "50%", background: red }} />}
+              <div
+                onClick={() => setShowFilter(v => !v)}
+                title="Filters"
+                style={{ width: "40px", height: "40px", background: hasFilter ? color.goldTint : color.white, borderRadius: radius.pill, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", border: hasFilter ? `1px solid ${color.onWineFaint}` : "none", position: "relative" }}
+              >
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={hasFilter ? onPanel : inkMuted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
               </div>
               {showFilter && (
                 <FilterPanel
@@ -836,46 +969,57 @@ const StudentFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onMessa
           </div>
         </div>
 
-        {/* Active filter badges */}
+        {/* Active filter chips */}
         {hasFilter && (
-          <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "16px", flexWrap: "wrap" }}>
-            <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.78rem", color: "#888" }}>Filters:</span>
+          <div style={{ display: "flex", alignItems: "center", gap: space.sm, marginBottom: space.md, flexWrap: "wrap" }}>
             {selectedIndustries.map(ind => (
-              <span key={ind} style={{ background: "#f0e0e0", color: darkRed, border: `1px solid ${red}`, borderRadius: "20px", padding: "2px 10px", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif", display: "flex", alignItems: "center", gap: "5px" }}>
-                {ind}<span onClick={() => setSelectedIndustries(p => p.filter(i => i !== ind))} style={{ cursor: "pointer", fontWeight: "bold" }}>×</span>
+              <span key={ind} style={chipStyle}>
+                {ind}<span onClick={() => setSelectedIndustries(p => p.filter(i => i !== ind))} style={{ cursor: "pointer", color: inkMuted }}>✕</span>
               </span>
             ))}
             {activeBadgeLabel() && (
-              <span style={{ background: "#f0e0e0", color: darkRed, border: `1px solid ${red}`, borderRadius: "20px", padding: "2px 10px", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif", display: "flex", alignItems: "center", gap: "5px" }}>
+              <span style={chipStyle}>
                 {activeBadgeLabel()}
-                <span onClick={() => setCitySearch("")} style={{ cursor: "pointer", fontWeight: "bold" }}>×</span>
+                <span onClick={() => setCitySearch("")} style={{ cursor: "pointer", color: inkMuted }}>✕</span>
               </span>
             )}
-            <span onClick={clearAllFilters} style={{ fontSize: "0.74rem", color: red, cursor: "pointer", fontFamily: "'Kufam', sans-serif", textDecoration: "underline" }}>Clear all</span>
+            <span onClick={clearAllFilters} style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, cursor: "pointer", textDecoration: "underline" }}>Clear all</span>
           </div>
         )}
 
-        {!loading && <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", color: "#888", marginBottom: "14px" }}>Showing {filtered.length} compan{filtered.length !== 1 ? "ies" : "y"}</p>}
-
         {loading ? (
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "60px 0", gap: "12px" }}>
-            <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.95rem", color: "#aaa" }}>Loading companies…</p>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "72px 0" }}>
+            <p style={{ fontFamily: font.ui, ...type.body, color: inkFaint }}>Loading posts…</p>
           </div>
         ) : filtered.length > 0 ? (
+          /* CSS grid: 2-col on ≥768px, 1-col below — controlled entirely by .stud-company-grid */
           <div className="stud-company-grid">
             {filtered.map(c => (
-              <CompanyCard key={c.id} company={c} onViewProfile={(company) => { setSelectedCompany(company); setView("profile"); onVisitCompany?.({ id: company.id, name: company.companyName || company.name }); }} />
+              <CompanyCard
+                key={c.id}
+                company={c}
+                onViewProfile={(company) => { setSelectedCompany(company); setView("profile"); onVisitCompany?.({ id: company.id, name: company.companyName || company.name }); }}
+              />
             ))}
           </div>
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "60px 0", gap: "12px" }}>
-            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#ccc" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-            <p style={{ fontFamily: "'Jua', sans-serif", fontSize: "1.5rem", color: "#bbb" }}>No companies found</p>
-            <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.95rem", color: "#aaa" }}>
-              {!myCollege
-                ? "Your college isn't set on your account yet. Please contact your coordinator."
-                : "No companies looking for students from your program match your filters yet."}
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "72px 24px", gap: space.sm, textAlign: "center", background: surface, border: `1px dashed ${color.wine400}`, borderRadius: radius.panel }}>
+            <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke={inkFaint} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <p style={{ fontFamily: font.ui, fontSize: "1.0625rem", fontWeight: 600, color: ink }}>
+              {!myCollege ? "Your college isn't set yet" : "No posts match this search"}
             </p>
+            <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, maxWidth: "44ch" }}>
+              {!myCollege
+                ? "Message your coordinator to have your college and program added to your account."
+                : hasFilter
+                  ? "Clear a filter or search a different city to widen the results."
+                  : "New posts appear here as companies publish them for your program."}
+            </p>
+            {myCollege && hasFilter && (
+              <button onClick={clearAllFilters} style={{ marginTop: space.sm, background: panel, color: onPanel, border: "none", borderRadius: radius.pill, padding: "9px 20px", fontFamily: font.ui, ...type.control, cursor: "pointer" }}>
+                Clear filters
+              </button>
+            )}
           </div>
         )}
       </div>

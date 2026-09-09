@@ -1,21 +1,33 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
 import { doc, updateDoc, onSnapshot } from "firebase/firestore";
-import { getAuth, signOut } from "firebase/auth";
+import { getAuth } from "firebase/auth";
 import { db } from "./firebase";
 import { changePassword } from "./AuthService";
 import { useDepartmentsPrograms } from "./departmentsPrograms";
-import AccountProfile from "../icons/accountprofile.png";
-import viewIcon from "../icons/view.png";
-import PersonalAccountProfile from "../icons/personalaccountprofile.png";
-import personalInfoIcon from "../icons/personal.png";
-import privacyIcon from "../icons/priv.png";
-import termsIcon from "../icons/terms.png";
-import resetIcon from "../icons/priv.png";
+import { color, font, type, space, radius, shadow, ease } from "./theme";
 
-// ─── Color Tokens ─────────────────────────────────────────────────────────────
-const red     = "#590101";
-const darkRed = "#590101";
-const fieldBg = "#7A4F4F";
+import PersonalAccountProfile from "../icons/personalaccountprofile.png";
+import viewIcon from "../icons/view.png";
+
+// ── Design tokens, aliased for this screen ────────────────────────────────────
+// Same aliases as CoordinatorAccountProfileScreen — lahat galing sa theme.js.
+// Walang hardcoded hex dito; sa theme.js lang ang edit kung magbabago ang palette.
+const ink          = color.ink;
+const inkBody      = color.inkBody;
+const inkMuted     = color.inkMuted;
+const inkFaint     = color.inkFaint;
+const surface      = color.wine600;      // cards, rows, modals
+const page         = color.wine900;      // page background
+const field        = color.wine800;      // inputs / neutral fills
+const line         = color.wine700;      // hairlines & borders
+const lineSoft     = color.wine800;
+const panel        = color.blush100;     // dark panels (banner, headers, footers)
+const panelDeep    = color.blush50;
+const onPanel      = color.onWine;
+const onPanelDim   = color.onWineMuted;
+const onPanelFaint = color.onWineFaint;
+const danger       = color.danger;
+const success      = color.success;
 
 // ── Password strength requirements ────────────────────────────────────────────
 const PASSWORD_RULES = [
@@ -32,205 +44,159 @@ const isPasswordStrong = (pwd) => PASSWORD_RULES.every(rule => rule.test(pwd));
 const PasswordChecklist = ({ password }) => {
   if (!password) return null;
   return (
-  <div style={{ display: "flex", flexDirection: "column", gap: "3px", margin: "2px 0 12px 2px" }}>
-    {PASSWORD_RULES.map(rule => {
-      const passed = rule.test(password);
-      return (
-        <div key={rule.key} style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-          <span style={{ fontSize: "0.78rem", fontWeight: 700, color: passed ? "#2a7a2a" : "#c0392b", width: "12px", flexShrink: 0 }}>
-            {passed ? "✓" : "✗"}
-          </span>
-          <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.74rem", color: passed ? "#2a7a2a" : "#888" }}>
-            {rule.label}
-          </span>
-        </div>
-      );
-    })}
-  </div>
+    <div style={{ display: "flex", flexDirection: "column", gap: "3px", margin: `2px 0 ${space.md} 2px` }}>
+      {PASSWORD_RULES.map(rule => {
+        const passed = rule.test(password);
+        return (
+          <div key={rule.key} style={{ display: "flex", alignItems: "center", gap: "7px" }}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={passed ? success : inkFaint} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+              {passed ? <polyline points="20 6 9 17 4 12" /> : <><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></>}
+            </svg>
+            <span style={{ fontFamily: font.ui, fontSize: "0.8125rem", lineHeight: 1.45, color: passed ? success : inkMuted }}>
+              {rule.label}
+            </span>
+          </div>
+        );
+      })}
+    </div>
   );
 };
 
 // ── Responsive Styles ─────────────────────────────────────────────────────────
 const ResponsiveStyles = () => (
   <style>{`
-    @import url('https://fonts.googleapis.com/css2?family=Jersey+25&family=Jua&family=Kufam:wght@400;600;700&family=Monomaniac+One&display=swap');
-    * { box-sizing: border-box; }
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+    .sap-screen *, .sap-modal * { box-sizing: border-box; }
 
+    /* ── Profile header card ── */
     .sap-header-card {
       position: relative;
       z-index: 2;
-      margin-top: 60px;
-      background: white;
-      border-radius: 16px;
-      padding: 48px 48px 14px;
+      margin-top: 52px;
+      background: ${surface};
+      border-radius: ${radius.card};
+      border: 1px solid ${line};
+      padding: 44px 44px 16px;
       display: flex;
       flex-direction: column;
       align-items: center;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      box-shadow: ${shadow.pill};
       min-width: 260px;
     }
     @media (max-width: 480px) {
-      .sap-header-card { padding: 48px 20px 14px; min-width: unset; width: 90%; }
+      .sap-header-card { padding: 44px 22px 14px; min-width: unset; width: 90%; }
     }
 
+    /* ── Menu body ── */
     .sap-body {
       flex: 1;
       overflow-y: auto;
-      padding: 16px 24px 28px;
-      background: #f0f0f0;
+      padding: 0 clamp(16px, 4vw, 32px) 32px;
+      background: ${page};
       display: flex;
       flex-direction: column;
-      align-items: center;
-    }
-    @media (max-width: 480px) {
-      .sap-body { padding: 12px 12px 24px; }
+      align-items: stretch;
     }
 
-    .sap-menu-box {
-      background: #590101;
-      border-radius: 16px;
-      padding: 16px 20px;
-      margin-bottom: 28px;
-      width: 100%;
-      box-sizing: border-box;
-      overflow-y: auto;
-      max-height: 260px;
-    }
-    @media (max-width: 480px) {
-      .sap-menu-box { padding: 12px 12px; }
-    }
+    /* ── Grouped list ── */
+    .sap-menu-stack { width: 100%; }
+    .sap-menu-group { margin-bottom: ${space.lg}; }
 
+    /* ── Menu row ── */
     .sap-menu-row {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      background: #7A4F4F;
-      border-radius: 10px;
-      padding: 14px 18px;
-      cursor: pointer;
+      gap: ${space.md};
+      background: ${surface};
+      border: 1px solid ${line};
+      border-radius: ${radius.pill};
+      padding: 15px 22px;
       margin-bottom: 10px;
-      transition: background 0.15s;
+      cursor: pointer;
+      box-shadow: ${shadow.input};
+      transition: border-color 220ms ${ease}, box-shadow 220ms ${ease};
+      width: 100%;
+      text-align: left;
+      font: inherit;
     }
-    .sap-menu-row:hover { background: #8f5f5f; }
+    .sap-menu-row:last-child { margin-bottom: 0; }
+    .sap-menu-row:hover {
+      border-color: ${color.wine400};
+      box-shadow: 0 8px 22px rgba(10,10,10,0.08);
+    }
     @media (max-width: 480px) {
-      .sap-menu-row { padding: 10px 12px; }
+      .sap-menu-row { padding: 13px 16px; }
     }
 
+    /* ── Section header bar ── */
     .sap-section-header {
-      background: linear-gradient(90deg, #590101 0%, #590101 100%);
-      padding: 16px 28px;
+      background: ${panel};
+      padding: 16px clamp(16px, 4vw, 28px);
       display: flex;
       align-items: center;
-      gap: 14px;
+      gap: ${space.md};
       flex-shrink: 0;
     }
-    @media (max-width: 480px) {
-      .sap-section-header { padding: 12px 14px; gap: 10px; }
-      .sap-section-header h2 { font-size: 1.3rem !important; }
-    }
 
+    /* ── Personal info body ── */
     .sap-info-body {
       flex: 1;
+      min-height: 0;
       overflow-y: auto;
       overflow-x: hidden;
-      padding: 24px 32px;
-      background: #f5f5f5;
-    }
-    @media (max-width: 560px) {
-      .sap-info-body { padding: 16px 14px; }
+      padding: clamp(16px, 4vw, 28px) clamp(14px, 4vw, 32px);
+      background: ${page};
     }
 
-    .sap-info-card {
-      background: #590101;
-      border-radius: 16px;
-      padding: 16px 20px;
+    /* ── Inner info card ── */
+    .sap-info-card { width: 100%; }
+
+    /* ── Info row ── */
+    .sap-info-row {
+      background: ${surface};
+      border: 1px solid ${line};
+      border-radius: ${radius.card};
+      padding: 14px 18px;
+      margin-bottom: 10px;
+      box-shadow: ${shadow.input};
     }
     @media (max-width: 480px) {
-      .sap-info-card { padding: 12px 12px; }
-    }
-
-    .sap-sub-body {
-      flex: 1;
-      overflow-y: auto;
-      padding: 28px 32px;
-      background: #f5f5f5;
-    }
-    @media (max-width: 560px) {
-      .sap-sub-body { padding: 16px 14px; }
-    }
-
-    .sap-otp-row {
-      display: flex;
-      gap: 10px;
-      margin-bottom: 16px;
-      justify-content: center;
-      flex-wrap: wrap;
-    }
-
-    .sap-otp-input {
-      width: 52px;
-      height: 60px;
-      text-align: center;
-      background: #590101;
-      border: none;
-      border-radius: 12px;
-      color: white;
-      font-family: 'Jersey 25', sans-serif;
-      font-size: 1.8rem;
-      outline: none;
-    }
-    @media (max-width: 400px) {
-      .sap-otp-input { width: 38px; height: 48px; font-size: 1.4rem; border-radius: 8px; }
-    }
-
-    .sap-divider {
-      width: 80%;
-      height: 1px;
-      background: #ccc;
-      margin: 16px 0;
-    }
-    @media (max-width: 480px) {
-      .sap-divider { width: 92%; }
-    }
-
-    .sap-save-row {
-      display: flex;
-      justify-content: flex-end;
-      gap: 8px;
-      margin-top: 12px;
-      flex-wrap: wrap;
+      .sap-info-row { padding: 12px 14px; }
     }
 
     /* ── Modal inner ── */
     .sap-modal-inner {
-      background: white;
-      border-radius: 20px;
-      width: 480px;
-      max-width: 95vw;
-      max-height: 88vh;
+      background: ${surface};
+      border-radius: ${radius.panel};
+      box-shadow: ${shadow.panel};
+      width: 420px;
+      max-width: 88vw;
+      max-height: 62vh;
       overflow: hidden;
       display: flex;
       flex-direction: column;
     }
-
     /* ── Modal scroll body ── */
     .sap-modal-body {
       flex: 1;
       overflow-y: auto;
       overflow-x: hidden;
-      padding: 24px 28px;
+      padding: ${space.lg};
     }
     @media (max-width: 480px) {
-      .sap-modal-body { padding: 16px 16px; }
+      .sap-modal-inner { max-width: 84vw; max-height: 48vh; }
+      .sap-modal-body { padding: ${space.md}; }
     }
 
     /* ── Modal footer ── */
     .sap-modal-footer {
-      background: #590101;
-      padding: 14px 24px;
+      background: ${panel};
+      border-top: 1px solid ${line};
+      padding: 12px ${space.lg};
       display: flex;
       justify-content: flex-end;
-      gap: 12px;
+      gap: ${space.sm};
       flex-shrink: 0;
       flex-wrap: wrap;
     }
@@ -238,11 +204,283 @@ const ResponsiveStyles = () => (
       .sap-modal-footer { padding: 10px 14px; flex-direction: column-reverse; align-items: stretch; }
       .sap-modal-footer button { width: 100%; text-align: center; }
     }
+
+    /* ── Divider line ── */
+    .sap-divider {
+      height: 1px;
+      background: ${line};
+      margin: ${space.md} clamp(16px, 4vw, 32px) ${space.lg};
+    }
+
+    /* ── Save row ── */
+    .sap-save-row {
+      display: flex;
+      justify-content: flex-end;
+      gap: ${space.sm};
+      margin-top: ${space.md};
+      flex-wrap: wrap;
+    }
+
+    /* Visible keyboard focus on every control in this screen */
+    .sap-screen :focus-visible,
+    .sap-modal :focus-visible {
+      outline: none;
+      box-shadow: ${shadow.focus};
+      border-radius: ${radius.pill};
+    }
+
+    @keyframes sapFadeIn { from { opacity: 0 } to { opacity: 1 } }
+    @keyframes sapLift   { from { opacity: 0; transform: translateY(6px) } to { opacity: 1; transform: none } }
+    .sap-overlay { animation: sapFadeIn 180ms ${ease} both; }
+    .sap-dialog  { animation: sapLift 240ms ${ease} both; }
+
+    @media (prefers-reduced-motion: reduce) {
+      .sap-overlay, .sap-dialog { animation: none !important; }
+      .sap-menu-row { transition: none !important; }
+    }
   `}</style>
 );
 
+// ── Legal panel styles ────────────────────────────────────────────────────────
+// Same reading layout as the coordinator's legal screens — progress rail,
+// "On this page" sidebar, sectioned body — measured against this panel's own
+// scroll container, since it opens inside the content area beside the nav
+// rather than taking over the window.
+const LegalStyles = () => (
+  <style>{`
+    .legal-panel { display: flex; flex-direction: column; flex: 1; min-height: 0; background: ${page}; }
+    .legal-progress-track { height: 3px; flex-shrink: 0; background: ${lineSoft}; }
+    .legal-progress-fill {
+      height: 100%;
+      background: ${inkMuted};
+      transition: width 120ms linear;
+    }
+
+    .legal-cols { flex: 1; min-height: 0; display: flex; }
+
+    .legal-toc {
+      width: clamp(130px, 30vw, 240px);
+      flex-shrink: 0;
+      overflow-y: auto;
+      padding: clamp(20px, 3vw, 28px) 0 40px clamp(16px, 3vw, 28px);
+      border-right: 1px solid ${line};
+    }
+    .legal-toc-heading {
+      font-family: ${font.ui};
+      font-size: 0.8125rem;
+      font-weight: 500;
+      color: ${inkMuted};
+      margin: 0 0 12px;
+    }
+    .legal-toc-btn {
+      display: block; width: 100%; text-align: left;
+      background: none; border: none; cursor: pointer;
+      padding: 7px 0 7px 12px;
+      font-family: ${font.ui};
+      font-size: 0.8125rem;
+      line-height: 1.45;
+      transition: border-color 160ms ${ease}, color 160ms ${ease};
+    }
+
+    .legal-scroll {
+      flex: 1;
+      min-width: 0;
+      position: relative;
+      overflow-y: auto;
+      padding: clamp(20px, 3vw, 32px) clamp(16px, 4vw, 44px) 56px;
+    }
+
+    @media (max-width: 480px) {
+      .legal-toc { padding-left: 12px; padding-right: 8px; }
+      .legal-toc-heading { font-size: 0.75rem; }
+      .legal-toc-btn { font-size: 0.75rem; padding: 6px 0 6px 8px; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .legal-progress-fill, .legal-toc-btn { transition: none !important; }
+    }
+  `}</style>
+);
+
+// ── Shared field styles ───────────────────────────────────────────────────────
+const fieldStyle = {
+  width: "100%", padding: "11px 16px",
+  background: field, border: `1px solid ${line}`, borderRadius: radius.pill,
+  color: ink, fontFamily: font.ui, ...type.body,
+  outline: "none", boxSizing: "border-box",
+};
+
+const labelStyle = {
+  fontFamily: font.ui, ...type.label,
+  color: ink, marginBottom: "6px", display: "block",
+};
+
+const errorTextStyle = { color: danger, fontSize: "0.8125rem", fontFamily: font.ui, margin: `0 0 ${space.sm} 6px` };
+
+// ── Icons ─────────────────────────────────────────────────────────────────────
+const EditIcon = ({ size = 16, stroke = ink }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={stroke} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+  </svg>
+);
+
+const EyeIcon = ({ show, onClick }) => (
+  <span onClick={onClick} role="button" tabIndex={0} aria-label={show ? "Hide password" : "Show password"}
+    onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } }}
+    style={{ position: "absolute", right: "14px", top: "50%", transform: "translateY(-50%)", cursor: "pointer", display: "flex", alignItems: "center", color: inkMuted }}>
+    {show ? (
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+      </svg>
+    ) : (
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
+        <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
+        <line x1="1" y1="1" x2="23" y2="23"/>
+      </svg>
+    )}
+  </span>
+);
+
+const GlobalStyles = () => {
+  React.useEffect(() => {
+    const style = document.createElement("style");
+    style.innerHTML = `
+      input[type="password"]::-ms-reveal,
+      input[type="password"]::-ms-clear,
+      input[type="password"]::-webkit-credentials-auto-fill-button,
+      input[type="password"]::-webkit-strong-password-auto-fill-button { display: none !important; }
+      input::-webkit-contacts-auto-fill-button,
+      input::-webkit-credentials-auto-fill-button { display: none !important; }
+    `;
+    document.head.appendChild(style);
+    return () => document.head.removeChild(style);
+  }, []);
+  return null;
+};
+
+const PasswordInput = ({ value, onChange, placeholder = "••••••••", onKeyDown, invalid }) => {
+  const [show, setShow] = useState(false);
+  const blockPaste = (e) => e.preventDefault();
+  return (
+    <div style={{ position: "relative", marginBottom: space.sm }}>
+      <input type={show ? "text" : "password"} value={value} onChange={onChange} onKeyDown={onKeyDown} placeholder={placeholder}
+        onPaste={blockPaste} onCopy={blockPaste} onCut={blockPaste}
+        style={{ ...fieldStyle, paddingRight: "44px", borderColor: invalid ? danger : line }} />
+      <EyeIcon show={show} onClick={() => setShow(s => !s)} />
+    </div>
+  );
+};
+
+function BackButton({ onClick }) {
+  return (
+    <button onClick={onClick} aria-label="Go back"
+      style={{ background: "transparent", border: `1px solid ${onPanelFaint}`, borderRadius: "50%", width: "32px", height: "32px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0, color: onPanel, transition: `background 240ms ${ease}` }}
+      onMouseEnter={e => (e.currentTarget.style.background = "rgba(250,250,250,0.10)")}
+      onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+        <polyline points="15 18 9 12 15 6"/>
+      </svg>
+    </button>
+  );
+}
+
+// ── Shared section header bar ─────────────────────────────────────────────────
+function SectionHeaderBar({ title, onBack }) {
+  return (
+    <div className="sap-section-header">
+      {onBack && <BackButton onClick={onBack} />}
+      <h2 style={{ fontFamily: font.ui, fontSize: "clamp(1.1rem, 3.5vw, 1.375rem)", fontWeight: 600, letterSpacing: "-0.01em", color: onPanel, margin: 0 }}>{title}</h2>
+    </div>
+  );
+}
+
+// ── Row icons ─────────────────────────────────────────────────────────────────
+// Outline strokes lang, 1.8 weight — para hindi nakikipag-agawan sa label.
+const RowIcon = ({ children }) => (
+  <span style={{ width: "34px", height: "34px", borderRadius: "10px", background: lineSoft, border: `1px solid ${line}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: ink }}>
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      {children}
+    </svg>
+  </span>
+);
+
+const icons = {
+  person:   <><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></>,
+  key:      <><path d="M21 2l-2 2m-7.6 7.6a5.5 5.5 0 1 1-7.8 7.8 5.5 5.5 0 0 1 7.8-7.8zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3"/></>,
+  document: <><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></>,
+};
+
+// ── Menu row + grouped section ────────────────────────────────────────────────
+const MenuRow = ({ label, icon, onClick }) => (
+  <button type="button" onClick={onClick} className="sap-menu-row">
+    <span style={{ display: "flex", alignItems: "center", gap: "14px", minWidth: 0 }}>
+      {icon && <RowIcon>{icons[icon]}</RowIcon>}
+      <span style={{ fontFamily: font.ui, fontSize: "1rem", fontWeight: 500, letterSpacing: "-0.01em", color: ink }}>{label}</span>
+    </span>
+    <img src={viewIcon} alt="" style={{ width: "30px", height: "30px", objectFit: "contain", flexShrink: 0 }} />
+  </button>
+);
+
+const MenuGroup = ({ title, children }) => (
+  <div className="sap-menu-group">
+    <p style={{ fontFamily: font.ui, fontSize: "1rem", fontWeight: 600, letterSpacing: "-0.01em", color: ink, margin: `0 0 10px 6px` }}>{title}</p>
+    {children}
+  </div>
+);
+
+// ── Modal footer buttons ──────────────────────────────────────────────────────
+const FooterGhostButton = ({ children, ...rest }) => (
+  <button {...rest} style={{ padding: "9px 20px", borderRadius: radius.pill, background: "transparent", color: onPanelDim, border: `1px solid ${onPanelFaint}`, fontFamily: font.ui, ...type.control, cursor: "pointer" }}>{children}</button>
+);
+
+const FooterSolidButton = ({ children, disabled, ...rest }) => (
+  <button {...rest} disabled={disabled} style={{ padding: "9px 22px", borderRadius: radius.pill, background: color.white, color: ink, border: "none", fontFamily: font.ui, ...type.control, cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.6 : 1 }}>{children}</button>
+);
+
+const ModalTitle = ({ children, sub }) => (
+  <div style={{ marginBottom: space.md }}>
+    <p style={{ fontFamily: font.ui, fontSize: "1.125rem", fontWeight: 600, letterSpacing: "-0.01em", color: ink, margin: 0 }}>{children}</p>
+    {sub && <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, margin: "4px 0 0" }}>{sub}</p>}
+  </div>
+);
+
+// ── Status dialog (shared success / confirmation sheet) ───────────────────────
+const StatusDialog = ({ icon, title, body, actionLabel = "Done", onAction }) => (
+  <div className="sap-modal sap-overlay" style={{ position: "fixed", inset: 0, zIndex: 9999, background: "rgba(10,10,10,0.5)", display: "flex", alignItems: "center", justifyContent: "center", padding: space.md }}>
+    <div className="sap-dialog" style={{ background: surface, borderRadius: radius.panel, border: `1px solid ${line}`, boxShadow: shadow.panel, padding: `${space.xl} ${space.lg}`, width: "clamp(280px, 85vw, 390px)", display: "flex", flexDirection: "column", alignItems: "center", gap: space.sm, textAlign: "center" }}>
+      <div style={{ width: "56px", height: "56px", borderRadius: "50%", background: lineSoft, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: space.xs }}>
+        {icon}
+      </div>
+      <h3 style={{ fontFamily: font.ui, fontSize: "1.25rem", fontWeight: 600, letterSpacing: "-0.01em", color: ink, margin: 0 }}>{title}</h3>
+      <p style={{ fontFamily: font.ui, ...type.body, color: inkBody, margin: 0 }}>{body}</p>
+      <button onClick={onAction}
+        style={{ width: "100%", padding: "12px", borderRadius: radius.pill, border: "none", background: panel, color: onPanel, fontFamily: font.ui, ...type.control, cursor: "pointer", marginTop: space.sm, boxShadow: shadow.pill, transition: `background 240ms ${ease}` }}
+        onMouseEnter={e => (e.currentTarget.style.background = panelDeep)}
+        onMouseLeave={e => (e.currentTarget.style.background = panel)}>
+        {actionLabel}
+      </button>
+    </div>
+  </div>
+);
+
+const CheckIcon = () => (
+  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke={success} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+);
+
+const StudentSaveSuccessModal = ({ onClose }) => (
+  <StatusDialog
+    icon={<CheckIcon />}
+    title="Changes saved"
+    body="Your personal information has been updated."
+    actionLabel="Done"
+    onAction={onClose}
+  />
+);
+
 // ─── College & Program Data ───────────────────────────────────────────────────
-// Now loaded live from Firestore via useDepartmentsPrograms() (see
+// Loaded live from Firestore via useDepartmentsPrograms() (see
 // ./departmentsPrograms) — the same source SignUpStep1Screen,
 // CoordinatorAccountProfileScreen, and CompanyCreatePostScreen all use, so
 // a student's College/Program always matches the exact same full names a
@@ -252,193 +490,18 @@ const ResponsiveStyles = () => (
 // near LEGACY_COLLEGE_CODE_MAP below for why that broke matching).
 
 const YEAR_SECTIONS = [
-  "4-A","4-B","4-C","4-D",
+  "4-A", "4-B", "4-C", "4-D",
 ];
 
-// ─── Shared Field Style ───────────────────────────────────────────────────────
-const fieldStyle = {
-  width: "100%",
-  padding: "10px 16px",
-  background: fieldBg,
-  border: "none",
-  borderRadius: "20px",
-  color: "white",
-  fontSize: "0.88rem",
-  fontFamily: "'Kufam', sans-serif",
-  outline: "none",
-  boxSizing: "border-box",
-};
-
-// ─── Shared Label Style ───────────────────────────────────────────────────────
-const labelStyle = {
-  fontFamily: "'Kufam', sans-serif",
-  fontWeight: 700,
-  fontSize: "0.88rem",
-  color: "#222",
-  marginBottom: "4px",
-  display: "block",
-};
-
-
-// ─── PngIcon Component ────────────────────────────────────────────────────────
-const PngIcon = ({ src, size = 80 }) => (
-  <img
-    src={src}
-    alt=""
-    style={{
-      width: size,
-      height: size,
-      objectFit: "contain",
-      flexShrink: 0,
-    }}
-  />
-);
-
-
-// ─── EditIcon Component ───────────────────────────────────────────────────────
-const EditIcon = ({ size = 16, color = "white" }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-  </svg>
-);
-
-
-// ─── EyeIcon Component ────────────────────────────────────────────────────────
-const EyeIcon = ({ show, onClick }) => (
-  <span
-    onClick={onClick}
-    style={{
-      position: "absolute",
-      right: "14px",
-      top: "50%",
-      transform: "translateY(-50%)",
-      cursor: "pointer",
-      display: "flex",
-      alignItems: "center",
-    }}
-  >
-    {show ? (
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-        <circle cx="12" cy="12" r="3"/>
-      </svg>
-    ) : (
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
-        <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
-        <line x1="1" y1="1" x2="23" y2="23"/>
-      </svg>
-    )}
-  </span>
-);
-
-
-// ─── GlobalStyles Component ───────────────────────────────────────────────────
-const GlobalStyles = () => {
-  React.useEffect(() => {
-    const style = document.createElement("style");
-    style.innerHTML = `
-      input[type="password"]::-ms-reveal,
-      input[type="password"]::-ms-clear { display: none !important; }
-    `;
-    document.head.appendChild(style);
-    return () => document.head.removeChild(style);
-  }, []);
-  return null;
-};
-
-
-// ─── PasswordInput Component ──────────────────────────────────────────────────
-const PasswordInput = ({ value, onChange, placeholder = "••••••••", onKeyDown }) => {
-  const [show, setShow] = useState(false);
-  const blockPaste = (e) => e.preventDefault();
-  return (
-    <div style={{ position: "relative", marginBottom: "12px" }}>
-      <input
-        type={show ? "text" : "password"}
-        value={value}
-        onChange={onChange}
-        onKeyDown={onKeyDown}
-        placeholder={placeholder}
-        onPaste={blockPaste}
-        onCopy={blockPaste}
-        onCut={blockPaste}
-        style={{ ...fieldStyle, paddingRight: "44px" }}
-      />
-      <EyeIcon show={show} onClick={() => setShow(s => !s)} />
-    </div>
-  );
-};
-
-
-// ─── BackButton Component ─────────────────────────────────────────────────────
-const BackButton = ({ onClick }) => (
-  <button
-    onClick={onClick}
-    title="Go back"
-    style={{
-      background: "rgba(255,255,255,0.18)",
-      border: "2px solid white",
-      borderRadius: "50%",
-      width: "34px",
-      height: "34px",
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      cursor: "pointer",
-      flexShrink: 0,
-    }}
-  >
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="15 18 9 12 15 6"/>
-    </svg>
-  </button>
-);
-
-
-// ─── SectionHeaderBar Component ───────────────────────────────────────────────
-const SectionHeaderBar = ({ iconSrc, title, onBack }) => (
-  <div className="sap-section-header">
-    {onBack && <BackButton onClick={onBack} />}
-    {iconSrc && <PngIcon src={iconSrc} size={38} />}
-    <h2 style={{
-      fontFamily: "'Jersey 25', sans-serif",
-      fontSize: "1.8rem",
-      color: "white",
-      letterSpacing: "0.02em",
-      margin: 0,
-    }}>
-      {title}
-    </h2>
-  </div>
-);
-
-
-// ─── MenuRow Component ────────────────────────────────────────────────────────
-const MenuRow = ({ iconSrc, label, onClick }) => (
-  <div
-    onClick={onClick}
-    className="sap-menu-row"
-  >
-    <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
-      {iconSrc && <PngIcon src={iconSrc} size={38} />}
-      <span style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "1rem", color: "white" }}>
-        {label}
-      </span>
-    </div>
-    <img src={viewIcon} alt="view" style={{ width: "38px", height: "38px", objectFit: "contain" }} />
-  </div>
-);
-
-
-// ─── PersonalInfoScreen Component ─────────────────────────────────────────────
+// ─── PersonalInfoScreen ───────────────────────────────────────────────────────
 const PersonalInfoScreen = ({ onBack, user }) => {
   const [editing, setEditing] = useState(false);
   const [showSaveSuccess, setShowSaveSuccess] = useState(false);
   const editingRef = useRef(false);
   useEffect(() => { editingRef.current = editing; }, [editing]);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving]   = useState(false);
+  const [saveError, setSaveError] = useState("");
 
   const [form, setForm] = useState({
     studentId:      "",
@@ -521,12 +584,6 @@ const PersonalInfoScreen = ({ onBack, user }) => {
 
   const [errors, setErrors] = useState({});
 
-  if (loading) return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "200px", fontFamily: "'Kufam', sans-serif", color: "#888" }}>
-      Loading profile…
-    </div>
-  );
-
   // form.collegeCode/programCode already ARE the full display names now, so
   // no separate code→label lookup is needed the way the old hardcoded
   // COLLEGE_PROGRAM_MAP required.
@@ -551,14 +608,14 @@ const PersonalInfoScreen = ({ onBack, user }) => {
 
   const validateMiddleInitial = (v) => {
     if (!v) return "";
-    if (!/^[A-Z]\.$/.test(v)) return "Format: e.g. (A.)";
+    if (!/^[A-Z]\.$/.test(v)) return "Use a single letter and a period, e.g. A.";
     return "";
   };
 
   const validateAge = (v) => {
-    if (!v) return "Required";
+    if (!v) return "Age is required.";
     const n = Number(v);
-    if (!Number.isInteger(n) || n < 1 || n > 100) return "Must be 1–100";
+    if (!Number.isInteger(n) || n < 1 || n > 100) return "Enter an age between 1 and 100.";
     return "";
   };
 
@@ -570,9 +627,9 @@ const PersonalInfoScreen = ({ onBack, user }) => {
     if (!form.lastName.trim())  e.lastName  = "Last name is required.";
     const miErr = validateMiddleInitial(form.middleInitial);
     if (miErr) e.middleInitial = miErr;
-    if (!form.suffix) e.suffix = "Required.";
-    if (!form.yearSection) e.yearSection = "Required.";
-    if (!form.sex) e.sex = "Required.";
+    if (!form.suffix) e.suffix = "Select a suffix, or None.";
+    if (!form.yearSection) e.yearSection = "Year and section is required.";
+    if (!form.sex) e.sex = "Select sex.";
     const ageErr = validateAge(form.age);
     if (ageErr) e.age = ageErr;
     if (!form.email.trim()) e.email = "Email is required.";
@@ -583,6 +640,8 @@ const PersonalInfoScreen = ({ onBack, user }) => {
 
   const handleSave = async () => {
     if (!validate()) return;
+    setSaving(true);
+    setSaveError("");
     try {
       await updateDoc(doc(db, "students", user?.uid), {
         // studentId intentionally omitted — no longer editable from this screen.
@@ -598,12 +657,15 @@ const PersonalInfoScreen = ({ onBack, user }) => {
         age:            Number(form.age),
         email:          form.email,
       });
+      setEditing(false);
+      setErrors({});
       setShowSaveSuccess(true);
     } catch (err) {
       console.error("Failed to save profile:", err);
+      setSaveError(err.message || "Your information didn't save. Try again.");
+    } finally {
+      setSaving(false);
     }
-    setEditing(false);
-    setErrors({});
   };
 
   const handleMiddleInitialChange = (v) => {
@@ -619,74 +681,36 @@ const PersonalInfoScreen = ({ onBack, user }) => {
     }
   };
 
-  const rowStyle = {
-    background: "#7A4F4F",
-    borderRadius: "10px",
-    padding: "12px 16px",
-    marginBottom: "8px",
-  };
+  const rowLabel = { fontFamily: font.ui, ...type.helper, color: inkMuted, display: "block", marginBottom: "3px" };
+  const rowValue = { fontFamily: font.ui, ...type.body, color: ink, margin: 0, display: "block" };
 
   const inlineInputStyle = {
-    background: "transparent",
-    border: "none",
-    borderBottom: "1px solid white",
-    color: "white",
-    fontFamily: "'Kufam', sans-serif",
-    fontSize: "0.88rem",
-    outline: "none",
-    width: "100%",
-    boxSizing: "border-box",
+    background: "transparent", border: "none", borderBottom: `1px solid ${line}`,
+    color: ink, fontFamily: font.ui, ...type.body,
+    outline: "none", width: "100%", padding: "4px 0", boxSizing: "border-box",
   };
+  const inlineInputErrorStyle = { ...inlineInputStyle, borderBottom: `1.5px solid ${danger}` };
+  const selectStyle      = { ...inlineInputStyle, cursor: "pointer" };
+  const selectErrorStyle = { ...inlineInputErrorStyle, cursor: "pointer" };
+  const inlineErrText = { color: danger, fontSize: "0.75rem", fontFamily: font.ui, margin: "4px 0 0" };
 
-  const inlineInputErrorStyle = {
-    ...inlineInputStyle,
-    borderBottom: "1.5px solid #ffaaaa",
-  };
+  const fieldLabel = (text) => <span style={rowLabel}>{text}</span>;
+  const errText = (msg) => (msg ? <p style={inlineErrText}>{msg}</p> : null);
 
-  const selectStyle = {
-    background: "transparent",
-    border: "none",
-    borderBottom: "1px solid white",
-    color: "white",
-    fontFamily: "'Kufam', sans-serif",
-    fontSize: "0.88rem",
-    outline: "none",
-    width: "100%",
-    cursor: "pointer",
-  };
-
-  const selectErrorStyle = {
-    ...selectStyle,
-    borderBottom: "1.5px solid #ffaaaa",
-  };
-
-  const valueStyle = {
-    fontFamily: "'Kufam', sans-serif",
-    fontSize: "0.88rem",
-    color: "white",
-    display: "block",
-  };
-
-  const fieldLabel = (text) => (
-    <span style={{
-      fontFamily: "'Kufam', sans-serif",
-      fontWeight: 700,
-      fontSize: "0.82rem",
-      color: "rgba(255,255,255,0.7)",
-      display: "block",
-      marginBottom: "4px",
-    }}>
-      {text}
-    </span>
-  );
-
-  const errText = (msg) => msg
-    ? <p style={{ color: "#ffcccc", fontSize: "0.72rem", fontFamily: "'Kufam', sans-serif", margin: "4px 0 0" }}>{msg}</p>
-    : null;
+  if (loading) {
+    return (
+      <div className="sap-screen" style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden", background: page }}>
+        <SectionHeaderBar title="Personal information" onBack={onBack} />
+        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <p style={{ fontFamily: font.ui, ...type.body, color: inkFaint }}>Loading profile…</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-      <SectionHeaderBar iconSrc={personalInfoIcon} title={editing ? "Edit Personal Information" : "Personal Information"} onBack={onBack} />
+    <div className="sap-screen" style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden", background: page }}>
+      <SectionHeaderBar title={editing ? "Edit personal information" : "Personal information"} onBack={onBack} />
 
       <div className="sap-info-body">
         <div
@@ -698,19 +722,13 @@ const PersonalInfoScreen = ({ onBack, user }) => {
             }
           }}
         >
-
+          {/* Edit button */}
           {!editing && (
-            <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "12px" }}>
-              <button
-                onClick={() => setEditing(true)}
-                title="Edit"
-                style={{
-                  width: "32px", height: "32px", borderRadius: "50%",
-                  border: "2px solid white", background: "transparent",
-                  display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer",
-                }}
-              >
-                <EditIcon size={15} color="white" />
+            <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: space.sm }}>
+              <button onClick={() => setEditing(true)}
+                style={{ display: "inline-flex", alignItems: "center", gap: "7px", padding: "8px 16px", borderRadius: radius.pill, border: `1px solid ${line}`, background: surface, color: ink, fontFamily: font.ui, ...type.control, cursor: "pointer", boxShadow: shadow.input }}>
+                <EditIcon size={14} />
+                Edit
               </button>
             </div>
           )}
@@ -720,32 +738,32 @@ const PersonalInfoScreen = ({ onBack, user }) => {
               so changing it here would be able to break sign-in / mismatch
               the account's own identifier. Always shown as plain text, even
               while the rest of the form is in edit mode. */}
-          <div style={rowStyle}>
+          <div className="sap-info-row">
             {fieldLabel("Student ID")}
-            <span style={valueStyle}>{form.studentId}</span>
+            <span style={rowValue}>{form.studentId || "—"}</span>
           </div>
 
-          {/* First Name */}
-          <div style={rowStyle}>
-            {fieldLabel("First Name")}
+          {/* First name */}
+          <div className="sap-info-row">
+            {fieldLabel("First name")}
             {editing ? (
               <>
                 <input
                   value={form.firstName}
                   onChange={e => { setField("firstName", e.target.value); setErrors(p => ({ ...p, firstName: "" })); }}
-                  placeholder="First Name"
+                  placeholder="First name"
                   style={errors.firstName ? inlineInputErrorStyle : inlineInputStyle}
                 />
                 {errText(errors.firstName)}
               </>
             ) : (
-              <span style={valueStyle}>{form.firstName}</span>
+              <span style={rowValue}>{form.firstName || "—"}</span>
             )}
           </div>
 
-          {/* Middle Initial */}
-          <div style={rowStyle}>
-            {fieldLabel("Middle Initial")}
+          {/* Middle initial */}
+          <div className="sap-info-row">
+            {fieldLabel("Middle initial")}
             {editing ? (
               <>
                 <input
@@ -758,30 +776,30 @@ const PersonalInfoScreen = ({ onBack, user }) => {
                 {errText(errors.middleInitial)}
               </>
             ) : (
-              <span style={valueStyle}>{form.middleInitial || "—"}</span>
+              <span style={rowValue}>{form.middleInitial || "—"}</span>
             )}
           </div>
 
-          {/* Last Name */}
-          <div style={rowStyle}>
-            {fieldLabel("Last Name")}
+          {/* Last name */}
+          <div className="sap-info-row">
+            {fieldLabel("Last name")}
             {editing ? (
               <>
                 <input
                   value={form.lastName}
                   onChange={e => { setField("lastName", e.target.value); setErrors(p => ({ ...p, lastName: "" })); }}
-                  placeholder="Last Name"
+                  placeholder="Last name"
                   style={errors.lastName ? inlineInputErrorStyle : inlineInputStyle}
                 />
                 {errText(errors.lastName)}
               </>
             ) : (
-              <span style={valueStyle}>{form.lastName}</span>
+              <span style={rowValue}>{form.lastName || "—"}</span>
             )}
           </div>
 
-            {/* Suffix */}
-          <div style={rowStyle}>
+          {/* Suffix */}
+          <div className="sap-info-row">
             {fieldLabel("Suffix")}
             {editing ? (
               <>
@@ -790,24 +808,24 @@ const PersonalInfoScreen = ({ onBack, user }) => {
                   onChange={e => { setField("suffix", e.target.value); setErrors(p => ({ ...p, suffix: "" })); }}
                   style={errors.suffix ? selectErrorStyle : selectStyle}
                 >
-                  <option value="" style={{ color: "#333" }}>Select</option>
-                  <option value="None" style={{ color: "#333" }}>None</option>
-                  <option value="Jr." style={{ color: "#333" }}>Jr.</option>
-                  <option value="Sr." style={{ color: "#333" }}>Sr.</option>
-                  <option value="II" style={{ color: "#333" }}>II</option>
-                  <option value="III" style={{ color: "#333" }}>III</option>
-                  <option value="IV" style={{ color: "#333" }}>IV</option>
-                  <option value="V" style={{ color: "#333" }}>V</option>
+                  <option value="">Select</option>
+                  <option value="None">None</option>
+                  <option value="Jr.">Jr.</option>
+                  <option value="Sr.">Sr.</option>
+                  <option value="II">II</option>
+                  <option value="III">III</option>
+                  <option value="IV">IV</option>
+                  <option value="V">V</option>
                 </select>
                 {errText(errors.suffix)}
               </>
             ) : (
-              <span style={valueStyle}>{form.suffix && form.suffix !== "None" ? form.suffix : "—"}</span>
+              <span style={rowValue}>{form.suffix && form.suffix !== "None" ? form.suffix : "—"}</span>
             )}
           </div>
 
           {/* College */}
-          <div style={rowStyle}>
+          <div className="sap-info-row">
             {fieldLabel("College")}
             {editing ? (
               <>
@@ -816,20 +834,20 @@ const PersonalInfoScreen = ({ onBack, user }) => {
                   onChange={e => handleCollegeChange(e.target.value)}
                   style={errors.collegeCode ? selectErrorStyle : selectStyle}
                 >
-                  <option value="" style={{ color: "#333" }}>Select</option>
+                  <option value="">Select</option>
                   {collegeEntriesForSelect.map(([code, info]) => (
-                    <option key={code} value={code} style={{ color: "#333" }}>{info.label}</option>
+                    <option key={code} value={code}>{info.label}</option>
                   ))}
                 </select>
                 {errText(errors.collegeCode)}
               </>
             ) : (
-              <span style={valueStyle}>{collegeLabel}</span>
+              <span style={rowValue}>{collegeLabel}</span>
             )}
           </div>
 
           {/* Program */}
-          <div style={rowStyle}>
+          <div className="sap-info-row">
             {fieldLabel("Program")}
             {editing ? (
               <>
@@ -838,21 +856,21 @@ const PersonalInfoScreen = ({ onBack, user }) => {
                   onChange={e => handleProgramChange(e.target.value)}
                   style={errors.programCode ? selectErrorStyle : selectStyle}
                 >
-                  <option value="" style={{ color: "#333" }}>Select</option>
+                  <option value="">Select</option>
                   {programEntriesForSelect.map(([code, label]) => (
-                    <option key={code} value={code} style={{ color: "#333" }}>{label}</option>
+                    <option key={code} value={code}>{label}</option>
                   ))}
                 </select>
                 {errText(errors.programCode)}
               </>
             ) : (
-              <span style={valueStyle}>{programLabel}</span>
+              <span style={rowValue}>{programLabel}</span>
             )}
           </div>
 
-          {/* Year & Section */}
-          <div style={rowStyle}>
-            {fieldLabel("Year & Section")}
+          {/* Year and section */}
+          <div className="sap-info-row">
+            {fieldLabel("Year and section")}
             {editing ? (
               <>
                 <select
@@ -860,20 +878,20 @@ const PersonalInfoScreen = ({ onBack, user }) => {
                   onChange={e => { setField("yearSection", e.target.value); setErrors(p => ({ ...p, yearSection: "" })); }}
                   style={errors.yearSection ? selectErrorStyle : selectStyle}
                 >
-                  <option value="" style={{ color: "#333" }}>Select</option>
+                  <option value="">Select</option>
                   {YEAR_SECTIONS.map(s => (
-                    <option key={s} value={s} style={{ color: "#333" }}>{s}</option>
+                    <option key={s} value={s}>{s}</option>
                   ))}
                 </select>
                 {errText(errors.yearSection)}
               </>
             ) : (
-              <span style={valueStyle}>{form.yearSection || "—"}</span>
+              <span style={rowValue}>{form.yearSection || "—"}</span>
             )}
           </div>
 
           {/* Sex */}
-          <div style={rowStyle}>
+          <div className="sap-info-row">
             {fieldLabel("Sex")}
             {editing ? (
               <>
@@ -882,19 +900,19 @@ const PersonalInfoScreen = ({ onBack, user }) => {
                   onChange={e => { setField("sex", e.target.value); setErrors(p => ({ ...p, sex: "" })); }}
                   style={errors.sex ? selectErrorStyle : selectStyle}
                 >
-                  <option value="" style={{ color: "#333" }}>Select</option>
-                  <option style={{ color: "#333" }}>Male</option>
-                  <option style={{ color: "#333" }}>Female</option>
+                  <option value="">Select</option>
+                  <option>Male</option>
+                  <option>Female</option>
                 </select>
                 {errText(errors.sex)}
               </>
             ) : (
-              <span style={valueStyle}>{form.sex || "—"}</span>
+              <span style={rowValue}>{form.sex || "—"}</span>
             )}
           </div>
 
           {/* Age */}
-          <div style={rowStyle}>
+          <div className="sap-info-row">
             {fieldLabel("Age")}
             {editing ? (
               <>
@@ -907,13 +925,13 @@ const PersonalInfoScreen = ({ onBack, user }) => {
                 {errText(errors.age)}
               </>
             ) : (
-              <span style={valueStyle}>{form.age || "—"}</span>
+              <span style={rowValue}>{form.age || "—"}</span>
             )}
           </div>
 
-          {/* Email Address */}
-          <div style={rowStyle}>
-            {fieldLabel("Email Address")}
+          {/* Email address */}
+          <div className="sap-info-row">
+            {fieldLabel("Email address")}
             {editing ? (
               <>
                 <input
@@ -926,172 +944,34 @@ const PersonalInfoScreen = ({ onBack, user }) => {
                 {errText(errors.email)}
               </>
             ) : (
-              <span style={valueStyle}>{form.email}</span>
+              <span style={rowValue}>{form.email || "—"}</span>
             )}
           </div>
 
+          {saveError && (
+            <p style={{ ...errorTextStyle, textAlign: "center", margin: `${space.sm} 0 0` }}>{saveError}</p>
+          )}
+
+          {/* Cancel / Save */}
           {editing && (
             <div className="sap-save-row">
-              <button
-                onClick={() => { setEditing(false); setErrors({}); }}
-                style={{ padding: "6px 18px", borderRadius: "14px", background: "rgba(255,255,255,0.15)", color: "white", border: "1px solid white", fontFamily: "'Kufam', sans-serif", fontSize: "0.78rem", cursor: "pointer" }}
-              >
+              <button onClick={() => { setEditing(false); setErrors({}); setSaveError(""); }}
+                style={{ padding: "9px 20px", borderRadius: radius.pill, background: "transparent", color: inkMuted, border: `1px solid ${line}`, fontFamily: font.ui, ...type.control, cursor: "pointer" }}>
                 Cancel
               </button>
-              <button
-                onClick={handleSave}
-                style={{ padding: "6px 18px", borderRadius: "14px", background: "white", color: darkRed, border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.78rem", cursor: "pointer" }}
-              >
-                Save Changes
+              <button onClick={handleSave} disabled={saving}
+                style={{ padding: "9px 22px", borderRadius: radius.pill, background: panel, color: onPanel, border: "none", fontFamily: font.ui, ...type.control, cursor: saving ? "not-allowed" : "pointer", opacity: saving ? 0.7 : 1, boxShadow: shadow.pill }}>
+                {saving ? "Saving…" : "Save changes"}
               </button>
             </div>
           )}
-
         </div>
       </div>
 
-      {showSaveSuccess && (
-        <StudentSaveSuccessModal onClose={() => setShowSaveSuccess(false)} />
-      )}
+      {showSaveSuccess && <StudentSaveSuccessModal onClose={() => setShowSaveSuccess(false)} />}
     </div>
   );
 };
-
-
-// ─── ResetStep1 Component ─────────────────────────────────────────────────────
-const ResetStep1 = ({ onNext }) => {
-  const [email, setEmail] = useState("");
-  const [error, setError] = useState("");
-
-  const handleSend = () => {
-  
-    setError("");
-    onNext(email);
-  };
-
-  return (
-    <div style={{ background: "#e8e8e8", borderRadius: "16px", padding: "24px 28px" }}>
-      <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.95rem", color: "#888", marginBottom: "16px", lineHeight: 1.6 }}>
-        Enter the email address linked to your account.<br />We'll send a password reset link.
-      </p>
-      <hr style={{ borderColor: "#ccc", marginBottom: "18px" }} />
-      <label style={{ ...labelStyle, color: "#111" }}>Email Address:</label>
-      <div style={{ background: darkRed, borderRadius: "20px", padding: "12px 20px", marginBottom: "8px" }}>
-        <input
-          type="email"
-          value={email}
-          onChange={e => setEmail(e.target.value)}
-          placeholder="example@gmail.com"
-          style={{ background: "transparent", border: "none", outline: "none", color: "white", fontFamily: "'Kufam', sans-serif", fontSize: "0.95rem", width: "100%" }}
-        />
-      </div>
-      {error && <p style={{ color: "red", fontSize: "0.78rem", fontFamily: "'Kufam', sans-serif", marginBottom: "8px" }}>{error}</p>}
-      <div style={{ display: "flex", justifyContent: "center", marginTop: "16px" }}>
-        <button onClick={handleSend} style={{ background: darkRed, color: "white", border: "none", borderRadius: "20px", padding: "12px 40px", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.95rem", cursor: "pointer" }}>
-          Send
-        </button>
-      </div>
-    </div>
-  );
-};
-
-
-// ─── ResetStep2 Component ─────────────────────────────────────────────────────
-const ResetStep2 = ({ onNext }) => {
-  const [code, setCode] = useState(["", "", "", "", "", ""]);
-  const inputRefs = useRef([]);
-
-  const handleChange = (i, val) => {
-    if (!/^\d?$/.test(val)) return;
-    const next = [...code];
-    next[i] = val;
-    setCode(next);
-    if (val && i < 5) inputRefs.current[i + 1]?.focus();
-  };
-
-  const handleKeyDown = (i, e) => {
-    if (e.key === "Backspace" && !code[i] && i > 0) inputRefs.current[i - 1]?.focus();
-  };
-
-  return (
-    <div style={{ background: "#e8e8e8", borderRadius: "16px", padding: "24px 28px" }}>
-      <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.95rem", color: "#888", marginBottom: "16px" }}>
-        Enter the code sent to your gmail account.
-      </p>
-      <hr style={{ borderColor: "#ccc", marginBottom: "18px" }} />
-      <label style={{ ...labelStyle, color: "#111" }}>Enter the code:</label>
-      <div className="sap-otp-row">
-        {code.map((digit, i) => (
-          <input
-            key={i}
-            ref={el => inputRefs.current[i] = el}
-            value={digit}
-            onChange={e => handleChange(i, e.target.value)}
-            onKeyDown={e => handleKeyDown(i, e)}
-            maxLength={1}
-            className="sap-otp-input"
-          />
-        ))}
-      </div>
-      <p style={{ textAlign: "center", fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#555", marginBottom: "16px" }}>
-        Didn't receive the code?{" "}
-        <span onClick={() => setCode(["", "", "", "", "", ""])} style={{ color: red, cursor: "pointer", fontWeight: 600 }}>
-          Resend!
-        </span>
-      </p>
-      <div style={{ display: "flex", justifyContent: "center" }}>
-        <button onClick={onNext} style={{ background: darkRed, color: "white", border: "none", borderRadius: "20px", padding: "12px 40px", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.95rem", cursor: "pointer" }}>
-          Send
-        </button>
-      </div>
-    </div>
-  );
-};
-
-
-// ─── ResetStep3 Component ─────────────────────────────────────────────────────
-const ResetStep3 = ({ onDone }) => {
-  const [newPass, setNewPass] = useState("");
-  const [confirm, setConfirm] = useState("");
-  const [errors, setErrors]   = useState({});
-  const [showSuccess, setShowSuccess] = useState(false);
-
-  const handleKeyDown = (e) => {
-    if (e.key === "Enter") {
-      handleSend();
-    }
-  };
-
-  const handleSend = () => {
-    const e = {};
-    if (newPass.length < 8)   e.newPass = "Password must be at least 8 characters";
-    if (newPass !== confirm)  e.confirm  = "Passwords do not match.";
-    setErrors(e);
-    if (Object.keys(e).length === 0) { setShowSuccess(true); }
-  };
-
-  return (
-    <div style={{ background: "#e8e8e8", borderRadius: "16px", padding: "24px 28px" }}>
-      <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.95rem", color: "#888", marginBottom: "16px" }}>
-        Enter your new password and confirm!
-      </p>
-      <hr style={{ borderColor: "#ccc", marginBottom: "18px" }} />
-      <label style={{ ...labelStyle, color: "#111" }}>New Password:</label>
-      <PasswordInput value={newPass} onChange={e => setNewPass(e.target.value)} onKeyDown={handleKeyDown} />
-      {errors.newPass && <p style={{ color: "red", fontSize: "0.78rem", fontFamily: "'Kufam', sans-serif", marginBottom: "8px" }}>{errors.newPass}</p>}
-      <label style={{ ...labelStyle, color: "#111" }}>Confirm Password:</label>
-      <PasswordInput value={confirm} onChange={e => setConfirm(e.target.value)} onKeyDown={handleKeyDown} />
-      {errors.confirm && <p style={{ color: "red", fontSize: "0.78rem", fontFamily: "'Kufam', sans-serif", marginBottom: "8px" }}>{errors.confirm}</p>}
-      <div style={{ display: "flex", justifyContent: "flex-start", marginTop: "8px" }}>
-        <button onClick={handleSend} style={{ background: darkRed, color: "white", border: "none", borderRadius: "20px", padding: "12px 40px", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.95rem", cursor: "pointer" }}>
-          Send
-        </button>
-      </div>
-      {showSuccess && <InfoModal message="Password has been reset successfully!" onClose={() => { setShowSuccess(false); onDone(); }} />}
-    </div>
-  );
-};
-
 
 // ─── Reset Password Modal ─────────────────────────────────────────────────────
 const ResetPasswordModal = ({ onClose, user, onLogout }) => {
@@ -1110,19 +990,33 @@ const ResetPasswordModal = ({ onClose, user, onLogout }) => {
 
   const handleSave = async () => {
     const e = {};
-    if (!currentPass) e.currentPass = "Please enter your current password.";
-    if (!newPass) e.newPass = "Please enter a new password.";
-    else if (!isPasswordStrong(newPass)) e.newPass = "Password does not meet all the requirements below.";
+    if (!currentPass) e.currentPass = "Enter your current password.";
+    if (!newPass) e.newPass = "Enter a new password.";
+    else if (!isPasswordStrong(newPass)) e.newPass = "This password doesn't meet all the requirements below.";
     if (newPass !== confirm) e.confirm = "Passwords do not match.";
     setErrors(e);
     if (Object.keys(e).length > 0) return;
     setLoading(true);
     try {
-      await changePassword(currentPass, newPass, "students", user?.uid, getAuth().currentUser?.email);
+      // auth.currentUser can be null here if this tab never established its
+      // own Firebase Auth session (e.g. persistence is per-tab and this tab
+      // was opened/reloaded separately) — every call below would then fail
+      // as permission-denied. Fail with a clear message instead.
+      const currentUser = getAuth().currentUser;
+      if (!currentUser) {
+        setErrors({ general: "Your session has expired. Refresh the page and log in again." });
+        setLoading(false);
+        return;
+      }
+      await changePassword(currentPass, newPass, "students", user?.uid, currentUser.email);
       setSuccess(true);
       setCurrentPass(""); setNewPass(""); setConfirm("");
     } catch (err) {
-      setErrors({ general: err.message || "Failed to change password. Please try again." });
+      if (err.code === "auth/wrong-password" || err.code === "auth/invalid-credential") {
+        setErrors({ currentPass: "That current password is incorrect." });
+      } else {
+        setErrors({ general: err.message || "The password didn't change. Try again." });
+      }
     } finally {
       setLoading(false);
     }
@@ -1138,94 +1032,48 @@ const ResetPasswordModal = ({ onClose, user, onLogout }) => {
 
   if (success) {
     return (
-      <div style={{
-        position: "fixed", inset: 0, zIndex: 9999,
-        background: "rgba(0,0,0,0.45)",
-        display: "flex", alignItems: "center", justifyContent: "center",
-        padding: "16px",
-      }}>
-        <div style={{
-          background: "white", borderRadius: "20px",
-          padding: "36px 32px", width: "clamp(280px, 85vw, 380px)",
-          display: "flex", flexDirection: "column", alignItems: "center",
-          gap: "12px", boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
-        }}>
-          <div style={{
-            width: "64px", height: "64px", borderRadius: "50%",
-            background: "#e8f5e9", display: "flex",
-            alignItems: "center", justifyContent: "center", marginBottom: "4px",
-          }}>
-            <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#2d7a2d" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="10"/>
-              <polyline points="9 12 11 14 15 10"/>
-            </svg>
-          </div>
-          <p style={{
-            fontFamily: "'Kufam', sans-serif", fontWeight: 700,
-            fontSize: "1.15rem", color: "#1a1a1a", margin: 0, textAlign: "center",
-          }}>Password Changed!</p>
-          <p style={{
-            fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem",
-            color: "#666", margin: 0, textAlign: "center", lineHeight: 1.5,
-          }}>Your password has been updated successfully. Please log in again with your new password.</p>
-          <button onClick={handleDone} style={{
-            width: "100%", padding: "12px", borderRadius: "30px",
-            border: "none", background: "#590101",
-            fontFamily: "'Kufam', sans-serif", fontWeight: 700,
-            fontSize: "0.95rem", cursor: "pointer", color: "white",
-            boxShadow: "0 3px 10px rgba(89,1,1,0.3)", marginTop: "8px",
-          }}>Done</button>
-        </div>
-      </div>
+      <StatusDialog
+        icon={<CheckIcon />}
+        title="Password changed"
+        body="Your password is updated. Log in again with your new password."
+        actionLabel="Done"
+        onAction={handleDone}
+      />
     );
   }
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: "16px" }}>
-      <div className="sap-modal-inner">
+    <div className="sap-modal sap-overlay" style={{ position: "fixed", inset: 0, background: "rgba(10,10,10,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: space.md }}>
+      <div className="sap-modal-inner sap-dialog">
         <div className="sap-modal-body">
-          <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.3rem", color: red, marginBottom: "12px" }}>RESET PASSWORD:</p>
-          <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#666", marginBottom: "16px" }}>Enter your current password, then your new password below.</p>
+          <ModalTitle sub="Choose a password you don't use anywhere else.">Reset password</ModalTitle>
 
-          <label style={labelStyle}>Current Password:</label>
-          <PasswordInput value={currentPass} onChange={e => { setCurrentPass(e.target.value); setErrors(p => ({ ...p, currentPass: "" })); }} onKeyDown={handleKeyDown} />
-          {errors.currentPass && <p style={{ color: "red", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif", marginBottom: "6px" }}>{errors.currentPass}</p>}
+          <label style={labelStyle}>Current password</label>
+          <PasswordInput value={currentPass} onChange={e => { setCurrentPass(e.target.value); setErrors(p => ({ ...p, currentPass: "" })); }} onKeyDown={handleKeyDown} invalid={!!errors.currentPass} />
+          {errors.currentPass && <p style={errorTextStyle}>{errors.currentPass}</p>}
 
-          <label style={labelStyle}>New Password:</label>
-          <PasswordInput value={newPass} onChange={e => { setNewPass(e.target.value); setErrors(p => ({ ...p, newPass: "" })); }} onKeyDown={handleKeyDown} />
-          {errors.newPass && <p style={{ color: "red", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif", marginBottom: "6px" }}>{errors.newPass}</p>}
+          <hr style={{ border: "none", borderTop: `1px solid ${line}`, margin: `${space.lg} 0 ${space.md}` }} />
+
+          <label style={labelStyle}>New password</label>
+          <PasswordInput value={newPass} onChange={e => { setNewPass(e.target.value); setErrors(p => ({ ...p, newPass: "" })); }} onKeyDown={handleKeyDown} invalid={!!errors.newPass} />
+          {errors.newPass && <p style={errorTextStyle}>{errors.newPass}</p>}
 
           <PasswordChecklist password={newPass} />
 
-          <label style={labelStyle}>Confirm Password:</label>
-          <PasswordInput value={confirm} onChange={e => { setConfirm(e.target.value); setErrors(p => ({ ...p, confirm: "" })); }} onKeyDown={handleKeyDown} />
-          {errors.confirm && <p style={{ color: "red", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif", marginBottom: "6px" }}>{errors.confirm}</p>}
+          <label style={labelStyle}>Confirm new password</label>
+          <PasswordInput value={confirm} onChange={e => { setConfirm(e.target.value); setErrors(p => ({ ...p, confirm: "" })); }} onKeyDown={handleKeyDown} invalid={!!errors.confirm} />
+          {errors.confirm && <p style={errorTextStyle}>{errors.confirm}</p>}
 
-          {errors.general && (
-            <p style={{ color: "red", fontSize: "0.8rem", fontFamily: "'Kufam', sans-serif", textAlign: "center", marginTop: "12px" }}>
-              ⚠️ {errors.general}
-            </p>
-          )}
+          {errors.general && <p style={{ ...errorTextStyle, textAlign: "center", marginTop: space.md }}>{errors.general}</p>}
         </div>
         <div className="sap-modal-footer">
-          <button onClick={onClose} style={{ padding: "10px 28px", borderRadius: "20px", background: "white", color: darkRed, border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.9rem", cursor: "pointer" }}>
-            Cancel
-          </button>
-          <button onClick={handleSave} disabled={loading} style={{ padding: "10px 28px", borderRadius: "20px", background: "rgba(255,255,255,0.25)", color: "white", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.9rem", cursor: loading ? "not-allowed" : "pointer", opacity: loading ? 0.7 : 1 }}>
-            {loading ? "Saving…" : "Save New Password"}
-          </button>
+          <FooterGhostButton onClick={onClose}>Cancel</FooterGhostButton>
+          <FooterSolidButton onClick={handleSave} disabled={loading}>{loading ? "Saving…" : "Save password"}</FooterSolidButton>
         </div>
       </div>
     </div>
   );
 };
-
-
-// ─── PrivacySecurityScreen Component — now goes directly to Reset Password ────
-const PrivacySecurityScreen = ({ onBack, user, onLogout }) => (
-  <ResetPasswordModal onClose={onBack} user={user} onLogout={onLogout} />
-);
-
 
 // ─── Terms & Conditions Data ──────────────────────────────────────────────────
 const TERMS_LAST_UPDATED = "July 19, 2026";
@@ -1293,149 +1141,190 @@ const TERMS_SECTIONS = [
   },
 ];
 
-// ─── TermsScreen Component ────────────────────────────────────────────────────
-const TermsScreen = ({ onBack }) => (
-  <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-    <SectionHeaderBar iconSrc={termsIcon} title="Terms & Condition" onBack={onBack} />
-    <div className="sap-sub-body">
-      <div style={{ background: "#e8e8e8", borderRadius: "16px", padding: "24px 28px" }}>
+// ── Email addresses in the legal text ─────────────────────────────────────────
+// Gmail's compose URL rather than a plain mailto: — this is a web app, and
+// mailto: hands the click to whatever desktop client is registered, which on
+// most machines is nothing at all, so the link just looks broken.
+const EMAIL_SPLIT = /([\w.+-]+@[\w-]+\.[\w-]+)/g;
+const IS_EMAIL    = /^[\w.+-]+@[\w-]+\.[\w-]+$/;
+const composeUrl  = (addr) => `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(addr)}`;
 
-        <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.78rem", fontStyle: "italic", color: "#888", marginBottom: "18px" }}>
-          Last updated: {TERMS_LAST_UPDATED}
-        </p>
+const linkifyEmails = (text) =>
+  text.split(EMAIL_SPLIT).map((part, i) => {
+    if (!IS_EMAIL.test(part)) return part;
+    const linkStyle = { color: ink, fontWeight: 500, textDecoration: "underline", textUnderlineOffset: "3px" };
+    return <a key={i} href={composeUrl(part)} target="_blank" rel="noopener noreferrer" style={linkStyle}>{part}</a>;
+  });
 
-        {TERMS_SECTIONS.map((section, idx) => (
-          <div key={section.title} style={{ marginBottom: idx === TERMS_SECTIONS.length - 1 ? 0 : "20px" }}>
-            <h3 style={{
-              fontFamily: "'Kufam', sans-serif",
-              fontWeight: 700,
-              fontSize: "0.92rem",
-              color: darkRed,
-              margin: "0 0 8px",
-            }}>
-              {section.title}
-            </h3>
+// ── Legal document panel ──────────────────────────────────────────────────────
+// Same reading layout the coordinator gets: a progress rail across the top,
+// an "On this page" sidebar built straight from the section titles (so it
+// can't drift out of sync with the text), and the document body itself.
+const LegalPanel = ({ title, lastUpdated, sections, onBack }) => {
+  const scrollRef = useRef(null);
+  const [progress, setProgress] = useState(0);
+  const [activeId, setActiveId] = useState(null);
 
-            {section.intro && (
-              <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#444", lineHeight: 1.7, margin: "0 0 6px" }}>
-                {section.intro}
-              </p>
-            )}
+  const toc = useMemo(
+    () => sections.map((s, i) => ({ id: `sec-${i}`, text: s.title })),
+    [sections]
+  );
 
-            {section.items.map((item, i) => {
-              const isEmailLine = typeof item === "string" && item.startsWith("Email:");
-              const isBulleted = !!section.intro; // only sections with an intro (e.g. "5. Acceptable Use") get bullets
-              return (
-                <p
-                  key={i}
+  // Progress + active-section tracking read from this panel's own scroll
+  // container, not the window — nothing behind it scrolls here.
+  useEffect(() => {
+    const box = scrollRef.current;
+    if (!box) return;
+    const onScroll = () => {
+      const max = box.scrollHeight - box.clientHeight;
+      setProgress(max > 0 ? Math.min(100, (box.scrollTop / max) * 100) : 0);
+
+      const headings = box.querySelectorAll("[data-heading]");
+      const boxTop   = box.getBoundingClientRect().top;
+      let current = null;
+      headings.forEach(h => {
+        if (h.getBoundingClientRect().top - boxTop <= 90) current = h.getAttribute("data-heading");
+      });
+      // The last section's heading may never cross that threshold if its
+      // body is too short to push it up — snap to it at the bottom instead.
+      if (max > 0 && box.scrollTop >= max - 2 && toc.length > 0) current = toc[toc.length - 1].id;
+      if (current) setActiveId(current);
+    };
+    box.addEventListener("scroll", onScroll, { passive: true });
+    onScroll();
+    return () => box.removeEventListener("scroll", onScroll);
+  }, [toc]);
+
+  // Keep the highlighted rail item in view as the reader moves down.
+  useEffect(() => {
+    if (!activeId) return;
+    document.getElementById(`toc-link-${activeId}`)?.scrollIntoView({ block: "nearest" });
+  }, [activeId]);
+
+  const scrollTo = (id) => {
+    const el  = document.getElementById(id);
+    const box = scrollRef.current;
+    if (!el || !box) return;
+    box.scrollTo({ top: el.offsetTop - 16, behavior: "smooth" });
+  };
+
+  return (
+    <div className="sap-screen legal-panel">
+      <LegalStyles />
+      <SectionHeaderBar title={title} onBack={onBack} />
+
+      <div className="legal-progress-track">
+        <div className="legal-progress-fill" style={{ width: `${progress}%` }} />
+      </div>
+
+      <div className="legal-cols">
+        {toc.length > 0 && (
+          <nav className="legal-toc" aria-label="Sections">
+            <p className="legal-toc-heading">On this page</p>
+            <ol style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: "2px" }}>
+              {toc.map(item => {
+                const isActive = activeId === item.id;
+                return (
+                  <li key={item.id} id={`toc-link-${item.id}`}>
+                    <button
+                      type="button"
+                      className="legal-toc-btn"
+                      onClick={() => scrollTo(item.id)}
+                      style={{
+                        borderLeft: `2px solid ${isActive ? ink : "transparent"}`,
+                        color: isActive ? ink : inkMuted,
+                        fontWeight: isActive ? 600 : 400,
+                      }}
+                    >
+                      {item.text}
+                    </button>
+                  </li>
+                );
+              })}
+            </ol>
+          </nav>
+        )}
+
+        <div className="legal-scroll" ref={scrollRef}>
+          <h1 style={{ fontFamily: font.ui, fontSize: "clamp(1.4rem, 4vw, 2rem)", fontWeight: 600, letterSpacing: "-0.02em", color: ink, margin: `0 0 ${space.md}`, lineHeight: 1.2 }}>
+            {title}
+          </h1>
+
+          {lastUpdated && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: space.sm, marginBottom: space.xl }}>
+              <span style={{ fontFamily: font.ui, ...type.helper, fontWeight: 500, color: onPanel, background: panel, borderRadius: radius.pill, padding: "6px 15px" }}>
+                Last updated {lastUpdated}
+              </span>
+            </div>
+          )}
+
+          {sections.map((section, idx) => {
+            const id = `sec-${idx}`;
+            const isFirst = idx === 0;
+            return (
+              <section key={section.title}>
+                <h2
+                  id={id}
+                  data-heading={id}
                   style={{
-                    fontFamily: isEmailLine ? "'Jua', sans-serif" : "'Kufam', sans-serif",
-                    fontSize: "0.85rem",
-                    color: isEmailLine ? "#1a1a1a" : "#444",
-                    lineHeight: 1.7,
-                    margin: i === section.items.length - 1 ? 0 : "0 0 6px",
-                    display: isBulleted ? "flex" : undefined,
-                    gap: isBulleted ? "6px" : undefined,
+                    fontFamily: font.ui, fontSize: "clamp(1.05rem, 3vw, 1.25rem)", fontWeight: 600,
+                    letterSpacing: "-0.01em", color: ink,
+                    margin: isFirst ? `0 0 ${space.sm}` : `${space.xl} 0 ${space.sm}`,
+                    paddingTop: isFirst ? 0 : space.lg,
+                    borderTop: isFirst ? "none" : `1px solid ${line}`,
+                    scrollMarginTop: space.lg,
                   }}
                 >
-                  {isBulleted && <span style={{ flexShrink: 0 }}>•</span>}
-                  <span>{item}</span>
-                </p>
-              );
-            })}
+                  {section.title}
+                </h2>
+
+                {section.intro && (
+                  <p style={{ fontFamily: font.ui, ...type.body, lineHeight: 1.7, color: inkBody, margin: `0 0 ${space.sm}`, maxWidth: "74ch" }}>
+                    {section.intro}
+                  </p>
+                )}
+
+                {section.intro ? (
+                  <ul style={{ margin: `8px 0 ${space.md}`, paddingLeft: "22px" }}>
+                    {section.items.map((item, i) => (
+                      <li key={i} style={{ fontFamily: font.ui, ...type.body, lineHeight: 1.7, color: inkBody, marginBottom: "5px", maxWidth: "74ch" }}>
+                        {linkifyEmails(item)}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  section.items.map((item, i) => (
+                    <p key={i} style={{ fontFamily: font.ui, ...type.body, lineHeight: 1.7, color: inkBody, margin: `0 0 ${space.md}`, maxWidth: "74ch" }}>
+                      {linkifyEmails(item)}
+                    </p>
+                  ))
+                )}
+              </section>
+            );
+          })}
+
+          <div style={{ display: "flex", justifyContent: "flex-end", marginTop: space.xl }}>
+            <button
+              type="button"
+              onClick={onBack}
+              style={{ padding: "13px 36px", borderRadius: radius.pill, border: "none", background: panel, color: onPanel, fontFamily: font.ui, ...type.control, cursor: "pointer", boxShadow: shadow.pill, transition: `background 240ms ${ease}` }}
+              onMouseEnter={e => (e.currentTarget.style.background = panelDeep)}
+              onMouseLeave={e => (e.currentTarget.style.background = panel)}
+            >
+              I understand
+            </button>
           </div>
-        ))}
-
+        </div>
       </div>
     </div>
-  </div>
+  );
+};
+
+const TermsScreen = ({ onBack }) => (
+  <LegalPanel title="Terms and conditions" lastUpdated={TERMS_LAST_UPDATED} sections={TERMS_SECTIONS} onBack={onBack} />
 );
 
-
-// ─── StudentAccountProfileScreen Component ────────────────────────────────────
-
-const StudentSaveSuccessModal = ({ onClose }) => (
-  <div style={{
-    position: "fixed", inset: 0, zIndex: 9999,
-    background: "rgba(0,0,0,0.45)",
-    display: "flex", alignItems: "center", justifyContent: "center",
-    padding: "16px",
-  }}>
-    <div style={{
-      background: "white", borderRadius: "20px",
-      padding: "36px 32px", width: "clamp(280px, 85vw, 360px)",
-      display: "flex", flexDirection: "column", alignItems: "center",
-      gap: "12px", boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
-    }}>
-      <div style={{
-        width: "64px", height: "64px", borderRadius: "50%",
-        background: "#e8f5e9", display: "flex",
-        alignItems: "center", justifyContent: "center", marginBottom: "4px",
-      }}>
-        <svg width="32" height="32" viewBox="0 0 24 24" fill="none"
-          stroke="#2d7a2d" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-          <polyline points="20 6 9 17 4 12"/>
-        </svg>
-      </div>
-      <p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "1.15rem", color: "#1a1a1a", margin: 0 }}>
-        Saved Successfully!
-      </p>
-      <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem", color: "#666", margin: 0, textAlign: "center", lineHeight: 1.5 }}>
-        Your profile information has been updated.
-      </p>
-      <button onClick={onClose} style={{
-        marginTop: "8px", width: "100%", padding: "12px", borderRadius: "30px",
-        border: "none", background: "#8B0000",
-        fontFamily: "'Kufam', sans-serif", fontWeight: 700,
-        fontSize: "0.95rem", cursor: "pointer", color: "white",
-        boxShadow: "0 3px 10px rgba(139,0,0,0.3)",
-      }}>Done</button>
-    </div>
-  </div>
-);
-
-const InfoModal = ({ message, onClose }) => (
-  <div style={{
-    position: "fixed", inset: 0, zIndex: 9999,
-    background: "rgba(0,0,0,0.45)",
-    display: "flex", alignItems: "center", justifyContent: "center",
-  }}>
-    <div style={{
-      background: "white", borderRadius: "20px",
-      padding: "36px 32px", width: "clamp(280px, 85vw, 380px)",
-      display: "flex", flexDirection: "column", alignItems: "center",
-      gap: "12px", boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
-    }}>
-      {/* Icon */}
-      <div style={{
-        width: "64px", height: "64px", borderRadius: "50%",
-        background: "#fde8e8", display: "flex",
-        alignItems: "center", justifyContent: "center", marginBottom: "4px",
-      }}>
-        <svg width="30" height="30" viewBox="0 0 24 24" fill="none"
-          stroke="#8B0000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <circle cx="12" cy="12" r="10"/>
-          <line x1="12" y1="8" x2="12" y2="12"/>
-          <line x1="12" y1="16" x2="12.01" y2="16"/>
-        </svg>
-      </div>
-      <p style={{
-        fontFamily: "'Kufam', sans-serif", fontSize: "0.95rem",
-        color: "#333", margin: 0, textAlign: "center", lineHeight: 1.5,
-      }}>{message}</p>
-      <div style={{ display: "flex", width: "100%", marginTop: "8px" }}>
-        <button onClick={onClose} style={{
-          flex: 1, padding: "12px", borderRadius: "30px",
-          border: "none", background: "#8B0000",
-          fontFamily: "'Kufam', sans-serif", fontWeight: 700,
-          fontSize: "0.95rem", cursor: "pointer", color: "white",
-          boxShadow: "0 3px 10px rgba(139,0,0,0.3)",
-        }}>OK</button>
-      </div>
-    </div>
-  </div>
-);
-
+// ─── Main Screen ──────────────────────────────────────────────────────────────
 const StudentAccountProfileScreen = ({ user, onLogout }) => {
   const [view, setView] = useState("main");
   const [showReset, setShowReset] = useState(false);
@@ -1453,69 +1342,42 @@ const StudentAccountProfileScreen = ({ user, onLogout }) => {
   }, [user?.uid]);
 
   if (view === "personalInfo") return <><ResponsiveStyles /><GlobalStyles /><PersonalInfoScreen onBack={() => setView("main")} user={user} /></>;
-if (view === "terms")        return <><ResponsiveStyles /><GlobalStyles /><TermsScreen           onBack={() => setView("main")} /></>;
+  if (view === "terms")        return <><ResponsiveStyles /><GlobalStyles /><TermsScreen        onBack={() => setView("main")} /></>;
 
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "#f5f5f5" }}>
+    <div className="sap-screen" style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: page }}>
       <ResponsiveStyles />
       <GlobalStyles />
 
-      {/* ── Red header + overlapping white card ── */}
-      <div style={{
-        position: "relative",
-        flexShrink: 0,
-        zIndex: 1,
-        display: "flex",
-        justifyContent: "center",
-      }}>
-        {/* Red bar */}
-        <div style={{
-          position: "absolute",
-          top: 0, left: 0, right: 0,
-          height: "80px",
-          background: "#590101",
-          borderBottomLeftRadius: "30px",
-          borderBottomRightRadius: "30px",
-          zIndex: 1,
-        }} />
-
-        {/* White card */}
+      {/* Dark banner + overlapping profile card */}
+      <div style={{ position: "relative", flexShrink: 0, zIndex: 1, display: "flex", justifyContent: "center" }}>
+        <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: "78px", background: panel, borderBottomLeftRadius: radius.panel, borderBottomRightRadius: radius.panel, zIndex: 1 }} />
         <div className="sap-header-card">
-          {/* Avatar */}
-          <div style={{
-            position: "absolute",
-            top: "-40px",
-            width: "80px", height: "80px",
-            borderRadius: "50%",
-            background: "#320000",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            zIndex: 3,
-            boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
-          }}>
-            <PngIcon src={PersonalAccountProfile} size={50} />
+          <div style={{ position: "absolute", top: "-38px", width: "76px", height: "76px", borderRadius: "50%", background: panelDeep, border: `2px solid ${surface}`, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 3, boxShadow: shadow.pill }}>
+            <img src={PersonalAccountProfile} alt="" style={{ width: "42px", height: "42px", objectFit: "contain" }} />
           </div>
-
-          <p style={{
-            fontFamily: "'Jersey 25', sans-serif",
-            fontSize: "clamp(1.1rem, 5vw, 1.5rem)",
-            color: darkRed,
-            fontWeight: 500,
-            margin: 0,
-            textAlign: "center",
-          }}>
+          <p style={{ fontFamily: font.ui, fontSize: "clamp(1rem, 4vw, 1.125rem)", fontWeight: 600, letterSpacing: "-0.01em", color: ink, margin: 0, textAlign: "center" }}>
             {profileName || "—"}
           </p>
         </div>
       </div>
 
-      {/* ── Scrollable body ── */}
-      <div className="sap-body">
-        <div className="sap-divider" />
+      <div className="sap-divider" />
 
-        <div className="sap-menu-box">
-          <MenuRow iconSrc={personalInfoIcon} label="Personal Information" onClick={() => setView("personalInfo")} />
-          <MenuRow iconSrc={privacyIcon}      label="Reset Password"   onClick={() => setShowReset(true)} />
-          <MenuRow iconSrc={termsIcon}        label="Terms & Condition"    onClick={() => setView("terms")} />
+      {/* Scrollable body — grouped list */}
+      <div className="sap-body">
+        <div className="sap-menu-stack">
+          <MenuGroup title="Personal Information:">
+            <MenuRow icon="person" label="Personal Information" onClick={() => setView("personalInfo")} />
+          </MenuGroup>
+
+          <MenuGroup title="Security:">
+            <MenuRow icon="key" label="Reset Password" onClick={() => setShowReset(true)} />
+          </MenuGroup>
+
+          <MenuGroup title="Legal:">
+            <MenuRow icon="document" label="Terms & Condition" onClick={() => setView("terms")} />
+          </MenuGroup>
         </div>
 
         {showReset && <ResetPasswordModal onClose={() => setShowReset(false)} user={user} onLogout={onLogout} />}
@@ -1525,3 +1387,4 @@ if (view === "terms")        return <><ResponsiveStyles /><GlobalStyles /><Terms
 };
 
 export default StudentAccountProfileScreen;
+export { PersonalInfoScreen, ResponsiveStyles, TermsScreen, LegalPanel };

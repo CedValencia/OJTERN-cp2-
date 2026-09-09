@@ -1,14 +1,34 @@
 import React, { useState, useRef, useEffect, useLayoutEffect } from "react";
 import userIcon from "../icons/user.png";
-import viewIcon from "../icons/view.png";
 import { useChat } from "./useChat";
 import { uploadFilesToFolder, uploadFileToFolder } from "./CloudinaryService";
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "./firebase";
+import { color, font, type, space, radius, shadow, ease } from "./theme";
 
-// ─── Color Tokens ─────────────────────────────────────────────────────────────
-const red = "#8B0000";
-const darkRed = "#590101";
+// ── Design tokens, aliased for this screen ────────────────────────────────────
+// Kapareho ng CoordinatorMessagesScreen: lahat galing sa theme.js.
+// Walang hardcoded hex dito — kung magbabago ang palette, sa theme.js lang.
+const ink          = color.ink;          // primary text on light surfaces
+const inkBody      = color.inkBody;      // body copy
+const inkMuted     = color.inkMuted;     // secondary/meta text
+const inkFaint     = color.inkFaint;     // placeholders, empty states
+const surface      = color.wine600;      // cards, rows, modals
+const page         = color.wine900;      // page background
+const field        = color.wine700;      // inputs / neutral fills
+const line         = color.wine700;      // hairlines & borders
+const lineSoft     = color.wine800;      // softer fills & separators
+const panel        = color.blush100;     // dark panels (header bar, my bubbles)
+const panelDeep    = color.blush50;      // hover/pressed state of panel
+const onPanel      = color.onWine;       // light text on dark panel
+const onPanelDim   = color.onWineMuted;
+const onPanelFaint = color.onWineFaint;
+const danger       = color.danger;
+const success      = color.success;
+
+// Asymmetric bubble corners built from the shared card radius.
+const bubbleMine   = `${radius.card} ${radius.card} 6px ${radius.card}`;
+const bubbleTheirs = `${radius.card} ${radius.card} ${radius.card} 6px`;
 
 // ─── Report Categories ────────────────────────────────────────────────────────
 const reportCategories = [
@@ -44,8 +64,7 @@ const reportCategories = [
   },
 ];
 
-
-// ─── useIsMobile Hook ─────────────────────────────────────────────────────────
+// ── Responsive breakpoint hook ────────────────────────────────────────────────
 const useIsMobile = () => {
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 640);
   useEffect(() => {
@@ -56,16 +75,83 @@ const useIsMobile = () => {
   return isMobile;
 };
 
+// ── Responsive styles injected once ───────────────────────────────────────────
+const MessagesStyles = () => (
+  <style>{`
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
 
-// ─── CompanyAvatar ────────────────────────────────────────────────────────────
+    /* Chat list search shrinks on narrow screens */
+    .msg-search-input { width: 170px; }
+    .msg-search-input::placeholder { color: ${inkFaint}; }
+    @media (max-width: 480px) {
+      .msg-search-input { width: 110px; }
+    }
+
+    .msg-composer-input::placeholder { color: ${inkFaint}; }
+
+    /* Visible keyboard focus on every control in this screen */
+    .msg-thread :focus-visible,
+    .msg-list :focus-visible,
+    .msg-modal :focus-visible {
+      outline: none;
+      box-shadow: ${shadow.focus};
+      border-radius: ${radius.pill};
+    }
+
+    /* Thread padding */
+    .msg-thread-body { padding: 24px 32px; }
+    @media (max-width: 640px) {
+      .msg-thread-body { padding: 14px 16px; }
+    }
+
+    .msg-list-wrapper { padding: clamp(16px, 4vw, 28px) clamp(16px, 4vw, 32px); }
+
+    /* Search + title bar, same shape as the Find a company bar */
+    .msg-search-bar {
+      padding: 18px 22px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: ${space.md};
+      flex-wrap: wrap;
+    }
+    @media (max-width: 480px) {
+      .msg-search-bar { padding: 14px; }
+    }
+
+    /* Motion answers an action: a dialog opening, a message arriving. */
+    @keyframes msgFadeIn { from { opacity: 0 } to { opacity: 1 } }
+    @keyframes msgLift   { from { opacity: 0; transform: translateY(6px) } to { opacity: 1; transform: none } }
+
+    .msg-overlay { animation: msgFadeIn 180ms ${ease} both; }
+    .msg-dialog  { animation: msgLift 240ms ${ease} both; }
+    .msg-popover { animation: msgLift 160ms ${ease} both; }
+
+    @media (prefers-reduced-motion: reduce) {
+      .msg-overlay, .msg-dialog, .msg-popover { animation: none !important; }
+      .msg-row, .msg-btn { transition: none !important; }
+    }
+  `}</style>
+);
+
+// ── CompanyAvatar ─────────────────────────────────────────────────────────────
 const CompanyAvatar = ({ size = 40 }) => (
-  <div style={{ width: size, height: size, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-    <img src={userIcon} alt="user" style={{ width: size, height: size, objectFit: "contain" }} />
+  <div
+    style={{
+      width: size,
+      height: size,
+      flexShrink: 0,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      overflow: "hidden",
+    }}
+  >
+    <img src={userIcon} alt="" style={{ width: size, height: size, objectFit: "contain" }} />
   </div>
 );
 
-
-// ─── ImageLightbox ────────────────────────────────────────────────────────────
+// ── ImageLightbox ─────────────────────────────────────────────────────────────
 const ImageLightbox = ({ src, name, onClose }) => {
   useEffect(() => {
     const handler = (e) => { if (e.key === "Escape") onClose(); };
@@ -74,81 +160,32 @@ const ImageLightbox = ({ src, name, onClose }) => {
   }, [onClose]);
 
   const handleDownload = () => {
-    const a = document.createElement("a");
-    a.href = src;
-    a.download = name || "image";
-    a.click();
+    const a = document.createElement("a"); a.href = src; a.download = name || "image"; a.click();
   };
 
   return (
-    <div
-      onClick={onClose}
-      style={{
-        position: "fixed", inset: 0, background: "rgba(0,0,0,0.88)",
-        display: "flex", alignItems: "center", justifyContent: "center",
-        zIndex: 9000, flexDirection: "column", gap: "16px",
-      }}
-    >
-      <div
-        onClick={e => e.stopPropagation()}
-        style={{
-          position: "absolute", top: 0, left: 0, right: 0,
-          padding: "14px 20px", display: "flex", alignItems: "center",
-          justifyContent: "space-between", background: "rgba(0,0,0,0.5)",
-        }}
-      >
-        <span style={{
-          fontFamily: "'Kufam', sans-serif", fontSize: "0.88rem",
-          color: "rgba(255,255,255,0.8)", maxWidth: "70%",
-          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-        }}>
-          {name}
-        </span>
-        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-          <button onClick={handleDownload} style={{
-            background: "rgba(255,255,255,0.15)", border: "none", borderRadius: "8px",
-            padding: "7px 14px", color: "white", fontFamily: "'Kufam', sans-serif",
-            fontSize: "0.82rem", cursor: "pointer", display: "flex", alignItems: "center", gap: "6px",
-          }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-              <polyline points="7 10 12 15 17 10"/>
-              <line x1="12" y1="15" x2="12" y2="3"/>
-            </svg>
+    <div className="msg-modal msg-overlay" onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(10,10,10,0.86)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9000, flexDirection: "column", gap: space.md }}>
+      <div onClick={e => e.stopPropagation()} style={{ position: "absolute", top: 0, left: 0, right: 0, padding: `12px ${space.lg}`, display: "flex", alignItems: "center", justifyContent: "space-between", background: "rgba(10,10,10,0.45)" }}>
+        <span style={{ fontFamily: font.ui, ...type.helper, color: onPanelDim, maxWidth: "70%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</span>
+        <div style={{ display: "flex", alignItems: "center", gap: space.sm }}>
+          <button onClick={handleDownload} style={{ background: "transparent", border: `1px solid ${onPanelFaint}`, borderRadius: radius.pill, padding: "7px 16px", color: onPanel, fontFamily: font.ui, ...type.helper, fontWeight: 500, cursor: "pointer", display: "flex", alignItems: "center", gap: "6px" }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
             Download
           </button>
-          <button onClick={onClose} style={{
-            background: "rgba(255,255,255,0.15)", border: "none", borderRadius: "50%",
-            width: "34px", height: "34px", color: "white", fontSize: "1.1rem",
-            cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
-          }}>
-            ✕
-          </button>
+          <button onClick={onClose} aria-label="Close" style={{ background: "transparent", border: `1px solid ${onPanelFaint}`, borderRadius: "50%", width: "34px", height: "34px", color: onPanel, fontSize: "1rem", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1 }}>✕</button>
         </div>
       </div>
-      <img
-        src={src} alt={name}
-        onClick={e => e.stopPropagation()}
-        style={{
-          maxWidth: "90vw", maxHeight: "80vh", borderRadius: "10px",
-          objectFit: "contain", boxShadow: "0 8px 40px rgba(0,0,0,0.6)",
-        }}
-      />
+      <img src={src} alt={name} onClick={e => e.stopPropagation()} style={{ maxWidth: "90vw", maxHeight: "80vh", borderRadius: radius.card, objectFit: "contain", boxShadow: shadow.panel }} />
     </div>
   );
 };
 
-
-// ─── downloadFile Helper ──────────────────────────────────────────────────────
+// ── downloadFile ──────────────────────────────────────────────────────────────
 const downloadFile = (url, name) => {
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = name || "file.pdf";
-  a.click();
+  const a = document.createElement("a"); a.href = url; a.download = name || "file.pdf"; a.click();
 };
 
-
-// ─── AttachmentBubble ─────────────────────────────────────────────────────────
+// ── AttachmentBubble ──────────────────────────────────────────────────────────
 const AttachmentBubble = ({ attachment, isMe }) => {
   const [lightbox, setLightbox] = useState(false);
   const isImage = attachment.type.startsWith("image/");
@@ -159,141 +196,113 @@ const AttachmentBubble = ({ attachment, isMe }) => {
     else downloadFile(attachment.url, attachment.name);
   };
 
+  const bg     = isMe ? panel : lineSoft;
+  const fg     = isMe ? onPanel : ink;
+  const fgDim  = isMe ? onPanelDim : inkMuted;
+  const chipBg = isMe ? "rgba(250,250,250,0.10)" : surface;
+  const border = isMe ? "none" : `1px solid ${line}`;
+
   return (
     <>
       <div
+        className="msg-btn"
         onClick={handleClick}
-        title={isImage ? "Click to view" : "Click to download"}
-        style={{
-          background: isMe ? darkRed : "#555", borderRadius: "12px",
-          padding: "8px 12px", maxWidth: "220px", cursor: "pointer",
-          userSelect: "none", transition: "opacity 0.15s",
-        }}
-        onMouseEnter={e => e.currentTarget.style.opacity = "0.85"}
+        title={isImage ? "Open this image" : "Download this file"}
+        style={{ background: bg, border, borderRadius: isMe ? bubbleMine : bubbleTheirs, padding: isImage ? "6px" : "9px 13px", maxWidth: "230px", cursor: "pointer", userSelect: "none", transition: `opacity 180ms ${ease}` }}
+        onMouseEnter={e => e.currentTarget.style.opacity = "0.88"}
         onMouseLeave={e => e.currentTarget.style.opacity = "1"}
       >
         {isImage ? (
-          <img
-            src={attachment.url} alt={attachment.name}
-            style={{ maxWidth: "180px", maxHeight: "150px", borderRadius: "8px", display: "block" }}
-          />
+          <img src={attachment.url} alt={attachment.name} style={{ maxWidth: "190px", maxHeight: "150px", borderRadius: "12px", display: "block" }} />
         ) : (
           <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-            <div style={{
-              width: "36px", height: "36px", background: "rgba(255,255,255,0.15)",
-              borderRadius: "8px", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
-            }}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                <polyline points="14 2 14 8 20 8"/>
-              </svg>
+            <div style={{ width: "34px", height: "34px", background: chipBg, borderRadius: "10px", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={fg} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <p style={{
-                fontFamily: "'Kufam', sans-serif", fontSize: "0.78rem", color: "white",
-                whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "130px",
-              }}>
-                {attachment.name}
-              </p>
-              <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.68rem", color: "rgba(255,255,255,0.65)", marginTop: "2px" }}>
-                PDF • tap to download
-              </p>
+              <p style={{ fontFamily: font.ui, ...type.helper, fontWeight: 500, color: fg, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "130px", margin: 0 }}>{attachment.name}</p>
+              <p style={{ fontFamily: font.ui, fontSize: "0.75rem", lineHeight: 1.4, color: fgDim, marginTop: "2px" }}>PDF · tap to download</p>
             </div>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-              <polyline points="7 10 12 15 17 10"/>
-              <line x1="12" y1="15" x2="12" y2="3"/>
-            </svg>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={fgDim} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
           </div>
         )}
       </div>
-      {lightbox && (
-        <ImageLightbox src={attachment.url} name={attachment.name} onClose={() => setLightbox(false)} />
-      )}
+      {lightbox && <ImageLightbox src={attachment.url} name={attachment.name} onClose={() => setLightbox(false)} />}
     </>
   );
 };
 
-
-// ─── ReportModal ──────────────────────────────────────────────────────────────
-const ConfirmModal = ({ message, onConfirm, onCancel, confirmLabel = "Yes", cancelLabel = "No" }) => {
-  const isMobile = useIsMobile();
-  return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 3000, padding: isMobile ? "12px" : "0" }}>
-      <div style={{ background: "white", borderRadius: "16px", width: "100%", maxWidth: "360px", overflow: "hidden", display: "flex", flexDirection: "column" }}>
-        <div style={{ padding: "22px 22px 6px" }}>
-          <p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.95rem", color: "#222", textAlign: "center", lineHeight: 1.5 }}>{message}</p>
-        </div>
-        <div style={{ display: "flex", borderTop: "1px solid #eee", marginTop: "18px" }}>
-          <button onClick={onCancel} style={{ flex: 1, padding: "13px", background: "white", border: "none", borderRight: "1px solid #eee", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.9rem", color: "#555", cursor: "pointer" }}>{cancelLabel}</button>
-          <button onClick={onConfirm} style={{ flex: 1, padding: "13px", background: "white", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.9rem", color: red, cursor: "pointer" }}>{confirmLabel}</button>
-        </div>
+// ── ConfirmModal ──────────────────────────────────────────────────────────────
+const ConfirmModal = ({ message, onConfirm, onCancel, confirmLabel = "Yes", cancelLabel = "No", destructive = true }) => (
+  <div className="msg-modal msg-overlay" style={{ position: "fixed", inset: 0, background: "rgba(10,10,10,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 3000, padding: space.md }}>
+    <div className="msg-dialog" style={{ background: surface, borderRadius: radius.card, width: "100%", maxWidth: "360px", overflow: "hidden", border: `1px solid ${line}`, boxShadow: shadow.panel }}>
+      <div style={{ padding: `${space.lg} ${space.lg} ${space.md}` }}>
+        <p style={{ fontFamily: font.ui, ...type.body, color: inkBody, textAlign: "center", margin: 0 }}>{message}</p>
+      </div>
+      <div style={{ display: "flex", borderTop: `1px solid ${line}` }}>
+        <button onClick={onCancel} style={{ flex: 1, padding: "13px", background: surface, border: "none", borderRight: `1px solid ${line}`, fontFamily: font.ui, ...type.control, color: inkMuted, cursor: "pointer" }}>{cancelLabel}</button>
+        <button onClick={onConfirm} style={{ flex: 1, padding: "13px", background: surface, border: "none", fontFamily: font.ui, ...type.control, color: destructive ? danger : ink, cursor: "pointer" }}>{confirmLabel}</button>
       </div>
     </div>
-  );
-};
+  </div>
+);
 
-const InfoModal = ({ message, onClose }) => {
-  const isMobile = useIsMobile();
-  return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 4000, padding: isMobile ? "12px" : "0" }}>
-      <div style={{ background: "white", borderRadius: "16px", width: "100%", maxWidth: "360px", overflow: "hidden", display: "flex", flexDirection: "column" }}>
-        <div style={{ padding: "22px 22px 6px" }}>
-          <p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.95rem", color: "#222", textAlign: "center", lineHeight: 1.5 }}>{message}</p>
-        </div>
-        <div style={{ display: "flex", borderTop: "1px solid #eee", marginTop: "18px" }}>
-          <button onClick={onClose} style={{ flex: 1, padding: "13px", background: "white", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.9rem", color: red, cursor: "pointer" }}>OK</button>
-        </div>
+// ── InfoModal ─────────────────────────────────────────────────────────────────
+const InfoModal = ({ message, onClose }) => (
+  <div className="msg-modal msg-overlay" style={{ position: "fixed", inset: 0, background: "rgba(10,10,10,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 4000, padding: space.md }}>
+    <div className="msg-dialog" style={{ background: surface, borderRadius: radius.card, width: "100%", maxWidth: "340px", overflow: "hidden", textAlign: "center", border: `1px solid ${line}`, boxShadow: shadow.panel }}>
+      <div style={{ padding: `${space.lg} ${space.lg} ${space.md}` }}>
+        <p style={{ fontFamily: font.ui, ...type.body, color: inkBody, margin: 0 }}>{message}</p>
       </div>
+      <button onClick={onClose} style={{ width: "100%", padding: "13px", border: "none", borderTop: `1px solid ${line}`, background: surface, color: ink, fontFamily: font.ui, ...type.control, cursor: "pointer" }}>OK</button>
     </div>
-  );
-};
+  </div>
+);
 
 // ── Report success confirmation ───────────────────────────────────────────────
-const ReportSuccessModal = ({ onClose }) => {
-  const isMobile = useIsMobile();
-  return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 4000, padding: isMobile ? "12px" : "0" }}>
-      <div style={{ background: "white", borderRadius: "16px", padding: "32px 24px", textAlign: "center", maxWidth: "360px", width: "100%", boxShadow: "0 8px 32px rgba(0,0,0,0.3)" }}>
-        <div style={{ marginBottom: "16px" }}>
-          <svg width="60" height="60" viewBox="0 0 24 24" fill="none" stroke={red} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ margin: "0 auto" }}>
-            <polyline points="20 6 9 17 4 12" />
-          </svg>
-        </div>
-        <h3 style={{ fontFamily: "'Kufam', sans-serif", fontSize: "1.3rem", color: "#333", marginBottom: "8px" }}>Report Submitted Successfully</h3>
-        <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.95rem", color: "#666", marginBottom: "24px" }}>Thank you for reporting. Our team will review your report shortly.</p>
-        <button
-          onClick={onClose}
-          style={{ background: red, color: "white", border: "none", borderRadius: "8px", padding: "10px 32px", fontFamily: "'Kufam', sans-serif", fontSize: "1rem", fontWeight: "600", cursor: "pointer" }}
-        >
-          Okay
-        </button>
+const ReportSuccessModal = ({ onClose }) => (
+  <div className="msg-modal msg-overlay" style={{ position: "fixed", inset: 0, background: "rgba(10,10,10,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 4000, padding: space.md }}>
+    <div className="msg-dialog" style={{ background: surface, borderRadius: radius.panel, padding: `${space.xl} ${space.lg}`, textAlign: "center", maxWidth: "380px", width: "100%", border: `1px solid ${line}`, boxShadow: shadow.panel }}>
+      <div style={{ width: "56px", height: "56px", borderRadius: "50%", background: lineSoft, display: "flex", alignItems: "center", justifyContent: "center", margin: `0 auto ${space.md}` }}>
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke={success} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="20 6 9 17 4 12" />
+        </svg>
       </div>
+      <h3 style={{ fontFamily: font.ui, fontSize: "1.25rem", fontWeight: 600, letterSpacing: "-0.01em", color: ink, marginBottom: space.sm }}>Report sent</h3>
+      <p style={{ fontFamily: font.ui, ...type.body, color: inkBody, marginBottom: space.lg }}>The review team will look into it and get back to you here.</p>
+      <button
+        onClick={onClose}
+        style={{ background: panel, color: onPanel, border: "none", borderRadius: radius.pill, padding: "11px 34px", fontFamily: font.ui, ...type.control, cursor: "pointer", transition: `background 240ms ${ease}` }}
+        onMouseEnter={e => (e.currentTarget.style.background = panelDeep)}
+        onMouseLeave={e => (e.currentTarget.style.background = panel)}
+      >
+        Done
+      </button>
     </div>
-  );
-};
+  </div>
+);
 
+// ── Report Modal ──────────────────────────────────────────────────────────────
 const ReportModal = ({ company, onClose, onSubmit }) => {
-  const [step, setStep]               = useState(1);
-  const [selected, setSelected]       = useState(null);
-  const [description, setDescription] = useState("");
+  const [step, setStep]                 = useState(1);
+  const [selected, setSelected]         = useState(null);
+  const [description, setDescription]   = useState("");
   const [attachedFile, setAttachedFile] = useState(null);
-  const [infoMsg, setInfoMsg]         = useState(null);
+  const [infoMsg, setInfoMsg]           = useState(null);
   const fileRef = useRef();
-  const isMobile = useIsMobile();
 
   const handleFile = (e) => {
     const file = e.target.files[0];
     if (!file) return;
     const allowed = ["image/png", "application/pdf"];
-    if (!allowed.includes(file.type)) { setInfoMsg("Only PNG and PDF files are allowed."); return; }
-    if (file.size > 10 * 1024 * 1024) { setInfoMsg("File must be under 10MB."); return; }
+    if (!allowed.includes(file.type)) { setInfoMsg("That file type isn't supported. Attach a PNG or a PDF."); return; }
+    if (file.size > 10 * 1024 * 1024) { setInfoMsg("That file is over 10MB. Attach a smaller one."); return; }
     setAttachedFile({ name: file.name, type: file.type, url: URL.createObjectURL(file), file });
   };
 
   const handleSubmit = () => {
-    if (!description.trim()) { setInfoMsg("Please describe your report"); return; }
-    if (!attachedFile)        { setInfoMsg("Please attach a file."); return; }
+    if (!description.trim()) { setInfoMsg("Add a description of what happened."); return; }
+    if (!attachedFile)       { setInfoMsg("Attach a file that supports your report."); return; }
     onSubmit({
       company: company.name,
       companyId: company.id || "",
@@ -308,70 +317,49 @@ const ReportModal = ({ company, onClose, onSubmit }) => {
   const cat = reportCategories.find(c => c.label === selected?.label);
 
   return (
-    <div style={{
-      position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)",
-      display: "flex", alignItems: "center", justifyContent: "center",
-      zIndex: 2000, padding: isMobile ? "12px" : "0",
-    }}>
-      <div style={{
-        background: "white", borderRadius: "16px", width: "100%",
-        maxWidth: "520px", maxHeight: isMobile ? "92vh" : "85vh",
-        overflow: "hidden", display: "flex", flexDirection: "column",
-      }}>
-        <div style={{
-          padding: "14px 20px", display: "flex", alignItems: "center",
-          justifyContent: "space-between", borderBottom: "1px solid #eee",
-        }}>
-          <span style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.5rem", color: darkRed }}>Reports:</span>
-          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: "1.3rem", cursor: "pointer", color: "#555" }}>✕</button>
+    <div className="msg-modal msg-overlay" style={{ position: "fixed", inset: 0, background: "rgba(10,10,10,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2000, padding: space.md }}>
+      <div className="msg-dialog" style={{ background: surface, borderRadius: radius.panel, width: "100%", maxWidth: "540px", maxHeight: "86vh", overflow: "hidden", display: "flex", flexDirection: "column", border: `1px solid ${line}`, boxShadow: shadow.panel }}>
+        <div style={{ padding: `${space.md} ${space.lg}`, display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: `1px solid ${line}` }}>
+          <div>
+            <span style={{ fontFamily: font.ui, fontSize: "1.125rem", fontWeight: 600, letterSpacing: "-0.01em", color: ink }}>Report this company</span>
+            <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, marginTop: "2px" }}>Step {step} of 3</p>
+          </div>
+          <button onClick={onClose} aria-label="Close" style={{ background: "none", border: "none", fontSize: "1.15rem", cursor: "pointer", color: inkMuted, lineHeight: 1 }}>✕</button>
         </div>
-        <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px" }}>
+
+        {/* Progress hairline — three segments, one per step */}
+        <div style={{ display: "flex", gap: "3px", padding: `0 ${space.lg}`, marginTop: "10px" }}>
+          {[1, 2, 3].map(n => (
+            <div key={n} style={{ flex: 1, height: "3px", borderRadius: radius.pill, background: n <= step ? ink : line, transition: `background 260ms ${ease}` }} />
+          ))}
+        </div>
+
+        <div style={{ flex: 1, overflowY: "auto", padding: `${space.md} ${space.lg} ${space.lg}` }}>
           {step === 1 && (
             <>
-              <p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.95rem", marginBottom: "14px" }}>
-                Please select:
-              </p>
-              {reportCategories.map((cat) => (
-                <div
-                  key={cat.label}
-                  onClick={() => setSelected(cat)}
-                  style={{
-                    display: "flex", alignItems: "center", gap: "12px",
-                    padding: "10px 0", cursor: "pointer", borderBottom: "1px solid #f0f0f0",
-                  }}
-                >
-                  <div style={{
-                    width: "22px", height: "22px", borderRadius: "50%",
-                    border: `2px solid ${red}`, display: "flex", alignItems: "center",
-                    justifyContent: "center", flexShrink: 0,
-                    background: selected?.label === cat.label ? red : "white",
-                  }}>
-                    {selected?.label === cat.label && (
-                      <div style={{ width: "8px", height: "8px", borderRadius: "50%", background: "white" }} />
-                    )}
+              <p style={{ fontFamily: font.ui, ...type.label, color: ink, marginBottom: "12px" }}>What is the concern?</p>
+              {reportCategories.map((c) => {
+                const isOn = selected?.label === c.label;
+                return (
+                  <div key={c.label} onClick={() => setSelected(c)} style={{ display: "flex", alignItems: "center", gap: "12px", padding: "12px 0", cursor: "pointer", borderBottom: `1px solid ${lineSoft}` }}>
+                    <div style={{ width: "20px", height: "20px", borderRadius: "50%", border: `1.5px solid ${isOn ? ink : color.wine400}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, background: isOn ? ink : surface, transition: `all 180ms ${ease}` }}>
+                      {isOn && <div style={{ width: "7px", height: "7px", borderRadius: "50%", background: color.white }} />}
+                    </div>
+                    <span style={{ fontFamily: font.ui, ...type.body, color: isOn ? ink : inkBody }}>{c.label}</span>
                   </div>
-                  <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.93rem", color: "#222" }}>
-                    {cat.label}
-                  </span>
-                </div>
-              ))}
+                );
+              })}
             </>
           )}
           {step === 2 && cat && (
             <>
-              <p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "1rem", marginBottom: "6px" }}>{cat.label}</p>
-              <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", color: "#666", marginBottom: "12px" }}>More about this reason:</p>
-              <hr style={{ borderColor: "#eee", marginBottom: "14px" }} />
-              <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#444", lineHeight: 1.7, marginBottom: "14px" }}>
-                {cat.description}
-              </p>
+              <p style={{ fontFamily: font.ui, fontSize: "1rem", fontWeight: 600, color: ink, marginBottom: space.sm }}>{cat.label}</p>
+              <p style={{ fontFamily: font.ui, ...type.body, color: inkBody, marginBottom: space.md, maxWidth: "62ch" }}>{cat.description}</p>
               {cat.details.length > 0 && (
                 <>
-                  <p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.88rem", marginBottom: "8px" }}>Common Types:</p>
-                  <ul style={{ paddingLeft: "18px" }}>
-                    {cat.details.map((d, i) => (
-                      <li key={i} style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.83rem", color: "#555", marginBottom: "4px" }}>{d}</li>
-                    ))}
+                  <p style={{ fontFamily: font.ui, ...type.label, color: ink, marginBottom: space.sm }}>Common forms this takes</p>
+                  <ul style={{ paddingLeft: "18px", margin: 0 }}>
+                    {cat.details.map((d, i) => <li key={i} style={{ fontFamily: font.ui, ...type.helper, color: inkBody, marginBottom: space.xs }}>{d}</li>)}
                   </ul>
                 </>
               )}
@@ -379,86 +367,68 @@ const ReportModal = ({ company, onClose, onSubmit }) => {
           )}
           {step === 3 && (
             <>
-              <p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.95rem", marginBottom: "10px" }}>Write a description:</p>
+              <p style={{ fontFamily: font.ui, ...type.label, color: ink, marginBottom: space.sm }}>Describe what happened</p>
               <textarea
                 value={description}
                 onChange={e => setDescription(e.target.value)}
-                placeholder="Describe the issue..."
-                style={{
-                  width: "100%", minHeight: "100px", border: "none",
-                  borderBottom: `2px solid ${red}`, outline: "none",
-                  fontFamily: "'Kufam', sans-serif", fontSize: "0.88rem",
-                  resize: "none", background: "transparent", color: "#222",
-                  marginBottom: "20px", boxSizing: "border-box",
-                }}
+                placeholder="Include dates, names, and anything the review team should see."
+                style={{ width: "100%", minHeight: "112px", border: `1px solid ${line}`, borderRadius: radius.card, padding: "12px 14px", outline: "none", fontFamily: font.ui, ...type.body, resize: "vertical", background: color.wine800, color: ink, marginBottom: space.lg, boxSizing: "border-box" }}
               />
-              <p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.95rem", marginBottom: "10px" }}>Attach File:</p>
+              <p style={{ fontFamily: font.ui, ...type.label, color: ink, marginBottom: space.xs }}>Attach evidence</p>
+              <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, marginBottom: space.sm }}>PNG or PDF, up to 10MB.</p>
               <input ref={fileRef} type="file" accept=".png,.pdf" style={{ display: "none" }} onChange={handleFile} />
               {!attachedFile ? (
-                <div
-                  onClick={() => fileRef.current.click()}
-                  style={{
-                    width: "80px", height: "80px", background: "#e8c8c8",
-                    borderRadius: "14px", display: "flex", alignItems: "center",
-                    justifyContent: "center", cursor: "pointer",
-                  }}
-                >
-                  <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <button onClick={() => fileRef.current.click()} style={{ display: "flex", alignItems: "center", gap: space.sm, background: color.wine800, border: `1px dashed ${color.wine400}`, borderRadius: radius.card, padding: "12px 18px", cursor: "pointer", fontFamily: font.ui, ...type.control, color: ink }}>
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={inkMuted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
                   </svg>
-                </div>
+                  Choose a file
+                </button>
               ) : (
-                <div style={{
-                  display: "flex", alignItems: "center", gap: "10px",
-                  background: "#f5f5f5", padding: "10px 14px", borderRadius: "8px",
-                }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "10px", background: color.wine800, border: `1px solid ${line}`, padding: "10px 14px", borderRadius: radius.card }}>
                   {attachedFile.type.startsWith("image/") ? (
-                    <img src={attachedFile.url} alt="preview" style={{ width: "50px", height: "50px", objectFit: "cover", borderRadius: "6px" }} />
+                    <img src={attachedFile.url} alt="Attachment preview" style={{ width: "44px", height: "44px", objectFit: "cover", borderRadius: "10px" }} />
                   ) : (
-                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={red} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={inkMuted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
                       <polyline points="14 2 14 8 20 8"/>
                     </svg>
                   )}
-                  <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", color: "#555" }}>{attachedFile.name}</span>
-                  <button
-                    onClick={() => setAttachedFile(null)}
-                    style={{ marginLeft: "auto", background: "none", border: "none", cursor: "pointer", color: "#aaa", fontSize: "1rem" }}
-                  >
-                    ✕
-                  </button>
+                  <span style={{ fontFamily: font.ui, ...type.helper, color: inkBody, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{attachedFile.name}</span>
+                  <button onClick={() => setAttachedFile(null)} aria-label="Remove file" style={{ marginLeft: "auto", background: "none", border: "none", cursor: "pointer", color: inkMuted, fontSize: "0.95rem" }}>✕</button>
                 </div>
               )}
             </>
           )}
         </div>
-        <div style={{ background: darkRed, padding: "12px 20px", display: "flex", justifyContent: "flex-end" }}>
-          {step < 3 ? (
-            <button
-              onClick={() => {
-                if (step === 1 && !selected) { setInfoMsg("Please select a concern."); return; }
-                setStep(step + 1);
-              }}
-              style={{
-                padding: "8px 20px", borderRadius: "20px", background: "rgba(255,255,255,0.2)",
-                color: "white", border: "none", fontFamily: "'Kufam', sans-serif",
-                fontWeight: 600, cursor: "pointer", fontSize: "0.85rem",
-              }}
-            >
-              Next {step}/3
-            </button>
-          ) : (
-            <button
-              onClick={handleSubmit}
-              style={{
-                padding: "8px 20px", borderRadius: "20px", background: "rgba(255,255,255,0.2)",
-                color: "white", border: "none", fontFamily: "'Kufam', sans-serif",
-                fontWeight: 600, cursor: "pointer", fontSize: "0.85rem",
-              }}
-            >
-              Submit report
-            </button>
-          )}
+
+        <div style={{ background: panel, padding: `12px ${space.lg}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: space.md }}>
+          <p style={{ fontFamily: font.ui, ...type.helper, color: onPanelDim, margin: 0, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{company.name}</p>
+          <div style={{ display: "flex", gap: space.sm, flexShrink: 0 }}>
+            {step > 1 && (
+              <button
+                onClick={() => setStep(step - 1)}
+                style={{ padding: "9px 18px", borderRadius: radius.pill, background: "transparent", color: onPanelDim, border: `1px solid ${onPanelFaint}`, fontFamily: font.ui, ...type.control, cursor: "pointer" }}
+              >
+                Back
+              </button>
+            )}
+            {step < 3 ? (
+              <button
+                onClick={() => { if (step === 1 && !selected) { setInfoMsg("Pick a concern to continue."); return; } setStep(step + 1); }}
+                style={{ padding: "9px 22px", borderRadius: radius.pill, background: color.white, color: ink, border: "none", fontFamily: font.ui, ...type.control, cursor: "pointer" }}
+              >
+                Continue
+              </button>
+            ) : (
+              <button
+                onClick={handleSubmit}
+                style={{ padding: "9px 22px", borderRadius: radius.pill, background: color.white, color: ink, border: "none", fontFamily: font.ui, ...type.control, cursor: "pointer" }}
+              >
+                Send report
+              </button>
+            )}
+          </div>
         </div>
       </div>
       {infoMsg && <InfoModal message={infoMsg} onClose={() => setInfoMsg(null)} />}
@@ -466,24 +436,23 @@ const ReportModal = ({ company, onClose, onSubmit }) => {
   );
 };
 
-
-// ─── ChatView ─────────────────────────────────────────────────────────────────
+// ── ChatView ──────────────────────────────────────────────────────────────────
 const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onReport }) => {
-  const [input, setInput]           = useState("");
+  const [input, setInput]             = useState("");
   const [attachments, setAttachments] = useState([]);
-  const [showInfo, setShowInfo]     = useState(false);
-  const [editingId, setEditingId]   = useState(null);
-  const [editText, setEditText]     = useState("");
-  const [popupMsgId, setPopupMsgId] = useState(null);
+  const [showInfo, setShowInfo]       = useState(false);
+  const [editingId, setEditingId]     = useState(null);
+  const [editText, setEditText]       = useState("");
+  const [popupMsgId, setPopupMsgId]   = useState(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [unsendTarget, setUnsendTarget] = useState(null);
-  const [showReport, setShowReport] = useState(false);
-  const [infoMsg, setInfoMsg]       = useState(null);
-
-  const bottomRef = useRef();
-  const fileRef   = useRef();
-  const infoRef   = useRef();
-  const isMobile  = useIsMobile();
+  const [showReport, setShowReport]   = useState(false);
+  const [infoMsg, setInfoMsg]         = useState(null);
+  const bottomRef      = useRef();
+  const fileRef        = useRef();
+  const infoRef        = useRef();
+  const longPressTimer = useRef(null);
+  const isMobile       = useIsMobile();
   // Tracks the contact.id we've already done the initial "instant landing"
   // scroll for. Only gets set once messages for that contact have actually
   // loaded (not just switched to) — Firestore delivers messages
@@ -545,9 +514,7 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onR
     if (sending) return;
     if (!input.trim() && attachments.length === 0) return;
     const now = new Date();
-    const timeStr = now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true })
-      .toLowerCase().replace(" ", "");
-
+    const timeStr = now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true }).toLowerCase().replace(" ", "");
     let uploadedAttachments = null;
     if (attachments.length > 0) {
       setSending(true);
@@ -556,108 +523,80 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onR
         uploadedAttachments = uploaded.map((u, i) => ({ name: u.name, url: u.url, type: attachments[i].type, publicId: u.publicId, resourceType: u.resourceType }));
       } catch (err) {
         console.error("Failed to upload attachments:", err);
-        setInfoMsg("Failed to upload attachment(s). Please try again.");
+        setInfoMsg("The attachment didn't upload. Try again.");
         setSending(false);
         return;
       }
       setSending(false);
     }
-
-    onSend(contact.id, {
-      id: Date.now(), sender: "me", text: input.trim(),
-      time: timeStr, edited: false, unsent: false,
-      attachments: uploadedAttachments,
-    });
-    setInput("");
-    setAttachments([]);
+    onSend(contact.id, { id: Date.now(), sender: "me", text: input.trim(), time: timeStr, edited: false, unsent: false, attachments: uploadedAttachments });
+    setInput(""); setAttachments([]);
   };
 
-  const handleKeyDown = (e) => {
-    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); }
-  };
+  const handleKeyDown = (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } };
 
-  const longPressTimer = useRef(null);
   const startLongPress = (e, msg) => {
     if (msg.sender !== "me" || msg.unsent) return;
-    longPressTimer.current = setTimeout(() => {
-      setPopupMsgId(prev => prev === msg.id ? null : msg.id);
-      setEditingId(null);
-    }, 500);
+    longPressTimer.current = setTimeout(() => { setPopupMsgId(prev => prev === msg.id ? null : msg.id); setEditingId(null); }, 500);
   };
-  const cancelLongPress = () => {
-    if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; }
-  };
-
+  const cancelLongPress = () => { if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; } };
   const EDIT_WINDOW_MS  = 15 * 60 * 1000; // messages older than this can no longer be edited
   const canEditMsg      = (msg) => !!msg.text && (Date.now() - (msg.ts || 0)) < EDIT_WINDOW_MS;
-  const startEdit    = (msg) => { if (!canEditMsg(msg)) return; setEditingId(msg.id); setEditText(msg.text); setPopupMsgId(null); };
-  const saveEdit     = (msgId) => { if (!editText.trim()) return; onSend(contact.id, { __edit: true, id: msgId, text: editText.trim() }); setEditingId(null); setEditText(""); };
-  const handleUnsent = (msgId) => { setUnsendTarget(msgId); setPopupMsgId(null); };
-  const confirmUnsend = () => { onSend(contact.id, { __unsent: true, id: unsendTarget }); setUnsendTarget(null); };
+  const startEdit       = (msg)   => { if (!canEditMsg(msg)) return; setEditingId(msg.id); setEditText(msg.text); setPopupMsgId(null); };
+  const saveEdit        = (msgId) => { if (!editText.trim()) return; onSend(contact.id, { __edit: true, id: msgId, text: editText.trim() }); setEditingId(null); setEditText(""); };
+  const handleUnsent    = (msgId) => { setUnsendTarget(msgId); setPopupMsgId(null); };
+  const confirmUnsend   = () => { onSend(contact.id, { __unsent: true, id: unsendTarget }); setUnsendTarget(null); };
   const handleDeleteConversation = () => { setShowInfo(false); setShowDeleteConfirm(true); };
   const confirmDeleteConversation = () => { onDeleteConversation(contact.id); setShowDeleteConfirm(false); };
 
-  const avatarSize    = isMobile ? 30 : 36;
-  const bubbleMaxWidth = isMobile ? "70%" : "55%";
-  const headerPadding = isMobile ? "10px 14px" : "14px 20px";
-  const msgPadding    = isMobile ? "12px 14px" : "20px 24px";
-  const inputPadding  = isMobile ? "8px 12px"  : "12px 20px";
+  const avatarSize     = isMobile ? 30 : 34;
+  const bubbleMaxWidth = isMobile ? "74%" : "56%";
+  const headerPadding  = isMobile ? "12px 16px" : "14px 24px";
+  const inputPadding   = isMobile ? "10px 14px" : "14px 24px";
+
+  const menuItem = { padding: "12px 18px", fontFamily: font.ui, ...type.helper, cursor: "pointer" };
 
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", height: "100%", overflow: "hidden", background: "white" }}>
-      {/* Header */}
-      <div style={{
-        background: darkRed, padding: headerPadding, display: "flex",
-        alignItems: "center", justifyContent: "space-between", flexShrink: 0,
-      }}>
-        <div style={{ display: "flex", alignItems: "center", gap: isMobile ? "8px" : "12px" }}>
-          <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", padding: "4px" }}>
-            <svg width={isMobile ? 18 : 20} height={isMobile ? 18 : 20} viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="15 18 9 12 15 6"/>
-            </svg>
-          </button>
-          <span style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: isMobile ? "1.2rem" : "1.5rem", color: "white" }}>
-            {contact.name}
-          </span>
-        </div>
+    <div className="msg-thread" style={{ flex: 1, display: "flex", flexDirection: "column", height: "100%", overflow: "hidden", background: page }}>
+      <MessagesStyles />
 
-        {/* ── Info button with dropdown (Delete + Report) ── */}
+      {/* Header */}
+      <div style={{ background: panel, padding: headerPadding, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: space.sm, minWidth: 0 }}>
+          <button onClick={onBack} aria-label="Back to chats" style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", color: onPanelDim, padding: "4px" }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+          </button>
+          <span style={{ fontFamily: font.ui, fontSize: isMobile ? "1rem" : "1.0625rem", fontWeight: 600, letterSpacing: "-0.01em", color: onPanel, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{contact.name}</span>
+        </div>
         <div ref={infoRef} style={{ position: "relative" }}>
           <button
             onClick={() => setShowInfo(v => !v)}
-            style={{
-              background: "white", border: "none", borderRadius: "50%",
-              width: isMobile ? "28px" : "32px", height: isMobile ? "28px" : "32px",
-              display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer",
-            }}
+            aria-label="Conversation options"
+            style={{ background: "transparent", border: `1px solid ${onPanelFaint}`, borderRadius: "50%", width: "32px", height: "32px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: onPanel, transition: `background 240ms ${ease}` }}
+            onMouseEnter={e => (e.currentTarget.style.background = "rgba(250,250,250,0.10)")}
+            onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill={darkRed} stroke={darkRed} strokeWidth="1">
-              <circle cx="12" cy="12" r="10"/>
-              <line x1="12" y1="8" x2="12" y2="8" stroke="white" strokeWidth="3" strokeLinecap="round"/>
-              <line x1="12" y1="12" x2="12" y2="16" stroke="white" strokeWidth="2" strokeLinecap="round"/>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/>
             </svg>
           </button>
           {showInfo && (
-            <div style={{
-              position: "absolute", top: "38px", right: 0, background: "white",
-              borderRadius: "10px", boxShadow: "0 4px 20px rgba(0,0,0,0.18)",
-              zIndex: 200, minWidth: "170px", overflow: "hidden",
-            }}>
-              <div
-                onClick={handleDeleteConversation}
-                style={{ padding: "12px 18px", fontFamily: "'Kufam', sans-serif", fontSize: "0.88rem", color: "#222", cursor: "pointer", borderBottom: "1px solid #f0f0f0" }}
-                onMouseEnter={e => e.currentTarget.style.background = "#f5f5f5"}
-                onMouseLeave={e => e.currentTarget.style.background = "white"}
-              >
-                Delete Conversation
-              </div>
+            <div className="msg-popover" style={{ position: "absolute", top: "40px", right: 0, background: surface, borderRadius: radius.card, border: `1px solid ${line}`, boxShadow: shadow.panel, zIndex: 200, minWidth: "190px", overflow: "hidden" }}>
               <div
                 onClick={() => { setShowInfo(false); setShowReport(true); }}
-                style={{ padding: "12px 18px", fontFamily: "'Kufam', sans-serif", fontSize: "0.88rem", color: red, fontWeight: 700, cursor: "pointer" }}
-                onMouseEnter={e => e.currentTarget.style.background = "#fff0f0"}
-                onMouseLeave={e => e.currentTarget.style.background = "white"}
+                style={{ ...menuItem, color: inkBody, borderBottom: `1px solid ${lineSoft}` }}
+                onMouseEnter={e => e.currentTarget.style.background = lineSoft}
+                onMouseLeave={e => e.currentTarget.style.background = surface}
               >
-                Report
+                Report this company
+              </div>
+              <div
+                onClick={handleDeleteConversation}
+                style={{ ...menuItem, color: danger, fontWeight: 500 }}
+                onMouseEnter={e => e.currentTarget.style.background = lineSoft}
+                onMouseLeave={e => e.currentTarget.style.background = surface}
+              >
+                Delete conversation
               </div>
             </div>
           )}
@@ -665,10 +604,12 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onR
       </div>
 
       {/* Messages */}
-      <div style={{ flex: 1, overflowY: "auto", padding: msgPadding, display: "flex", flexDirection: "column", gap: "4px" }}>
+      <div className="msg-thread-body" style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: "4px" }}>
         {messages.length === 0 && (
-          <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem", color: "#bbb" }}>No messages yet. Say hello!</p>
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: space.sm, textAlign: "center", padding: `56px ${space.lg}` }}>
+            <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke={inkFaint} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+            <p style={{ fontFamily: font.ui, fontSize: "1.0625rem", fontWeight: 600, color: ink, margin: 0 }}>No messages yet</p>
+            <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, maxWidth: "40ch", margin: 0 }}>Send the first message to start this conversation.</p>
           </div>
         )}
         {messages.map((msg, idx) => {
@@ -678,7 +619,6 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onR
           const msgTimeStr  = msgTs ? new Date(msgTs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : (msg.time || "");
           const showTime    = idx === 0 || (msgTs - prevTs) > 10 * 60 * 1000;
           const isPopupOpen = popupMsgId === msg.id;
-          const hasText     = !!msg.text;
           const canEdit     = canEditMsg(msg);
           // Whether this is the very last message in the thread and it's
           // mine — Messenger-style, the send status only shows under that
@@ -688,103 +628,55 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onR
           const isSeen      = isLastMine && otherReadMs >= msgTs;
 
           const popupMenu = isPopupOpen && !msg.unsent && (
-            <div
-              onMouseDown={e => e.stopPropagation()}
-              style={{
-                position: "absolute", bottom: "calc(100% + 4px)", left: "50%", transform: "translateX(-50%)",
-                background: "white", borderRadius: "10px",
-                boxShadow: "0 4px 16px rgba(0,0,0,0.18)", zIndex: 100,
-                minWidth: "120px", maxWidth: "160px", overflow: "hidden", whiteSpace: "nowrap",
-              }}
-            >
-              {canEdit && (
-                <div
-                  onClick={() => startEdit(msg)}
-                  style={{ padding: "10px 16px", fontFamily: "'Kufam', sans-serif", fontSize: "0.88rem", color: "#222", cursor: "pointer", borderBottom: "1px solid #f0f0f0" }}
-                  onMouseEnter={e => e.currentTarget.style.background = "#f5f5f5"}
-                  onMouseLeave={e => e.currentTarget.style.background = "white"}
-                >
-                  Edit
-                </div>
-              )}
-              <div
-                onClick={() => handleUnsent(msg.id)}
-                style={{ padding: "10px 16px", fontFamily: "'Kufam', sans-serif", fontSize: "0.88rem", color: red, fontWeight: 700, cursor: "pointer" }}
-                onMouseEnter={e => e.currentTarget.style.background = "#fff0f0"}
-                onMouseLeave={e => e.currentTarget.style.background = "white"}
+            <div className="msg-popover" onMouseDown={e => e.stopPropagation()} style={{ position: "absolute", bottom: "calc(100% + 6px)", left: "50%", transform: "translateX(-50%)", background: surface, borderRadius: radius.card, border: `1px solid ${line}`, boxShadow: shadow.panel, zIndex: 100, minWidth: "128px", maxWidth: "170px", overflow: "hidden", whiteSpace: "nowrap" }}>
+              {canEdit && <div onClick={() => startEdit(msg)} style={{ padding: "10px 16px", fontFamily: font.ui, ...type.helper, color: inkBody, cursor: "pointer", borderBottom: `1px solid ${lineSoft}` }} onMouseEnter={e => e.currentTarget.style.background = lineSoft} onMouseLeave={e => e.currentTarget.style.background = surface}>Edit</div>}
+              <div onClick={() => handleUnsent(msg.id)} style={{ padding: "10px 16px", fontFamily: font.ui, ...type.helper, color: danger, fontWeight: 500, cursor: "pointer" }} onMouseEnter={e => e.currentTarget.style.background = lineSoft} onMouseLeave={e => e.currentTarget.style.background = surface}>Unsend</div>
+            </div>
+          );
+
+          const kebab = (
+            <div style={{ position: "relative" }}>
+              <button
+                onClick={() => setPopupMsgId(prev => prev === msg.id ? null : msg.id)}
+                aria-label="Message options"
+                style={{ background: "none", border: "none", cursor: "pointer", padding: "2px 4px", color: inkFaint, display: "flex", alignItems: "center", lineHeight: 1, flexShrink: 0 }}
               >
-                Unsend
-              </div>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg>
+              </button>
+              {popupMenu}
             </div>
           );
 
           return (
             <React.Fragment key={msg.id}>
               {showTime && msgTimeStr && (
-                <div style={{
-                  textAlign: "center", margin: "12px 0 6px",
-                  fontFamily: "'Kufam', sans-serif",
-                  fontSize: isMobile ? "0.7rem" : "0.75rem", color: "#aaa",
-                }}>
-                  {msgTimeStr}
-                </div>
+                <div style={{ textAlign: "center", margin: "14px 0 8px", fontFamily: font.ui, fontSize: "0.75rem", lineHeight: 1.4, color: inkFaint }}>{msgTimeStr}</div>
               )}
-              <div style={{
-                display: "flex", alignItems: "flex-end",
-                gap: isMobile ? "6px" : "10px",
-                justifyContent: isMe ? "flex-end" : "flex-start",
-                marginBottom: "4px",
-              }}>
+              <div style={{ display: "flex", alignItems: "flex-end", gap: isMobile ? "6px" : "10px", justifyContent: isMe ? "flex-end" : "flex-start", marginBottom: "4px" }}>
                 {!isMe && <CompanyAvatar size={avatarSize} />}
-                <div style={{
-                  maxWidth: bubbleMaxWidth, minWidth: 0, display: "flex", flexDirection: "column",
-                  alignItems: isMe ? "flex-end" : "flex-start", gap: "3px", position: "relative",
-                }}>
+                <div style={{ maxWidth: bubbleMaxWidth, minWidth: 0, display: "flex", flexDirection: "column", alignItems: isMe ? "flex-end" : "flex-start", gap: "3px", position: "relative" }}>
                   {msg.unsent ? (
-                    <div style={{
-                      background: "transparent", border: "1.5px dashed #bbb",
-                      borderRadius: isMe ? "18px 18px 4px 18px" : "18px 18px 18px 4px",
-                      padding: "9px 16px", fontFamily: "'Kufam', sans-serif",
-                      fontSize: isMobile ? "0.78rem" : "0.82rem",
-                      color: "#aaa", fontStyle: "italic", userSelect: "none",
-                    }}>
-                      Unsent Message
-                    </div>
+                    <div style={{ background: "transparent", border: `1px dashed ${color.wine400}`, borderRadius: isMe ? bubbleMine : bubbleTheirs, padding: "9px 16px", fontFamily: font.ui, ...type.helper, color: inkFaint, userSelect: "none" }}>Message unsent</div>
                   ) : (
                     <>
-                      {msg.edited && (
-                        <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.68rem", color: "#aaa" }}>Edited</span>
-                      )}
+                      {msg.edited && <span style={{ fontFamily: font.ui, fontSize: "0.75rem", lineHeight: 1.4, color: inkFaint }}>Edited</span>}
                       {msg.text && (
                         <div style={{ display: "flex", alignItems: "center", gap: "6px", justifyContent: isMe ? "flex-end" : "flex-start", minWidth: 0, maxWidth: "100%" }}>
-                          {isMe && (
-                            <div style={{ position: "relative" }}>
-                              <button
-                                onClick={() => setPopupMsgId(prev => prev === msg.id ? null : msg.id)}
-                                style={{ background: "none", border: "none", cursor: "pointer", padding: "2px 4px", color: "#aaa", fontSize: "1rem", lineHeight: 1, flexShrink: 0 }}
-                              >
-                                ⋮
-                              </button>
-                              {popupMenu}
-                            </div>
-                          )}
+                          {isMe && kebab}
                           <div
-                            onMouseDown={e => startLongPress(e, msg)}
-                            onMouseUp={cancelLongPress}
-                            onMouseLeave={cancelLongPress}
-                            onTouchStart={e => startLongPress(e, msg)}
-                            onTouchEnd={cancelLongPress}
-                            onTouchMove={cancelLongPress}
+                            onMouseDown={e => startLongPress(e, msg)} onMouseUp={cancelLongPress} onMouseLeave={cancelLongPress}
+                            onTouchStart={e => startLongPress(e, msg)} onTouchEnd={cancelLongPress} onTouchMove={cancelLongPress}
                             onContextMenu={e => e.preventDefault()}
                             style={{
-                              background: isMe ? "#6B1A1A" : "#3a3a3a", color: "white",
-                              borderRadius: isMe ? "18px 18px 4px 18px" : "18px 18px 18px 4px",
-                              padding: isMobile ? "8px 12px" : "10px 16px",
-                              fontFamily: "'Kufam', sans-serif",
-                              fontSize: isMobile ? "0.82rem" : "0.88rem",
-                              lineHeight: 1.5, cursor: isMe ? "pointer" : "default",
-                              userSelect: "none",
-                              outline: (isPopupOpen || editingId === msg.id) ? `2px solid ${darkRed}` : "none",
+                              background: isMe ? panel : lineSoft,
+                              color: isMe ? onPanel : inkBody,
+                              border: isMe ? "none" : `1px solid ${line}`,
+                              borderRadius: isMe ? bubbleMine : bubbleTheirs,
+                              padding: isMobile ? "9px 13px" : "10px 16px",
+                              fontFamily: font.ui, ...type.body,
+                              cursor: isMe ? "pointer" : "default", userSelect: "none",
+                              boxShadow: (isPopupOpen || editingId === msg.id) ? shadow.focus : "none",
+                              transition: `box-shadow 200ms ${ease}`,
                               WebkitUserSelect: "none", WebkitTouchCallout: "none",
                               width: "100%", maxWidth: "100%", boxSizing: "border-box",
                               wordWrap: "break-word", overflowWrap: "break-word", wordBreak: "break-word",
@@ -799,29 +691,10 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onR
                         if (attachmentsList.length === 0) return null;
                         return (
                           <div style={{ display: "flex", alignItems: "center", gap: "6px", justifyContent: isMe ? "flex-end" : "flex-start", marginTop: msg.text ? "4px" : "0" }}>
-                            {isMe && !msg.text && (
-                              <div style={{ position: "relative" }}>
-                                <button
-                                  onClick={() => setPopupMsgId(prev => prev === msg.id ? null : msg.id)}
-                                  style={{ background: "none", border: "none", cursor: "pointer", padding: "2px 4px", color: "#aaa", fontSize: "1rem", lineHeight: 1, flexShrink: 0 }}
-                                >
-                                  ⋮
-                                </button>
-                                {popupMenu}
-                              </div>
-                            )}
+                            {isMe && !msg.text && kebab}
                             <div style={{ display: "flex", flexDirection: "column", gap: "4px", alignItems: isMe ? "flex-end" : "flex-start" }}>
                               {attachmentsList.map((att, ai) => (
-                                <div
-                                  key={ai}
-                                  onMouseDown={e => startLongPress(e, msg)}
-                                  onMouseUp={cancelLongPress}
-                                  onMouseLeave={cancelLongPress}
-                                  onTouchStart={e => startLongPress(e, msg)}
-                                  onTouchEnd={cancelLongPress}
-                                  onTouchMove={cancelLongPress}
-                                  onContextMenu={e => e.preventDefault()}
-                                >
+                                <div key={ai} onMouseDown={e => startLongPress(e, msg)} onMouseUp={cancelLongPress} onMouseLeave={cancelLongPress} onTouchStart={e => startLongPress(e, msg)} onTouchEnd={cancelLongPress} onTouchMove={cancelLongPress} onContextMenu={e => e.preventDefault()}>
                                   <AttachmentBubble attachment={att} isMe={isMe} />
                                 </div>
                               ))}
@@ -829,11 +702,7 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onR
                           </div>
                         );
                       })()}
-                      {isLastMine && (
-                        <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.68rem", color: "#aaa", marginTop: "2px" }}>
-                          {isSeen ? "Seen" : "Sent"}
-                        </span>
-                      )}
+                      {isLastMine && <span style={{ fontFamily: font.ui, fontSize: "0.75rem", lineHeight: 1.4, color: inkFaint, marginTop: "2px" }}>{isSeen ? "Seen" : "Sent"}</span>}
                     </>
                   )}
                 </div>
@@ -847,101 +716,74 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onR
 
       {editingId ? (
         /* ── Edit Message Bar ── */
-        <div style={{
-          padding: isMobile ? "8px 12px" : "10px 20px",
-          borderTop: `1px solid ${darkRed}`, background: "#fff5f5",
-          display: "flex", flexDirection: "column", gap: "8px", flexShrink: 0,
-        }}>
+        <div style={{ padding: isMobile ? "10px 14px" : "12px 24px", borderTop: `1px solid ${line}`, background: lineSoft, display: "flex", flexDirection: "column", gap: space.sm, flexShrink: 0 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <span style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1rem", color: darkRed }}>Edit message</span>
-            <button onClick={() => { setEditingId(null); setEditText(""); }} style={{ background: "none", border: "none", cursor: "pointer", color: "#888", fontSize: "1.1rem", lineHeight: 1, padding: "2px" }}>✕</button>
+            <span style={{ fontFamily: font.ui, ...type.label, color: ink }}>Edit message</span>
+            <button onClick={() => { setEditingId(null); setEditText(""); }} aria-label="Cancel edit" style={{ background: "none", border: "none", cursor: "pointer", color: inkMuted, fontSize: "0.95rem", lineHeight: 1, padding: "2px" }}>✕</button>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: space.sm }}>
             <input
               value={editText}
               onChange={e => setEditText(e.target.value)}
               onKeyDown={e => { if (e.key === "Enter") saveEdit(editingId); if (e.key === "Escape") { setEditingId(null); setEditText(""); } }}
               autoFocus
-              style={{
-                flex: 1, background: "#e8e8e8", border: "none", borderRadius: "24px",
-                padding: isMobile ? "8px 14px" : "10px 18px",
-                fontFamily: "'Kufam', sans-serif", fontSize: isMobile ? "0.85rem" : "0.9rem",
-                outline: "none", color: "#222", minWidth: 0,
-              }}
+              style={{ flex: 1, background: surface, border: `1px solid ${line}`, borderRadius: radius.pill, padding: isMobile ? "9px 16px" : "10px 18px", fontFamily: font.ui, ...type.body, outline: "none", color: ink, minWidth: 0, boxSizing: "border-box" }}
             />
-            <button onClick={() => saveEdit(editingId)} disabled={!editText.trim()} style={{
-                background: editText.trim() ? darkRed : "#ccc", border: "none", borderRadius: "50%",
-                width: isMobile ? 32 : 36, height: isMobile ? 32 : 36, display: "flex", alignItems: "center", justifyContent: "center",
-                cursor: editText.trim() ? "pointer" : "not-allowed", flexShrink: 0,
-              }}
+            <button
+              onClick={() => saveEdit(editingId)}
+              disabled={!editText.trim()}
+              aria-label="Save changes"
+              style={{ background: editText.trim() ? panel : color.wine400, border: "none", borderRadius: "50%", width: 38, height: 38, display: "flex", alignItems: "center", justifyContent: "center", cursor: editText.trim() ? "pointer" : "not-allowed", flexShrink: 0, transition: `background 240ms ${ease}` }}
             >
-              <svg width={isMobile ? 16 : 18} height={isMobile ? 16 : 18} viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="20 6 9 17 4 12"/>
-              </svg>
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={onPanel} strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
             </button>
           </div>
         </div>
       ) : (
         <>
-          {/* Attachment Preview Bar */}
+          {/* Attachment preview */}
           {attachments.length > 0 && (
-            <div style={{
-              padding: isMobile ? "6px 12px" : "8px 20px",
-              background: "#f9f9f9", borderTop: "1px solid #eee",
-              display: "flex", alignItems: "center", gap: "10px",
-              overflowX: "auto",
-            }}>
-              {sending && (
-                <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.78rem", color: darkRed, fontStyle: "italic", flexShrink: 0 }}>Uploading…</span>
-              )}
+            <div style={{ padding: isMobile ? "8px 14px" : "10px 24px", background: lineSoft, borderTop: `1px solid ${line}`, display: "flex", alignItems: "center", gap: space.sm, overflowX: "auto" }}>
+              {sending && <span style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, flexShrink: 0 }}>Uploading…</span>}
               {attachments.map((att, i) => (
                 <div key={i} style={{ display: "flex", alignItems: "center", gap: "6px", flexShrink: 0, opacity: sending ? 0.6 : 1 }}>
                   {att.type.startsWith("image/") ? (
-                    <img src={att.url} alt="preview" style={{ width: "40px", height: "40px", objectFit: "cover", borderRadius: "6px", border: "1px solid #ddd" }} />
+                    <img src={att.url} alt="" style={{ width: "40px", height: "40px", objectFit: "cover", borderRadius: "10px", border: `1px solid ${line}` }} />
                   ) : (
-                    <div style={{ display: "flex", alignItems: "center", gap: "6px", background: "#f0e0e0", padding: "6px 12px", borderRadius: "8px" }}>
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={red} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                        <polyline points="14 2 14 8 20 8"/>
-                      </svg>
-                      <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.78rem", color: darkRed, maxWidth: "90px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{att.name}</span>
+                    <div style={{ display: "flex", alignItems: "center", gap: "6px", background: surface, border: `1px solid ${line}`, padding: "7px 13px", borderRadius: radius.pill }}>
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={inkMuted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                      <span style={{ fontFamily: font.ui, ...type.helper, color: inkBody, maxWidth: "110px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{att.name}</span>
                     </div>
                   )}
-                  <button disabled={sending} onClick={() => setAttachments(prev => prev.filter((_, idx) => idx !== i))} style={{ background: "none", border: "none", color: "#aaa", cursor: sending ? "not-allowed" : "pointer", fontSize: "1rem" }}>✕</button>
+                  <button disabled={sending} onClick={() => setAttachments(prev => prev.filter((_, idx) => idx !== i))} aria-label="Remove file" style={{ background: "none", border: "none", color: inkMuted, cursor: sending ? "not-allowed" : "pointer", fontSize: "0.9rem", lineHeight: 1 }}>✕</button>
                 </div>
               ))}
             </div>
           )}
 
-          {/* Input Bar */}
-          <div style={{
-            padding: inputPadding, borderTop: "1px solid #eee",
-            display: "flex", alignItems: "center",
-            gap: isMobile ? "6px" : "10px", background: "#f5f5f5", flexShrink: 0,
-          }}>
+          {/* Composer */}
+          <div style={{ padding: inputPadding, borderTop: `1px solid ${line}`, display: "flex", alignItems: "center", gap: space.sm, background: surface, flexShrink: 0 }}>
             <input ref={fileRef} type="file" accept=".png,.pdf" multiple style={{ display: "none" }} onChange={handleFile} />
-            <button onClick={() => fileRef.current.click()} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", flexShrink: 0, padding: "4px" }}>
-              <svg width={isMobile ? 22 : 26} height={isMobile ? 22 : 26} viewBox="0 0 24 24" fill="none" stroke="#555" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
-              </svg>
+            <button onClick={() => fileRef.current.click()} aria-label="Attach a file" style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", flexShrink: 0, padding: "6px", color: inkMuted }}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
             </button>
             <input
+              className="msg-composer-input"
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Send a message..."
-              style={{
-                flex: 1, background: "#e8e8e8", border: "none", borderRadius: "24px",
-                padding: isMobile ? "8px 14px" : "10px 18px",
-                fontFamily: "'Kufam', sans-serif", fontSize: isMobile ? "0.85rem" : "0.9rem",
-                outline: "none", color: "#222", minWidth: 0,
-              }}
+              placeholder="Write a message"
+              style={{ flex: 1, background: color.wine800, border: `1px solid ${line}`, borderRadius: radius.pill, padding: isMobile ? "9px 16px" : "10px 18px", fontFamily: font.ui, ...type.body, outline: "none", color: ink, minWidth: 0, boxSizing: "border-box" }}
             />
-            <button onClick={handleSend} disabled={sending} style={{ background: "none", border: "none", cursor: sending ? "not-allowed" : "pointer", display: "flex", alignItems: "center", flexShrink: 0, padding: "4px", opacity: sending ? 0.5 : 1 }}>
-              <svg width={isMobile ? 22 : 26} height={isMobile ? 22 : 26} viewBox="0 0 24 24" fill="none" stroke={darkRed} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="22" y1="2" x2="11" y2="13"/>
-                <polygon points="22 2 15 22 11 13 2 9 22 2"/>
-              </svg>
+            <button
+              onClick={handleSend}
+              disabled={sending}
+              aria-label="Send message"
+              style={{ background: sending ? color.wine400 : panel, border: "none", borderRadius: "50%", width: 38, height: 38, display: "flex", alignItems: "center", justifyContent: "center", cursor: sending ? "not-allowed" : "pointer", flexShrink: 0, boxShadow: shadow.pill, transition: `background 240ms ${ease}` }}
+              onMouseEnter={e => { if (!sending) e.currentTarget.style.background = panelDeep; }}
+              onMouseLeave={e => { if (!sending) e.currentTarget.style.background = panel; }}
+            >
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={onPanel} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
             </button>
           </div>
         </>
@@ -955,33 +797,14 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onR
         />
       )}
 
-      {showDeleteConfirm && (
-        <ConfirmModal
-          message="Are you sure to delete the conversation?"
-          onConfirm={confirmDeleteConversation}
-          onCancel={() => setShowDeleteConfirm(false)}
-        />
-      )}
-
-      {unsendTarget && (
-        <ConfirmModal
-          message="This message will be unsent for everyone in the chat."
-          confirmLabel="Confirm"
-          cancelLabel="Cancel"
-          onConfirm={confirmUnsend}
-          onCancel={() => setUnsendTarget(null)}
-        />
-      )}
-
+      {showDeleteConfirm && <ConfirmModal message="Delete this conversation? It will be removed for you." confirmLabel="Delete" cancelLabel="Keep" onConfirm={confirmDeleteConversation} onCancel={() => setShowDeleteConfirm(false)} />}
+      {unsendTarget && <ConfirmModal message="This message will be unsent for everyone in the chat." confirmLabel="Unsend" cancelLabel="Cancel" onConfirm={confirmUnsend} onCancel={() => setUnsendTarget(null)} />}
       {infoMsg && <InfoModal message={infoMsg} onClose={() => setInfoMsg(null)} />}
     </div>
   );
 };
 
-
-// ─── ChatListView ─────────────────────────────────────────────────────────────
-
-// ── Time formatter (Messenger-style) ─────────────────────────────────────────
+// ── Time formatter ────────────────────────────────────────────────────────────
 const formatChatTime = (ts) => {
   if (!ts) return "";
   const now  = new Date();
@@ -997,12 +820,12 @@ const formatChatTime = (ts) => {
   return date.toLocaleDateString([], { month: "short", day: "numeric" });
 };
 
+// ── ChatListView ──────────────────────────────────────────────────────────────
 const ChatListView = ({ contacts, messages, onOpen, myUid }) => {
   const [search, setSearch] = useState("");
   const isMobile = useIsMobile();
 
   const activeContacts = contacts.filter(c => c.convId && (contacts.length > 0));
-
 
   const sorted = [...activeContacts].sort((a, b) => {
     const aTs = a.lastMessage?.ts?.seconds
@@ -1013,115 +836,123 @@ const ChatListView = ({ contacts, messages, onOpen, myUid }) => {
       : (b.lastMessage?.ts || 0);
     return bTs - aTs;
   });
-  const filtered = sorted.filter(c =>
-    c.name.toLowerCase().includes(search.toLowerCase())
-  );
+  const filtered = sorted.filter(c => c.name.toLowerCase().includes(search.toLowerCase()));
+
+  const unreadCount = sorted.reduce((n, contact) => {
+    const msgs   = (messages[contact.convId] || []).filter(m => !m.unsent);
+    const lm     = contact.lastMessage;
+    const fb     = lm ? { ts: lm.ts?.seconds ? lm.ts.seconds * 1000 : (typeof lm.ts === "number" ? lm.ts : 0), sender: lm.senderId === contact.id ? "them" : "me" } : null;
+    const last   = msgs[msgs.length - 1] || fb;
+    const readMs = contact.lastRead?.[myUid]?.seconds ? contact.lastRead[myUid].seconds * 1000 : 0;
+    return n + ((last && last.sender === "them" && (last.ts || 0) > readMs) ? 1 : 0);
+  }, 0);
 
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "#f5f5f5" }}>
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, margin: isMobile ? "14px 14px 14px" : "20px 24px 20px", background: darkRed, borderRadius: "14px", overflow: "hidden" }}>
-        <div style={{
-          padding: isMobile ? "12px 16px" : "14px 20px",
-          display: "flex", alignItems: "center", justifyContent: "space-between",
-          flexWrap: "wrap", gap: "8px",
-        }}>
-          <span style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: isMobile ? "1.5rem" : "1.8rem", color: "white" }}>Chats</span>
-          <div style={{
-            display: "flex", alignItems: "center", gap: "8px",
-            background: "white", borderRadius: "24px",
-            padding: isMobile ? "5px 12px" : "7px 16px",
-            flex: isMobile ? 1 : "unset", maxWidth: isMobile ? "unset" : "220px",
-          }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="black" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="11" cy="11" r="8"/>
-              <line x1="21" y1="21" x2="16.65" y2="16.65"/>
-            </svg>
-            <div style={{ width: "2px", height: "16px", background: "rgba(0,0,0,0.2)" }} />
+    <>
+      <MessagesStyles />
+      <div className="msg-list msg-list-wrapper" style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, overflowY: "auto", background: page }}>
+
+        {/* Title + search bar */}
+        <div className="msg-search-bar" style={{ background: panel, borderRadius: radius.panel, marginBottom: space.lg, flexShrink: 0 }}>
+          <div style={{ minWidth: 0 }}>
+            <span style={{ fontFamily: font.ui, fontSize: "clamp(1.1rem, 3.5vw, 1.375rem)", fontWeight: 600, letterSpacing: "-0.01em", color: onPanel }}>Messages</span>
+            <p style={{ fontFamily: font.ui, ...type.helper, color: onPanelDim, marginTop: "2px" }}>
+              {activeContacts.length === 0
+                ? "No conversations yet"
+                : unreadCount > 0
+                  ? `${unreadCount} unread of ${activeContacts.length} ${activeContacts.length === 1 ? "conversation" : "conversations"}`
+                  : `${activeContacts.length} ${activeContacts.length === 1 ? "conversation" : "conversations"}`}
+            </p>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: space.sm, background: color.white, borderRadius: radius.pill, padding: "9px 16px", flexShrink: 0 }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={inkMuted} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
             <input
               value={search}
               onChange={e => setSearch(e.target.value)}
               placeholder="Search"
-              style={{ border: "none", background: "transparent", outline: "none", fontFamily: "'Jersey 25'", fontSize: isMobile ? "1rem" : "1.2rem", color: "#333", width: "100%", minWidth: 0 }}
+              className="msg-search-input"
+              style={{ border: "none", background: "transparent", outline: "none", color: ink, fontFamily: font.ui, ...type.control }}
             />
+            {search && <button onClick={() => setSearch("")} aria-label="Clear search" style={{ background: "none", border: "none", color: inkMuted, cursor: "pointer", fontSize: "0.9rem", padding: 0, lineHeight: 1 }}>✕</button>}
           </div>
         </div>
-        <div style={{ flex: 1, minHeight: 0, background: "#e8e8e8", overflowY: "auto", display: "flex", flexDirection: "column" }}>
-          {filtered.length === 0 && activeContacts.length === 0 && (
-            <div style={{ padding: "24px", textAlign: "center" }}>
-              <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.88rem", color: "#aaa" }}>No conversations yet.</p>
-            </div>
-          )}
-          {filtered.length === 0 && activeContacts.length > 0 && (
-            <div style={{ padding: "24px", textAlign: "center" }}>
-              <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.88rem", color: "#aaa" }}>No results for "{search}"</p>
-            </div>
-          )}
-          {filtered.map((contact, idx) => {
-            const msgs    = (messages[contact.convId] || []).filter(m => !m.unsent);
-            const lm      = contact.lastMessage;
-            const fallback = lm ? {
-              text:   lm.text || "",
-              ts:     lm.ts?.seconds ? lm.ts.seconds * 1000 : (typeof lm.ts === "number" ? lm.ts : Date.now()),
-              sender: lm.senderId === contact.id ? "them" : "me",
-            } : null;
-            const lastMsg = msgs[msgs.length - 1] || fallback;
-            const lastMsgTs   = lastMsg?.ts || 0;
-            const myLastReadMs = contact.lastRead?.[myUid]?.seconds ? contact.lastRead[myUid].seconds * 1000 : 0;
-            const isUnread = !!(lastMsg && lastMsg.sender === "them") && lastMsgTs > myLastReadMs;
-            return (
-              <div
-                key={contact.id}
-                onClick={() => onOpen(contact)}
-                style={{
-                  display: "flex", alignItems: "center",
-                  gap: isMobile ? "10px" : "14px",
-                  padding: isMobile ? "10px 14px" : "13px 20px",
-                  background: "#e0e0e0",
-                  borderBottom: idx < filtered.length - 1 ? "1px solid #d0d0d0" : "none",
-                  cursor: "pointer", transition: "background 0.15s",
-                }}
-                onMouseEnter={e => e.currentTarget.style.background = "#d4d4d4"}
-                onMouseLeave={e => e.currentTarget.style.background = "#e0e0e0"}
-              >
-                <CompanyAvatar size={isMobile ? 34 : 40} />
-                <div style={{ width: "1px", height: "32px", background: "#bbb", flexShrink: 0 }} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "2px" }}>
-                    <p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: isUnread ? 800 : 700, fontSize: isMobile ? "0.85rem" : "0.92rem", color: isUnread ? "#590101" : "#222", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", margin: 0, flex: 1 }}>{contact.name}</p>
-                    <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.7rem", color: isUnread ? "#8B0000" : "#aaa", flexShrink: 0, marginLeft: "6px", fontWeight: isUnread ? 700 : 400 }}>{formatChatTime(lastMsg?.ts)}</span>
+
+        {/* Conversations */}
+        {activeContacts.length === 0 ? (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "72px 24px", gap: space.sm, textAlign: "center", background: surface, border: `1px dashed ${color.wine400}`, borderRadius: radius.panel }}>
+            <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke={inkFaint} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+            <p style={{ fontFamily: font.ui, fontSize: "1.0625rem", fontWeight: 600, color: ink, margin: 0 }}>No conversations yet</p>
+            <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, maxWidth: "44ch", margin: 0 }}>Open a company post and choose Message company to start one.</p>
+          </div>
+        ) : filtered.length === 0 ? (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "72px 24px", gap: space.sm, textAlign: "center", background: surface, border: `1px dashed ${color.wine400}`, borderRadius: radius.panel }}>
+            <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke={inkFaint} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <p style={{ fontFamily: font.ui, fontSize: "1.0625rem", fontWeight: 600, color: ink, margin: 0 }}>No chats match this search</p>
+            <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, maxWidth: "44ch", margin: 0 }}>Try a different name, or clear the search to see everyone.</p>
+            <button onClick={() => setSearch("")} style={{ marginTop: space.sm, background: panel, color: onPanel, border: "none", borderRadius: radius.pill, padding: "9px 20px", fontFamily: font.ui, ...type.control, cursor: "pointer" }}>Clear search</button>
+          </div>
+        ) : (
+          <div style={{ background: surface, border: `1px solid ${line}`, borderRadius: radius.panel, overflow: "hidden", boxShadow: shadow.input }}>
+            {filtered.map((contact, idx) => {
+              const msgs    = (messages[contact.convId] || []).filter(m => !m.unsent);
+              const lm      = contact.lastMessage;
+              const fallback = lm ? {
+                text:   lm.text || "",
+                ts:     lm.ts?.seconds ? lm.ts.seconds * 1000 : (typeof lm.ts === "number" ? lm.ts : Date.now()),
+                sender: lm.senderId === contact.id ? "them" : "me",
+              } : null;
+              const lastMsg      = msgs[msgs.length - 1] || fallback;
+              const lastMsgTs    = lastMsg?.ts || 0;
+              const myLastReadMs = contact.lastRead?.[myUid]?.seconds ? contact.lastRead[myUid].seconds * 1000 : 0;
+              const isUnread     = !!(lastMsg && lastMsg.sender === "them") && lastMsgTs > myLastReadMs;
+              const baseBg       = isUnread ? lineSoft : surface;
+
+              return (
+                <div
+                  key={contact.id}
+                  className="msg-row"
+                  onClick={() => onOpen(contact)}
+                  style={{
+                    display: "flex", alignItems: "center", gap: isMobile ? "10px" : "14px",
+                    padding: isMobile ? "13px 16px" : "16px 22px",
+                    background: baseBg,
+                    borderBottom: idx < filtered.length - 1 ? `1px solid ${lineSoft}` : "none",
+                    cursor: "pointer",
+                    transition: `background 200ms ${ease}`,
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.background = field}
+                  onMouseLeave={e => e.currentTarget.style.background = baseBg}
+                >
+                  <CompanyAvatar size={isMobile ? 36 : 42} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: space.sm, marginBottom: "2px" }}>
+                      <p style={{ fontFamily: font.ui, fontSize: isMobile ? "0.9375rem" : "1rem", fontWeight: isUnread ? 600 : 500, letterSpacing: "-0.01em", color: ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", margin: 0, flex: 1 }}>{contact.name}</p>
+                      <span style={{ fontFamily: font.ui, fontSize: "0.75rem", lineHeight: 1.4, color: isUnread ? inkBody : inkFaint, flexShrink: 0 }}>{formatChatTime(lastMsg?.ts)}</span>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: space.sm }}>
+                      {lastMsg ? (
+                        <p style={{ fontFamily: font.ui, ...type.helper, color: isUnread ? inkBody : inkMuted, fontWeight: isUnread ? 500 : 400, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", margin: 0, flex: 1 }}>
+                          {lastMsg.sender === "me" ? "You: " : ""}
+                          {lastMsg.text
+                            ? lastMsg.text
+                            : (lastMsg.attachments?.length > 1
+                                ? `${lastMsg.attachments.length} attachments`
+                                : (lastMsg.attachments?.length === 1 || lastMsg.attachment) ? "Attachment" : "")}
+                        </p>
+                      ) : <span />}
+                      {isUnread && <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: ink, flexShrink: 0 }} />}
+                    </div>
                   </div>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                    {lastMsg ? (
-                      <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.76rem", color: isUnread ? "#590101" : "#888", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", fontWeight: isUnread ? 700 : 400, margin: 0, flex: 1 }}>
-                        {lastMsg.sender === "me" ? "You: " : ""}
-                        {lastMsg.text ? lastMsg.text : (lastMsg.attachments?.length > 1 ? `📎 ${lastMsg.attachments.length} Attachments` : (lastMsg.attachments?.length === 1 || lastMsg.attachment) ? "📎 Attachment" : "")}
-                      </p>
-                    ) : <span />}
-                    {isUnread && <div style={{ width: "10px", height: "10px", borderRadius: "50%", background: "#8B0000", flexShrink: 0, marginLeft: "6px" }} />}
-                  </div>
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={inkFaint} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><polyline points="9 18 15 12 9 6"/></svg>
                 </div>
-                <div style={{
-                  width: isMobile ? "35px" : "35px", height: isMobile ? "35px" : "35px",
-                  display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
-                }}>
-                  <img src={viewIcon} alt="view" style={{ width: isMobile ? "35px" : "35px", height: isMobile ? "35px" : "35px", objectFit: "contain", flexShrink: 0 }} />
-                </div>
-              </div>
-            );
-          })}
-          {activeContacts.length > 0 && filtered.length > 0 && (
-            <div style={{ marginTop: "auto", padding: "14px" }}>
-              <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem", color: "#aaa", textAlign: "center" }}>
-                No more available chats!
-              </p>
-            </div>
-          )}
-        </div>
+              );
+            })}
+          </div>
+        )}
       </div>
-    </div>
+    </>
   );
 };
-
 
 // ─── StudentMessagesScreen ────────────────────────────────────────────────────
 const StudentMessagesScreen = ({
@@ -1205,7 +1036,7 @@ const StudentMessagesScreen = ({
       if (onReportSubmit) onReportSubmit(report);
     } catch (err) {
       console.error("Failed to submit report:", err);
-      setReportError("Failed to submit report. Please try again.");
+      setReportError("The report didn't send. Try again.");
     }
   };
 
@@ -1221,8 +1052,9 @@ const StudentMessagesScreen = ({
     : null;
 
   if (loading) return (
-    <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <p style={{ fontFamily: "'Kufam', sans-serif", color: "#aaa" }}>Loading chats…</p>
+    <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", background: page }}>
+      <MessagesStyles />
+      <p style={{ fontFamily: font.ui, ...type.body, color: inkFaint }}>Loading chats…</p>
     </div>
   );
 
@@ -1253,7 +1085,7 @@ const StudentMessagesScreen = ({
         const contact = { ...c, convId };
         openConversation(convId);
         markConversationRead(convId);
-      setActiveContact(contact);
+        setActiveContact(contact);
       }}
     />
   );

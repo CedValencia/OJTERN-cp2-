@@ -925,14 +925,6 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
                 OJTern
               </span>
             </button>
-            {isMobile && (
-              <span style={{
-                fontFamily: uiFont, fontWeight: 500, fontSize: "0.9rem", color: "rgba(255,255,255,0.7)", marginLeft: "4px",
-                whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0,
-              }}>
-                / {currentLabel}
-              </span>
-            )}
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: "4px", flexShrink: 0 }}>
             <div style={{ position: "relative" }}>
@@ -958,11 +950,15 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
               {showNotifDropdown && (
                 <>
                   <div style={{ position: "fixed", inset: 0, zIndex: 998 }} onClick={() => setShowNotifDropdown(false)} />
-                  <div style={{
-                    position: "absolute", top: "50px", right: 0, width: "340px", maxWidth: "88vw",
-                    background: paper, borderRadius: "16px", overflow: "hidden",
-                    boxShadow: "0 12px 32px rgba(0,0,0,0.28)", border: `1px solid ${hairline}`, zIndex: 999,
-                  }}>
+                  <div style={(isMobile || isTablet) ? {
+                      position: "fixed", top: "76px", right: "12px", width: "min(320px, 88vw)", maxHeight: "min(45vh, 320px)",
+                      overflowY: "auto", background: paper, border: `1px solid ${ink}`,
+                      borderRadius: "10px", boxShadow: "0 8px 24px rgba(0,0,0,0.18)", zIndex: 999,
+                    } : {
+                      position: "absolute", top: "50px", right: 0, width: "340px", maxWidth: "88vw",
+                      background: paper, borderRadius: "16px", overflow: "hidden",
+                      boxShadow: "0 12px 32px rgba(0,0,0,0.28)", border: `1px solid ${hairline}`, zIndex: 999,
+                    }}>
                     <div style={{ padding: "16px 18px 12px", background: paper }}>
                       <span style={{ fontFamily: uiFont, fontWeight: 700, fontSize: "1.05rem", color: inkText }}>
                         Notifications

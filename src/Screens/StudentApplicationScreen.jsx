@@ -3,6 +3,7 @@ import { collection, addDoc, serverTimestamp, onSnapshot, query, where, doc, upd
 import { db } from "./firebase";
 import { uploadFilesToFolder } from "./CloudinaryService";
 import companyProfileIcon from "../icons/companyprofile.png";
+import { color, font, type, space, radius, shadow, ease } from "./theme";
 
 // ─── COLORS ───────────────────────────────────────────────────────────────────
 const darkRed = "#590101";
@@ -12,6 +13,32 @@ const red = "#8B0000";
 //    STATUS_COLORS (bg-only here since the row badge already sets its own text color).
 const APP_STATUS_COLORS = { "Pending": "#c8a800", "In Review": "#353A8D", "To Interview": "#7C2889", "Accepted": "#2d7a2d", "Declined": "#590101" };
 const black = "#000000";
+
+// ── Design tokens, aliased the same way as CoordinatorStudentListScreen so
+// the list chrome (top bar, chips, rows) reads as the same screen family.
+const ink        = color.ink;
+const inkBody    = color.inkBody;
+const inkMuted   = color.inkMuted;
+const inkFaint   = color.inkFaint;
+const surface    = color.wine600;      // rows, cards
+const page       = color.wine900;      // page background
+const line       = color.wine700;      // hairlines & borders
+const lineSoft   = color.wine800;
+const panel      = color.blush100;     // dark header bar
+const panelDeep  = color.blush50;
+const onPanel    = color.onWine;
+const onPanelDim = color.onWineMuted;
+
+// Status pill colors for the list/rows — same shape (bg + text color) as
+// CoordinatorStudentListScreen's STATUS_COLORS, mapped onto this screen's
+// five application statuses.
+const STATUS_COLORS = {
+  "Accepted":     { bg: color.success, color: color.white },
+  "Declined":     { bg: color.danger,  color: color.white },
+  "Pending":      { bg: color.wine400, color: ink },
+  "In Review":    { bg: color.warning, color: color.white },
+  "To Interview": { bg: color.info,    color: color.white },
+};
 
 // TODO: Replace with real application data from backend
 const REGIONS = [
@@ -2261,72 +2288,129 @@ const ResponsiveStyles = () => (
   <style>{`
     @import url('https://fonts.googleapis.com/css2?family=Jersey+25&family=Kufam:wght@400;600;700&display=swap');
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    ::-webkit-scrollbar { width: 4px; }
-    ::-webkit-scrollbar-thumb { background: #8B0000; border-radius: 4px; }
-    ::-webkit-scrollbar-track { background: #f0f0f0; }
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-thumb { background: ${color.wine400}; border-radius: 999px; }
+    ::-webkit-scrollbar-track { background: transparent; }
     .app-textarea::-webkit-scrollbar { width: 6px; }
     .app-textarea::-webkit-scrollbar-track { background: transparent; border-radius: 10px; }
     .app-textarea::-webkit-scrollbar-thumb { background: ${darkRed}; border-radius: 10px; }
-    .sa-app-row:hover { background: #d0d0d0 !important; }
 
-    /* ── Top bar ── */
+    /* ── List wrapper: same shape as CoordinatorStudentListScreen — vertical
+       scroll only, padded scroll area over the page background ── */
+    .sa-list-wrapper {
+      overflow-x: hidden;
+      overflow-y: auto;
+      width: 100%;
+      flex: 1;
+      background: ${page};
+      padding: clamp(16px, 4vw, 28px) clamp(16px, 4vw, 32px);
+    }
+
+    /* ── Top bar — floating dark panel, matches .sp-search-bar ── */
     .sa-topbar {
-      background: ${darkRed};
-      padding: 12px 24px;
+      background: ${panel};
+      border-radius: ${radius.panel};
+      padding: 18px 22px;
+      margin-bottom: ${space.md};
       display: flex;
       align-items: center;
       justify-content: space-between;
-      flex-shrink: 0;
+      gap: ${space.md};
       flex-wrap: wrap;
-      gap: 10px;
     }
-    @media (max-width: 560px) {
-      .sa-topbar { padding: 10px 14px; }
+    @media (max-width: 480px) {
+      .sa-topbar { padding: 14px; }
     }
 
     /* Search input */
     .sa-search-input { width: 160px; }
+    .sa-search-input::placeholder { color: ${inkFaint}; }
     @media (max-width: 480px) {
       .sa-search-input { width: 110px; }
     }
 
-    /* ── List scroll area ── */
+    /* ── Application rows — same full-width pill row as .sp-row ── */
     .sa-list-area {
-      flex: 1;
-      overflow-y: auto;
-      padding: 14px 24px;
       display: flex;
       flex-direction: column;
-      gap: 8px;
+      gap: ${space.sm};
     }
-    @media (max-width: 560px) {
-      .sa-list-area { padding: 10px 12px; }
+    .sa-app-row {
+      background: ${surface};
+      border: 1px solid ${line};
+      border-radius: ${radius.pill};
+      box-shadow: ${shadow.input};
+      transition: border-color 200ms ${ease}, box-shadow 200ms ${ease};
+    }
+    .sa-app-row:hover {
+      border-color: ${color.wine400};
+      box-shadow: 0 8px 22px rgba(10,10,10,0.08);
+    }
+    .sa-list-wrapper :focus-visible {
+      outline: none;
+      box-shadow: ${shadow.focus};
+      border-radius: ${radius.pill};
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .sa-app-row { transition: none; }
     }
 
-    /* ── Modal outer ── */
+    /* ── Modal outer — same card language as the reskinned list: surface +
+       hairline + shadow.panel, sized a touch roomier for desktop ── */
     .sa-modal-inner {
-      background: #d8d8d8;
-      border-radius: 18px;
+      background: ${surface};
+      border: 1px solid ${line};
+      border-radius: ${radius.panel};
       width: 100%;
-      max-width: 720px;
-      max-height: 92vh;
+      max-width: 800px;
+      max-height: 90vh;
       overflow: hidden;
       display: flex;
       flex-direction: column;
-      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+      box-shadow: ${shadow.panel};
     }
 
-    /* ── Modal header ── */
+    /* ── Modal header — dark panel bar, same as .sa-topbar ── */
     .sa-modal-header {
-      padding: 20px 28px 12px;
+      background: ${panel};
+      padding: 22px 28px;
       display: flex;
       align-items: center;
       justify-content: space-between;
+      gap: ${space.md};
       flex-shrink: 0;
+      border-bottom: 1px solid ${lineSoft};
     }
     @media (max-width: 560px) {
-      .sa-modal-header { padding: 14px 16px 10px; }
-      .sa-modal-title { font-size: 1.4rem !important; }
+      .sa-modal-header { padding: 16px 18px; }
+      .sa-modal-title { font-size: 1.35rem !important; }
+    }
+
+    .sa-modal-title {
+      font-family: ${font.ui};
+      font-weight: 700;
+      letter-spacing: 0.01em;
+      color: ${onPanel};
+    }
+
+    .sa-modal-close {
+      background: transparent;
+      border: 1px solid ${onPanelDim};
+      border-radius: ${radius.pill};
+      width: 32px;
+      height: 32px;
+      color: ${onPanel};
+      font-size: 0.95rem;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      transition: background 180ms ${ease}, border-color 180ms ${ease};
+    }
+    .sa-modal-close:hover {
+      background: rgba(255,255,255,0.12);
+      border-color: ${onPanel};
     }
 
     /* ── Modal body ── */
@@ -2334,25 +2418,56 @@ const ResponsiveStyles = () => (
       overflow-y: auto;
       padding: 0 28px 8px;
       flex: 1;
+      background: ${surface};
     }
     @media (max-width: 560px) {
-      .sa-modal-body { padding: 0 14px 8px; }
+      .sa-modal-body { padding: 0 16px 8px; }
     }
 
     /* ── Modal footer ── */
     .sa-modal-footer {
-      background: #b0b0b0;
-      padding: 14px 28px;
+      background: ${panelDeep};
+      padding: 16px 28px;
       display: flex;
       justify-content: flex-end;
-      gap: 10px;
-      border-bottom-left-radius: 18px;
-      border-bottom-right-radius: 18px;
+      gap: ${space.sm};
+      border-top: 1px solid ${line};
       flex-shrink: 0;
     }
     @media (max-width: 480px) {
-      .sa-modal-footer { padding: 12px 14px; }
+      .sa-modal-footer { padding: 12px 16px; }
     }
+
+    /* ── Modal footer buttons — ghost secondary / filled primary / danger,
+       same shape language as the status filter chips ── */
+    .sa-btn {
+      font-family: ${font.ui};
+      font-size: 0.85rem;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      padding: 10px 26px;
+      border-radius: ${radius.pill};
+      cursor: pointer;
+      transition: all 180ms ${ease};
+      border: 1px solid transparent;
+    }
+    .sa-btn:disabled { cursor: not-allowed; opacity: 0.65; }
+    .sa-btn-ghost {
+      background: ${surface};
+      color: ${inkBody};
+      border-color: ${line};
+    }
+    .sa-btn-ghost:hover:not(:disabled) { border-color: ${color.wine400}; }
+    .sa-btn-primary {
+      background: ${panel};
+      color: ${onPanel};
+    }
+    .sa-btn-primary:hover:not(:disabled) { filter: brightness(1.08); }
+    .sa-btn-danger {
+      background: ${color.danger};
+      color: ${color.white};
+    }
+    .sa-btn-danger:hover:not(:disabled) { filter: brightness(1.08); }
 
     /* ── Name grid: 4-col → 2-col → 1-col ── */
     .sa-name-grid {
@@ -2404,37 +2519,50 @@ const ResponsiveStyles = () => (
 
     /* ── Status badge in ViewApplication ── */
     .sa-status-badge {
-      background: var(--status-color, #aaa);
-      color: white;
-      border-radius: 20px;
-      padding: 4px 14px;
-      font-family: 'Kufam', sans-serif;
-      font-weight: 700;
+      background: var(--status-color, ${color.wine400});
+      color: ${color.white};
+      border-radius: ${radius.pill};
+      padding: 5px 16px;
+      font-family: ${font.ui};
+      font-weight: 600;
       font-size: 0.76rem;
       white-space: nowrap;
     }
 
     /* ── Apply modal company subtitle ── */
     .sa-modal-subtitle {
-      font-family: 'Kufam', sans-serif;
-      font-size: 0.78rem;
-      color: #666;
-      margin-top: 2px;
+      font-family: ${font.ui};
+      font-size: 0.8rem;
+      color: ${onPanelDim};
+      margin-top: 3px;
     }
     @media (max-width: 480px) {
-      .sa-modal-subtitle { font-size: 0.70rem; }
+      .sa-modal-subtitle { font-size: 0.72rem; }
     }
 
-    /* ── Delete confirmation popup ── */
+    /* ── Delete confirmation popup — same card language as the modal ── */
     .sa-confirm-inner {
-      background: #e8e8e8;
-      border-radius: 22px;
+      background: ${surface};
+      border: 1px solid ${line};
+      border-radius: ${radius.panel};
       width: 100%;
       max-width: 380px;
       overflow: hidden;
-      box-shadow: 0 12px 56px rgba(0,0,0,0.35);
-      padding: 26px 26px 20px;
+      box-shadow: ${shadow.panel};
+      padding: 28px 26px 22px;
       text-align: center;
+    }
+
+    /* ── Success confirmation popup — same card language as the modal ── */
+    .sa-success-inner {
+      background: ${surface};
+      border: 1px solid ${line};
+      border-radius: ${radius.panel};
+      width: 100%;
+      max-width: 360px;
+      padding: 32px 28px 26px;
+      text-align: center;
+      box-shadow: ${shadow.panel};
     }
   `}</style>
 );
@@ -3073,11 +3201,11 @@ export const ApplyModal = ({ company, onClose, onSubmit, user }) => {
       <div className="sa-modal-inner">
         {/* Header */}
         <div className="sa-modal-header">
-          <div>
-            <h2 className="sa-modal-title" style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(1.3rem, 4vw, 1.8rem)", color: darkRed }}>Apply Now</h2>
-            <p className="sa-modal-subtitle">Applying to: <strong style={{ color: darkRed }}>{company?.name}</strong></p>
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <h2 className="sa-modal-title" style={{ fontSize: "clamp(1.3rem, 4vw, 1.6rem)" }}>Apply Now</h2>
+            <p className="sa-modal-subtitle">Applying to: <strong style={{ color: onPanel }}>{company?.name}</strong></p>
           </div>
-          <button onClick={onClose} style={{ background: darkRed, border: "none", borderRadius: "50%", width: "30px", height: "30px", color: "white", fontSize: "1rem", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: "bold", flexShrink: 0 }}>✕</button>
+          <button onClick={onClose} className="sa-modal-close" aria-label="Close">✕</button>
         </div>
 
         {/* Body */}
@@ -3092,10 +3220,10 @@ export const ApplyModal = ({ company, onClose, onSubmit, user }) => {
         >
           {alreadyApplied ? (
             <div style={{ textAlign: "center", padding: "32px 12px" }}>
-              <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.2rem", color: darkRed, marginBottom: "8px" }}>
+              <p style={{ fontFamily: font.ui, fontSize: "1.05rem", fontWeight: 600, color: ink, marginBottom: "8px" }}>
                 You've Already Applied
               </p>
-              <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#555", lineHeight: 1.6 }}>
+              <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, lineHeight: 1.6 }}>
                 You can only submit one application per post.<br />
                 You can still apply to other open posts at this company.<br />
                 Check your Applications list to view its current status.
@@ -3109,30 +3237,31 @@ export const ApplyModal = ({ company, onClose, onSubmit, user }) => {
         {/* Footer */}
         <div className="sa-modal-footer" style={{ flexWrap: "wrap" }}>
           {submitError && (
-            <p style={{ width: "100%", textAlign: "right", fontFamily: "'Kufam', sans-serif", fontSize: "0.78rem", color: "#c00", margin: "0 0 4px" }}>{submitError}</p>
+            <p style={{ width: "100%", textAlign: "right", fontFamily: font.ui, ...type.helper, color: color.danger, margin: "0 0 4px" }}>{submitError}</p>
           )}
-          <button onClick={onClose}       style={{ padding: "10px 28px", borderRadius: "24px", background: "#555",    color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif", fontSize: "1.1rem", cursor: "pointer" }}>{alreadyApplied ? "CLOSE" : "CANCEL"}</button>
+          <button onClick={onClose} className="sa-btn sa-btn-ghost">{alreadyApplied ? "Close" : "Cancel"}</button>
           {!alreadyApplied && (
-            <button onClick={handleSubmit} disabled={submitting || checkingApplied} style={{ padding: "10px 28px", borderRadius: "24px", background: darkRed,  color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif", fontSize: "1.1rem", cursor: (submitting || checkingApplied) ? "not-allowed" : "pointer", opacity: (submitting || checkingApplied) ? 0.7 : 1 }}>{submitting ? "SUBMITTING..." : "SUBMIT"}</button>
+            <button onClick={handleSubmit} disabled={submitting || checkingApplied} className="sa-btn sa-btn-primary">{submitting ? "Submitting…" : "Submit"}</button>
           )}
         </div>
       </div>
 
       {showSuccess && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1100, padding: "16px" }}>
-          <div style={{ background: "#d8d8d8", borderRadius: "18px", width: "100%", maxWidth: "360px", padding: "32px 28px 26px", textAlign: "center", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
-            <div style={{ width: "64px", height: "64px", borderRadius: "50%", background: "#2d7a2d", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px" }}>
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          <div className="sa-success-inner">
+            <div style={{ width: "64px", height: "64px", borderRadius: "50%", background: color.success, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px" }}>
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke={color.white} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
             </div>
-            <h2 style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.6rem", color: darkRed, letterSpacing: "0.03em", marginBottom: "6px" }}>Application Successful</h2>
-            <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#555", marginBottom: "22px" }}>
-              Your application to <strong style={{ color: darkRed }}>{company?.name || company?.companyName}</strong> has been submitted.
+            <h2 style={{ fontFamily: font.ui, fontSize: "1.35rem", fontWeight: 700, color: ink, letterSpacing: "0.01em", marginBottom: "6px" }}>Application Successful</h2>
+            <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, marginBottom: "22px" }}>
+              Your application to <strong style={{ color: ink }}>{company?.name || company?.companyName}</strong> has been submitted.
             </p>
             <button
               onClick={() => { setShowSuccess(false); onClose(); }}
-              style={{ padding: "10px 40px", borderRadius: "24px", background: darkRed, color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif", fontSize: "1.1rem", cursor: "pointer" }}
+              className="sa-btn sa-btn-primary"
+              style={{ padding: "10px 40px" }}
             >
-              OKAY
+              Okay
             </button>
           </div>
         </div>
@@ -3205,85 +3334,227 @@ const ViewApplicationModal = ({ application, onClose, onSave }) => {
         {/* Header */}
         <div className="sa-modal-header">
           <div style={{ minWidth: 0, flex: 1 }}>
-            <h2 className="sa-modal-title" style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(1.2rem, 4vw, 1.8rem)", color: darkRed, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fullName}</h2>
-            <p className="sa-modal-subtitle">Applied to: <strong style={{ color: darkRed }}>{application.company}</strong></p>
+            <h2 className="sa-modal-title" style={{ fontSize: "clamp(1.2rem, 4vw, 1.6rem)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fullName}</h2>
+            <p className="sa-modal-subtitle">Applied to: <strong style={{ color: onPanel }}>{application.company}</strong></p>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: "10px", flexShrink: 0 }}>
-            <span className="sa-status-badge" style={{ background: statusColor, color: "white", borderRadius: "20px", padding: "4px 14px", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.76rem", whiteSpace: "nowrap" }}>{application.status}</span>
-            <button onClick={onClose} style={{ background: darkRed, border: "none", borderRadius: "50%", width: "30px", height: "30px", color: "white", fontSize: "1rem", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: "bold" }}>✕</button>
+            <span className="sa-status-badge" style={{ background: statusColor }}>{application.status}</span>
+            <button onClick={onClose} className="sa-modal-close" aria-label="Close">✕</button>
           </div>
         </div>
 
         {/* Status Progress Tracker */}
-        <div
-          className="sa-modal-body"
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && e.target.tagName === "INPUT" && isEditing && !saving) {
-              e.preventDefault();
-              handleSave();
-            }
-          }}
-        >
-          {(() => {
-            const STATUS_STEPS = ["Pending", "In Review", "To Interview", "Accepted"];
-            const STATUS_COLORS = { "Pending": "#c8a800", "In Review": "#353A8D", "To Interview": "#7C2889", "Accepted": "#2d7a2d", "Declined": darkRed };
-            const currentStatus = application.status || "Pending";
-            const isDeclined = currentStatus === "Declined";
-            const currentIdx = STATUS_STEPS.indexOf(currentStatus);
-            return (
-              <div style={{ padding: "14px 20px", background: "#f9f9f9", borderBottom: "1px solid #eee" }}>
-                <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.75rem", fontWeight: 700, color: "#888", marginBottom: "10px", textTransform: "uppercase", letterSpacing: "0.05em" }}>Application Status</p>
-                {isDeclined ? (
-                  <div style={{ display: "flex", alignItems: "center", gap: "8px", padding: "8px 14px", background: "#fde8e8", borderRadius: "10px", border: `1px solid ${darkRed}` }}>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={darkRed} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
-                    <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", color: darkRed, fontWeight: 700 }}>Application Declined</span>
-                  </div>
-                ) : (
-                  <div style={{ display: "flex", alignItems: "center", gap: "0" }}>
-                    {STATUS_STEPS.map((step, i) => {
-                      const isDone = i < currentIdx;
-                      const isCurrent = i === currentIdx;
-                      const color = isCurrent ? STATUS_COLORS[step] : isDone ? "#2d7a2d" : "#ccc";
-                      return (
-                        <React.Fragment key={step}>
-                          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", minWidth: 0, flex: 1 }}>
-                            <div style={{ width: "28px", height: "28px", borderRadius: "50%", background: color, display: "flex", alignItems: "center", justifyContent: "center", border: `2px solid ${color}`, flexShrink: 0 }}>
-                              {isDone ? (
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                              ) : (
-                                <div style={{ width: "8px", height: "8px", borderRadius: "50%", background: isCurrent ? "white" : "#e0e0e0" }} />
-                              )}
+          <div
+            className="sa-modal-body"
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && e.target.tagName === "INPUT" && isEditing && !saving) {
+                e.preventDefault();
+                handleSave();
+              }
+            }}
+          >
+            {(() => {
+              const STATUS_STEPS = ["Pending", "In Review", "To Interview", "Accepted"];
+              const STEP_COLORS = {
+                "Pending": color.wine400,
+                "In Review": color.warning,
+                "To Interview": color.info,
+                "Accepted": color.success
+              };
+
+              const doneColor = color.success;
+              const currentStatus = application.status || "Pending";
+              const isDeclined = currentStatus === "Declined";
+              const currentIdx = STATUS_STEPS.indexOf(currentStatus);
+
+              return (
+                <div
+                  style={{
+                    margin: "18px 0 12px",
+                    padding: "16px 20px",
+                    background: "#e8e8e8",
+                    borderRadius: "20px",
+                    boxShadow: "inset 0 1px 3px rgba(0,0,0,0.08)",
+                    boxSizing: "border-box"
+                  }}
+                >
+                  <p
+                    style={{
+                      fontFamily: font.ui,
+                      fontSize: "0.72rem",
+                      fontWeight: 700,
+                      color: inkMuted,
+                      margin: "0 0 14px",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.05em"
+                    }}
+                  >
+                    Application Status
+                  </p>
+
+                  {isDeclined ? (
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "8px",
+                        padding: "9px 14px",
+                        background: "white",
+                        borderRadius: "20px",
+                        border: `1px solid ${color.danger}`,
+                        boxSizing: "border-box"
+                      }}
+                    >
+                      <svg
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke={color.danger}
+                        strokeWidth="2.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <circle cx="12" cy="12" r="10" />
+                        <line x1="15" y1="9" x2="9" y2="15" />
+                        <line x1="9" y1="9" x2="15" y2="15" />
+                      </svg>
+
+                      <span
+                        style={{
+                          fontFamily: font.ui,
+                          fontSize: "0.82rem",
+                          color: color.danger,
+                          fontWeight: 700
+                        }}
+                      >
+                        Application Declined
+                      </span>
+                    </div>
+                  ) : (
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "0",
+                        width: "100%"
+                      }}
+                    >
+                      {STATUS_STEPS.map((step, i) => {
+                        const isDone = i < currentIdx;
+                        const isCurrent = i === currentIdx;
+
+                        const stepColor = isCurrent
+                          ? STEP_COLORS[step]
+                          : isDone
+                          ? doneColor
+                          : color.wine400;
+
+                        return (
+                          <React.Fragment key={step}>
+                            <div
+                              style={{
+                                display: "flex",
+                                flexDirection: "column",
+                                alignItems: "center",
+                                minWidth: 0,
+                                flex: 1
+                              }}
+                            >
+                              <div
+                                style={{
+                                  width: "28px",
+                                  height: "28px",
+                                  borderRadius: "50%",
+                                  background: stepColor,
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                  border: `2px solid ${stepColor}`,
+                                  flexShrink: 0
+                                }}
+                              >
+                                {isDone ? (
+                                  <svg
+                                    width="14"
+                                    height="14"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke={color.white}
+                                    strokeWidth="3"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                  >
+                                    <polyline points="20 6 9 17 4 12" />
+                                  </svg>
+                                ) : (
+                                  <div
+                                    style={{
+                                      width: "8px",
+                                      height: "8px",
+                                      borderRadius: "50%",
+                                      background: isCurrent ? color.white : "#e8e8e8"
+                                    }}
+                                  />
+                                )}
+                              </div>
+
+                              <span
+                                style={{
+                                  fontFamily: font.ui,
+                                  fontSize: "0.6rem",
+                                  color: isCurrent
+                                    ? stepColor
+                                    : isDone
+                                    ? doneColor
+                                    : inkFaint,
+                                  fontWeight: isCurrent ? 700 : 400,
+                                  marginTop: "4px",
+                                  textAlign: "center",
+                                  lineHeight: 1.2
+                                }}
+                              >
+                                {step}
+                              </span>
                             </div>
-                            <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.6rem", color: isCurrent ? color : isDone ? "#2d7a2d" : "#aaa", fontWeight: isCurrent ? 700 : 400, marginTop: "4px", textAlign: "center", lineHeight: 1.2 }}>{step}</span>
-                          </div>
-                          {i < STATUS_STEPS.length - 1 && (
-                            <div style={{ height: "2px", flex: 1, background: i < currentIdx ? "#2d7a2d" : "#e0e0e0", marginBottom: "16px", minWidth: "8px" }} />
-                          )}
-                        </React.Fragment>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            );
-          })()}
-          <FormFields f={f} locked={locked} />
-        </div>
+
+                            {i < STATUS_STEPS.length - 1 && (
+                              <div
+                                style={{
+                                  height: "2px",
+                                  flex: 1,
+                                  background: i < currentIdx ? doneColor : line,
+                                  marginBottom: "16px",
+                                  minWidth: "8px"
+                                }}
+                              />
+                            )}
+                          </React.Fragment>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            <FormFields f={f} locked={locked} />
+          </div>
 
         {/* Footer */}
         <div className="sa-modal-footer" style={{ flexWrap: "wrap" }}>
           {isEditing && saveError && (
-            <p style={{ width: "100%", textAlign: "right", fontFamily: "'Kufam', sans-serif", fontSize: "0.78rem", color: "#c00", margin: "0 0 4px" }}>{saveError}</p>
+            <p style={{ width: "100%", textAlign: "right", fontFamily: font.ui, ...type.helper, color: color.danger, margin: "0 0 4px" }}>{saveError}</p>
           )}
           {isEditing ? (
             <>
-              <button onClick={() => setIsEditing(false)} disabled={saving} style={{ padding: "10px 28px", borderRadius: "24px", background: "#555",   color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif", fontSize: "1.1rem", cursor: saving ? "not-allowed" : "pointer", opacity: saving ? 0.7 : 1 }}>CANCEL</button>
-              <button onClick={handleSave} disabled={saving} style={{ padding: "10px 28px", borderRadius: "24px", background: darkRed, color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif", fontSize: "1.1rem", cursor: saving ? "not-allowed" : "pointer", opacity: saving ? 0.7 : 1 }}>{saving ? "SAVING..." : "SAVE"}</button>
+              <button onClick={() => setIsEditing(false)} disabled={saving} className="sa-btn sa-btn-ghost">Cancel</button>
+              <button onClick={handleSave} disabled={saving} className="sa-btn sa-btn-primary">{saving ? "Saving…" : "Save"}</button>
             </>
           ) : canEdit ? (
-            <button onClick={() => setIsEditing(true)} style={{ padding: "10px 28px", borderRadius: "24px", background: "#444", color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif", fontSize: "1.1rem", cursor: "pointer" }}>EDIT</button>
+            <button onClick={() => setIsEditing(true)} className="sa-btn sa-btn-primary">Edit</button>
           ) : (
-            <p style={{ margin: 0, fontFamily: "'Kufam', sans-serif", fontSize: "0.78rem", color: "#888", display: "flex", alignItems: "center", gap: "6px" }}>
+            <p style={{ margin: 0, fontFamily: font.ui, ...type.helper, color: inkFaint, display: "flex", alignItems: "center", gap: "6px" }}>
             {`Your application is now ${application.status}, you cannot edit your application`}            </p>
           )}
         </div>
@@ -3291,17 +3562,18 @@ const ViewApplicationModal = ({ application, onClose, onSave }) => {
 
       {showSuccess && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1100, padding: "16px" }}>
-          <div style={{ background: "#d8d8d8", borderRadius: "18px", width: "100%", maxWidth: "360px", padding: "32px 28px 26px", textAlign: "center", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
-            <div style={{ width: "64px", height: "64px", borderRadius: "50%", background: "#2d7a2d", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px" }}>
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          <div className="sa-success-inner">
+            <div style={{ width: "64px", height: "64px", borderRadius: "50%", background: color.success, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px" }}>
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke={color.white} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
             </div>
-            <h2 style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.6rem", color: darkRed, letterSpacing: "0.03em", marginBottom: "6px" }}>Application Updated!</h2>
-            <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#555", marginBottom: "22px" }}>
+            <h2 style={{ fontFamily: font.ui, fontSize: "1.35rem", fontWeight: 700, color: ink, letterSpacing: "0.01em", marginBottom: "6px" }}>Application Updated!</h2>
+            <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, marginBottom: "22px" }}>
               Your changes to this application have been saved.
             </p>
             <button
               onClick={() => setShowSuccess(false)}
-              style={{ padding: "10px 40px", borderRadius: "24px", background: darkRed, color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif", fontSize: "1.1rem", cursor: "pointer" }}
+              className="sa-btn sa-btn-primary"
+              style={{ padding: "10px 40px" }}
             >
               OK
             </button>
@@ -3369,38 +3641,43 @@ const ApplicationRow = ({ application, onView, onDelete }) => {
     setConfirming(false);
   };
 
+  const sc = STATUS_COLORS[application.status] || { bg: color.wine400, color: ink };
+  const meta = { fontFamily: font.ui, ...type.helper, color: inkMuted, whiteSpace: "nowrap", flexShrink: 0 };
+
   return (
     <>
       <div
         className="sa-app-row"
-        style={{ background: "#dadada", borderRadius: "10px", padding: "10px 14px", display: "flex", alignItems: "center", gap: "12px", transition: "background 0.15s", cursor: "pointer", position: "relative" }}
+        style={{ padding: "10px 20px 10px 10px", display: "flex", alignItems: "center", gap: "14px", cursor: "pointer", position: "relative" }}
         onClick={() => onView(application)}
       >
-        <div style={{ width: "38px", height: "38px", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <img src={companyProfileIcon} alt="company" style={{ width: "38px", height: "38px", objectFit: "contain" }} />
-        </div>
+        <img src={companyProfileIcon} alt="" style={{ width: 42, height: 42, objectFit: "contain", flexShrink: 0 }} />
+        <div style={{ width: "1px", height: "30px", background: line, flexShrink: 0 }} />
         <div style={{ flex: 1, minWidth: 0 }}>
-          <span style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 600, fontSize: "0.9rem", color: "#222", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>{application.company}</span>
+          <p style={{ fontFamily: font.ui, ...type.label, color: ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{application.company}</p>
+          {application.createdAt?.seconds && (
+            <div style={{ marginTop: "3px" }}>
+              <span style={meta}>Applied {new Date(application.createdAt.seconds * 1000).toLocaleDateString()}</span>
+            </div>
+          )}
         </div>
-        <span style={{
-          flexShrink: 0, fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.68rem",
-          color: "white", background: APP_STATUS_COLORS[application.status] || "#888",
-          borderRadius: "20px", padding: "3px 10px", whiteSpace: "nowrap",
-        }}>{application.status}</span>
+        <span style={{ background: sc.bg, color: sc.color, borderRadius: radius.pill, padding: "3px 11px", fontFamily: font.ui, fontSize: "0.75rem", fontWeight: 500, flexShrink: 0, whiteSpace: "nowrap" }}>
+          {application.status}
+        </span>
         <div ref={menuRef} style={{ position: "relative", flexShrink: 0 }} onClick={e => e.stopPropagation()}>
-          <button onClick={() => setShowMenu(!showMenu)} style={{ background: "none", border: "none", cursor: "pointer", padding: "2px 6px", color: "#555", fontSize: "1.1rem", lineHeight: 1 }}>⋮</button>
+          <button onClick={() => setShowMenu(!showMenu)} aria-label="More options" style={{ background: "none", border: "none", cursor: "pointer", padding: "2px 6px", color: inkMuted, fontSize: "1.1rem", lineHeight: 1 }}>⋮</button>
           {showMenu && (
-            <div style={{ position: "absolute", top: "24px", right: 0, background: "white", borderRadius: "10px", boxShadow: "0 4px 12px rgba(0,0,0,0.15)", overflow: "hidden", zIndex: 10, minWidth: "80px" }}>
+            <div style={{ position: "absolute", top: "26px", right: 0, background: surface, border: `1px solid ${line}`, borderRadius: radius.card, boxShadow: shadow.panel, overflow: "hidden", zIndex: 10, minWidth: "100px" }}>
               <button onClick={() => { onView(application); setShowMenu(false); }}
-                style={{ width: "100%", border: "none", background: "white", padding: "8px 12px", textAlign: "left", cursor: "pointer", fontSize: "0.78rem", fontFamily: "'Kufam', sans-serif", fontWeight: 600, color: "#222" }}
-                onMouseEnter={e => e.currentTarget.style.background = "#f5f5f5"}
-                onMouseLeave={e => e.currentTarget.style.background = "white"}>View</button>
-              <div style={{ height: "1px", background: "#e0e0e0", margin: "0 8px" }} />
+                style={{ width: "100%", border: "none", background: "transparent", padding: "9px 14px", textAlign: "left", cursor: "pointer", fontFamily: font.ui, ...type.helper, fontWeight: 500, color: ink }}
+                onMouseEnter={e => e.currentTarget.style.background = lineSoft}
+                onMouseLeave={e => e.currentTarget.style.background = "transparent"}>View</button>
+              <div style={{ height: "1px", background: line, margin: "0 8px" }} />
               <button
                 onClick={() => { setConfirming(true); setShowMenu(false); }}
-                style={{ width: "100%", border: "none", background: "white", padding: "8px 12px", textAlign: "left", cursor: "pointer", fontSize: "0.78rem", color: "#c62828", fontFamily: "'Kufam', sans-serif", fontWeight: 600 }}
-                onMouseEnter={e => e.currentTarget.style.background = "#fff0f0"}
-                onMouseLeave={e => e.currentTarget.style.background = "white"}
+                style={{ width: "100%", border: "none", background: "transparent", padding: "9px 14px", textAlign: "left", cursor: "pointer", fontFamily: font.ui, ...type.helper, fontWeight: 500, color: color.danger }}
+                onMouseEnter={e => e.currentTarget.style.background = lineSoft}
+                onMouseLeave={e => e.currentTarget.style.background = "transparent"}
               >
                 Delete
               </button>
@@ -3512,67 +3789,61 @@ const StudentApplicationScreen = ({ initialCompany, onModalClose, user, openAppl
   return (
     <>
       <ResponsiveStyles />
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", background: "#f0f0f0", overflow: "hidden" }}>
+      <div className="sa-list-wrapper">
 
-        {/* Top Bar */}
+        {/* Top bar — same floating dark panel as CoordinatorStudentListScreen */}
         <div className="sa-topbar">
-          <span style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(1.1rem, 4vw, 1.6rem)", color: "white", letterSpacing: "0.04em", whiteSpace: "nowrap" }}>
-            Recent Application
-          </span>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px", background: "white", borderRadius: "24px", padding: "7px 16px" }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="black" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <div style={{ minWidth: 0 }}>
+            <span style={{ fontFamily: font.ui, fontSize: "clamp(1.1rem, 3.5vw, 1.375rem)", fontWeight: 600, letterSpacing: "-0.01em", color: onPanel }}>Recent Applications</span>
+            <p style={{ fontFamily: font.ui, ...type.helper, color: onPanelDim, marginTop: "2px" }}>
+              {filteredApplications.length} of {applications.length}
+            </p>
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: space.sm, background: color.white, borderRadius: radius.pill, padding: "9px 16px", flexShrink: 0 }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={inkMuted} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
               <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
             </svg>
-            <div style={{ width: "1px", height: "16px", background: "rgba(0,0,0,0.2)" }} />
             <input
               value={search}
               onChange={e => setSearch(e.target.value)}
-              placeholder="Search Application"
+              placeholder="Search"
               className="sa-search-input"
-              style={{ border: "none", background: "transparent", outline: "none", color: "black", fontFamily: "'Jersey 25', sans-serif", fontSize: "1.05rem" }}
+              style={{ border: "none", background: "transparent", outline: "none", color: ink, fontFamily: font.ui, ...type.control }}
             />
             {search && (
-              <button onClick={() => setSearch("")} style={{ background: "none", border: "none", color: "#999", cursor: "pointer", fontSize: "1rem", padding: 0, lineHeight: 1 }}>✕</button>
+              <button onClick={() => setSearch("")} aria-label="Clear search" style={{ background: "none", border: "none", color: inkMuted, cursor: "pointer", fontSize: "0.9rem", padding: 0, lineHeight: 1 }}>✕</button>
             )}
           </div>
         </div>
 
-        {/* ── Horizontal Status Filter Bar — same pattern as CompanyApplicantsScreen ── */}
-        <div style={{
-          background: "#fff",
-          padding: "12px 20px",
-          display: "flex",
-          gap: "10px",
-          alignItems: "center",
-          flexWrap: "wrap",
-          borderBottom: "1px solid #e0e0e0",
-          flexShrink: 0,
-          overflowX: "auto",
-        }}>
+        {/* Status chips — same shape as CoordinatorStudentListScreen's status row */}
+        <div style={{ display: "flex", gap: space.sm, alignItems: "center", flexWrap: "wrap", marginBottom: space.md }}>
           {["All", "Accepted", "Declined", "Pending", "In Review", "To Interview"].map((statusOption) => {
             const isActive = statusOption === "All" ? statusFilter === "All" : statusFilter === statusOption;
-            const statusColor = statusOption === "All" ? "#666" : APP_STATUS_COLORS[statusOption] || "#999";
+            const statusColor = statusOption === "All" ? ink : (STATUS_COLORS[statusOption]?.bg || color.wine400);
+            const activeText = statusOption === "All" ? color.white : (STATUS_COLORS[statusOption]?.color || ink);
 
             return (
               <button
                 key={statusOption}
                 onClick={() => setStatusFilter(statusOption)}
                 style={{
-                  background: isActive ? statusColor : "transparent",
-                  color: isActive ? "white" : "#666",
-                  border: isActive ? "none" : "1px solid #ddd",
-                  borderRadius: "20px",
-                  padding: "6px 16px",
-                  fontFamily: "'Kufam', sans-serif",
-                  fontSize: "0.85rem",
-                  fontWeight: isActive ? 600 : 400,
+                  background: isActive ? statusColor : surface,
+                  color: isActive ? activeText : inkBody,
+                  border: isActive ? "none" : `1px solid ${line}`,
+                  borderRadius: radius.pill,
+                  padding: "7px 16px",
+                  fontFamily: font.ui,
+                  ...type.helper,
+                  fontWeight: isActive ? 500 : 400,
                   cursor: "pointer",
-                  transition: "all 0.2s",
+                  transition: `all 180ms ${ease}`,
                   whiteSpace: "nowrap",
                   flexShrink: 0,
                 }}
-                onMouseEnter={e => { if (!isActive) e.target.style.borderColor = "#999"; }}
-                onMouseLeave={e => { if (!isActive) e.target.style.borderColor = "#ddd"; }}
+                onMouseEnter={e => { if (!isActive) e.currentTarget.style.borderColor = color.wine400; }}
+                onMouseLeave={e => { if (!isActive) e.currentTarget.style.borderColor = line; }}
               >
                 {statusOption}
               </button>
@@ -3581,21 +3852,27 @@ const StudentApplicationScreen = ({ initialCompany, onModalClose, user, openAppl
         </div>
 
         {/* Application rows */}
-        <div className="sa-list-area">
-          {filteredApplications.map(application => (
-            <ApplicationRow key={application.id} application={application} onView={handleView} onDelete={handleDelete} />
-          ))}
-          {filteredApplications.length === 0 && (
-            <div style={{ textAlign: "center", padding: "60px", color: "#aaa", fontFamily: "'Kufam', sans-serif", fontSize: "0.95rem" }}>
-              {applications.length === 0 ? "No applications found." : "No applications match your search or filters."}
-            </div>
-          )}
-          {filteredApplications.length > 0 && (
-            <p style={{ textAlign: "center", fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", color: "#aaa", padding: "16px 0" }}>
+        {filteredApplications.length > 0 ? (
+          <div className="sa-list-area">
+            {filteredApplications.map(application => (
+              <ApplicationRow key={application.id} application={application} onView={handleView} onDelete={handleDelete} />
+            ))}
+            <p style={{ textAlign: "center", fontFamily: font.ui, ...type.helper, color: inkFaint, padding: "16px 0 0" }}>
               No more recent applications!
             </p>
-          )}
-        </div>
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", padding: "72px 24px", gap: space.xs, background: surface, border: `1px dashed ${color.wine400}`, borderRadius: radius.panel }}>
+            <p style={{ fontFamily: font.ui, fontSize: "1.0625rem", fontWeight: 600, color: ink }}>
+              {applications.length === 0 ? "No applications yet" : "No applications match this search"}
+            </p>
+            <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, maxWidth: "44ch" }}>
+              {applications.length === 0
+                ? "Applications you submit to companies will appear here."
+                : "Try a different company name, or clear the status filter to widen the results."}
+            </p>
+          </div>
+        )}
       </div>
 
       {viewingApplication && (
