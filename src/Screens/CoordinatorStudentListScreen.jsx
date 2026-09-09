@@ -35,6 +35,13 @@ const STATUS_COLORS = {
 // declined (see matchesStatusFilter below).
 const STATUS_PRIORITY = ["Accepted", "To Interview", "In Review", "Pending", "Declined"];
 
+// Full name, assembled the same way everywhere it appears — the list row, the
+// placement modal, and the CSV export. Kept in one place so a name can never
+// read differently depending on where a coordinator happens to be looking.
+const getFullName = (s) =>
+  `${s.firstName} ${s.middleInitial ? s.middleInitial + " " : ""}${s.lastName}` +
+  `${s.suffix && s.suffix !== "None" && s.suffix !== "N/A" ? " " + s.suffix : ""}`;
+
 const getBestApplication = (apps) => {
   if (!apps || apps.length === 0) return null;
   for (const status of STATUS_PRIORITY) {
@@ -55,6 +62,133 @@ const matchesStatusFilter = (apps, filterValue) => {
   if (filterValue === "In Progress") return apps.some(a => ["Pending", "In Review", "To Interview"].includes(a.status));
   if (filterValue === "All Declined") return apps.every(a => a.status === "Declined");
   return true;
+};
+
+// ── CSV export ────────────────────────────────────────────────────────────────
+
+// Wraps every field in quotes rather than only the ones that look risky.
+// Company names and programs routinely contain commas ("Bank Inc., Tarlac
+// Branch") and the occasional quote, and a half-escaped file corrupts silently
+// — the columns just shift and nobody notices until the numbers are wrong.
+const csvCell = (value) => `"${String(value ?? "").replace(/"/g, '""')}"`;
+
+const EXPORT_HEADER = ["Student Name", "Student ID", "College", "Program", "Year & Section", "Placement", "Status"];
+
+// One row per APPLICATION, not per student: a student who applied to three
+// companies is genuinely three placement records, and collapsing them to the
+// single "best" one (as the list row badge does) would silently drop the rest
+// from the export. Students with no applications still get one row, so the
+// export and the on-screen count always agree.
+//
+// Shared by both exports so the CSV and the PDF can never disagree about what
+// the same filtered list contains.
+const buildExportRows = (students, applicationsByStudent, companies) =>
+  students.flatMap(student => {
+    const base = [
+      getFullName(student),
+      student.studentId || "",
+      student.college || "",
+      student.program || "",
+      student.yearSection || "",
+    ];
+
+    const apps = applicationsByStudent[student.id] || [];
+    if (apps.length === 0) return [[...base, "—", "No applications yet"]];
+
+    return apps.map(app => {
+      const company = companies.find(c => c.id === app.companyId);
+      return [...base, company?.name || "Unknown company", app.status || ""];
+    });
+  });
+
+const buildStudentCsv = (rows) =>
+  // Leading BOM so Excel reads this as UTF-8. Without it, Excel guesses the
+  // legacy codepage and mangles the ñ in names like Muñoz and Santa Iñez.
+  "\uFEFF" + [EXPORT_HEADER, ...rows].map(r => r.map(csvCell).join(",")).join("\r\n");
+
+// Human-readable summary of what's currently narrowing the list, printed under
+// the PDF title. Without it a printed export is unfalsifiable — a coordinator
+// holding a 12-row page has no way to tell whether that's the whole cohort or
+// the leftovers of four active filters.
+const describeExportScope = (filters, search) => {
+  const parts = [];
+  if (search.trim())          parts.push(`Search: "${search.trim()}"`);
+  if (filters.college)        parts.push(filters.college);
+  if (filters.program)        parts.push(filters.program);
+  if (filters.specialization) parts.push(filters.specialization);
+  if (filters.sex)            parts.push(filters.sex);
+  if (filters.section)        parts.push(`Section ${filters.section}`);
+  if (filters.status)         parts.push(filters.status);
+  return parts.length ? parts.join(" · ") : "No filters applied";
+};
+
+const downloadBlob = (filename, blob) => {
+  const url  = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+};
+
+// jsPDF and its autoTable plugin are ~400KB together, and exporting is a rare,
+// deliberate action — loading them eagerly would make every coordinator pay
+// that cost on first paint just so the button exists. Imported on click
+// instead, so the weight lands only on whoever actually exports.
+const buildStudentPdf = async ({ rows, scope, total }) => {
+  const { jsPDF }     = await import("jspdf");
+  const { default: autoTable } = await import("jspdf-autotable");
+
+  // Landscape: seven columns, and program names like "BS Information
+  // Technology" wrap into unreadable slivers at portrait width.
+  const doc    = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
+  const width  = doc.internal.pageSize.getWidth();
+  const margin = 40;
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(16);
+  doc.text("Student Placements", margin, 46);
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  doc.setTextColor(110);
+  doc.text(scope, margin, 62);
+  doc.text(
+    `${total} student${total === 1 ? "" : "s"} · ${rows.length} placement record${rows.length === 1 ? "" : "s"} · Generated ${new Date().toLocaleDateString()}`,
+    margin, 75
+  );
+  doc.setTextColor(0);
+
+  autoTable(doc, {
+    head: [EXPORT_HEADER],
+    body: rows,
+    startY: 92,
+    margin: { left: margin, right: margin, bottom: 46 },
+    styles:     { font: "helvetica", fontSize: 8.5, cellPadding: 5, overflow: "linebreak" },
+    headStyles: { fillColor: [139, 0, 0], textColor: 255, fontStyle: "bold" },
+    alternateRowStyles: { fillColor: [248, 246, 246] },
+    // Column widths are left to autoTable. Pinning them by hand looks tidier
+    // in source but fights the layout engine: fixed widths are treated as
+    // minimums, so long values like "BS Business Administration major in
+    // Marketing Management" push the table past the page edge and autoTable
+    // drops the overflow. Auto-sizing distributes by real content and fits.
+    columnStyles: { 0: { minCellWidth: 110 }, 3: { minCellWidth: 120 }, 5: { minCellWidth: 110 } },
+    // A multi-page placement list is easy to shuffle out of order once it is
+    // printed, so every page carries its own number.
+    didDrawPage: () => {
+      const page   = doc.internal.getNumberOfPages();
+      const height = doc.internal.pageSize.getHeight();
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(8);
+      doc.setTextColor(130);
+      doc.text(`OJTern · Page ${page}`, width - margin, height - 24, { align: "right" });
+      doc.setTextColor(0);
+    },
+  });
+
+  return doc.output("blob");
 };
 
 // ── Responsive styles ─────────────────────────────────────────────────────────
@@ -275,7 +409,7 @@ const PlacementModal = ({ student, onClose, onNavigateToCompany, companies, onMe
     });
   }, [student?.id]);
 
-  const fullName = `${student.firstName} ${student.middleInitial ? student.middleInitial + " " : ""}${student.lastName}${student.suffix && student.suffix !== "None" && student.suffix !== "N/A" ? " " + student.suffix : ""}`;
+  const fullName = getFullName(student);
 
   const handleVisitCompany = (companyId) => {
     if (!companyId) return;
@@ -533,9 +667,12 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
   const [search, setSearch]                 = useState("");
   const [viewingStudent, setViewingStudent] = useState(null);
   const [showFilter, setShowFilter]         = useState(false);
+  const [showExport, setShowExport]         = useState(false);
+  const [exportingPdf, setExportingPdf]     = useState(false);
   const [filters, setFilters]               = useState({ college: "", program: "", specialization: "", sex: "", section: "", status: "" });
 
   const filterRef = useRef(null);
+  const exportRef = useRef(null);
   const [students, setStudents]     = useState([]);
   const [companies, setCompanies]   = useState([]);
   const [loadingStudents, setLoadingStudents] = useState(true);
@@ -612,6 +749,7 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
   useEffect(() => {
     const handler = (e) => {
       if (filterRef.current && !filterRef.current.contains(e.target)) setShowFilter(false);
+      if (exportRef.current && !exportRef.current.contains(e.target)) setShowExport(false);
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
@@ -640,9 +778,47 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
 
   const clearAllFilters = () => setFilters({ college: "", program: "", specialization: "", sex: "", section: "", status: "" });
 
+  // Both exports use `filtered`, not `students` — what downloads is exactly
+  // what the search box and filter chips are currently showing, so the file
+  // always matches the "N of M" count in the header. Filter first, then export.
+  const exportDate = () => new Date().toISOString().slice(0, 10);
+
+  const handleExportCsv = () => {
+    if (filtered.length === 0) return;
+    setShowExport(false);
+    const rows = buildExportRows(filtered, applicationsByStudent, companies);
+    downloadBlob(
+      `ojtern-students-${exportDate()}.csv`,
+      new Blob([buildStudentCsv(rows)], { type: "text/csv;charset=utf-8;" })
+    );
+  };
+
+  const handleExportPdf = async () => {
+    if (filtered.length === 0 || exportingPdf) return;
+    setShowExport(false);
+    setExportingPdf(true);
+    try {
+      const rows = buildExportRows(filtered, applicationsByStudent, companies);
+      const blob = await buildStudentPdf({
+        rows,
+        scope: describeExportScope(filters, search),
+        total: filtered.length,
+      });
+      downloadBlob(`ojtern-students-${exportDate()}.pdf`, blob);
+    } catch (err) {
+      // The PDF libraries are fetched on click, so this also covers a failed
+      // chunk load on a bad connection — silence here would look like a dead
+      // button with no way to tell whether anything happened.
+      console.error("PDF export failed:", err);
+      alert("Couldn't generate the PDF. Please check your connection and try again.");
+    } finally {
+      setExportingPdf(false);
+    }
+  };
+
   // ── One full-width row per student ────────────────────────────────────────
   const renderStudentRow = (student) => {
-    const fullName = `${student.firstName} ${student.middleInitial ? student.middleInitial + " " : ""}${student.lastName}${student.suffix && student.suffix !== "None" && student.suffix !== "N/A" ? " " + student.suffix : ""}`;
+    const fullName = getFullName(student);
     // The row badge shows the single most-advanced application status,
     // so a coordinator can scan placement progress without opening anyone.
     const best = getBestApplication(applicationsByStudent[student.id]);
@@ -715,6 +891,62 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
               />
               {search && (
                 <button onClick={() => setSearch("")} aria-label="Clear search" style={{ background: "none", border: "none", color: inkMuted, cursor: "pointer", fontSize: "0.9rem", padding: 0, lineHeight: 1 }}>✕</button>
+              )}
+            </div>
+
+            <div ref={exportRef} style={{ position: "relative", marginLeft: "10px" }}>
+              <button
+                onClick={() => setShowExport(v => !v)}
+                disabled={filtered.length === 0 || exportingPdf}
+                title="Export the students shown below"
+                aria-label="Export students"
+                aria-expanded={showExport}
+                style={{
+                  width: "40px", height: "40px",
+                  background: showExport ? color.goldTint : color.white,
+                  border: showExport ? `1px solid ${color.onWineFaint}` : "none",
+                  borderRadius: radius.pill,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  cursor: filtered.length === 0 || exportingPdf ? "not-allowed" : "pointer",
+                  opacity: filtered.length === 0 || exportingPdf ? 0.45 : 1,
+                  flexShrink: 0, padding: 0,
+                }}
+              >
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={showExport ? onPanel : inkMuted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                  <polyline points="7 10 12 15 17 10"/>
+                  <line x1="12" y1="15" x2="12" y2="3"/>
+                </svg>
+              </button>
+
+              {showExport && (
+                <div style={{
+                  position: "absolute", top: "48px", right: 0, zIndex: 40,
+                  background: color.white, border: `1px solid ${color.wine400}`,
+                  borderRadius: radius.card, boxShadow: shadow.panel,
+                  padding: "6px", minWidth: "196px",
+                }}>
+                  <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, padding: "6px 10px 8px" }}>
+                    {filtered.length} of {students.length} students
+                  </p>
+                  {[
+                    { label: "Export as CSV", hint: "Opens in Excel or Sheets", onClick: handleExportCsv },
+                    { label: "Export as PDF", hint: "Formatted for printing",   onClick: handleExportPdf },
+                  ].map(({ label, hint, onClick }) => (
+                    <button
+                      key={label}
+                      onClick={onClick}
+                      style={{
+                        display: "block", width: "100%", textAlign: "left",
+                        background: "none", border: "none", cursor: "pointer",
+                        padding: "8px 10px", borderRadius: radius.pill,
+                      }}
+                    >
+                      <span style={{ display: "block", fontFamily: font.ui, ...type.control, color: ink }}>{label}</span>
+                      <span style={{ display: "block", fontFamily: font.ui, ...type.helper, color: inkMuted }}>{hint}</span>
+                    </button>
+                  ))}
+                </div>
               )}
             </div>
 
