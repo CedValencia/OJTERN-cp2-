@@ -84,7 +84,10 @@ const MessagesStyles = () => (
     .msg-search-input { width: 170px; }
     .msg-search-input::placeholder { color: ${inkFaint}; }
     @media (max-width: 480px) {
-      .msg-search-input { width: 110px; }
+      .msg-search-input { width: 90px; }
+    }
+    @media (max-width: 380px) {
+      .msg-search-input { width: 62px; }
     }
 
     .msg-composer-input::placeholder { color: ${inkFaint}; }
@@ -113,10 +116,10 @@ const MessagesStyles = () => (
       align-items: center;
       justify-content: space-between;
       gap: ${space.md};
-      flex-wrap: wrap;
+      flex-wrap: nowrap;
     }
     @media (max-width: 480px) {
-      .msg-search-bar { padding: 14px; }
+      .msg-search-bar { padding: 14px; gap: 10px; }
     }
 
     /* Motion answers an action: a dialog opening, a message arriving. */
@@ -854,9 +857,14 @@ const ChatListView = ({ contacts, messages, onOpen, myUid }) => {
 
         {/* Title + search bar */}
         <div className="msg-search-bar" style={{ background: panel, borderRadius: radius.panel, marginBottom: space.lg, flexShrink: 0 }}>
-          <div style={{ minWidth: 0 }}>
-            <span style={{ fontFamily: font.ui, fontSize: "clamp(1.1rem, 3.5vw, 1.375rem)", fontWeight: 600, letterSpacing: "-0.01em", color: onPanel }}>Messages</span>
-            <p style={{ fontFamily: font.ui, ...type.helper, color: onPanelDim, marginTop: "2px" }}>
+          <div style={{ minWidth: 0, flex: "1 1 auto" }}>
+            <span title="Messages" style={{ fontFamily: font.ui, fontSize: "clamp(1.1rem, 3.5vw, 1.375rem)", fontWeight: 600, letterSpacing: "-0.01em", color: onPanel, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>Messages</span>
+            <p title={activeContacts.length === 0
+                ? "No conversations yet"
+                : unreadCount > 0
+                  ? `${unreadCount} unread of ${activeContacts.length} ${activeContacts.length === 1 ? "conversation" : "conversations"}`
+                  : `${activeContacts.length} ${activeContacts.length === 1 ? "conversation" : "conversations"}`}
+              style={{ fontFamily: font.ui, ...type.helper, color: onPanelDim, marginTop: "2px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {activeContacts.length === 0
                 ? "No conversations yet"
                 : unreadCount > 0

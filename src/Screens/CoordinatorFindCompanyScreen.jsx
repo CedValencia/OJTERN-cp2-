@@ -273,7 +273,10 @@ const ResponsiveStyles = () => (
     .coord-search-input { width: 170px; }
     .coord-search-input::placeholder { color: ${inkFaint}; }
     @media (max-width: 480px) {
-      .coord-search-input { width: 110px; }
+      .coord-search-input { width: 90px; }
+    }
+    @media (max-width: 380px) {
+      .coord-search-input { width: 62px; }
     }
 
     /* Visible keyboard focus on every control in this screen */
@@ -338,9 +341,10 @@ const ResponsiveStyles = () => (
       align-items: center;
       justify-content: space-between;
       gap: ${space.md};
+      flex-wrap: nowrap;
     }
     @media (max-width: 480px) {
-      .coord-search-bar { padding: 14px; }
+      .coord-search-bar { padding: 14px; gap: 10px; }
     }
 
     /* List wrapper: vertical scroll only, no horizontal overflow */
@@ -609,7 +613,10 @@ const CompanyProfile = ({ company, onBack, onMessageNow }) => {
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
               Back
             </button>
-            <h1 style={{ fontFamily: font.ui, fontSize: "clamp(1.5rem, 4vw, 2rem)", fontWeight: 600, lineHeight: 1.15, letterSpacing: "-0.02em", color: ink, marginBottom: "10px" }}>{company.companyName || company.name}</h1>
+            <h1 style={{ fontFamily: font.ui, fontSize: "clamp(1.5rem, 4vw, 2rem)", fontWeight: 600, lineHeight: 1.15, letterSpacing: "-0.02em", color: ink, marginBottom: "4px" }}>{company.companyName || company.name}</h1>
+            <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, marginBottom: "10px" }}>
+              {Array.isArray(company.industry) ? (company.industry.join(", ") || "—") : (company.industry || "—")}
+            </p>
             <p style={bodyStyle}>{company.description}</p>
           </div>
           <div className="coord-map-box" style={{ borderRadius: radius.card, overflow: "hidden" }}>
@@ -681,7 +688,7 @@ const CompanyProfile = ({ company, onBack, onMessageNow }) => {
           onMouseEnter={e => (e.currentTarget.style.background = panelDeep)}
           onMouseLeave={e => (e.currentTarget.style.background = panel)}
         >
-          Message company
+          Message Now!
         </button>
       </div>
     </div>
@@ -950,10 +957,10 @@ const CoordinatorFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onM
 
         {/* Search + Filter bar */}
         <div className="coord-search-bar" style={{ background: panel, borderRadius: radius.panel }}>
-          <div style={{ minWidth: 0 }}>
-            <span style={{ fontFamily: font.ui, fontSize: "clamp(1.1rem, 3.5vw, 1.375rem)", fontWeight: 600, letterSpacing: "-0.01em", color: onPanel }}>Find Company</span>
+          <div style={{ minWidth: 0, flex: "1 1 auto" }}>
+            <span title="Find Company" style={{ fontFamily: font.ui, fontSize: "clamp(1.1rem, 3.5vw, 1.375rem)", fontWeight: 600, letterSpacing: "-0.01em", color: onPanel, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>Find Company</span>
             {!loading && (
-              <p style={{ fontFamily: font.ui, ...type.helper, color: onPanelDim, marginTop: "2px" }}>
+              <p title={`${filtered.length} open ${filtered.length === 1 ? "post" : "posts"} for your programs`} style={{ fontFamily: font.ui, ...type.helper, color: onPanelDim, marginTop: "2px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 {filtered.length} open {filtered.length === 1 ? "post" : "posts"} for your programs
               </p>
             )}

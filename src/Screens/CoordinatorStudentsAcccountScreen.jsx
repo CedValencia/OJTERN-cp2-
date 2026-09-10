@@ -138,16 +138,19 @@ const ResponsiveStyles = () => (
       align-items: center;
       justify-content: space-between;
       gap: ${space.md};
-      flex-wrap: wrap;
+      flex-wrap: nowrap;
     }
     @media (max-width: 480px) {
-      .sa-search-bar { padding: 14px; }
+      .sa-search-bar { padding: 14px; gap: 10px; }
     }
 
     .sa-search-input { width: 170px; }
     .sa-search-input::placeholder { color: ${inkFaint}; }
     @media (max-width: 480px) {
-      .sa-search-input { width: 110px; }
+      .sa-search-input { width: 90px; }
+    }
+    @media (max-width: 380px) {
+      .sa-search-input { width: 62px; }
     }
 
     /* Toolbar row under the bar */
@@ -1435,9 +1438,9 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
 
         {/* Header bar — same floating dark panel as Find Company */}
         <div className="sa-search-bar">
-          <div style={{ minWidth: 0 }}>
-            <span style={{ fontFamily: font.ui, fontSize: "clamp(1.1rem, 3.5vw, 1.375rem)", fontWeight: 600, letterSpacing: "-0.01em", color: onPanel }}>Student Accounts</span>
-            <p style={{ fontFamily: font.ui, ...type.helper, color: onPanelDim, marginTop: "2px" }}>
+          <div style={{ minWidth: 0, flex: "1 1 auto" }}>
+            <span title="Student Accounts" style={{ fontFamily: font.ui, fontSize: "clamp(1.1rem, 3.5vw, 1.375rem)", fontWeight: 600, letterSpacing: "-0.01em", color: onPanel, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>Student Accounts</span>
+            <p title={`${filtered.length} of ${students.length} in your departments`} style={{ fontFamily: font.ui, ...type.helper, color: onPanelDim, marginTop: "2px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {filtered.length} of {students.length} in your departments
             </p>
           </div>

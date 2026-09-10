@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, query, where, serverTimestamp } from "firebase/firestore";
 import { db } from "./firebase";
-import { color } from "./theme";
+import { color, font, type, space, radius, shadow, ease } from "./theme";
 
 const MAPBOX_TOKEN = "pk.eyJ1IjoibWFraWlpaS0iLCJhIjoiY21wbTgybHVmMmc1ZzJycTFuZXRlb3NoNCJ9.FIpjF2lKTHkbU1e6qrL_Pw";
 // Aliases kept so the rest of this file reads the same — values now come
@@ -22,22 +22,18 @@ const ResponsiveStyles = () => (
       .post-grid { grid-template-columns: 1fr; }
     }
 
-    /* Post modal */
+    /* Post modal — sized to match CoordinatorReportCompanyScreen's report modal */
     .post-modal-inner {
-      width: 640px;
+      width: min(460px, calc(100vw - 48px));
       max-width: 100%;
+      max-height: 80vh;
+      border-radius: 18px;
     }
-    @media (max-width: 680px) {
+    @media (max-width: 560px) {
       .post-modal-inner {
-        width: 100%;
-        max-width: 460px;
+        width: calc(100vw - 72px);
+        max-height: 68vh;
         border-radius: 14px;
-        max-height: 82vh;
-      }
-    }
-    @media (max-width: 480px) {
-      .post-modal-inner {
-        max-height: 80dvh;
       }
     }
 
@@ -49,12 +45,17 @@ const ResponsiveStyles = () => (
       .post-modal-body { padding: 0 14px 12px; }
     }
 
-    /* Modal header padding */
+    /* Modal header — black, simple, like CoordinatorReportCompanyScreen's report modal */
     .post-modal-header {
-      padding: 20px 28px 12px;
+      min-height: 60px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 14px 20px;
     }
-    @media (max-width: 480px) {
-      .post-modal-header { padding: 14px 14px 10px; }
+    @media (max-width: 560px) {
+      .post-modal-header { min-height: 48px; padding: 10px 14px; }
     }
 
     /* Modal footer padding */
@@ -160,7 +161,7 @@ const GlobalFonts = () => {
   useEffect(() => {
     const link = document.createElement("link");
     link.rel  = "stylesheet";
-    link.href = "https://fonts.googleapis.com/css2?family=Jersey+25&family=Jua&family=Kufam:wght@400;600&display=swap";
+    link.href = "https://fonts.googleapis.com/css2?family=Jersey+25&family=Jua&family=Kufam:wght@400;600&family=Inter:wght@400;500;600&display=swap";
     document.head.appendChild(link);
     const style = document.createElement("style");
     style.id = "ojt-font-override";
@@ -244,11 +245,12 @@ const pillSelectReadonly = {
 // ── Field Label ───────────────────────────────────────────────────────────────
 const FieldLabel = ({ children }) => (
   <p style={{
-    fontFamily: "'Jersey 25', sans-serif",
-    fontSize: "clamp(1.05rem, 3vw, 1.3rem)",
+    fontFamily: font.ui,
+    fontSize: "0.95rem",
+    fontWeight: 600,
     color: "black",
     marginBottom: "5px",
-    letterSpacing: "0.03em",
+    letterSpacing: "-0.01em",
     marginTop: "10px",
   }}>{children}</p>
 );
@@ -671,7 +673,7 @@ const MapboxLocationPicker = ({ value, lat, lng, onChange, readOnly }) => {
 const ConfirmDiscardModal = ({ onKeepEditing, onDiscard }) => (
   <div className="post-confirm-overlay">
     <div style={{ background: color.white, borderRadius: "18px", maxWidth: "360px", width: "90%", padding: "26px 22px", boxShadow: "0 8px 40px rgba(0,0,0,0.35)", textAlign: "center" }}>
-      <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.4rem", color: darkRed, margin: "0 0 10px" }}>Discard changes?</p>
+      <p style={{ fontFamily: font.ui, fontSize: "1.1rem", fontWeight: 600, letterSpacing: "-0.01em", color: darkRed, margin: "0 0 10px" }}>Discard changes?</p>
       <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem", color: color.inkBody, margin: "0 0 22px", lineHeight: 1.4 }}>
         All your changes will be lost. Are you sure you want to cancel this change?
       </p>
@@ -694,7 +696,7 @@ const SavedSuccessModal = ({ onClose }) => (
       <div style={{ width: "56px", height: "56px", borderRadius: "50%", background: `${color.success}22`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 14px", fontSize: "1.8rem", color: color.success }}>
         ✓
       </div>
-      <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.4rem", color: darkRed, margin: "0 0 6px" }}>Saved successfully!</p>
+      <p style={{ fontFamily: font.ui, fontSize: "1.1rem", fontWeight: 600, letterSpacing: "-0.01em", color: darkRed, margin: "0 0 6px" }}>Saved successfully!</p>
       <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: color.inkMuted, margin: "0 0 20px" }}>
         Your post has been updated.
       </p>
@@ -709,7 +711,7 @@ const SavedSuccessModal = ({ onClose }) => (
 const ConfirmActionModal = ({ title, message, confirmLabel, danger = false, onCancel, onConfirm }) => (
   <div className="post-confirm-overlay">
     <div style={{ background: color.white, borderRadius: "18px", maxWidth: "360px", width: "90%", padding: "26px 22px", boxShadow: "0 8px 40px rgba(0,0,0,0.35)", textAlign: "center" }}>
-      <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.4rem", color: darkRed, margin: "0 0 10px" }}>{title}</p>
+      <p style={{ fontFamily: font.ui, fontSize: "1.1rem", fontWeight: 600, letterSpacing: "-0.01em", color: darkRed, margin: "0 0 10px" }}>{title}</p>
       <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem", color: color.inkBody, margin: "0 0 22px", lineHeight: 1.4 }}>
         {message}
       </p>
@@ -836,17 +838,34 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile }) =>
 
   return (
     <div className="post-modal-overlay">
-      <div className="post-modal-inner" style={{ background: color.wine400, borderRadius: "20px", maxHeight: "90vh", overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: "0 8px 40px rgba(0,0,0,0.3)" }}>
+      <div className="post-modal-inner" style={{ background: color.white, overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: "0 20px 50px rgba(0,0,0,0.25)" }}>
 
         {/* Header */}
-        <div className="post-modal-header" style={{ background: color.wine400, flexShrink: 0 }}>
-          <h2 style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(1.2rem, 4vw, 1.8rem)", fontWeight: "400", margin: 0, color: darkRed }}>
-            {post?.companyName || post?.company || user?.companyName || "New Post"}
-          </h2>
+        <div className="post-modal-header" style={{ background: color.white, borderBottom: `1px solid ${color.wine700}`, flexShrink: 0 }}>
+          <div style={{ minWidth: 0 }}>
+            <h2 title={post?.companyName || post?.company || user?.companyName || "New Post"} style={{ fontFamily: font.ui, fontSize: "clamp(1.05rem, 4vw, 1.3rem)", fontWeight: 600, letterSpacing: "-0.01em", margin: 0, color: color.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
+              {post?.companyName || post?.company || user?.companyName || "New Post"}
+            </h2>
+            <p style={{ fontFamily: font.ui, ...type.helper, margin: "2px 0 0", color: color.inkMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {Array.isArray(companyProfile?.industry)
+                ? (companyProfile.industry.join(", ") || "—")
+                : (companyProfile?.industry || user?.industry || "—")}
+            </p>
+          </div>
+          <button
+            onClick={handleCloseClick}
+            aria-label="Close"
+            style={{
+              background: color.wine700, border: "none", borderRadius: "50%",
+              width: "28px", height: "28px", cursor: "pointer",
+              fontWeight: "bold", fontSize: "1rem", color: color.ink,
+              flexShrink: 0,
+            }}
+          >✕</button>
         </div>
 
         {/* Body */}
-        <div className="post-modal-body" style={{ overflowY: "auto", flex: 1 }}>
+        <div className="post-modal-body" style={{ overflowY: "auto", flex: 1, background: color.white }}>
 
           {/* Description + Requirements */}
           <div className="post-desc-row">
@@ -971,13 +990,7 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile }) =>
             style={{ ...(readOnly ? pillTextareaReadonly : pillTextareaStyle), border: errors.benefits ? `1.5px solid ${color.danger}` : "none" }} />
           <FieldError msg={errors.benefits} />
 
-          {/* Industry — fixed to Account Profile's industry, not editable here */}
-          <FieldLabel>Industry:</FieldLabel>
-          <div style={{ ...pillInputReadonly, marginBottom: "8px", boxSizing: "border-box" }}>
-            {Array.isArray(companyProfile?.industry)
-              ? (companyProfile.industry.join(", ") || "—")
-              : (companyProfile?.industry || user?.industry || "—")}
-          </div>
+          {/* Industry now shown in the modal header, below the company name */}
 
           {/* College / Program required — restricted to approved departments,
               each with its own slot count */}
@@ -1000,13 +1013,13 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile }) =>
         </div>
 
         {/* Footer */}
-        <div className="post-modal-footer" style={{ background: color.inkFaint, display: "flex", justifyContent: "flex-end", gap: "10px", borderBottomLeftRadius: "20px", borderBottomRightRadius: "20px", flexShrink: 0 }}>
-          <button onClick={handleCloseClick} style={{ padding: "10px 28px", borderRadius: "24px", background: color.inkMuted, color: color.white, border: "none", fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(0.9rem, 2.5vw, 1.1rem)", cursor: "pointer" }}>Close</button>
+        <div className="post-modal-footer" style={{ background: color.white, borderTop: `1px solid ${color.wine700}`, display: "flex", justifyContent: "flex-end", gap: "10px", borderBottomLeftRadius: "18px", borderBottomRightRadius: "18px", flexShrink: 0 }}>
+          <button onClick={handleCloseClick} style={{ padding: "10px 28px", borderRadius: "24px", background: color.inkMuted, color: color.white, border: "none", fontFamily: font.ui, fontWeight: 600, fontSize: "0.92rem", cursor: "pointer" }}>Close</button>
           {mode === "view" && !isEditing && (
-            <button onClick={() => setIsEditing(true)} style={{ padding: "10px 28px", borderRadius: "24px", background: darkRed, color: color.white, border: "none", fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(0.9rem, 2.5vw, 1.1rem)", cursor: "pointer" }}>Edit</button>
+            <button onClick={() => setIsEditing(true)} style={{ padding: "10px 28px", borderRadius: "24px", background: darkRed, color: color.white, border: "none", fontFamily: font.ui, fontWeight: 600, fontSize: "0.92rem", cursor: "pointer" }}>Edit</button>
           )}
           {isEditing && mode !== "create" && (
-            <button onClick={handleSave} style={{ padding: "10px 28px", borderRadius: "24px", background: darkRed, color: color.white, border: "none", fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(0.9rem, 2.5vw, 1.1rem)", cursor: "pointer" }}>Save</button>
+            <button onClick={handleSave} style={{ padding: "10px 28px", borderRadius: "24px", background: darkRed, color: color.white, border: "none", fontFamily: font.ui, fontWeight: 600, fontSize: "0.92rem", cursor: "pointer" }}>Save</button>
           )}
           {mode === "create" && (
             <button
@@ -1015,8 +1028,8 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile }) =>
               style={{
                 padding: "10px 28px", borderRadius: "24px",
                 background: approvedDeptSelections.length === 0 ? color.inkFaint : darkRed,
-                color: color.white, border: "none", fontFamily: "'Jersey 25', sans-serif",
-                fontSize: "clamp(0.9rem, 2.5vw, 1.1rem)",
+                color: color.white, border: "none", fontFamily: font.ui, fontWeight: 600,
+                fontSize: "0.92rem",
                 cursor: approvedDeptSelections.length === 0 ? "not-allowed" : "pointer",
               }}
             >
@@ -1042,9 +1055,9 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile }) =>
 
 // ── Three-dot Menu ────────────────────────────────────────────────────────────
 const menuItemStyle = {
-  display: "block", width: "100%", padding: "10px 16px",
+  display: "block", width: "100%", padding: "8px 16px",
   background: "none", border: "none", textAlign: "left",
-  fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem",
+  fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem",
   cursor: "pointer", color: color.ink,
 };
 
@@ -1171,16 +1184,15 @@ const PostOJTContent = ({ user, openPostId, onPostOpened }) => {
 
   return (
     <div className="post-screen-padding" style={{ overflowY: "auto", flex: 1 }}>
-      <div style={{ background: color.wine700, borderRadius: "16px", padding: "18px 20px", minHeight: "80vh" }}>
 
         <div className="post-header-row">
-          <h2 style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(1.4rem, 4vw, 2rem)", fontWeight: "400", margin: 0, color: color.ink }}>
+          <h2 style={{ fontFamily: font.ui, fontSize: "clamp(1.25rem, 4vw, 1.6rem)", fontWeight: 600, letterSpacing: "-0.01em", margin: 0, color: color.ink }}>
             Recent Post
           </h2>
           <button
             className="post-btn"
             onClick={openCreate}
-            style={{ background: darkRed, color: color.white, border: "none", borderRadius: "24px", fontFamily: "'Jersey 25', sans-serif", cursor: "pointer", display: "flex", alignItems: "center", gap: "6px" }}
+            style={{ background: darkRed, color: color.white, border: "none", borderRadius: "24px", fontFamily: font.ui, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: "6px" }}
           >
             Post <span>+</span>
           </button>
@@ -1190,51 +1202,68 @@ const PostOJTContent = ({ user, openPostId, onPostOpened }) => {
 
         {posts.length > 0 ? (
           <div className="post-grid">
-            {posts.map(post => (
-              <div
-                key={post.id}
-                onClick={() => !post.disabled && openView(post)}
-                style={{
-                  background: post.disabled ? color.wine400 : color.white,
-                  borderRadius: "14px", padding: "14px 16px",
-                  display: "flex", justifyContent: "space-between", alignItems: "center",
-                  cursor: post.disabled ? "default" : "pointer",
-                  boxShadow: post.disabled ? "none" : "0 2px 8px rgba(0,0,0,0.08)",
-                  opacity: post.disabled ? 0.75 : 1,
-                  border: post.disabled ? "none" : `1.5px solid ${color.wine700}`,
-                  minWidth: 0,
-                }}
-              >
-                <div style={{ minWidth: 0 }}>
-                  <p style={{
-                    fontFamily: "'Jersey 25', sans-serif",
-                    fontSize: "clamp(0.9rem, 2.5vw, 1.1rem)",
-                    margin: "0 0 4px", color: post.disabled ? color.inkMuted : color.ink,
-                    fontWeight: "400", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                  }}>
+            {posts.map(post => {
+              const displayLocation = typeof post.location === "object"
+                ? [post.location?.barangay, post.location?.city, post.location?.province, post.location?.region].filter(Boolean).join(", ")
+                : (post.location || "");
+              const postedDate = post.createdAt?.seconds
+                ? new Date(post.createdAt.seconds * 1000).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+                : "";
+              const isActive = !post.disabled;
+              return (
+                <div
+                  key={post.id}
+                  onClick={() => isActive && openView(post)}
+                  style={{
+                    background: isActive ? color.wine600 : color.wine800,
+                    borderRadius: radius.card,
+                    border: `1px solid ${color.wine700}`,
+                    padding: "20px 22px",
+                    display: "flex", flexDirection: "column", gap: "6px",
+                    boxShadow: isActive ? shadow.input : "none",
+                    opacity: isActive ? 1 : 0.72,
+                    transition: `box-shadow 220ms ${ease}, border-color 220ms ${ease}`,
+                    cursor: isActive ? "pointer" : "default",
+                    position: "relative",
+                    minWidth: 0,
+                  }}
+                  onMouseEnter={e => { if (isActive) { e.currentTarget.style.boxShadow = "0 10px 28px rgba(10,10,10,0.10)"; e.currentTarget.style.borderColor = color.wine400; } }}
+                  onMouseLeave={e => { e.currentTarget.style.boxShadow = isActive ? shadow.input : "none"; e.currentTarget.style.borderColor = color.wine700; }}
+                >
+                  <div onClick={e => e.stopPropagation()} style={{ position: "absolute", top: "14px", right: "14px" }}>
+                    <ThreeDotMenu
+                      isDisabled={post.disabled}
+                      onView={() => openView(post)}
+                      onToggleDisable={() => requestToggleDisable(post)}
+                      onDelete={() => requestDelete(post)}
+                    />
+                  </div>
+                  <h3 style={{ fontFamily: font.ui, fontSize: "1.0625rem", fontWeight: 600, letterSpacing: "-0.01em", color: isActive ? color.ink : color.inkMuted, paddingRight: "40px", lineHeight: 1.3, margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     {post.companyName || post.company || "Unnamed Company"}
-                  </p>
-                  <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.78rem", margin: 0, color: color.inkMuted }}>
+                  </h3>
+                  <p style={{ fontFamily: font.ui, ...type.helper, color: color.inkMuted, margin: 0 }}>
                     {post.industry || post.subtitle || (post.courseSelections?.[0] ? post.courseSelections[0].college : "OJT Post")}
                   </p>
+                  {displayLocation && (
+                    <p style={{ fontFamily: font.ui, ...type.helper, color: color.inkMuted, margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {displayLocation}
+                    </p>
+                  )}
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "10px", paddingTop: "10px", borderTop: `1px solid ${color.wine800}` }}>
+                    <span style={{ fontFamily: font.ui, ...type.helper, color: color.inkFaint }}>{postedDate ? `Posted ${postedDate}` : ""}</span>
+                    <span style={{ background: color.wine700, border: `1px solid ${color.wine400}`, borderRadius: radius.pill, padding: "3px 10px", fontFamily: font.ui, ...type.helper, color: color.inkMuted, fontWeight: 500, whiteSpace: "nowrap" }}>
+                      {(post.slot ?? 0)} slot{(post.slot ?? 0) !== 1 ? "s" : ""}
+                    </span>
+                  </div>
                 </div>
-                <div onClick={e => e.stopPropagation()} style={{ flexShrink: 0 }}>
-                  <ThreeDotMenu
-                    isDisabled={post.disabled}
-                    onView={() => openView(post)}
-                    onToggleDisable={() => requestToggleDisable(post)}
-                    onDelete={() => requestDelete(post)}
-                  />
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         ) : (
           <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "80px" }}>
             <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "1rem", color: color.inkFaint }}>No posts yet.</p>
           </div>
         )}
-      </div>
 
       {modal && (
         <PostFormModal

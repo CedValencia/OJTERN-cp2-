@@ -73,11 +73,11 @@ const COLLEGE_DATA = {
 const STATUS_OPTIONS = ["Accepted", "Declined", "Pending", "In Review", "To Interview"];
 
 const STATUS_COLORS = {
-  "Accepted":     { bg: color.success, color: color.white },
-  "Declined":     { bg: color.danger,  color: color.white },
-  "Pending":      { bg: color.wine400, color: ink },
-  "In Review":    { bg: color.warning, color: color.white },
-  "To Interview": { bg: color.info,    color: color.white },
+  "Accepted":     { bg: "#358D5E", color: color.white },
+  "Declined":     { bg: "#FF0000", color: color.white },
+  "Pending":      { bg: "#CCC929", color: ink },
+  "In Review":    { bg: "#353A8D", color: color.white },
+  "To Interview": { bg: "#7C2889", color: color.white },
 };
 
 // Forward-only progression order. "Declined" isn't part of the sequence since
@@ -149,16 +149,19 @@ const ResponsiveStyles = () => (
       align-items: center;
       justify-content: space-between;
       gap: ${space.md};
-      flex-wrap: wrap;
+      flex-wrap: nowrap;
     }
     @media (max-width: 480px) {
-      .ca-search-bar { padding: 14px; }
+      .ca-search-bar { padding: 14px; gap: 10px; }
     }
 
     .ca-search-input { width: 170px; }
     .ca-search-input::placeholder { color: ${inkFaint}; }
     @media (max-width: 480px) {
-      .ca-search-input { width: 110px; }
+      .ca-search-input { width: 90px; }
+    }
+    @media (max-width: 380px) {
+      .ca-search-input { width: 62px; }
     }
 
     /* Full-width applicant rows */
@@ -206,40 +209,51 @@ const ResponsiveStyles = () => (
       border-radius: ${radius.pill};
     }
 
-    /* ── Personal Details Modal ── */
+    /* ── Personal Details Modal — sized to match CoordinatorReportCompanyScreen's report modal ── */
     .ca-modal-inner {
       background: ${surface};
       border: 1px solid ${line};
-      border-radius: ${radius.panel};
-      width: 100%;
-      max-width: 700px;
-      max-height: 92vh;
+      border-radius: 18px;
+      width: min(460px, calc(100vw - 48px));
+      max-width: 100%;
+      max-height: 62vh;
       overflow: hidden;
       display: flex;
       flex-direction: column;
-      box-shadow: ${shadow.panel};
+      box-shadow: 0 20px 50px rgba(0,0,0,0.25);
+    }
+    @media (max-width: 560px) {
+      .ca-modal-inner {
+        width: calc(100vw - 72px);
+        max-height: 46vh;
+        border-radius: 14px;
+      }
     }
 
     .ca-modal-header {
-      padding: 22px 30px 14px;
+      background: ${surface};
+      border-bottom: 1px solid ${line};
+      min-height: 60px;
+      padding: 14px 20px;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      border-bottom: 1px solid ${line};
+      gap: 12px;
       flex-shrink: 0;
     }
     @media (max-width: 560px) {
-      .ca-modal-header { padding: 16px 16px 12px; }
-      .ca-modal-header h2 { font-size: 1.15rem !important; }
+      .ca-modal-header { min-height: 48px; padding: 10px 14px; }
+      .ca-modal-header h2 { font-size: 1.1rem !important; }
     }
 
     .ca-modal-body {
       overflow-y: auto;
-      padding: 22px 30px 30px;
+      overflow-x: hidden;   /* ← idagdag */
+      padding: 20px;
       flex: 1;
     }
     @media (max-width: 560px) {
-      .ca-modal-body { padding: 16px 16px 20px; }
+      .ca-modal-body { padding: 14px; }
     }
 
     /* Name fields: wrap on small screens */
@@ -571,8 +585,8 @@ const PersonalDetailsModal = ({ applicant, onClose, onStatusChange, onMessage })
 
           {/* Header */}
           <div className="ca-modal-header">
-            <h2 style={{ fontFamily: font.ui, fontSize: "clamp(1.125rem, 4vw, 1.375rem)", fontWeight: 600, letterSpacing: "-0.01em", margin: 0, color: ink }}>Student Information</h2>
-            <button onClick={onClose} aria-label="Close" style={{ background: lineSoft, border: `1px solid ${line}`, borderRadius: "50%", width: "32px", height: "32px", color: inkMuted, fontSize: "1rem", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>✕</button>
+            <h2 title="Student Information" style={{ fontFamily: font.ui, fontSize: "clamp(1.05rem, 4vw, 1.3rem)", fontWeight: 600, letterSpacing: "-0.01em", margin: 0, color: ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>Student Information</h2>
+            <button onClick={onClose} aria-label="Close" style={{ background: color.wine800, border: `1px solid ${line}`, borderRadius: "50%", width: "28px", height: "28px", color: ink, fontSize: "1rem", fontWeight: "bold", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>✕</button>
           </div>
 
           {/* Body */}

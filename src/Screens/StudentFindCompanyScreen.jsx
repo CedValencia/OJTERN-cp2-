@@ -255,7 +255,10 @@ const ResponsiveStyles = () => (
     .stud-search-input { width: 170px; }
     .stud-search-input::placeholder { color: ${inkFaint}; }
     @media (max-width: 480px) {
-      .stud-search-input { width: 110px; }
+      .stud-search-input { width: 90px; }
+    }
+    @media (max-width: 380px) {
+      .stud-search-input { width: 62px; }
     }
 
     /* Visible keyboard focus on every control in this screen */
@@ -329,9 +332,10 @@ const ResponsiveStyles = () => (
       align-items: center;
       justify-content: space-between;
       gap: ${space.md};
+      flex-wrap: nowrap;
     }
     @media (max-width: 480px) {
-      .stud-search-bar { padding: 14px; }
+      .stud-search-bar { padding: 14px; gap: 10px; }
     }
 
     /* List wrapper: vertical scroll only, no horizontal overflow */
@@ -594,7 +598,10 @@ const CompanyProfile = ({ company, onBack, onReport, onMessageNow, onApplyNow })
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
               Back
             </button>
-            <h1 style={{ fontFamily: font.ui, fontSize: "clamp(1.5rem, 4vw, 2rem)", fontWeight: 600, lineHeight: 1.15, letterSpacing: "-0.02em", color: ink, marginBottom: "10px" }}>{company.companyName || company.name}</h1>
+            <h1 style={{ fontFamily: font.ui, fontSize: "clamp(1.5rem, 4vw, 2rem)", fontWeight: 600, lineHeight: 1.15, letterSpacing: "-0.02em", color: ink, marginBottom: "4px" }}>{company.companyName || company.name}</h1>
+            <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, marginBottom: "10px" }}>
+              {Array.isArray(company.industry) ? (company.industry.join(", ") || "—") : (company.industry || "—")}
+            </p>
             <p style={bodyStyle}>{company.description}</p>
           </div>
           <div className="stud-map-box" style={{ borderRadius: radius.card, overflow: "hidden" }}>
@@ -667,7 +674,7 @@ const CompanyProfile = ({ company, onBack, onReport, onMessageNow, onApplyNow })
             onMouseEnter={e => (e.currentTarget.style.background = panelDeep)}
             onMouseLeave={e => (e.currentTarget.style.background = panel)}
           >
-            Apply now
+            Apply Now!
           </button>
           <button
             onClick={onMessageNow}
@@ -675,7 +682,7 @@ const CompanyProfile = ({ company, onBack, onReport, onMessageNow, onApplyNow })
             onMouseEnter={e => (e.currentTarget.style.background = color.wine800)}
             onMouseLeave={e => (e.currentTarget.style.background = surface)}
           >
-            Message company
+            Message Now!
           </button>
         </div>
         <button
@@ -792,7 +799,7 @@ const CompanyCard = ({ company, onViewProfile }) => {
 };
 
 // ─── MAIN FIND COMPANY SCREEN ─────────────────────────────────────────────────
-const StudentFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onMessageNow, onApplyNow, initialCompanyId, onClearInitialCompany, user, onVisitCompany }) => {
+const StudentFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onNavigateToApplications, onMessageNow, onApplyNow, initialCompanyId, onClearInitialCompany, user, onVisitCompany }) => {
   const { posts: companies, loading } = useOjtPosts();
   const [view, setView] = useState("list");
   const [selectedCompany, setSelectedCompany] = useState(null);
@@ -911,6 +918,7 @@ const StudentFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onMessa
             company={selectedCompany}
             user={user}
             onClose={() => setShowApplyModal(false)}
+            onSuccessClose={() => { setShowApplyModal(false); onNavigateToApplications?.(); }}
             onSubmit={() => {
               // ApplyModal already handles the full Firestore submission (incl. file
               // uploads) internally and shows its own success popup. This callback is
@@ -931,10 +939,10 @@ const StudentFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onMessa
 
         {/* Search + Filter bar */}
         <div className="stud-search-bar" style={{ background: panel, borderRadius: radius.panel }}>
-          <div style={{ minWidth: 0 }}>
-            <span style={{ fontFamily: font.ui, fontSize: "clamp(1.1rem, 3.5vw, 1.375rem)", fontWeight: 600, letterSpacing: "-0.01em", color: onPanel }}>Find Company</span>
+          <div style={{ minWidth: 0, flex: "1 1 auto" }}>
+            <span title="Find Company" style={{ fontFamily: font.ui, fontSize: "clamp(1.1rem, 3.5vw, 1.375rem)", fontWeight: 600, letterSpacing: "-0.01em", color: onPanel, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>Find Company</span>
             {!loading && (
-              <p style={{ fontFamily: font.ui, ...type.helper, color: onPanelDim, marginTop: "2px" }}>
+              <p title={`${filtered.length} open ${filtered.length === 1 ? "post" : "posts"} for your program`} style={{ fontFamily: font.ui, ...type.helper, color: onPanelDim, marginTop: "2px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 {filtered.length} open {filtered.length === 1 ? "post" : "posts"} for your program
               </p>
             )}

@@ -58,7 +58,10 @@ const MessagesStyles = () => (
     .msg-search-input { width: 170px; }
     .msg-search-input::placeholder { color: ${inkFaint}; }
     @media (max-width: 480px) {
-      .msg-search-input { width: 110px; }
+      .msg-search-input { width: 90px; }
+    }
+    @media (max-width: 380px) {
+      .msg-search-input { width: 62px; }
     }
 
     .msg-composer-input::placeholder { color: ${inkFaint}; }
@@ -87,10 +90,10 @@ const MessagesStyles = () => (
       align-items: center;
       justify-content: space-between;
       gap: ${space.md};
-      flex-wrap: wrap;
+      flex-wrap: nowrap;
     }
     @media (max-width: 480px) {
-      .msg-search-bar { padding: 14px; }
+      .msg-search-bar { padding: 14px; gap: 10px; }
     }
 
     /* Motion answers an action: a dialog opening, a message arriving. */

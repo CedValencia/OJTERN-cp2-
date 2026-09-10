@@ -148,7 +148,7 @@ const FilterPanel = ({ filterRef, filterCollege, filterProgram, setFilterCollege
         <p style={{ ...type.helper, color: color.inkMuted, margin: "16px 0 7px", textTransform: "uppercase", letterSpacing: "0.07em", fontWeight: 600 }}>
           College
         </p>
-        <div style={{ maxHeight: "190px", overflowY: "auto", display: "grid", gap: "5px" }}>
+        <div style={{ maxHeight: "190px", overflowY: "auto", overflowX: "hidden", display: "grid", gap: "5px" }}>
           {colleges.map((col) => {
             const selected = filterCollege === col;
             return (
@@ -181,7 +181,7 @@ const FilterPanel = ({ filterRef, filterCollege, filterProgram, setFilterCollege
             <p style={{ ...type.helper, color: color.inkMuted, margin: "16px 0 7px", textTransform: "uppercase", letterSpacing: "0.07em", fontWeight: 600 }}>
               Program
             </p>
-            <div style={{ maxHeight: "145px", overflowY: "auto", display: "flex", flexWrap: "wrap", gap: "6px" }}>
+            <div style={{ maxHeight: "145px", overflowY: "auto", overflowX: "hidden", display: "flex", flexWrap: "wrap", gap: "6px" }}>
               {programs.map((prog) => {
                 const selected = filterProgram === prog;
                 return (
@@ -195,6 +195,7 @@ const FilterPanel = ({ filterRef, filterCollege, filterProgram, setFilterCollege
                       color: selected ? color.white : color.inkBody,
                       cursor: "pointer", fontFamily: font.ui, fontSize: "0.76rem",
                       fontWeight: selected ? 600 : 500, transition: `all 160ms ${ease}`,
+                      maxWidth: "100%", whiteSpace: "normal", wordBreak: "break-word", textAlign: "left",
                     }}
                   >
                     {prog}
@@ -414,7 +415,7 @@ const CompanyCoordinatorsScreen = ({ embedded, user, onNavigateToMessages }) => 
         </div>
       </header>
 
-      <main style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: isMobile ? "18px 16px 28px" : "24px 32px 36px" }}>
+      <main style={{ flex: 1, minHeight: 0, overflowY: "auto", overflowX: "hidden", padding: isMobile ? "18px 16px 28px" : "24px 32px 36px" }}>
         {!loading && coordinators.length > 0 && (
           <div style={{
             display: "flex", alignItems: "center", justifyContent: "space-between",
@@ -480,15 +481,19 @@ const CompanyCoordinatorsScreen = ({ embedded, user, onNavigateToMessages }) => 
               display: "flex", alignItems: "center", gap: "9px",
               marginBottom: "10px", paddingLeft: "2px",
             }}>
-              <div style={{ width: "4px", height: "18px", borderRadius: radius.pill, background: red }} />
-              <h3 style={{ ...type.label, color: color.ink, fontWeight: 650, margin: 0 }}>
+              <div style={{ width: "4px", height: "18px", borderRadius: radius.pill, background: red, flexShrink: 0 }} />
+              <h3 style={{
+                ...type.label, color: color.ink, fontWeight: 650, margin: 0,
+                minWidth: 0, overflow: "hidden", textOverflow: "ellipsis",
+                whiteSpace: isMobile ? "normal" : "nowrap",
+              }}>
                 {college}
               </h3>
               <span style={{
                 minWidth: "23px", height: "23px", padding: "0 7px",
                 borderRadius: radius.pill, background: color.wine700, color: color.inkMuted,
                 display: "inline-flex", alignItems: "center", justifyContent: "center",
-                fontSize: "0.7rem", fontWeight: 600,
+                fontSize: "0.7rem", fontWeight: 600, flexShrink: 0,
               }}>
                 {groups[college].length}
               </span>
@@ -496,7 +501,7 @@ const CompanyCoordinatorsScreen = ({ embedded, user, onNavigateToMessages }) => 
 
             <div style={{
               display: "grid",
-              gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fit, minmax(300px, 1fr))",
+              gridTemplateColumns: isMobile ? "minmax(0, 1fr)" : "repeat(auto-fit, minmax(280px, 1fr))",
               gap: "10px",
             }}>
               {groups[college].map((coord) => (
