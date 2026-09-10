@@ -377,6 +377,22 @@ const ApprovedDepartmentPicker = ({ approvedDeptSelections, selections, onChange
   );
 };
 
+// ── Expiration date helpers ──────────────────────────────────────────────────
+// Dates are stored/compared as plain "YYYY-MM-DD" strings (what <input type="date">
+// gives us), so lexicographic comparison is safe and avoids timezone drift from
+// building Date objects. A post is "expired" the day AFTER its expirationDate —
+// i.e. if a company sets Sept 9, applying is still allowed ON Sept 9 and only
+// blocked starting Sept 10.
+const getTodayStr = () => {
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+};
+
+const isPostExpired = (post) => !!post?.expirationDate && post.expirationDate < getTodayStr();
+
 // ── Working Hours ──────────────────────────────────────────────────────────────
 // One day + one time range per entry (not a day-to-day range) — pick
 // "Monday", then Monday's hours; a different day with different hours is
@@ -756,6 +772,7 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile }) =>
     phone:            post?.phone || "+63 ",
     contactEmail:     post?.contactEmail || "",
     postLocation:     post?.postLocation || { address: fixedAddress, lat: profileLoc.lat ?? null, lng: profileLoc.lng ?? null },
+    expirationDate:   post?.expirationDate || "",
   });
 
   // Keep postLocation's address in lockstep with the company profile even if
@@ -800,6 +817,12 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile }) =>
 
     const emailErr = validateGmail(form.contactEmail);
     if (emailErr) newErrors.contactEmail = emailErr;
+
+    // Expiration date is optional (a post with none never expires), but if
+    // the company sets one it can't be a date that's already passed.
+    if (form.expirationDate && form.expirationDate < getTodayStr()) {
+      newErrors.expirationDate = "Expiration date can't be in the past.";
+    }
 
     const newWhErrors = form.workingHoursList.map(h => {
       if (!h.trim()) return "Please select the day(s) and time.";
@@ -938,6 +961,38 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile }) =>
               )}
             </div>
           </div>
+
+          {/* Post Expiration Date — optional. Once this date has passed,
+              students can no longer apply to this post (enforced on the
+              student-facing apply screen; this modal only lets the company
+              set/edit the date and warns them once it's already passed). */}
+          <FieldLabel>Post Expiration Date:</FieldLabel>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+            <div style={{ maxWidth: "220px", flex: "1 1 180px" }}>
+              <input
+                type="date"
+                className="ojt-field"
+                disabled={readOnly}
+                min={getTodayStr()}
+                value={form.expirationDate}
+                onChange={e => { set("expirationDate", e.target.value); setErrors(p => ({ ...p, expirationDate: "" })); }}
+                style={{
+                  ...(readOnly ? pillInputReadonly : pillInputStyle),
+                  colorScheme: "light",
+                  border: errors.expirationDate ? "1.5px solid #c00" : "none",
+                }}
+              />
+            </div>
+            {form.expirationDate && isPostExpired({ expirationDate: form.expirationDate }) && (
+              <span style={{ background: red, color: "white", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.68rem", padding: "3px 10px", borderRadius: "10px", whiteSpace: "nowrap" }}>
+                Expired
+              </span>
+            )}
+          </div>
+          <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.7rem", color: "#888", margin: "4px 0 0" }}>
+            Optional. Leave blank if this post should stay open indefinitely. Once this date has passed, students can no longer apply.
+          </p>
+          <FieldError msg={errors.expirationDate} />
 
           {/* Contact Information */}
           <FieldLabel>Contact Information:</FieldLabel>
@@ -1187,44 +1242,54 @@ const PostOJTContent = ({ user, openPostId, onPostOpened }) => {
 
         {posts.length > 0 ? (
           <div className="post-grid">
-            {posts.map(post => (
-              <div
-                key={post.id}
-                onClick={() => !post.disabled && openView(post)}
-                style={{
-                  background: post.disabled ? "#b8b8b8" : "white",
-                  borderRadius: "14px", padding: "14px 16px",
-                  display: "flex", justifyContent: "space-between", alignItems: "center",
-                  cursor: post.disabled ? "default" : "pointer",
-                  boxShadow: post.disabled ? "none" : "0 2px 8px rgba(0,0,0,0.08)",
-                  opacity: post.disabled ? 0.75 : 1,
-                  border: post.disabled ? "none" : "1.5px solid #e8e8e8",
-                  minWidth: 0,
-                }}
-              >
-                <div style={{ minWidth: 0 }}>
-                  <p style={{
-                    fontFamily: "'Jersey 25', sans-serif",
-                    fontSize: "clamp(0.9rem, 2.5vw, 1.1rem)",
-                    margin: "0 0 4px", color: post.disabled ? "#666" : "#1a1a1a",
-                    fontWeight: "400", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                  }}>
-                    {post.companyName || post.company || "Unnamed Company"}
-                  </p>
-                  <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.78rem", margin: 0, color: "#888" }}>
-                    {post.industry || post.subtitle || (post.courseSelections?.[0] ? post.courseSelections[0].college : "OJT Post")}
-                  </p>
+            {posts.map(post => {
+              const expired = isPostExpired(post);
+              return (
+                <div
+                  key={post.id}
+                  onClick={() => !post.disabled && openView(post)}
+                  style={{
+                    background: post.disabled ? "#b8b8b8" : "white",
+                    borderRadius: "14px", padding: "14px 16px",
+                    display: "flex", justifyContent: "space-between", alignItems: "center",
+                    cursor: post.disabled ? "default" : "pointer",
+                    boxShadow: post.disabled ? "none" : "0 2px 8px rgba(0,0,0,0.08)",
+                    opacity: post.disabled ? 0.75 : (expired ? 0.85 : 1),
+                    border: post.disabled ? "none" : (expired ? `1.5px solid ${red}` : "1.5px solid #e8e8e8"),
+                    minWidth: 0,
+                  }}
+                >
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+                      <p style={{
+                        fontFamily: "'Jersey 25', sans-serif",
+                        fontSize: "clamp(0.9rem, 2.5vw, 1.1rem)",
+                        margin: "0 0 4px", color: post.disabled ? "#666" : "#1a1a1a",
+                        fontWeight: "400", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                      }}>
+                        {post.companyName || post.company || "Unnamed Company"}
+                      </p>
+                      {!post.disabled && expired && (
+                        <span style={{ background: red, color: "white", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.62rem", padding: "2px 8px", borderRadius: "10px", whiteSpace: "nowrap", marginBottom: "4px" }}>
+                          Expired
+                        </span>
+                      )}
+                    </div>
+                    <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.78rem", margin: 0, color: "#888" }}>
+                      {post.industry || post.subtitle || (post.courseSelections?.[0] ? post.courseSelections[0].college : "OJT Post")}
+                    </p>
+                  </div>
+                  <div onClick={e => e.stopPropagation()} style={{ flexShrink: 0 }}>
+                    <ThreeDotMenu
+                      isDisabled={post.disabled}
+                      onView={() => openView(post)}
+                      onToggleDisable={() => requestToggleDisable(post)}
+                      onDelete={() => requestDelete(post)}
+                    />
+                  </div>
                 </div>
-                <div onClick={e => e.stopPropagation()} style={{ flexShrink: 0 }}>
-                  <ThreeDotMenu
-                    isDisabled={post.disabled}
-                    onView={() => openView(post)}
-                    onToggleDisable={() => requestToggleDisable(post)}
-                    onDelete={() => requestDelete(post)}
-                  />
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         ) : (
           <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "80px" }}>
