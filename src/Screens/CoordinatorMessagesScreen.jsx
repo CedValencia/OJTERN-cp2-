@@ -48,10 +48,7 @@ const MessagesStyles = () => (
     .msg-search-input { width: 170px; }
     .msg-search-input::placeholder { color: ${inkFaint}; }
     @media (max-width: 480px) {
-      .msg-search-input { width: 90px; }
-    }
-    @media (max-width: 380px) {
-      .msg-search-input { width: 62px; }
+      .msg-search-input { width: 110px; }
     }
 
     .msg-composer-input::placeholder { color: ${inkFaint}; }
@@ -94,10 +91,10 @@ const MessagesStyles = () => (
       align-items: center;
       justify-content: space-between;
       gap: ${space.md};
-      flex-wrap: nowrap;
+      flex-wrap: wrap;
     }
     @media (max-width: 480px) {
-      .msg-search-bar { padding: 14px; gap: 10px; }
+      .msg-search-bar { padding: 14px; }
     }
 
     /* Motion answers an action: a dialog opening, a message arriving. */
@@ -385,6 +382,7 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation }) =
   const startReply = (msg) => {
     setReplyTo({
       id: msg.id,
+      senderId: msg.senderId,
       sender: msg.sender === "me" ? "me" : "them",
       senderName: msg.sender === "me" ? "You" : (contact.name || "them"),
       text: msg.text || "",
@@ -527,6 +525,7 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation }) =
                         <ReplyPreview
                           replyTo={msg.replyTo}
                           isMe={isMe}
+                          authorName={isMe ? "You" : (contact.name || "They")}
                           missing={replyMissing}
                           onJump={() => jumpToMessage(msg.replyTo.id)}
                         />
@@ -565,8 +564,8 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation }) =
                         const attachmentsList = msg.attachments || (msg.attachment ? [msg.attachment] : []);
                         if (attachmentsList.length === 0) return null;
                         return (
-                          <div style={{ display: "flex", alignItems: "center", gap: "6px", justifyContent: isMe ? "flex-end" : "flex-start", marginTop: msg.text ? "4px" : "0" }}>
-                            {!msg.text && kebab}
+                          <div style={{ display: "flex", alignItems: "center", gap: "6px", justifyContent: isMe ? "flex-end" : "flex-start", marginTop: msg.text ? "4px" : "0", minWidth: 0, maxWidth: "100%" }}>
+                            {isMe && !msg.text && kebab}
                             <div style={{ display: "flex", flexDirection: "column", gap: "4px", alignItems: isMe ? "flex-end" : "flex-start" }}>
                               {attachmentsList.map((att, ai) => (
                                 <div key={ai} onMouseDown={e => startLongPress(e, msg)} onMouseUp={cancelLongPress} onMouseLeave={cancelLongPress} onTouchStart={e => startLongPress(e, msg)} onTouchEnd={cancelLongPress} onTouchMove={cancelLongPress} onContextMenu={e => e.preventDefault()}>
@@ -574,6 +573,7 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation }) =
                                 </div>
                               ))}
                             </div>
+                            {!isMe && !msg.text && kebab}
                           </div>
                         );
                       })()}
@@ -724,14 +724,9 @@ const ChatListView = ({ contacts, messages, onOpen, myUid }) => {
 
         {/* Title + search bar */}
         <div className="msg-search-bar" style={{ background: panel, borderRadius: radius.panel, marginBottom: space.lg, flexShrink: 0 }}>
-          <div style={{ minWidth: 0, flex: "1 1 auto" }}>
-            <span title="Messages" style={{ fontFamily: font.ui, fontSize: "clamp(1.1rem, 3.5vw, 1.375rem)", fontWeight: 600, letterSpacing: "-0.01em", color: onPanel, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>Messages</span>
-            <p title={activeContacts.length === 0
-                ? "No conversations yet"
-                : unreadCount > 0
-                  ? `${unreadCount} unread of ${activeContacts.length} ${activeContacts.length === 1 ? "conversation" : "conversations"}`
-                  : `${activeContacts.length} ${activeContacts.length === 1 ? "conversation" : "conversations"}`}
-              style={{ fontFamily: font.ui, ...type.helper, color: onPanelDim, marginTop: "2px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          <div style={{ minWidth: 0 }}>
+            <span style={{ fontFamily: font.ui, fontSize: "clamp(1.1rem, 3.5vw, 1.375rem)", fontWeight: 600, letterSpacing: "-0.01em", color: onPanel }}>Messages</span>
+            <p style={{ fontFamily: font.ui, ...type.helper, color: onPanelDim, marginTop: "2px" }}>
               {activeContacts.length === 0
                 ? "No conversations yet"
                 : unreadCount > 0

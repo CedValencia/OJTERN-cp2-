@@ -140,10 +140,19 @@ export const MenuItem = ({ onClick, tone = "default", divider = false, children 
 // exactly the way `msg.sender` already is.
 //   - replying to your own message  → "You reply to yourself"
 //   - replying to someone else's    → "Your reply to <name>"
-export const replyLabel = (replyTo) => {
+export const replyLabel = (replyTo, isMe, authorName) => {
   if (!replyTo) return "";
-  if (replyTo.sender === "me") return "You reply to yourself";
-  return `Your reply to ${replyTo.senderName || "them"}`;
+  const origIsMine = replyTo.sender === "me";
+
+  // Your own reply — the wording specified in the brief.
+  if (isMe) {
+    return origIsMine ? "You reply to yourself" : `Your reply to ${replyTo.senderName || "them"}`;
+  }
+
+  // The other person's reply, read from your side. A 1:1 thread only has two
+  // people, so "not mine" here means they replied to their own message.
+  const who = authorName || "They";
+  return origIsMine ? `${who} replied to you` : `${who} replied to themselves`;
 };
 
 const snippet = (text, max = 80) => {
@@ -155,7 +164,7 @@ const snippet = (text, max = 80) => {
 // ── ReplyPreview ─────────────────────────────────────────────────────────────
 // The small quoted strip that sits ABOVE the bubble. Clicking it jumps to the
 // original message.
-export const ReplyPreview = ({ replyTo, isMe, onJump, missing }) => {
+export const ReplyPreview = ({ replyTo, isMe, authorName, onJump, missing }) => {
   if (!replyTo) return null;
   return (
     <button
@@ -182,7 +191,7 @@ export const ReplyPreview = ({ replyTo, isMe, onJump, missing }) => {
       }}
     >
       <span style={{ fontFamily: font.ui, fontSize: "0.6875rem", lineHeight: 1.4, color: inkFaint, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "100%" }}>
-        {replyLabel(replyTo)}
+        {replyLabel(replyTo, isMe, authorName)}
       </span>
       <span
         style={{

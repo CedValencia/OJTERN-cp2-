@@ -18,6 +18,13 @@
  *     .ts: serverTimestamp
  *     .edited: bool
  *     .unsent: bool
+ *     .replyTo: { messageId, senderId, senderName, text } | null
+ *       — denormalised snapshot of the message this one replies to; the
+ *       snapshot is what keeps the preview correct after the original is
+ *       edited or unsent, while messageId is what the scroll-to-original
+ *       jump targets.
+ *     .editHistory: [{ text, editedAt }, ...]  ← previous versions, oldest first
+ *     .updatedAt: serverTimestamp             ← last edit time
  *     .attachments: [{ name, url, type, publicId, resourceType }, ...] | null
  *       — publicId/resourceType are Cloudinary's identifiers for the asset,
  *       needed to delete it later; unsendMessage sets this to null, which
@@ -176,6 +183,18 @@ export const useChat = (myUid, myName, myRole) => {
                 edited:     data.edited || false,
                 unsent:     data.unsent || false,
                 attachments: data.attachments || (data.attachment ? [data.attachment] : []),
+                // Reply metadata. senderId is stored viewer-independently in
+                // Firestore and normalised to "me"/"them" here, exactly like
+                // the message's own `sender` field above.
+                replyTo: data.replyTo ? {
+                  id:         data.replyTo.messageId,
+                  senderId:   data.replyTo.senderId || null,
+                  sender:     data.replyTo.senderId === myUid ? "me" : "them",
+                  senderName: data.replyTo.senderName || "User",
+                  text:       data.replyTo.text || "",
+                } : null,
+                editHistory: Array.isArray(data.editHistory) ? data.editHistory : [],
+                updatedAt:   data.updatedAt?.seconds ? data.updatedAt.seconds * 1000 : null,
               };
             });
             setMessages(prev => ({ ...prev, [c.convId]: msgs }));
@@ -209,6 +228,18 @@ export const useChat = (myUid, myName, myRole) => {
           edited:     data.edited || false,
           unsent:     data.unsent || false,
           attachments: data.attachments || (data.attachment ? [data.attachment] : []),
+          // Reply metadata. senderId is stored viewer-independently in
+          // Firestore and normalised to "me"/"them" here, exactly like
+          // the message's own `sender` field above.
+          replyTo: data.replyTo ? {
+            id:         data.replyTo.messageId,
+            senderId:   data.replyTo.senderId || null,
+            sender:     data.replyTo.senderId === myUid ? "me" : "them",
+            senderName: data.replyTo.senderName || "User",
+            text:       data.replyTo.text || "",
+          } : null,
+          editHistory: Array.isArray(data.editHistory) ? data.editHistory : [],
+          updatedAt:   data.updatedAt?.seconds ? data.updatedAt.seconds * 1000 : null,
         };
       });
       setMessages(prev => ({ ...prev, [convId]: msgs }));
@@ -277,9 +308,20 @@ export const useChat = (myUid, myName, myRole) => {
   }, [myUid, myName, myRole]);
 
   // ── Send a new message ──────────────────────────────────────────────────
-  const sendMessage = useCallback(async (convId, { text, attachments }) => {
+  const sendMessage = useCallback(async (convId, { text, attachments, replyTo }) => {
     const hasAttachments = Array.isArray(attachments) && attachments.length > 0;
     if (!convId || (!text?.trim() && !hasAttachments)) return;
+
+    // The screens pass a viewer-relative reply target; convert it back to a
+    // uid before writing, otherwise "me" would mean the wrong person for
+    // whoever else is reading the conversation.
+    const replySenderId = replyTo?.senderId || (replyTo?.sender === "me" ? myUid : null);
+    const replySnapshot = replyTo?.id ? {
+      messageId:  replyTo.id,
+      senderId:   replySenderId,
+      senderName: replySenderId === myUid ? (myName || "User") : (replyTo.senderName || "User"),
+      text:       (replyTo.text || "").slice(0, 300),
+    } : null;
 
     const msgRef = collection(db, "conversations", convId, "messages");
     await addDoc(msgRef, {
@@ -289,6 +331,9 @@ export const useChat = (myUid, myName, myRole) => {
       edited:      false,
       unsent:      false,
       attachments: hasAttachments ? attachments : null,
+      // Denormalised snapshot of the message being replied to, so the preview
+      // still renders correctly even after the original is edited or unsent.
+      replyTo:     replySnapshot,
     });
 
     // Update conversation's lastMessage + updatedAt. Also clear deletedFor —
@@ -304,13 +349,26 @@ export const useChat = (myUid, myName, myRole) => {
       updatedAt:   serverTimestamp(),
       deletedFor:  [],
     });
-  }, [myUid]);
+  }, [myUid, myName]);
 
   // ── Edit a message ──────────────────────────────────────────────────────
   const editMessage = useCallback(async (convId, msgId, newText) => {
-    await updateDoc(doc(db, "conversations", convId, "messages", msgId), {
-      text:   newText,
-      edited: true,
+    const ref  = doc(db, "conversations", convId, "messages", msgId);
+    const snap = await getDoc(ref);
+    if (!snap.exists()) return;
+
+    const prev = snap.data();
+    const prevText = prev.text || "";
+    if (prevText === newText) return;          // nothing changed — don't log a version
+
+    // Read-modify-write so the old text is archived instead of overwritten.
+    // NOTE: serverTimestamp() is illegal inside arrayUnion(), so editedAt is
+    // a client-side epoch ms. The doc-level updatedAt stays authoritative.
+    await updateDoc(ref, {
+      text:        newText,
+      edited:      true,
+      updatedAt:   serverTimestamp(),
+      editHistory: arrayUnion({ text: prevText, editedAt: Date.now() }),
     });
   }, []);
 

@@ -59,10 +59,7 @@ const MessagesStyles = () => (
     .msg-search-input { width: 170px; }
     .msg-search-input::placeholder { color: ${inkFaint}; }
     @media (max-width: 480px) {
-      .msg-search-input { width: 90px; }
-    }
-    @media (max-width: 380px) {
-      .msg-search-input { width: 62px; }
+      .msg-search-input { width: 110px; }
     }
 
     .msg-composer-input::placeholder { color: ${inkFaint}; }
@@ -105,10 +102,10 @@ const MessagesStyles = () => (
       align-items: center;
       justify-content: space-between;
       gap: ${space.md};
-      flex-wrap: nowrap;
+      flex-wrap: wrap;
     }
     @media (max-width: 480px) {
-      .msg-search-bar { padding: 14px; gap: 10px; }
+      .msg-search-bar { padding: 14px; }
     }
 
     /* Motion answers an action: a dialog opening, a message arriving. */
@@ -516,6 +513,7 @@ const ChatView = ({ contact, messages, onSend, onBack, onReport, onDeleteConvers
   const startReply = (msg) => {
     setReplyTo({
       id: msg.id,
+      senderId: msg.senderId,
       sender: msg.sender === "me" ? "me" : "them",
       senderName: msg.sender === "me" ? "You" : (contact.name || "them"),
       text: msg.text || "",
@@ -659,6 +657,7 @@ const ChatView = ({ contact, messages, onSend, onBack, onReport, onDeleteConvers
                         <ReplyPreview
                           replyTo={msg.replyTo}
                           isMe={isMe}
+                          authorName={isMe ? "You" : (contact.name || "They")}
                           missing={replyMissing}
                           onJump={() => jumpToMessage(msg.replyTo.id)}
                         />
@@ -697,8 +696,8 @@ const ChatView = ({ contact, messages, onSend, onBack, onReport, onDeleteConvers
                         const attachmentsList = msg.attachments || (msg.attachment ? [msg.attachment] : []);
                         if (attachmentsList.length === 0) return null;
                         return (
-                          <div style={{ display: "flex", alignItems: "center", gap: "6px", justifyContent: isMe ? "flex-end" : "flex-start", marginTop: msg.text ? "4px" : "0" }}>
-                            {!msg.text && kebab}
+                          <div style={{ display: "flex", alignItems: "center", gap: "6px", justifyContent: isMe ? "flex-end" : "flex-start", marginTop: msg.text ? "4px" : "0", minWidth: 0, maxWidth: "100%" }}>
+                            {isMe && !msg.text && kebab}
                             <div style={{ display: "flex", flexDirection: "column", gap: "4px", alignItems: isMe ? "flex-end" : "flex-start" }}>
                               {attachmentsList.map((att, ai) => (
                                 <div key={ai} onMouseDown={e => startLongPress(e, msg)} onMouseUp={cancelLongPress} onMouseLeave={cancelLongPress} onTouchStart={e => startLongPress(e, msg)} onTouchEnd={cancelLongPress} onTouchMove={cancelLongPress} onContextMenu={e => e.preventDefault()}>
@@ -706,6 +705,7 @@ const ChatView = ({ contact, messages, onSend, onBack, onReport, onDeleteConvers
                                 </div>
                               ))}
                             </div>
+                            {!isMe && !msg.text && kebab}
                           </div>
                         );
                       })()}
