@@ -5,6 +5,7 @@ import { uploadFilesToFolder, uploadFileToFolder } from "./CloudinaryService";
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "./firebase";
 import { color, font, type, space, radius, shadow, ease } from "./theme";
+import { AnchoredMenu, MenuItem, ReplyPreview, ReplyComposerBar, EditedTag, EditHistoryModal } from "./MessageExtras";
 
 // ── Design tokens, aliased for this screen ────────────────────────────────────
 // Kapareho ng CoordinatorMessagesScreen: lahat galing sa theme.js.
@@ -99,7 +100,21 @@ const MessagesStyles = () => (
     }
 
     /* Thread padding */
-    .msg-thread-body { padding: 24px 32px; }
+    .msg-thread-body { padding: 24px 32px; overflow-x: hidden; }
+
+    /* Long words and URLs must never widen the thread. */
+    .msg-row { max-width: 100%; min-width: 0; }
+
+    /* Brief pulse when you jump to a replied-to message. */
+    @keyframes msgFlash {
+      0%   { background: transparent; }
+      25%  { background: ${color.wine700}; }
+      100% { background: transparent; }
+    }
+    .msg-row-flash { animation: msgFlash 1400ms ${ease} both; border-radius: ${radius.card}; }
+    @media (prefers-reduced-motion: reduce) {
+      .msg-row-flash { animation: none !important; outline: 2px solid ${color.wine400}; }
+    }
     @media (max-width: 640px) {
       .msg-thread-body { padding: 14px 16px; }
     }
@@ -446,6 +461,11 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onR
   const [popupMsgId, setPopupMsgId]   = useState(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [unsendTarget, setUnsendTarget] = useState(null);
+  const [replyTo, setReplyTo]         = useState(null);   // composer reply target
+  const [historyMsg, setHistoryMsg]   = useState(null);   // message whose edit history is open
+  const [highlightId, setHighlightId] = useState(null);   // message being flashed after a jump
+  const [menuAnchor, setMenuAnchor]   = useState(null);   // DOM node the action menu is anchored to
+  const flashTimer                    = useRef(null);
   const [showReport, setShowReport]   = useState(false);
   const [infoMsg, setInfoMsg]         = useState(null);
   const bottomRef      = useRef();
@@ -483,7 +503,7 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onR
   useEffect(() => {
     const handler = (e) => {
       if (infoRef.current && !infoRef.current.contains(e.target)) setShowInfo(false);
-      if (popupMsgId !== null) setPopupMsgId(null);
+      if (popupMsgId !== null) { setPopupMsgId(null); setMenuAnchor(null); }
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
@@ -529,15 +549,32 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onR
       }
       setSending(false);
     }
-    onSend(contact.id, { id: Date.now(), sender: "me", text: input.trim(), time: timeStr, edited: false, unsent: false, attachments: uploadedAttachments });
-    setInput(""); setAttachments([]);
+    onSend(contact.id, {
+      id: Date.now(), sender: "me", text: input.trim(), time: timeStr,
+      edited: false, unsent: false, attachments: uploadedAttachments,
+      // Viewer-relative sender is normalised back to a uid inside useChat.
+      replyTo: replyTo
+        ? { id: replyTo.id, sender: replyTo.sender, senderName: replyTo.senderName, text: replyTo.text }
+        : null,
+    });
+    setInput(""); setAttachments([]); setReplyTo(null);
   };
 
   const handleKeyDown = (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } };
 
   const startLongPress = (e, msg) => {
-    if (msg.sender !== "me" || msg.unsent) return;
-    longPressTimer.current = setTimeout(() => { setPopupMsgId(prev => prev === msg.id ? null : msg.id); setEditingId(null); }, 500);
+    if (msg.unsent) return;
+    // Anchor the menu to whatever was long-pressed, so the portalled popup
+    // still opens next to the message on touch devices.
+    const el = e.currentTarget;
+    longPressTimer.current = setTimeout(() => {
+      setPopupMsgId(prev => {
+        const next = prev === msg.id ? null : msg.id;
+        setMenuAnchor(next ? el : null);
+        return next;
+      });
+      setEditingId(null);
+    }, 500);
   };
   const cancelLongPress = () => { if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; } };
   const EDIT_WINDOW_MS  = 15 * 60 * 1000; // messages older than this can no longer be edited
@@ -547,10 +584,34 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onR
   const handleUnsent    = (msgId) => { setUnsendTarget(msgId); setPopupMsgId(null); };
   const confirmUnsend   = () => { onSend(contact.id, { __unsent: true, id: unsendTarget }); setUnsendTarget(null); };
   const handleDeleteConversation = () => { setShowInfo(false); setShowDeleteConfirm(true); };
+
+  // Reply ------------------------------------------------------------------
+  const startReply = (msg) => {
+    setReplyTo({
+      id: msg.id,
+      sender: msg.sender === "me" ? "me" : "them",
+      senderName: msg.sender === "me" ? "You" : (contact.name || "them"),
+      text: msg.text || "",
+    });
+    setPopupMsgId(null); setMenuAnchor(null); setEditingId(null);
+  };
+
+  // Jump to the original message and flash it, Messenger-style.
+  const jumpToMessage = (msgId) => {
+    const el = document.getElementById(`msg-${msgId}`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    setHighlightId(msgId);
+    if (flashTimer.current) clearTimeout(flashTimer.current);
+    flashTimer.current = setTimeout(() => setHighlightId(null), 1500);
+  };
+  useEffect(() => () => { if (flashTimer.current) clearTimeout(flashTimer.current); }, []);
   const confirmDeleteConversation = () => { onDeleteConversation(contact.id); setShowDeleteConfirm(false); };
 
   const avatarSize     = isMobile ? 30 : 34;
-  const bubbleMaxWidth = isMobile ? "74%" : "56%";
+  // Reserves room for the avatar and the 3-dot button at every width, so a
+  // long message can never push the action button off screen.
+  const bubbleMaxWidth = isMobile ? "min(78%, calc(100% - 44px))" : "min(56%, calc(100% - 72px))";
   const headerPadding  = isMobile ? "12px 16px" : "14px 24px";
   const inputPadding   = isMobile ? "10px 14px" : "14px 24px";
 
@@ -620,6 +681,8 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onR
           const showTime    = idx === 0 || (msgTs - prevTs) > 10 * 60 * 1000;
           const isPopupOpen = popupMsgId === msg.id;
           const canEdit     = canEditMsg(msg);
+          const hasHistory  = Array.isArray(msg.editHistory) && msg.editHistory.length > 0;
+          const replyMissing = !!msg.replyTo && !messages.some(m => String(m.id) === String(msg.replyTo.id));
           // Whether this is the very last message in the thread and it's
           // mine — Messenger-style, the send status only shows under that
           // one message, not every message I've sent.
@@ -627,24 +690,45 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onR
           const otherReadMs = contact.lastRead?.[contact.id]?.seconds ? contact.lastRead[contact.id].seconds * 1000 : 0;
           const isSeen      = isLastMine && otherReadMs >= msgTs;
 
-          const popupMenu = isPopupOpen && !msg.unsent && (
-            <div className="msg-popover" onMouseDown={e => e.stopPropagation()} style={{ position: "absolute", bottom: "calc(100% + 6px)", left: "50%", transform: "translateX(-50%)", background: surface, borderRadius: radius.card, border: `1px solid ${line}`, boxShadow: shadow.panel, zIndex: 100, minWidth: "128px", maxWidth: "170px", overflow: "hidden", whiteSpace: "nowrap" }}>
-              {canEdit && <div onClick={() => startEdit(msg)} style={{ padding: "10px 16px", fontFamily: font.ui, ...type.helper, color: inkBody, cursor: "pointer", borderBottom: `1px solid ${lineSoft}` }} onMouseEnter={e => e.currentTarget.style.background = lineSoft} onMouseLeave={e => e.currentTarget.style.background = surface}>Edit</div>}
-              <div onClick={() => handleUnsent(msg.id)} style={{ padding: "10px 16px", fontFamily: font.ui, ...type.helper, color: danger, fontWeight: 500, cursor: "pointer" }} onMouseEnter={e => e.currentTarget.style.background = lineSoft} onMouseLeave={e => e.currentTarget.style.background = surface}>Unsend</div>
-            </div>
+          // Anchored to the 3-dot button and portalled to <body>, so it can never
+          // be clipped by the thread's overflow or fall off the viewport edge.
+          const popupMenu = (
+            <AnchoredMenu
+              anchorEl={isPopupOpen ? menuAnchor : null}
+              open={isPopupOpen && !msg.unsent}
+              onClose={() => { setPopupMsgId(null); setMenuAnchor(null); }}
+            >
+              <MenuItem onClick={() => startReply(msg)} divider={isMe}>Reply</MenuItem>
+              {isMe && canEdit && <MenuItem onClick={() => startEdit(msg)} divider>Edit</MenuItem>}
+              {isMe && hasHistory && (
+                <MenuItem onClick={() => { setHistoryMsg(msg); setPopupMsgId(null); setMenuAnchor(null); }} divider>
+                  View edit history
+                </MenuItem>
+              )}
+              {isMe && <MenuItem onClick={() => handleUnsent(msg.id)} tone="danger">Unsend</MenuItem>}
+            </AnchoredMenu>
           );
 
           const kebab = (
-            <div style={{ position: "relative" }}>
+            <>
               <button
-                onClick={() => setPopupMsgId(prev => prev === msg.id ? null : msg.id)}
+                onClick={(e) => {
+                  const btn = e.currentTarget;
+                  setPopupMsgId(prev => {
+                    const next = prev === msg.id ? null : msg.id;
+                    setMenuAnchor(next ? btn : null);
+                    return next;
+                  });
+                }}
                 aria-label="Message options"
+                aria-haspopup="menu"
+                aria-expanded={isPopupOpen}
                 style={{ background: "none", border: "none", cursor: "pointer", padding: "2px 4px", color: inkFaint, display: "flex", alignItems: "center", lineHeight: 1, flexShrink: 0 }}
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg>
               </button>
               {popupMenu}
-            </div>
+            </>
           );
 
           return (
@@ -652,16 +736,28 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onR
               {showTime && msgTimeStr && (
                 <div style={{ textAlign: "center", margin: "14px 0 8px", fontFamily: font.ui, fontSize: "0.75rem", lineHeight: 1.4, color: inkFaint }}>{msgTimeStr}</div>
               )}
-              <div style={{ display: "flex", alignItems: "flex-end", gap: isMobile ? "6px" : "10px", justifyContent: isMe ? "flex-end" : "flex-start", marginBottom: "4px" }}>
+              <div
+                id={`msg-${msg.id}`}
+                className={`msg-row${highlightId === msg.id ? " msg-row-flash" : ""}`}
+                style={{ display: "flex", alignItems: "flex-end", gap: isMobile ? "6px" : "10px", justifyContent: isMe ? "flex-end" : "flex-start", marginBottom: "4px", maxWidth: "100%", minWidth: 0 }}
+              >
                 {!isMe && <CompanyAvatar size={avatarSize} />}
-                <div style={{ maxWidth: bubbleMaxWidth, minWidth: 0, display: "flex", flexDirection: "column", alignItems: isMe ? "flex-end" : "flex-start", gap: "3px", position: "relative" }}>
+                <div style={{ maxWidth: bubbleMaxWidth, minWidth: 0, flex: "0 1 auto", display: "flex", flexDirection: "column", alignItems: isMe ? "flex-end" : "flex-start", gap: "3px", position: "relative" }}>
                   {msg.unsent ? (
                     <div style={{ background: "transparent", border: `1px dashed ${color.wine400}`, borderRadius: isMe ? bubbleMine : bubbleTheirs, padding: "9px 16px", fontFamily: font.ui, ...type.helper, color: inkFaint, userSelect: "none" }}>Message unsent</div>
                   ) : (
                     <>
-                      {msg.edited && <span style={{ fontFamily: font.ui, fontSize: "0.75rem", lineHeight: 1.4, color: inkFaint }}>Edited</span>}
+                      {msg.replyTo && (
+                        <ReplyPreview
+                          replyTo={msg.replyTo}
+                          isMe={isMe}
+                          missing={replyMissing}
+                          onJump={() => jumpToMessage(msg.replyTo.id)}
+                        />
+                      )}
+                      {msg.edited && <EditedTag msg={msg} onClick={() => setHistoryMsg(msg)} />}
                       {msg.text && (
-                        <div style={{ display: "flex", alignItems: "center", gap: "6px", justifyContent: isMe ? "flex-end" : "flex-start", minWidth: 0, maxWidth: "100%" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "6px", justifyContent: isMe ? "flex-end" : "flex-start", minWidth: 0, maxWidth: "100%", width: "100%" }}>
                           {isMe && kebab}
                           <div
                             onMouseDown={e => startLongPress(e, msg)} onMouseUp={cancelLongPress} onMouseLeave={cancelLongPress}
@@ -674,16 +770,19 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onR
                               borderRadius: isMe ? bubbleMine : bubbleTheirs,
                               padding: isMobile ? "9px 13px" : "10px 16px",
                               fontFamily: font.ui, ...type.body,
-                              cursor: isMe ? "pointer" : "default", userSelect: "none",
+                              cursor: "pointer", userSelect: "none",
                               boxShadow: (isPopupOpen || editingId === msg.id) ? shadow.focus : "none",
                               transition: `box-shadow 200ms ${ease}`,
                               WebkitUserSelect: "none", WebkitTouchCallout: "none",
-                              width: "100%", maxWidth: "100%", boxSizing: "border-box",
-                              wordWrap: "break-word", overflowWrap: "break-word", wordBreak: "break-word",
+                              // Shrinkable: `flex: 0 1 auto` + `min-width: 0` is what stops a
+                              // long message from pushing the 3-dot button out of the layout.
+                              flex: "0 1 auto", width: "auto", minWidth: 0, maxWidth: "100%", boxSizing: "border-box",
+                              overflowWrap: "anywhere", wordBreak: "break-word",
                             }}
                           >
                             {msg.text}
                           </div>
+                          {!isMe && kebab}
                         </div>
                       )}
                       {(() => {
@@ -691,7 +790,7 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onR
                         if (attachmentsList.length === 0) return null;
                         return (
                           <div style={{ display: "flex", alignItems: "center", gap: "6px", justifyContent: isMe ? "flex-end" : "flex-start", marginTop: msg.text ? "4px" : "0" }}>
-                            {isMe && !msg.text && kebab}
+                            {!msg.text && kebab}
                             <div style={{ display: "flex", flexDirection: "column", gap: "4px", alignItems: isMe ? "flex-end" : "flex-start" }}>
                               {attachmentsList.map((att, ai) => (
                                 <div key={ai} onMouseDown={e => startLongPress(e, msg)} onMouseUp={cancelLongPress} onMouseLeave={cancelLongPress} onTouchStart={e => startLongPress(e, msg)} onTouchEnd={cancelLongPress} onTouchMove={cancelLongPress} onContextMenu={e => e.preventDefault()}>
@@ -761,6 +860,8 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onR
             </div>
           )}
 
+          <ReplyComposerBar replyTo={replyTo} isMobile={isMobile} onCancel={() => setReplyTo(null)} />
+
           {/* Composer */}
           <div style={{ padding: inputPadding, borderTop: `1px solid ${line}`, display: "flex", alignItems: "center", gap: space.sm, background: surface, flexShrink: 0 }}>
             <input ref={fileRef} type="file" accept=".png,.pdf" multiple style={{ display: "none" }} onChange={handleFile} />
@@ -799,6 +900,7 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onR
 
       {showDeleteConfirm && <ConfirmModal message="Delete this conversation? It will be removed for you." confirmLabel="Delete" cancelLabel="Keep" onConfirm={confirmDeleteConversation} onCancel={() => setShowDeleteConfirm(false)} />}
       {unsendTarget && <ConfirmModal message="This message will be unsent for everyone in the chat." confirmLabel="Unsend" cancelLabel="Cancel" onConfirm={confirmUnsend} onCancel={() => setUnsendTarget(null)} />}
+      {historyMsg && <EditHistoryModal msg={historyMsg} onClose={() => setHistoryMsg(null)} />}
       {infoMsg && <InfoModal message={infoMsg} onClose={() => setInfoMsg(null)} />}
     </div>
   );
@@ -1004,7 +1106,7 @@ const StudentMessagesScreen = ({
     } else if (msgOrAction.__unsent) {
       await unsendMessage(convId, msgOrAction.id);
     } else {
-      await sendMessage(convId, { text: msgOrAction.text, attachments: msgOrAction.attachments });
+      await sendMessage(convId, { text: msgOrAction.text, attachments: msgOrAction.attachments, replyTo: msgOrAction.replyTo || null });
     }
   };
 
