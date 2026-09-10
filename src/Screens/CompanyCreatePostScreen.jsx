@@ -1,8 +1,16 @@
 import React, { useState, useEffect } from "react";
 import { collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, query, where, serverTimestamp } from "firebase/firestore";
 import { db } from "./firebase";
+import { color } from "./theme";
 
 const MAPBOX_TOKEN = "pk.eyJ1IjoibWFraWlpaS0iLCJhIjoiY21wbTgybHVmMmc1ZzJycTFuZXRlb3NoNCJ9.FIpjF2lKTHkbU1e6qrL_Pw";
+// Itim na ang brand color ng screen na ito, galing sa theme (blush100 =
+// #161616) — ito ang kapalit ng dating #590101, tulad ng ginawa sa
+// Company/Coordinator dashboards.
+// Ang darkRed/red sa ibaba ay para na lang sa mga SEMANTIC na pula: error at
+// warning banners, "Expired" badges, at ang Delete/danger confirm. Hindi 'yon
+// branding kaya hindi dapat maging itim.
+const inkDeep = color.blush100;
 const darkRed = "#590101";
 const red     = "#8B0000";
 
@@ -166,12 +174,12 @@ const GlobalFonts = () => {
       .ojt-field::placeholder { font-family: 'Kufam', sans-serif !important; color: #aaa; }
       .ojt-textarea::-webkit-scrollbar { width: 6px; }
       .ojt-textarea::-webkit-scrollbar-track { background: transparent; border-radius: 10px; }
-      .ojt-textarea::-webkit-scrollbar-thumb { background: ${darkRed}; border-radius: 10px; }
+      .ojt-textarea::-webkit-scrollbar-thumb { background: ${inkDeep}; border-radius: 10px; }
       input[type=number]::-webkit-inner-spin-button,
       input[type=number]::-webkit-outer-spin-button {
-        opacity: 1; background: ${darkRed}; cursor: pointer;
+        opacity: 1; background: ${inkDeep}; cursor: pointer;
       }
-      input[type=number] { accent-color: ${darkRed}; }
+      input[type=number] { accent-color: ${inkDeep}; }
     `;
     document.head.appendChild(style);
     return () => {
@@ -213,7 +221,7 @@ const pillTextareaStyle = {
   lineHeight: 1.6,
   overflowY: "auto",
   scrollbarWidth: "thin",
-  scrollbarColor: `${darkRed} transparent`,
+  scrollbarColor: `${inkDeep} transparent`,
 };
 
 const pillTextareaReadonly = {
@@ -254,7 +262,7 @@ const FieldLabel = ({ children }) => (
 const inlineLabelStyle = {
   fontFamily: "'Jua', sans-serif",
   fontSize: "clamp(0.85rem, 2.5vw, 1rem)",
-  color: red,
+  color: inkDeep,
   whiteSpace: "nowrap",
 };
 
@@ -280,7 +288,7 @@ const PillSelect = ({ value, onChange, options, placeholder, disabled, hasError 
       <option value="">{placeholder || "Select..."}</option>
       {options.map(o => <option key={o} value={o}>{o}</option>)}
     </select>
-    <div style={{ position: "absolute", right: "12px", top: "50%", transform: "translateY(-50%)", pointerEvents: "none", color: disabled ? "#bbb" : darkRed }}>
+    <div style={{ position: "absolute", right: "12px", top: "50%", transform: "translateY(-50%)", pointerEvents: "none", color: disabled ? "#bbb" : inkDeep }}>
       <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M7 10l5 5 5-5z"/></svg>
     </div>
   </div>
@@ -343,7 +351,7 @@ const ApprovedDepartmentPicker = ({ approvedDeptSelections, selections, onChange
                 checked={checked}
                 disabled={readOnly}
                 onChange={() => toggle(s.department, s.program)}
-                style={{ width: "17px", height: "17px", accentColor: darkRed, cursor: readOnly ? "default" : "pointer", flexShrink: 0 }}
+                style={{ width: "17px", height: "17px", accentColor: inkDeep, cursor: readOnly ? "default" : "pointer", flexShrink: 0 }}
               />
               <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#222", overflow: "hidden", textOverflow: "ellipsis" }}>
                 <span style={{ fontWeight: 700 }}>{s.department}</span>
@@ -684,7 +692,7 @@ const MapboxLocationPicker = ({ value, lat, lng, onChange, readOnly }) => {
 const ConfirmDiscardModal = ({ onKeepEditing, onDiscard }) => (
   <div className="post-confirm-overlay">
     <div style={{ background: "#fff", borderRadius: "18px", maxWidth: "360px", width: "90%", padding: "26px 22px", boxShadow: "0 8px 40px rgba(0,0,0,0.35)", textAlign: "center" }}>
-      <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.4rem", color: darkRed, margin: "0 0 10px" }}>Discard changes?</p>
+      <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.4rem", color: inkDeep, margin: "0 0 10px" }}>Discard changes?</p>
       <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem", color: "#333", margin: "0 0 22px", lineHeight: 1.4 }}>
         All your changes will be lost. Are you sure you want to cancel this change?
       </p>
@@ -692,7 +700,7 @@ const ConfirmDiscardModal = ({ onKeepEditing, onDiscard }) => (
         <button onClick={onKeepEditing} style={{ padding: "9px 22px", borderRadius: "22px", background: "#e6e6e6", color: "#333", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.85rem", cursor: "pointer" }}>
           Keep Editing
         </button>
-        <button onClick={onDiscard} style={{ padding: "9px 22px", borderRadius: "22px", background: darkRed, color: "white", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.85rem", cursor: "pointer" }}>
+        <button onClick={onDiscard} style={{ padding: "9px 22px", borderRadius: "22px", background: inkDeep, color: "white", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.85rem", cursor: "pointer" }}>
           Yes, Discard
         </button>
       </div>
@@ -707,11 +715,11 @@ const SavedSuccessModal = ({ onClose }) => (
       <div style={{ width: "56px", height: "56px", borderRadius: "50%", background: "#e6f7ec", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 14px", fontSize: "1.8rem", color: "#1f9254" }}>
         ✓
       </div>
-      <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.4rem", color: darkRed, margin: "0 0 6px" }}>Saved successfully!</p>
+      <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.4rem", color: inkDeep, margin: "0 0 6px" }}>Saved successfully!</p>
       <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#555", margin: "0 0 20px" }}>
         Your post has been updated.
       </p>
-      <button onClick={onClose} style={{ padding: "9px 30px", borderRadius: "22px", background: darkRed, color: "white", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.85rem", cursor: "pointer" }}>
+      <button onClick={onClose} style={{ padding: "9px 30px", borderRadius: "22px", background: inkDeep, color: "white", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.85rem", cursor: "pointer" }}>
         OK
       </button>
     </div>
@@ -722,7 +730,7 @@ const SavedSuccessModal = ({ onClose }) => (
 const ConfirmActionModal = ({ title, message, confirmLabel, danger = false, onCancel, onConfirm }) => (
   <div className="post-confirm-overlay">
     <div style={{ background: "#fff", borderRadius: "18px", maxWidth: "360px", width: "90%", padding: "26px 22px", boxShadow: "0 8px 40px rgba(0,0,0,0.35)", textAlign: "center" }}>
-      <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.4rem", color: darkRed, margin: "0 0 10px" }}>{title}</p>
+      <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.4rem", color: inkDeep, margin: "0 0 10px" }}>{title}</p>
       <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem", color: "#333", margin: "0 0 22px", lineHeight: 1.4 }}>
         {message}
       </p>
@@ -730,7 +738,7 @@ const ConfirmActionModal = ({ title, message, confirmLabel, danger = false, onCa
         <button onClick={onCancel} style={{ padding: "9px 22px", borderRadius: "22px", background: "#e6e6e6", color: "#333", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.85rem", cursor: "pointer" }}>
           Cancel
         </button>
-        <button onClick={onConfirm} style={{ padding: "9px 22px", borderRadius: "22px", background: danger ? red : darkRed, color: "white", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.85rem", cursor: "pointer" }}>
+        <button onClick={onConfirm} style={{ padding: "9px 22px", borderRadius: "22px", background: danger ? red : inkDeep, color: "white", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.85rem", cursor: "pointer" }}>
           {confirmLabel}
         </button>
       </div>
@@ -860,7 +868,7 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile }) =>
 
         {/* Header */}
         <div className="post-modal-header" style={{ background: "#d8d8d8", flexShrink: 0 }}>
-          <h2 style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(1.2rem, 4vw, 1.8rem)", fontWeight: "400", margin: 0, color: darkRed }}>
+          <h2 style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(1.2rem, 4vw, 1.8rem)", fontWeight: "400", margin: 0, color: inkDeep }}>
             {post?.companyName || post?.company || user?.companyName || "New Post"}
           </h2>
         </div>
@@ -894,7 +902,7 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile }) =>
                   <div style={{ ...pillInputReadonly, marginBottom: "8px", display: "flex", alignItems: "center", boxSizing: "border-box", gap: "8px" }}>
                     <span>📍 {fixedAddress}</span>
                     {profileLoc.isManual && (
-                      <span style={{ background: darkRed, color: "white", fontFamily: "'Kufam', sans-serif", fontSize: "0.65rem", padding: "2px 8px", borderRadius: "10px", whiteSpace: "nowrap" }}>
+                      <span style={{ background: inkDeep, color: "white", fontFamily: "'Kufam', sans-serif", fontSize: "0.65rem", padding: "2px 8px", borderRadius: "10px", whiteSpace: "nowrap" }}>
                         
                       </span>
                     )}
@@ -947,7 +955,7 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile }) =>
                           const u = [...form.workingHoursList]; u.splice(idx, 1); set("workingHoursList", u);
                           const we = [...workingHoursErrors]; we.splice(idx, 1); setWorkingHoursErrors(we);
                         }}
-                        style={{ width: "28px", height: "28px", borderRadius: "50%", background: darkRed, border: "none", color: "white", fontFamily: "'Jua', sans-serif", fontSize: "0.85rem", cursor: "pointer", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
+                        style={{ width: "28px", height: "28px", borderRadius: "50%", background: inkDeep, border: "none", color: "white", fontFamily: "'Jua', sans-serif", fontSize: "0.85rem", cursor: "pointer", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
                     )}
                   </div>
                   {workingHoursErrors[idx] && <FieldError msg={workingHoursErrors[idx]} />}
@@ -955,7 +963,7 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile }) =>
               ))}
               {!readOnly && (
                 <button type="button" onClick={() => set("workingHoursList", [...form.workingHoursList, ""])}
-                  style={{ background: "none", border: `1.5px dashed ${red}`, borderRadius: "20px", color: red, width: "100%", padding: "7px", fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", cursor: "pointer", fontWeight: 600 }}>
+                  style={{ background: "none", border: `1.5px dashed ${inkDeep}`, borderRadius: "20px", color: inkDeep, width: "100%", padding: "7px", fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", cursor: "pointer", fontWeight: 600 }}>
                   + Add Another Working Hours
                 </button>
               )}
@@ -1055,10 +1063,10 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile }) =>
         <div className="post-modal-footer" style={{ background: "#b0b0b0", display: "flex", justifyContent: "flex-end", gap: "10px", borderBottomLeftRadius: "20px", borderBottomRightRadius: "20px", flexShrink: 0 }}>
           <button onClick={handleCloseClick} style={{ padding: "10px 28px", borderRadius: "24px", background: "#555", color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(0.9rem, 2.5vw, 1.1rem)", cursor: "pointer" }}>Close</button>
           {mode === "view" && !isEditing && (
-            <button onClick={() => setIsEditing(true)} style={{ padding: "10px 28px", borderRadius: "24px", background: darkRed, color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(0.9rem, 2.5vw, 1.1rem)", cursor: "pointer" }}>Edit</button>
+            <button onClick={() => setIsEditing(true)} style={{ padding: "10px 28px", borderRadius: "24px", background: inkDeep, color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(0.9rem, 2.5vw, 1.1rem)", cursor: "pointer" }}>Edit</button>
           )}
           {isEditing && mode !== "create" && (
-            <button onClick={handleSave} style={{ padding: "10px 28px", borderRadius: "24px", background: darkRed, color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(0.9rem, 2.5vw, 1.1rem)", cursor: "pointer" }}>Save</button>
+            <button onClick={handleSave} style={{ padding: "10px 28px", borderRadius: "24px", background: inkDeep, color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(0.9rem, 2.5vw, 1.1rem)", cursor: "pointer" }}>Save</button>
           )}
           {mode === "create" && (
             <button
@@ -1066,7 +1074,7 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile }) =>
               disabled={approvedDeptSelections.length === 0}
               style={{
                 padding: "10px 28px", borderRadius: "24px",
-                background: approvedDeptSelections.length === 0 ? "#999" : darkRed,
+                background: approvedDeptSelections.length === 0 ? "#999" : inkDeep,
                 color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif",
                 fontSize: "clamp(0.9rem, 2.5vw, 1.1rem)",
                 cursor: approvedDeptSelections.length === 0 ? "not-allowed" : "pointer",
@@ -1232,7 +1240,7 @@ const PostOJTContent = ({ user, openPostId, onPostOpened }) => {
           <button
             className="post-btn"
             onClick={openCreate}
-            style={{ background: darkRed, color: "white", border: "none", borderRadius: "24px", fontFamily: "'Jersey 25', sans-serif", cursor: "pointer", display: "flex", alignItems: "center", gap: "6px" }}
+            style={{ background: inkDeep, color: "white", border: "none", borderRadius: "24px", fontFamily: "'Jersey 25', sans-serif", cursor: "pointer", display: "flex", alignItems: "center", gap: "6px" }}
           >
             Post <span>+</span>
           </button>

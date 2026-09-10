@@ -69,6 +69,7 @@ const ResponsiveStyles = () => (
     .rc-header-row {
       display: flex !important;
       align-items: center !important;
+      flex-wrap: nowrap !important;
       gap: 18px !important;
       margin-bottom: 22px !important;
     }
@@ -78,7 +79,7 @@ const ResponsiveStyles = () => (
       min-width: 0 !important;
       padding: 18px 28px !important;
       background: ${panel} !important;
-      border: 1px solid ${line} !important;
+      border: 1px solid ${panel} !important;
       border-radius: 18px !important;
       box-shadow: none !important;
     }
@@ -88,9 +89,13 @@ const ResponsiveStyles = () => (
       font-family: ${font.ui} !important;
       font-size: clamp(1rem, 4vw, 1.5rem) !important;
       font-weight: 600 !important;
-      color: ${onPanel} !important;
+      color: #ffffff !important;
       line-height: 1 !important;
       letter-spacing: -0.01em !important;
+      overflow: hidden !important;
+      text-overflow: ellipsis !important;
+      white-space: nowrap !important;
+      display: block !important;
     }
 
     /* Report total — separate white panel outside the black header */
@@ -139,8 +144,8 @@ const ResponsiveStyles = () => (
     .rc-th {
       padding: 13px 14px !important;
       text-align: left !important;
-      color: ${onPanelDim} !important;
-      background: ${panel} !important;
+      color: #000000 !important;
+      background: ${lineSoft} !important;
       border-bottom: 1px solid ${line} !important;
       font-family: ${font.ui} !important;
       font-size: 1rem !important;
@@ -165,7 +170,7 @@ const ResponsiveStyles = () => (
       border-radius: 18px !important;
       overflow: hidden !important;
       width: min(460px, calc(100vw - 48px)) !important;
-      max-height: 62vh !important;
+      max-height: 80vh !important;
       display: flex !important;
       flex-direction: column !important;
       box-shadow: 0 20px 50px rgba(0, 0, 0, 0.25) !important;
@@ -179,9 +184,9 @@ const ResponsiveStyles = () => (
       justify-content: space-between !important;
       gap: 12px !important;
       padding: 14px 20px !important;
-      background: #000000 !important;
-      color: #ffffff !important;
-      border-bottom: 1px solid #222222 !important;
+      background: #ffffff !important;
+      color: #111111 !important;
+      border-bottom: 1px solid ${line} !important;
     }
 
     .rc-modal-header > span {
@@ -198,9 +203,9 @@ const ResponsiveStyles = () => (
       justify-content: center !important;
       margin: 0 !important;
       padding: 0 !important;
-      background: #ffffff !important;
+      background: ${lineSoft} !important;
       color: #111111 !important;
-      border: none !important;
+      border: 1px solid ${line} !important;
       border-radius: 50% !important;
       cursor: pointer !important;
     }
@@ -225,13 +230,12 @@ const ResponsiveStyles = () => (
 
     .rc-modal-inner > div:last-child {
       flex: 0 0 auto !important;
-      background: #ffffff !important;
     }
 
     @media (max-width: 560px) {
       .rc-modal-inner {
         width: calc(100vw - 72px) !important;
-        max-height: 46vh !important;
+        max-height: 68vh !important;
         border-radius: 14px !important;
       }
 
@@ -301,7 +305,7 @@ const ResponsiveStyles = () => (
       margin: 0 !important;
     }
 
-    @media (max-width: 700px) {
+    @media (max-width: 780px) {
       .rc-table-wrap { display: none !important; }
       .rc-card-list { display: flex !important; }
     }
@@ -531,9 +535,9 @@ const ActionHistoryModal = ({ open, onClose, loading, history }) => {
         maxHeight: "80vh", display: "flex", flexDirection: "column", overflow: "hidden",
         boxShadow: "0 24px 70px rgba(0,0,0,0.35)",
       }}>
-        <div style={{ background: darkRed, padding: "16px 22px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <span style={{ fontFamily: font.ui, fontSize: "1.3rem", color: "white" }}>Action History</span>
-          <button onClick={onClose} style={{ background: color.white, border: "none", borderRadius: "50%", width: "26px", height: "26px", cursor: "pointer", fontSize: "0.9rem", color: darkRed }}>✕</button>
+        <div style={{ background: color.white, borderBottom: `1px solid ${line}`, padding: "16px 22px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <span style={{ fontFamily: font.ui, fontSize: "1.3rem", color: ink }}>Action History</span>
+          <button onClick={onClose} style={{ background: lineSoft, border: `1px solid ${line}`, borderRadius: "50%", width: "26px", height: "26px", cursor: "pointer", fontSize: "0.9rem", color: ink }}>✕</button>
         </div>
         <div style={{ padding: "16px 20px", overflowY: "auto", flex: 1 }}>
           {loading && <p style={{ fontFamily: font.ui, fontSize: "0.85rem", color: inkFaint, textAlign: "center", padding: "20px" }}>Loading…</p>}
@@ -785,23 +789,28 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid, coordinator
         <div className="rc-modal-inner">
           <div className="rc-modal-header">
             <span style={{
-              fontFamily: font.ui,
-              fontSize: "clamp(1.1rem, 4vw, 1.4rem)",
-              color: "white",
-              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-              display: "flex", alignItems: "center", gap: "10px",
+              display: "flex", alignItems: "center", gap: "8px",
+              minWidth: 0, flexWrap: "nowrap",
             }}>
-              {report.company}
               <span style={{
-                fontFamily: font.ui, fontSize: "0.68rem", fontWeight: 700,
+                fontFamily: font.ui,
+                fontSize: "clamp(0.95rem, 3.6vw, 1.3rem)",
+                color: "#111111",
+                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                minWidth: 0, flex: "0 1 auto",
+              }}>
+                {report.company}
+              </span>
+              <span style={{
+                fontFamily: font.ui, fontSize: "0.66rem", fontWeight: 700,
                 background: badge.bg, color: "white", borderRadius: "12px",
-                padding: "3px 10px", whiteSpace: "nowrap", flexShrink: 0,
+                padding: "3px 9px", whiteSpace: "nowrap", flexShrink: 0,
               }}>{badge.label}</span>
             </span>
             <button
               onClick={onClose}
               style={{
-                background: color.white, border: "none", borderRadius: "50%",
+                background: lineSoft, border: `1px solid ${line}`, borderRadius: "50%",
                 width: "28px", height: "28px", cursor: "pointer",
                 fontWeight: "bold", fontSize: "1rem", color: ink,
                 flexShrink: 0, marginLeft: "10px",
@@ -898,9 +907,10 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid, coordinator
                       display: "flex", alignItems: "center", gap: "10px",
                       background: lineSoft, padding: "10px 14px",
                       borderRadius: "8px", marginBottom: "10px",
+                      width: "100%", minWidth: 0, boxSizing: "border-box",
                     }}>
                       <PdfIcon />
-                      <span style={{ fontFamily: font.ui, fontSize: "0.82rem", color: inkBody, flex: 1 }}>
+                      <span style={{ fontFamily: font.ui, fontSize: "0.82rem", color: inkBody, flex: "1 1 0%", minWidth: 0, maxWidth: "100%", wordBreak: "break-all", overflowWrap: "anywhere" }}>
                         {file.name}
                       </span>
                     </div>
@@ -928,33 +938,40 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid, coordinator
             )}
           </div>
 
-          <div style={{
-            display: "flex", justifyContent: "flex-end", gap: "10px",
-            padding: "14px 20px", borderTop: `1px solid ${line}`,
-          }}>
+          <div style={
+            status === "pending"
+              ? { display: "flex", justifyContent: "flex-end", gap: "10px", padding: "14px 20px", borderTop: `1px solid ${line}` }
+              : { display: "flex", justifyContent: "flex-end", padding: "16px 28px", borderTop: `1px solid ${line}`, background: panel }
+          }>
             {status === "pending" ? (
               <>
                 <button
                   onClick={() => setConfirmingDismiss(true)}
                   disabled={working}
                   style={{
-                    padding: "9px 22px", borderRadius: "22px", background: lineSoft,
-                    color: "white", border: "none", fontFamily: font.ui,
-                    fontSize: "1rem", cursor: working ? "not-allowed" : "pointer", opacity: working ? 0.7 : 1,
+                    padding: "9px 22px", borderRadius: "22px", background: color.white,
+                    color: "#111111", border: `1px solid ${line}`, fontFamily: font.ui,
+                    fontSize: "0.82rem", fontWeight: 600, cursor: working ? "not-allowed" : "pointer", opacity: working ? 0.7 : 1,
+                    transition: `background 160ms ${ease}, color 160ms ${ease}`,
                   }}
+                  onMouseEnter={e => { if (!working) { e.currentTarget.style.background = "#8C8C8C"; e.currentTarget.style.color = "#ffffff"; } }}
+                  onMouseLeave={e => { e.currentTarget.style.background = color.white; e.currentTarget.style.color = "#111111"; }}
                 >DISMISS</button>
                 <button
                   onClick={() => setResolvingPanel(true)}
                   disabled={working}
                   style={{
-                    padding: "9px 22px", borderRadius: "22px", background: color.success,
-                    color: "white", border: "none", fontFamily: font.ui,
-                    fontSize: "1rem", cursor: working ? "not-allowed" : "pointer", opacity: working ? 0.7 : 1,
+                    padding: "9px 22px", borderRadius: "22px", background: color.white,
+                    color: "#111111", border: `1px solid ${line}`, fontFamily: font.ui,
+                    fontSize: "0.82rem", fontWeight: 600, cursor: working ? "not-allowed" : "pointer", opacity: working ? 0.7 : 1,
+                    transition: `background 160ms ${ease}, color 160ms ${ease}`,
                   }}
+                  onMouseEnter={e => { if (!working) { e.currentTarget.style.background = color.success; e.currentTarget.style.color = "#ffffff"; } }}
+                  onMouseLeave={e => { e.currentTarget.style.background = color.white; e.currentTarget.style.color = "#111111"; }}
                 >RESOLVE</button>
               </>
             ) : (
-              <p style={{ fontFamily: font.ui, fontSize: "0.8rem", color: inkMuted, margin: 0 }}>
+              <p style={{ margin: 0, fontFamily: font.ui, fontSize: "0.8rem", color: onPanelDim, display: "flex", alignItems: "center", gap: "6px" }}>
                 This report has been {status} and can no longer be changed.
               </p>
             )}
@@ -1022,7 +1039,8 @@ const ConfirmModal = ({ title, message, confirmLabel = "CONFIRM", working, onCan
     zIndex: 1200, padding: "16px",
   }}>
     <div style={{
-      background: color.white, borderRadius: "18px", width: "100%", maxWidth: "380px",
+      background: color.white, borderRadius: "18px",
+      width: "min(380px, calc(100vw - 48px))",
       overflow: "hidden", boxShadow: "0 24px 70px rgba(0,0,0,0.35)",
     }}>
       <div style={{ padding: "26px 24px 8px" }}>
@@ -1033,24 +1051,30 @@ const ConfirmModal = ({ title, message, confirmLabel = "CONFIRM", working, onCan
           {message}
         </p>
       </div>
-      <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", padding: "18px 22px" }}>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", padding: "14px 20px", borderTop: `1px solid ${line}` }}>
         <button
           onClick={onCancel}
           disabled={working}
           style={{
             padding: "9px 22px", borderRadius: "22px", background: color.white,
-            color: inkMuted, border: `1.5px solid ${line}`, fontFamily: font.ui,
-            fontSize: "1rem", cursor: working ? "not-allowed" : "pointer",
+            color: "#111111", border: `1px solid ${line}`, fontFamily: font.ui,
+            fontSize: "0.82rem", fontWeight: 600, cursor: working ? "not-allowed" : "pointer", opacity: working ? 0.7 : 1,
+            transition: `background 160ms ${ease}, color 160ms ${ease}`,
           }}
+          onMouseEnter={e => { if (!working) { e.currentTarget.style.background = "#8C8C8C"; e.currentTarget.style.color = "#ffffff"; } }}
+          onMouseLeave={e => { e.currentTarget.style.background = color.white; e.currentTarget.style.color = "#111111"; }}
         >CANCEL</button>
         <button
           onClick={onConfirm}
           disabled={working}
           style={{
-            padding: "9px 22px", borderRadius: "22px", background: lineSoft,
-            color: "white", border: "none", fontFamily: font.ui,
-            fontSize: "1rem", cursor: working ? "not-allowed" : "pointer", opacity: working ? 0.7 : 1,
+            padding: "9px 22px", borderRadius: "22px", background: color.white,
+            color: "#111111", border: `1px solid ${line}`, fontFamily: font.ui,
+            fontSize: "0.82rem", fontWeight: 600, cursor: working ? "not-allowed" : "pointer", opacity: working ? 0.7 : 1,
+            transition: `background 160ms ${ease}, color 160ms ${ease}`,
           }}
+          onMouseEnter={e => { if (!working) { e.currentTarget.style.background = panel; e.currentTarget.style.color = "#ffffff"; } }}
+          onMouseLeave={e => { e.currentTarget.style.background = color.white; e.currentTarget.style.color = "#111111"; }}
         >{working ? "..." : confirmLabel}</button>
       </div>
     </div>
@@ -1071,17 +1095,13 @@ const ResolveActionModal = ({
     display: "flex", alignItems: "center", justifyContent: "center",
     zIndex: 1100, padding: "16px",
   }}>
-    <div style={{
-      background: color.white, borderRadius: "18px", width: "100%", maxWidth: "480px",
-      maxHeight: "88vh", display: "flex", flexDirection: "column", overflow: "hidden",
-      boxShadow: "0 24px 70px rgba(0,0,0,0.35)",
-    }}>
-      <div style={{ background: red, padding: "16px 22px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <span style={{ fontFamily: font.ui, fontSize: "1.4rem", color: "white", letterSpacing: "0.03em" }}>Resolve Report</span>
+    <div className="rc-modal-inner">
+      <div style={{ background: color.white, borderBottom: `1px solid ${line}`, padding: "16px 22px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <span style={{ fontFamily: font.ui, fontSize: "1.4rem", color: ink, letterSpacing: "0.03em" }}>Resolve Report</span>
         <button
           onClick={onCancel}
           disabled={working}
-          style={{ background: color.white, border: "none", borderRadius: "50%", width: "26px", height: "26px", cursor: working ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.9rem", color: darkRed, flexShrink: 0 }}
+          style={{ background: lineSoft, border: `1px solid ${line}`, borderRadius: "50%", width: "26px", height: "26px", cursor: working ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.9rem", color: ink, flexShrink: 0 }}
         >✕</button>
       </div>
 
@@ -1190,19 +1210,24 @@ const ResolveActionModal = ({
           disabled={working}
           style={{
             padding: "9px 22px", borderRadius: "22px", background: color.white,
-            color: inkMuted, border: `1.5px solid ${line}`, fontFamily: font.ui,
-            fontSize: "1rem", cursor: working ? "not-allowed" : "pointer",
+            color: "#111111", border: `1px solid ${line}`, fontFamily: font.ui,
+            fontSize: "0.82rem", fontWeight: 600, cursor: working ? "not-allowed" : "pointer", opacity: working ? 0.7 : 1,
+            transition: `background 160ms ${ease}, color 160ms ${ease}`,
           }}
+          onMouseEnter={e => { if (!working) { e.currentTarget.style.background = "#8C8C8C"; e.currentTarget.style.color = "#ffffff"; } }}
+          onMouseLeave={e => { e.currentTarget.style.background = color.white; e.currentTarget.style.color = "#111111"; }}
         >CANCEL</button>
         <button
           onClick={onConfirm}
           disabled={working || !canConfirm}
           style={{
-            padding: "9px 22px", borderRadius: "22px",
-            background: canConfirm ? color.success : inkFaint,
-            color: "white", border: "none", fontFamily: font.ui,
-            fontSize: "1rem", cursor: (working || !canConfirm) ? "not-allowed" : "pointer",
+            padding: "9px 22px", borderRadius: "22px", background: color.white,
+            color: "#111111", border: `1px solid ${line}`, fontFamily: font.ui,
+            fontSize: "0.82rem", fontWeight: 600, cursor: (working || !canConfirm) ? "not-allowed" : "pointer", opacity: (working || !canConfirm) ? 0.5 : 1,
+            transition: `background 160ms ${ease}, color 160ms ${ease}`,
           }}
+          onMouseEnter={e => { if (!working && canConfirm) { e.currentTarget.style.background = color.success; e.currentTarget.style.color = "#ffffff"; } }}
+          onMouseLeave={e => { e.currentTarget.style.background = color.white; e.currentTarget.style.color = "#111111"; }}
         >CONFIRM RESOLUTION</button>
       </div>
     </div>
@@ -1261,7 +1286,7 @@ const CoordinatorReportCompanyScreen = ({ reports = [], onViewReport }) => (
       {/* Header — title and total are separate containers */}
       <div className="rc-header-row">
         <div className="rc-header">
-          <h1 className="rc-title">Report List</h1>
+          <h1 className="rc-title" title="Report List">Report List</h1>
         </div>
 
         <div

@@ -11,7 +11,7 @@ const red = "#8B0000";
 
 // ── Application status colors — kept consistent with CompanyApplicantsScreen's
 //    STATUS_COLORS (bg-only here since the row badge already sets its own text color).
-const APP_STATUS_COLORS = { "Pending": "#c8a800", "In Review": "#353A8D", "To Interview": "#7C2889", "Accepted": "#2d7a2d", "Declined": "#590101" };
+const APP_STATUS_COLORS = { "Pending": "#CCC929", "In Review": "#353A8D", "To Interview": "#7C2889", "Accepted": "#358D5E", "Declined": "#FF0000" };
 const black = "#000000";
 
 // ── Design tokens, aliased the same way as CoordinatorStudentListScreen so
@@ -33,11 +33,11 @@ const onPanelDim = color.onWineMuted;
 // CoordinatorStudentListScreen's STATUS_COLORS, mapped onto this screen's
 // five application statuses.
 const STATUS_COLORS = {
-  "Accepted":     { bg: color.success, color: color.white },
-  "Declined":     { bg: color.danger,  color: color.white },
-  "Pending":      { bg: color.wine400, color: ink },
-  "In Review":    { bg: color.warning, color: color.white },
-  "To Interview": { bg: color.info,    color: color.white },
+  "Accepted":     { bg: "#358D5E", color: color.white },
+  "Declined":     { bg: "#FF0000", color: color.white },
+  "Pending":      { bg: "#CCC929", color: ink },
+  "In Review":    { bg: "#353A8D", color: color.white },
+  "To Interview": { bg: "#7C2889", color: color.white },
 };
 
 // TODO: Replace with real application data from backend
@@ -2316,17 +2316,20 @@ const ResponsiveStyles = () => (
       align-items: center;
       justify-content: space-between;
       gap: ${space.md};
-      flex-wrap: wrap;
+      flex-wrap: nowrap;
     }
     @media (max-width: 480px) {
-      .sa-topbar { padding: 14px; }
+      .sa-topbar { padding: 14px; gap: 10px; }
     }
 
     /* Search input */
     .sa-search-input { width: 160px; }
     .sa-search-input::placeholder { color: ${inkFaint}; }
     @media (max-width: 480px) {
-      .sa-search-input { width: 110px; }
+      .sa-search-input { width: 90px; }
+    }
+    @media (max-width: 380px) {
+      .sa-search-input { width: 62px; }
     }
 
     /* ── Application rows — same full-width pill row as .sp-row ── */
@@ -2361,29 +2364,40 @@ const ResponsiveStyles = () => (
       background: ${surface};
       border: 1px solid ${line};
       border-radius: ${radius.panel};
-      width: 100%;
-      max-width: 800px;
-      max-height: 90vh;
+      width: min(600px, 92vw);
+      max-height: 80vh;
       overflow: hidden;
       display: flex;
       flex-direction: column;
       box-shadow: ${shadow.panel};
     }
+    @media (max-width: 560px) {
+      .sa-modal-inner { max-height: 68vh; }
+    }
 
-    /* ── Modal header — dark panel bar, same as .sa-topbar ── */
+    /* ── Modal header — blends with the container, no separate dark bar ── */
     .sa-modal-header {
-      background: ${panel};
+      background: ${surface};
+      color: ${ink};
       padding: 22px 28px;
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: ${space.md};
       flex-shrink: 0;
-      border-bottom: 1px solid ${lineSoft};
+      border-bottom: 1px solid ${line};
     }
     @media (max-width: 560px) {
       .sa-modal-header { padding: 16px 18px; }
       .sa-modal-title { font-size: 1.35rem !important; }
+    }
+
+    .sa-modal-header .sa-modal-title {
+      color: ${ink};
+    }
+
+    .sa-modal-header .sa-modal-subtitle {
+      color: ${inkMuted};
     }
 
     .sa-modal-title {
@@ -2395,11 +2409,11 @@ const ResponsiveStyles = () => (
 
     .sa-modal-close {
       background: transparent;
-      border: 1px solid ${onPanelDim};
+      border: 1px solid ${line};
       border-radius: ${radius.pill};
       width: 32px;
       height: 32px;
-      color: ${onPanel};
+      color: ${ink};
       font-size: 0.95rem;
       cursor: pointer;
       display: flex;
@@ -2409,8 +2423,80 @@ const ResponsiveStyles = () => (
       transition: background 180ms ${ease}, border-color 180ms ${ease};
     }
     .sa-modal-close:hover {
-      background: rgba(255,255,255,0.12);
-      border-color: ${onPanel};
+      background: ${lineSoft};
+      border-color: ${inkMuted};
+    }
+
+    /* ── View Application modal — smaller container + dark header,
+       matching CoordinatorReportCompanyScreen's report detail modal ── */
+    .sa-view-modal-inner {
+      background: #FFFFFF;
+      border-radius: 18px;
+      overflow: hidden;
+      width: min(460px, calc(100vw - 48px));
+      max-height: 80vh;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.25);
+    }
+    @media (max-width: 560px) {
+      .sa-view-modal-inner {
+        width: calc(100vw - 72px);
+        max-height: 68vh;
+        border-radius: 14px;
+      }
+    }
+
+    .sa-view-modal-header {
+      flex: 0 0 auto;
+      min-height: 60px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 14px 20px;
+      background: #FFFFFF;
+      color: #111111;
+      border-bottom: 1px solid #E5E5E5;
+    }
+    @media (max-width: 560px) {
+      .sa-view-modal-header { min-height: 48px; padding: 10px 14px; }
+    }
+
+    .sa-view-modal-header .sa-modal-title {
+      color: #111111;
+    }
+
+    .sa-view-modal-header .sa-modal-subtitle {
+      color: #666666;
+    }
+
+    .sa-view-modal-close {
+      width: 28px;
+      height: 28px;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #F4F4F4;
+      color: #111111;
+      border: 1px solid #E5E5E5;
+      border-radius: 50%;
+      font-weight: bold;
+      font-size: 1rem;
+      cursor: pointer;
+      padding: 0;
+    }
+
+    .sa-view-modal-body {
+      overflow-y: auto;
+      padding: 20px;
+      flex: 1;
+      background: #FFFFFF;
+      color: #222222;
+    }
+    @media (max-width: 560px) {
+      .sa-view-modal-body { padding: 14px; }
     }
 
     /* ── Modal body ── */
@@ -2436,6 +2522,13 @@ const ResponsiveStyles = () => (
     }
     @media (max-width: 480px) {
       .sa-modal-footer { padding: 12px 16px; }
+    }
+
+    /* ── Apply Now modal's footer blends with the container instead of
+       the dark panel treatment used elsewhere ── */
+    .sa-modal-inner > .sa-modal-footer {
+      background: ${surface};
+      border-top: 1px solid ${line};
     }
 
     /* ── Modal footer buttons — ghost secondary / filled primary / danger,
@@ -2545,8 +2638,7 @@ const ResponsiveStyles = () => (
       background: ${surface};
       border: 1px solid ${line};
       border-radius: ${radius.panel};
-      width: 100%;
-      max-width: 380px;
+      width: min(320px, 88vw);
       overflow: hidden;
       box-shadow: ${shadow.panel};
       padding: 28px 26px 22px;
@@ -3067,7 +3159,7 @@ const FormFields = ({ f, locked = false }) => {
 
 
 // ─── APPLY MODAL ──────────────────────────────────────────────────────────────
-export const ApplyModal = ({ company, onClose, onSubmit, user }) => {
+export const ApplyModal = ({ company, onClose, onSuccessClose, onSubmit, user }) => {
   const companyDisplayName = company?.name || company?.companyName || ""; 
   const COLLEGE_ABBR_MAP = {
     "CCS":  "College of Computer Studies",
@@ -3203,7 +3295,7 @@ export const ApplyModal = ({ company, onClose, onSubmit, user }) => {
         <div className="sa-modal-header">
           <div style={{ minWidth: 0, flex: 1 }}>
             <h2 className="sa-modal-title" style={{ fontSize: "clamp(1.3rem, 4vw, 1.6rem)" }}>Apply Now</h2>
-            <p className="sa-modal-subtitle">Applying to: <strong style={{ color: onPanel }}>{company?.name}</strong></p>
+            <p className="sa-modal-subtitle">Applying to: <strong style={{ color: ink }}>{company?.name}</strong></p>
           </div>
           <button onClick={onClose} className="sa-modal-close" aria-label="Close">✕</button>
         </div>
@@ -3257,7 +3349,7 @@ export const ApplyModal = ({ company, onClose, onSubmit, user }) => {
               Your application to <strong style={{ color: ink }}>{company?.name || company?.companyName}</strong> has been submitted.
             </p>
             <button
-              onClick={() => { setShowSuccess(false); onClose(); }}
+              onClick={() => { setShowSuccess(false); (onSuccessClose || onClose)(); }}
               className="sa-btn sa-btn-primary"
               style={{ padding: "10px 40px" }}
             >
@@ -3306,9 +3398,9 @@ const ViewApplicationModal = ({ application, onClose, onSave }) => {
 
   const STATUS_COLOR_MAP = {
     "In Review":   "#353A8D",
-    "Accepted":    "#2d7a2d",
-    "Declined":    darkRed,
-    "Pending":     "#c8a800",
+    "Accepted":    "#358D5E",
+    "Declined":    "#FF0000",
+    "Pending":     "#CCC929",
     "To Interview":"#7C2889",
   };
   const statusColor = STATUS_COLOR_MAP[application.status] || "#aaa";
@@ -3320,6 +3412,11 @@ const ViewApplicationModal = ({ application, onClose, onSave }) => {
   // once a coordinator/company has moved it to "In Review" (or beyond),
   // it's locked from further edits.
   const canEdit = (application.status || "Pending") === "Pending";
+  // "Still in progress" (Pending, In Review, To Interview) keeps a white
+  // footer, same as a still-pending report in CoordinatorReportCompanyScreen.
+  // Once the outcome is final (Accepted / Declined), the footer switches to
+  // black — same logic/treatment as a resolved report's footer there.
+  const isFinalized = application.status === "Accepted" || application.status === "Declined";
 
   // If the status flips away from Pending (e.g. a coordinator marks it "In
   // Review") while the student is mid-edit, kick them out of edit mode.
@@ -3328,24 +3425,24 @@ const ViewApplicationModal = ({ application, onClose, onSave }) => {
   }, [canEdit, isEditing]);
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: "16px" }}>
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: "16px" }}>
       <ResponsiveStyles />
-      <div className="sa-modal-inner">
+      <div className="sa-view-modal-inner">
         {/* Header */}
-        <div className="sa-modal-header">
+        <div className="sa-view-modal-header">
           <div style={{ minWidth: 0, flex: 1 }}>
-            <h2 className="sa-modal-title" style={{ fontSize: "clamp(1.2rem, 4vw, 1.6rem)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fullName}</h2>
-            <p className="sa-modal-subtitle">Applied to: <strong style={{ color: onPanel }}>{application.company}</strong></p>
+            <h2 className="sa-modal-title" style={{ fontSize: "clamp(1.05rem, 4vw, 1.3rem)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fullName}</h2>
+            <p className="sa-modal-subtitle" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>Applied to: <strong style={{ color: "#111111" }}>{application.company}</strong></p>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: "10px", flexShrink: 0 }}>
             <span className="sa-status-badge" style={{ background: statusColor }}>{application.status}</span>
-            <button onClick={onClose} className="sa-modal-close" aria-label="Close">✕</button>
+            <button onClick={onClose} className="sa-view-modal-close" aria-label="Close">✕</button>
           </div>
         </div>
 
         {/* Status Progress Tracker */}
           <div
-            className="sa-modal-body"
+            className="sa-view-modal-body"
             onKeyDown={(e) => {
               if (e.key === "Enter" && e.target.tagName === "INPUT" && isEditing && !saving) {
                 e.preventDefault();
@@ -3356,13 +3453,13 @@ const ViewApplicationModal = ({ application, onClose, onSave }) => {
             {(() => {
               const STATUS_STEPS = ["Pending", "In Review", "To Interview", "Accepted"];
               const STEP_COLORS = {
-                "Pending": color.wine400,
-                "In Review": color.warning,
-                "To Interview": color.info,
-                "Accepted": color.success
+                "Pending": "#CCC929",
+                "In Review": "#353A8D",
+                "To Interview": "#7C2889",
+                "Accepted": "#358D5E"
               };
 
-              const doneColor = color.success;
+              const doneColor = "#358D5E";
               const currentStatus = application.status || "Pending";
               const isDeclined = currentStatus === "Declined";
               const currentIdx = STATUS_STEPS.indexOf(currentStatus);
@@ -3401,7 +3498,7 @@ const ViewApplicationModal = ({ application, onClose, onSave }) => {
                         padding: "9px 14px",
                         background: "white",
                         borderRadius: "20px",
-                        border: `1px solid ${color.danger}`,
+                        border: `1px solid #FF0000`,
                         boxSizing: "border-box"
                       }}
                     >
@@ -3410,7 +3507,7 @@ const ViewApplicationModal = ({ application, onClose, onSave }) => {
                         height="16"
                         viewBox="0 0 24 24"
                         fill="none"
-                        stroke={color.danger}
+                        stroke="#FF0000"
                         strokeWidth="2.5"
                         strokeLinecap="round"
                         strokeLinejoin="round"
@@ -3424,7 +3521,7 @@ const ViewApplicationModal = ({ application, onClose, onSave }) => {
                         style={{
                           fontFamily: font.ui,
                           fontSize: "0.82rem",
-                          color: color.danger,
+                          color: "#FF0000",
                           fontWeight: 700
                         }}
                       >
@@ -3542,7 +3639,14 @@ const ViewApplicationModal = ({ application, onClose, onSave }) => {
           </div>
 
         {/* Footer */}
-        <div className="sa-modal-footer" style={{ flexWrap: "wrap" }}>
+        <div
+          className="sa-modal-footer"
+          style={{
+            flexWrap: "wrap",
+            background: isFinalized ? panel : surface,
+            borderTop: `1px solid ${isFinalized ? panel : line}`,
+          }}
+        >
           {isEditing && saveError && (
             <p style={{ width: "100%", textAlign: "right", fontFamily: font.ui, ...type.helper, color: color.danger, margin: "0 0 4px" }}>{saveError}</p>
           )}
@@ -3554,7 +3658,7 @@ const ViewApplicationModal = ({ application, onClose, onSave }) => {
           ) : canEdit ? (
             <button onClick={() => setIsEditing(true)} className="sa-btn sa-btn-primary">Edit</button>
           ) : (
-            <p style={{ margin: 0, fontFamily: font.ui, ...type.helper, color: inkFaint, display: "flex", alignItems: "center", gap: "6px" }}>
+            <p style={{ margin: 0, fontFamily: font.ui, ...type.helper, color: isFinalized ? onPanelDim : inkMuted, display: "flex", alignItems: "center", gap: "6px" }}>
             {`Your application is now ${application.status}, you cannot edit your application`}            </p>
           )}
         </div>
@@ -3596,8 +3700,8 @@ const DeleteConfirmPopup = ({ companyName, onCancel, onConfirm, deleting }) => (
           <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
         </svg>
       </div>
-      <h3 style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.5rem", color: darkRed, marginBottom: "6px" }}>Delete Application?</h3>
-      <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#555", marginBottom: "22px", lineHeight: 1.5 }}>
+      <h3 style={{ fontFamily: font.ui, fontWeight: 700, fontSize: "1.2rem", color: darkRed, marginBottom: "6px" }}>Delete Application?</h3>
+      <p style={{ fontFamily: font.ui, fontSize: "0.85rem", color: inkMuted, marginBottom: "22px", lineHeight: 1.5 }}>
         This will permanently delete your application to{" "}
         <strong style={{ color: darkRed }}>{companyName}</strong>. This action cannot be undone.
       </p>
@@ -3605,14 +3709,28 @@ const DeleteConfirmPopup = ({ companyName, onCancel, onConfirm, deleting }) => (
         <button
           onClick={onCancel}
           disabled={deleting}
-          style={{ padding: "10px 24px", borderRadius: "24px", background: "#888", color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif", fontSize: "1rem", cursor: deleting ? "not-allowed" : "pointer", opacity: deleting ? 0.7 : 1 }}
+          style={{
+            padding: "9px 22px", borderRadius: "22px", background: color.white,
+            color: "#111111", border: `1px solid ${line}`, fontFamily: font.ui,
+            fontSize: "0.82rem", fontWeight: 600, cursor: deleting ? "not-allowed" : "pointer", opacity: deleting ? 0.7 : 1,
+            transition: `background 160ms ${ease}, color 160ms ${ease}`,
+          }}
+          onMouseEnter={e => { if (!deleting) { e.currentTarget.style.background = "#111111"; e.currentTarget.style.color = "#ffffff"; } }}
+          onMouseLeave={e => { e.currentTarget.style.background = color.white; e.currentTarget.style.color = "#111111"; }}
         >
           CANCEL
         </button>
         <button
           onClick={onConfirm}
           disabled={deleting}
-          style={{ padding: "10px 24px", borderRadius: "24px", background: "#c62828", color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif", fontSize: "1rem", cursor: deleting ? "not-allowed" : "pointer", opacity: deleting ? 0.7 : 1 }}
+          style={{
+            padding: "9px 22px", borderRadius: "22px", background: color.white,
+            color: "#c62828", border: "1px solid #c62828", fontFamily: font.ui,
+            fontSize: "0.82rem", fontWeight: 600, cursor: deleting ? "not-allowed" : "pointer", opacity: deleting ? 0.7 : 1,
+            transition: `background 160ms ${ease}, color 160ms ${ease}`,
+          }}
+          onMouseEnter={e => { if (!deleting) { e.currentTarget.style.background = "#c62828"; e.currentTarget.style.color = "#ffffff"; } }}
+          onMouseLeave={e => { e.currentTarget.style.background = color.white; e.currentTarget.style.color = "#c62828"; }}
         >
           {deleting ? "DELETING..." : "DELETE"}
         </button>
@@ -3793,9 +3911,9 @@ const StudentApplicationScreen = ({ initialCompany, onModalClose, user, openAppl
 
         {/* Top bar — same floating dark panel as CoordinatorStudentListScreen */}
         <div className="sa-topbar">
-          <div style={{ minWidth: 0 }}>
-            <span style={{ fontFamily: font.ui, fontSize: "clamp(1.1rem, 3.5vw, 1.375rem)", fontWeight: 600, letterSpacing: "-0.01em", color: onPanel }}>Recent Applications</span>
-            <p style={{ fontFamily: font.ui, ...type.helper, color: onPanelDim, marginTop: "2px" }}>
+          <div style={{ minWidth: 0, flex: "1 1 auto" }}>
+            <span title="Recent Applications" style={{ fontFamily: font.ui, fontSize: "clamp(1.1rem, 3.5vw, 1.375rem)", fontWeight: 600, letterSpacing: "-0.01em", color: onPanel, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>Recent Applications</span>
+            <p title={`${filteredApplications.length} of ${applications.length}`} style={{ fontFamily: font.ui, ...type.helper, color: onPanelDim, marginTop: "2px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {filteredApplications.length} of {applications.length}
             </p>
           </div>

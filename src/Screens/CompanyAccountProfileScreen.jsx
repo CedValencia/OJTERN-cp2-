@@ -1,19 +1,35 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
 import { doc, onSnapshot, updateDoc, collection, getDocs, query, where, setDoc, serverTimestamp } from "firebase/firestore";
-import { getAuth, signOut } from "firebase/auth";
+import { getAuth } from "firebase/auth";
 import { db } from "./firebase";
 import { changePassword, requestCompanyEmailChange } from "./AuthService";
-import AccountProfile from "../icons/accountprofile.png";
-import viewIcon from "../icons/view.png";
-import PersonalAccountProfile from "../icons/personalaccountprofile.png";
-import personalInfoIcon from "../icons/personal.png";
-import privacyIcon from "../icons/priv.png";
-import termsIcon from "../icons/terms.png";
-import resetIcon from "../icons/reset.png";
+import { color, font, type, space, radius, shadow, ease } from "./theme";
 
-const red = "#590101";
-const darkRed = "#590101";
-const fieldBg = "#7A4F4F";
+import PersonalAccountProfile from "../icons/personalaccountprofile.png";
+import viewIcon from "../icons/view.png";
+
+// ── Design tokens, aliased for this screen ────────────────────────────────────
+// Exactly the same aliases as StudentAccountProfileScreen — lahat galing sa
+// theme.js. Walang hardcoded hex dito; sa theme.js lang ang edit kung
+// magbabago ang palette. (Dating hardcoded ang #590101 / #7A4F4F dito, kaya
+// hindi sumasabay ang Company screen kapag nagbago ang tema.)
+const ink          = color.ink;
+const inkBody      = color.inkBody;
+const inkMuted     = color.inkMuted;
+const inkFaint     = color.inkFaint;
+const surface      = color.wine600;      // cards, rows, modals
+const page         = color.wine900;      // page background
+const field        = color.wine800;      // inputs / neutral fills
+const line         = color.wine700;      // hairlines & borders
+const lineSoft     = color.wine800;
+const panel        = color.blush100;     // dark panels (banner, headers, footers)
+const panelDeep    = color.blush50;
+const onPanel      = color.onWine;
+const onPanelDim   = color.onWineMuted;
+const onPanelFaint = color.onWineFaint;
+const danger       = color.danger;
+const success      = color.success;
+const warning      = color.warning || color.danger;
 
 // ── Password strength requirements ────────────────────────────────────────────
 const PASSWORD_RULES = [
@@ -30,21 +46,21 @@ const isPasswordStrong = (pwd) => PASSWORD_RULES.every(rule => rule.test(pwd));
 const PasswordChecklist = ({ password }) => {
   if (!password) return null;
   return (
-  <div style={{ display: "flex", flexDirection: "column", gap: "3px", margin: "2px 0 12px 2px" }}>
-    {PASSWORD_RULES.map(rule => {
-      const passed = rule.test(password);
-      return (
-        <div key={rule.key} style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-          <span style={{ fontSize: "0.78rem", fontWeight: 700, color: passed ? "#2a7a2a" : "#c0392b", width: "12px", flexShrink: 0 }}>
-            {passed ? "✓" : "✗"}
-          </span>
-          <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.74rem", color: passed ? "#2a7a2a" : "#888" }}>
-            {rule.label}
-          </span>
-        </div>
-      );
-    })}
-  </div>
+    <div style={{ display: "flex", flexDirection: "column", gap: "3px", margin: `2px 0 ${space.md} 2px` }}>
+      {PASSWORD_RULES.map(rule => {
+        const passed = rule.test(password);
+        return (
+          <div key={rule.key} style={{ display: "flex", alignItems: "center", gap: "7px" }}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={passed ? success : inkFaint} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+              {passed ? <polyline points="20 6 9 17 4 12" /> : <><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></>}
+            </svg>
+            <span style={{ fontFamily: font.ui, fontSize: "0.8125rem", lineHeight: 1.45, color: passed ? success : inkMuted }}>
+              {rule.label}
+            </span>
+          </div>
+        );
+      })}
+    </div>
   );
 };
 
@@ -69,193 +85,257 @@ async function geocodeAddress(text) {
 }
 
 // ── Responsive Styles ─────────────────────────────────────────────────────────
+// Mirror ng StudentAccountProfileScreen's ResponsiveStyles — same rules,
+// `cap-` prefix lang para hindi mag-collide kung sabay na-mount ang dalawa.
 const ResponsiveStyles = () => (
   <style>{`
-    @import url('https://fonts.googleapis.com/css2?family=Jersey+25&family=Jua&family=Kufam:wght@400;600;700&family=Monomaniac+One&display=swap');
-    * { box-sizing: border-box; }
-
-    /* ── Mapbox address search (Location Map Preview) ── */
-    .su1-map-container {
-      width: 100%;
-      height: 160px;
-      border-radius: 12px;
-      margin-top: 8px;
-      margin-bottom: 6px;
-      overflow: hidden;
-      border: 1.5px solid #ccc;
-      position: relative;
-      cursor: pointer;
-    }
-    @media (max-width: 360px) {
-      .su1-map-container { height: 130px; }
-    }
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+    .cap-screen *, .cap-modal * { box-sizing: border-box; }
 
     /* ── Profile header card ── */
     .cap-header-card {
       position: relative;
       z-index: 2;
-      margin-top: 60px;
-      background: white;
-      border-radius: 16px;
-      padding: 48px 48px 14px;
+      margin-top: 52px;
+      background: ${surface};
+      border-radius: ${radius.card};
+      border: 1px solid ${line};
+      padding: 44px 44px 16px;
       display: flex;
       flex-direction: column;
       align-items: center;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      box-shadow: ${shadow.pill};
       min-width: 260px;
     }
     @media (max-width: 480px) {
-      .cap-header-card { padding: 48px 24px 14px; min-width: unset; width: 90%; }
+      .cap-header-card { padding: 44px 22px 14px; min-width: unset; width: 90%; }
     }
 
     /* ── Menu body ── */
     .cap-body {
       flex: 1;
       overflow-y: auto;
-      padding: 0 24px 28px;
-      background: #f0f0f0;
+      padding: 0 clamp(16px, 4vw, 32px) 32px;
+      background: ${page};
       display: flex;
       flex-direction: column;
-      align-items: center;
-    }
-    @media (max-width: 480px) {
-      .cap-body { padding: 0 12px 24px; }
+      align-items: stretch;
     }
 
-    /* ── Menu box ── */
-    .cap-menu-box {
-      background: #590101;
-      border-radius: 16px;
-      padding: 16px 20px;
-      margin-bottom: 28px;
-      width: 100%;
-      box-sizing: border-box;
-    }
-    @media (max-width: 480px) {
-      .cap-menu-box { padding: 12px 12px; }
-    }
+    /* ── Grouped list ── */
+    .cap-menu-stack { width: 100%; }
+    .cap-menu-group { margin-bottom: ${space.lg}; }
 
     /* ── Menu row ── */
     .cap-menu-row {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      background: #7A4F4F;
-      border-radius: 10px;
-      padding: 14px 18px;
-      cursor: pointer;
+      gap: ${space.md};
+      background: ${surface};
+      border: 1px solid ${line};
+      border-radius: ${radius.pill};
+      padding: 15px 22px;
       margin-bottom: 10px;
-      transition: background 0.15s;
+      cursor: pointer;
+      box-shadow: ${shadow.input};
+      transition: border-color 220ms ${ease}, box-shadow 220ms ${ease};
+      width: 100%;
+      text-align: left;
+      font: inherit;
     }
-    .cap-menu-row:hover { background: #8f5f5f; }
+    .cap-menu-row:last-child { margin-bottom: 0; }
+    .cap-menu-row:hover {
+      border-color: ${color.wine400};
+      box-shadow: 0 8px 22px rgba(10,10,10,0.08);
+    }
     @media (max-width: 480px) {
-      .cap-menu-row { padding: 10px 12px; }
+      .cap-menu-row { padding: 13px 16px; }
     }
 
     /* ── Section header bar ── */
     .cap-section-header {
-      background: linear-gradient(90deg, #590101 0%, #590101 100%);
-      padding: 16px 28px;
+      background: ${panel};
+      padding: 16px clamp(16px, 4vw, 28px);
       display: flex;
       align-items: center;
-      gap: 14px;
+      gap: ${space.md};
       flex-shrink: 0;
-    }
-    @media (max-width: 480px) {
-      .cap-section-header { padding: 12px 14px; gap: 10px; }
-      .cap-section-header h2 { font-size: 1.3rem !important; }
     }
 
     /* ── Personal info body ── */
     .cap-info-body {
       flex: 1;
+      min-height: 0;
       overflow-y: auto;
       overflow-x: hidden;
-      padding: 24px 32px;
-      background: #f5f5f5;
-    }
-    @media (max-width: 560px) {
-      .cap-info-body { padding: 16px 14px; }
+      padding: clamp(16px, 4vw, 28px) clamp(14px, 4vw, 32px);
+      background: ${page};
     }
 
     /* ── Inner info card ── */
-    .cap-info-card {
-      background: #590101;
-      border-radius: 16px;
-      padding: 16px 20px;
+    .cap-info-card { width: 100%; }
+
+    /* ── Info row ── */
+    .cap-info-row {
+      background: ${surface};
+      border: 1px solid ${line};
+      border-radius: ${radius.card};
+      padding: 14px 18px;
+      margin-bottom: 10px;
+      box-shadow: ${shadow.input};
     }
     @media (max-width: 480px) {
-      .cap-info-card { padding: 12px 12px; }
-    }
-
-    /* ── Reset / Privacy / Terms scroll body ── */
-    .cap-sub-body {
-      flex: 1;
-      overflow-y: auto;
-      padding: 28px 32px;
-      background: #f5f5f5;
-    }
-    @media (max-width: 560px) {
-      .cap-sub-body { padding: 16px 14px; }
-    }
-
-    /* ── Divider line ── */
-    .cap-divider {
-      width: 80%;
-      height: 1.5px;
-      background: #ccc;
-      margin: 16px auto;
-      border-radius: 2px;
-    }
-    @media (max-width: 480px) {
-      .cap-divider { width: 92%; }
-    }
-
-    /* ── Save row ── */
-    .cap-save-row {
-      display: flex;
-      justify-content: flex-end;
-      gap: 8px;
-      margin-top: 12px;
-      flex-wrap: wrap;
+      .cap-info-row { padding: 12px 14px; }
     }
 
     /* ── Modal inner ── */
     .cap-modal-inner {
-      background: white;
-      border-radius: 20px;
-      width: 480px;
-      max-width: 95vw;
-      max-height: 88vh;
+      background: ${surface};
+      border-radius: ${radius.panel};
+      box-shadow: ${shadow.panel};
+      width: 420px;
+      max-width: 88vw;
+      max-height: 62vh;
       overflow: hidden;
       display: flex;
       flex-direction: column;
     }
-
     /* ── Modal scroll body ── */
     .cap-modal-body {
       flex: 1;
       overflow-y: auto;
       overflow-x: hidden;
-      padding: 24px 28px;
+      padding: ${space.lg};
     }
     @media (max-width: 480px) {
-      .cap-modal-body { padding: 16px 16px; }
+      .cap-modal-inner { max-width: 84vw; max-height: 48vh; }
+      .cap-modal-body { padding: ${space.md}; }
     }
 
     /* ── Modal footer ── */
     .cap-modal-footer {
-      background: #590101;
-      padding: 14px 24px;
+      background: ${panel};
+      border-top: 1px solid ${line};
+      padding: 12px ${space.lg};
       display: flex;
       justify-content: flex-end;
-      gap: 12px;
+      gap: ${space.sm};
       flex-shrink: 0;
       flex-wrap: wrap;
     }
     @media (max-width: 400px) {
       .cap-modal-footer { padding: 10px 14px; flex-direction: column-reverse; align-items: stretch; }
       .cap-modal-footer button { width: 100%; text-align: center; }
+    }
+
+    /* ── Divider line ── */
+    .cap-divider {
+      height: 1px;
+      background: ${line};
+      margin: ${space.md} clamp(16px, 4vw, 32px) ${space.lg};
+    }
+
+    /* ── Save row ── */
+    .cap-save-row {
+      display: flex;
+      justify-content: flex-end;
+      gap: ${space.sm};
+      margin-top: ${space.md};
+      flex-wrap: wrap;
+    }
+
+    /* ── Mapbox address preview (Location) ── */
+    .cap-map-container {
+      width: 100%;
+      height: 170px;
+      border-radius: ${radius.card};
+      overflow: hidden;
+      border: 1px solid ${line};
+      position: relative;
+      cursor: pointer;
+    }
+    @media (max-width: 360px) {
+      .cap-map-container { height: 138px; }
+    }
+
+    /* Visible keyboard focus on every control in this screen */
+    .cap-screen :focus-visible,
+    .cap-modal :focus-visible {
+      outline: none;
+      box-shadow: ${shadow.focus};
+      border-radius: ${radius.pill};
+    }
+
+    @keyframes capFadeIn { from { opacity: 0 } to { opacity: 1 } }
+    @keyframes capLift   { from { opacity: 0; transform: translateY(6px) } to { opacity: 1; transform: none } }
+    .cap-overlay { animation: capFadeIn 180ms ${ease} both; }
+    .cap-dialog  { animation: capLift 240ms ${ease} both; }
+
+    @media (prefers-reduced-motion: reduce) {
+      .cap-overlay, .cap-dialog { animation: none !important; }
+      .cap-menu-row { transition: none !important; }
+    }
+  `}</style>
+);
+
+// ── Legal panel styles ────────────────────────────────────────────────────────
+// Same reading layout as the student's legal screens — progress rail,
+// "On this page" sidebar, sectioned body — measured against this panel's own
+// scroll container, since it opens inside the content area beside the nav
+// rather than taking over the window.
+const LegalStyles = () => (
+  <style>{`
+    .legal-panel { display: flex; flex-direction: column; flex: 1; min-height: 0; background: ${page}; }
+    .legal-progress-track { height: 3px; flex-shrink: 0; background: ${lineSoft}; }
+    .legal-progress-fill {
+      height: 100%;
+      background: ${inkMuted};
+      transition: width 120ms linear;
+    }
+
+    .legal-cols { flex: 1; min-height: 0; display: flex; }
+
+    .legal-toc {
+      width: clamp(130px, 30vw, 240px);
+      flex-shrink: 0;
+      overflow-y: auto;
+      padding: clamp(20px, 3vw, 28px) 0 40px clamp(16px, 3vw, 28px);
+      border-right: 1px solid ${line};
+    }
+    .legal-toc-heading {
+      font-family: ${font.ui};
+      font-size: 0.8125rem;
+      font-weight: 500;
+      color: ${inkMuted};
+      margin: 0 0 12px;
+    }
+    .legal-toc-btn {
+      display: block; width: 100%; text-align: left;
+      background: none; border: none; cursor: pointer;
+      padding: 7px 0 7px 12px;
+      font-family: ${font.ui};
+      font-size: 0.8125rem;
+      line-height: 1.45;
+      transition: border-color 160ms ${ease}, color 160ms ${ease};
+    }
+
+    .legal-scroll {
+      flex: 1;
+      min-width: 0;
+      position: relative;
+      overflow-y: auto;
+      padding: clamp(20px, 3vw, 32px) clamp(16px, 4vw, 44px) 56px;
+    }
+
+    @media (max-width: 480px) {
+      .legal-toc { padding-left: 12px; padding-right: 8px; }
+      .legal-toc-heading { font-size: 0.75rem; }
+      .legal-toc-btn { font-size: 0.75rem; padding: 6px 0 6px 8px; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .legal-progress-fill, .legal-toc-btn { transition: none !important; }
     }
   `}</style>
 );
@@ -2553,41 +2633,82 @@ const REGIONS = [
   },
 ]
 
-// ── Shared Styles ─────────────────────────────────────────────────────────────
+// ── Shared field styles ───────────────────────────────────────────────────────
 const fieldStyle = {
-  width: "100%", padding: "10px 16px",
-  background: fieldBg, border: "none", borderRadius: "20px",
-  color: "white", fontSize: "0.88rem",
-  fontFamily: "'Kufam', sans-serif", outline: "none",
-  boxSizing: "border-box",
+  width: "100%", padding: "11px 16px",
+  background: field, border: `1px solid ${line}`, borderRadius: radius.pill,
+  color: ink, fontFamily: font.ui, ...type.body,
+  outline: "none", boxSizing: "border-box",
 };
 
 const labelStyle = {
-  fontFamily: "'Kufam', sans-serif",
-  fontWeight: 700, fontSize: "0.88rem",
-  color: "#222", marginBottom: "4px", display: "block",
+  fontFamily: font.ui, ...type.label,
+  color: ink, marginBottom: "6px", display: "block",
 };
 
-// ── Shared Components ─────────────────────────────────────────────────────────
-const PngIcon = ({ src, size = 120 }) => (
-  <img src={src} alt="" style={{ width: `${size}px`, height: `${size}px`, objectFit: "contain", flexShrink: 0 }} />
-);
+const errorTextStyle = { color: danger, fontSize: "0.8125rem", fontFamily: font.ui, margin: `0 0 ${space.sm} 6px` };
 
-const EditIcon = ({ size = 16, color = "white" }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+// Row label / value pair used by every read-only line in Personal Information.
+const rowLabel = { fontFamily: font.ui, ...type.helper, color: inkMuted, display: "block", marginBottom: "3px" };
+const rowValue = { fontFamily: font.ui, ...type.body, color: ink, margin: 0, display: "block" };
+
+// Inline (borderless, underlined) editors — same as the student's edit mode.
+const inlineInputStyle = {
+  background: "transparent", border: "none", borderBottom: `1px solid ${line}`,
+  color: ink, fontFamily: font.ui, ...type.body,
+  outline: "none", width: "100%", padding: "4px 0", boxSizing: "border-box",
+};
+const inlineInputErrorStyle = { ...inlineInputStyle, borderBottom: `1.5px solid ${danger}` };
+const inlineErrText = { color: danger, fontSize: "0.75rem", fontFamily: font.ui, margin: "4px 0 0" };
+
+const fieldLabel = (text) => <span style={rowLabel}>{text}</span>;
+const errText = (msg) => (msg ? <p style={inlineErrText}>{msg}</p> : null);
+
+// Boxed pill control, for the stacked pickers (Location, Colleges/Programs)
+// where a run of underlined inputs would be hard to tell apart.
+// marginBottom lives on the wrapper (see PickerField) so the chevron can
+// centre on the control itself rather than on the control + its gap.
+const pickerSelectStyle = {
+  ...fieldStyle,
+  appearance: "none", WebkitAppearance: "none",
+  paddingRight: "34px", cursor: "pointer",
+};
+
+// ── Icons ─────────────────────────────────────────────────────────────────────
+const EditIcon = ({ size = 16, stroke = ink }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={stroke} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
     <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
   </svg>
 );
 
+const ChevronDown = () => (
+  <span aria-hidden="true" style={{ position: "absolute", right: "16px", top: "50%", transform: "translateY(-50%)", color: inkMuted, pointerEvents: "none", display: "flex" }}>
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="6 9 12 15 18 9"/>
+    </svg>
+  </span>
+);
+
+// Relative wrapper for a pill <select>, carrying both the gap below it and
+// the chevron overlay (native select arrows can't be themed consistently).
+const PickerField = ({ children, last = false }) => (
+  <div style={{ position: "relative", marginBottom: last ? 0 : "8px" }}>
+    {children}
+    <ChevronDown />
+  </div>
+);
+
 const EyeIcon = ({ show, onClick }) => (
-  <span onClick={onClick} style={{ position: "absolute", right: "14px", top: "50%", transform: "translateY(-50%)", cursor: "pointer", display: "flex", alignItems: "center" }}>
+  <span onClick={onClick} role="button" tabIndex={0} aria-label={show ? "Hide password" : "Show password"}
+    onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } }}
+    style={{ position: "absolute", right: "14px", top: "50%", transform: "translateY(-50%)", cursor: "pointer", display: "flex", alignItems: "center", color: inkMuted }}>
     {show ? (
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
       </svg>
     ) : (
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
         <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
         <line x1="1" y1="1" x2="23" y2="23"/>
@@ -2613,44 +2734,191 @@ const GlobalStyles = () => {
   return null;
 };
 
-const PasswordInput = ({ value, onChange, placeholder = "••••••••", onKeyDown }) => {
+const PasswordInput = ({ value, onChange, placeholder = "••••••••", onKeyDown, invalid }) => {
   const [show, setShow] = useState(false);
   const blockPaste = (e) => e.preventDefault();
   return (
-    <div style={{ position: "relative", marginBottom: "12px" }}>
+    <div style={{ position: "relative", marginBottom: space.sm }}>
       <input type={show ? "text" : "password"} value={value} onChange={onChange} onKeyDown={onKeyDown} placeholder={placeholder}
         onPaste={blockPaste} onCopy={blockPaste} onCut={blockPaste}
-        style={{ ...fieldStyle, paddingRight: "44px" }} />
+        style={{ ...fieldStyle, paddingRight: "44px", borderColor: invalid ? danger : line }} />
       <EyeIcon show={show} onClick={() => setShow(s => !s)} />
     </div>
   );
 };
 
-const BackButton = ({ onClick }) => (
-  <button onClick={onClick} title="Go back"
-    style={{ background: "rgba(255,255,255,0.18)", border: "2px solid white", borderRadius: "50%", width: "34px", height: "34px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 }}>
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="15 18 9 12 15 6"/>
+function BackButton({ onClick }) {
+  return (
+    <button onClick={onClick} aria-label="Go back"
+      style={{ background: "transparent", border: `1px solid ${onPanelFaint}`, borderRadius: "50%", width: "32px", height: "32px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0, color: onPanel, transition: `background 240ms ${ease}` }}
+      onMouseEnter={e => (e.currentTarget.style.background = "rgba(250,250,250,0.10)")}
+      onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+        <polyline points="15 18 9 12 15 6"/>
+      </svg>
+    </button>
+  );
+}
+
+// ── Shared section header bar ─────────────────────────────────────────────────
+function SectionHeaderBar({ title, onBack }) {
+  return (
+    <div className="cap-section-header">
+      {onBack && <BackButton onClick={onBack} />}
+      <h2 style={{ fontFamily: font.ui, fontSize: "clamp(1.1rem, 3.5vw, 1.375rem)", fontWeight: 600, letterSpacing: "-0.01em", color: onPanel, margin: 0 }}>{title}</h2>
+    </div>
+  );
+}
+
+// ── Row icons ─────────────────────────────────────────────────────────────────
+// Outline strokes lang, 1.8 weight — para hindi nakikipag-agawan sa label.
+// (Pinalitan ang dating PNG icons para tumugma sa student screen.)
+const RowIcon = ({ children }) => (
+  <span style={{ width: "34px", height: "34px", borderRadius: "10px", background: lineSoft, border: `1px solid ${line}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: ink }}>
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      {children}
     </svg>
+  </span>
+);
+
+const icons = {
+  person:   <><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></>,
+  key:      <><path d="M21 2l-2 2m-7.6 7.6a5.5 5.5 0 1 1-7.8 7.8 5.5 5.5 0 0 1 7.8-7.8zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3"/></>,
+  document: <><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></>,
+};
+
+// ── Menu row + grouped section ────────────────────────────────────────────────
+const MenuRow = ({ label, icon, onClick }) => (
+  <button type="button" onClick={onClick} className="cap-menu-row">
+    <span style={{ display: "flex", alignItems: "center", gap: "14px", minWidth: 0 }}>
+      {icon && <RowIcon>{icons[icon]}</RowIcon>}
+      <span style={{ fontFamily: font.ui, fontSize: "1rem", fontWeight: 500, letterSpacing: "-0.01em", color: ink }}>{label}</span>
+    </span>
+    <img src={viewIcon} alt="" style={{ width: "30px", height: "30px", objectFit: "contain", flexShrink: 0 }} />
   </button>
 );
 
-const SectionHeaderBar = ({ iconSrc, title, onBack }) => (
-  <div className="cap-section-header">
-    {onBack && <BackButton onClick={onBack} />}
-    {iconSrc && <PngIcon src={iconSrc} size={38} />}
-    <h2 style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.8rem", color: "white", letterSpacing: "0.02em", margin: 0 }}>{title}</h2>
+const MenuGroup = ({ title, children }) => (
+  <div className="cap-menu-group">
+    <p style={{ fontFamily: font.ui, fontSize: "1rem", fontWeight: 600, letterSpacing: "-0.01em", color: ink, margin: `0 0 10px 6px` }}>{title}</p>
+    {children}
   </div>
 );
 
-const MenuRow = ({ iconSrc, label, onClick }) => (
-  <div onClick={onClick} className="cap-menu-row">
-    <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
-      {iconSrc && <PngIcon src={iconSrc} size={38} />}
-      <span style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "1rem", color: "white" }}>{label}</span>
-    </div>
-    <img src={viewIcon} alt="view" style={{ width: "38px", height: "38px", objectFit: "contain" }} />
+// ── Modal footer buttons ──────────────────────────────────────────────────────
+const FooterGhostButton = ({ children, ...rest }) => (
+  <button {...rest} style={{ padding: "9px 20px", borderRadius: radius.pill, background: "transparent", color: onPanelDim, border: `1px solid ${onPanelFaint}`, fontFamily: font.ui, ...type.control, cursor: "pointer" }}>{children}</button>
+);
+
+const FooterSolidButton = ({ children, disabled, ...rest }) => (
+  <button {...rest} disabled={disabled} style={{ padding: "9px 22px", borderRadius: radius.pill, background: color.white, color: ink, border: "none", fontFamily: font.ui, ...type.control, cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.6 : 1 }}>{children}</button>
+);
+
+const ModalTitle = ({ children, sub }) => (
+  <div style={{ marginBottom: space.md }}>
+    <p style={{ fontFamily: font.ui, fontSize: "1.125rem", fontWeight: 600, letterSpacing: "-0.01em", color: ink, margin: 0 }}>{children}</p>
+    {sub && <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, margin: "4px 0 0" }}>{sub}</p>}
   </div>
+);
+
+// ── Status dialog (shared success / confirmation sheet) ───────────────────────
+const StatusDialog = ({ icon, title, body, actionLabel = "Done", onAction }) => (
+  <div className="cap-modal cap-overlay" style={{ position: "fixed", inset: 0, zIndex: 9999, background: "rgba(10,10,10,0.5)", display: "flex", alignItems: "center", justifyContent: "center", padding: space.md }}>
+    <div className="cap-dialog" style={{ background: surface, borderRadius: radius.panel, border: `1px solid ${line}`, boxShadow: shadow.panel, padding: `${space.xl} ${space.lg}`, width: "clamp(280px, 85vw, 390px)", display: "flex", flexDirection: "column", alignItems: "center", gap: space.sm, textAlign: "center" }}>
+      <div style={{ width: "56px", height: "56px", borderRadius: "50%", background: lineSoft, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: space.xs }}>
+        {icon}
+      </div>
+      <h3 style={{ fontFamily: font.ui, fontSize: "1.25rem", fontWeight: 600, letterSpacing: "-0.01em", color: ink, margin: 0 }}>{title}</h3>
+      <p style={{ fontFamily: font.ui, ...type.body, color: inkBody, margin: 0 }}>{body}</p>
+      <button onClick={onAction}
+        style={{ width: "100%", padding: "12px", borderRadius: radius.pill, border: "none", background: panel, color: onPanel, fontFamily: font.ui, ...type.control, cursor: "pointer", marginTop: space.sm, boxShadow: shadow.pill, transition: `background 240ms ${ease}` }}
+        onMouseEnter={e => (e.currentTarget.style.background = panelDeep)}
+        onMouseLeave={e => (e.currentTarget.style.background = panel)}>
+        {actionLabel}
+      </button>
+    </div>
+  </div>
+);
+
+// Two-button variant of StatusDialog — same sheet, for "are you sure?" moments.
+const ConfirmDialog = ({ icon, title, body, cancelLabel, confirmLabel, onCancel, onConfirm }) => (
+  <div className="cap-modal cap-overlay" style={{ position: "fixed", inset: 0, zIndex: 9999, background: "rgba(10,10,10,0.5)", display: "flex", alignItems: "center", justifyContent: "center", padding: space.md }}>
+    <div className="cap-dialog" style={{ background: surface, borderRadius: radius.panel, border: `1px solid ${line}`, boxShadow: shadow.panel, padding: `${space.xl} ${space.lg}`, width: "clamp(280px, 85vw, 390px)", display: "flex", flexDirection: "column", alignItems: "center", gap: space.sm, textAlign: "center" }}>
+      <div style={{ width: "56px", height: "56px", borderRadius: "50%", background: lineSoft, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: space.xs }}>
+        {icon}
+      </div>
+      <h3 style={{ fontFamily: font.ui, fontSize: "1.25rem", fontWeight: 600, letterSpacing: "-0.01em", color: ink, margin: 0 }}>{title}</h3>
+      <p style={{ fontFamily: font.ui, ...type.body, color: inkBody, margin: 0 }}>{body}</p>
+      <div style={{ display: "flex", gap: space.sm, width: "100%", marginTop: space.sm }}>
+        <button onClick={onCancel}
+          style={{ flex: 1, padding: "12px", borderRadius: radius.pill, background: "transparent", color: inkMuted, border: `1px solid ${line}`, fontFamily: font.ui, ...type.control, cursor: "pointer" }}>
+          {cancelLabel}
+        </button>
+        <button onClick={onConfirm}
+          style={{ flex: 1, padding: "12px", borderRadius: radius.pill, border: "none", background: panel, color: onPanel, fontFamily: font.ui, ...type.control, cursor: "pointer", boxShadow: shadow.pill, transition: `background 240ms ${ease}` }}
+          onMouseEnter={e => (e.currentTarget.style.background = panelDeep)}
+          onMouseLeave={e => (e.currentTarget.style.background = panel)}>
+          {confirmLabel}
+        </button>
+      </div>
+    </div>
+  </div>
+);
+
+const CheckIcon = () => (
+  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke={success} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+);
+
+const AlertIcon = () => (
+  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke={warning} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+    <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+  </svg>
+);
+
+const ErrorIcon = () => (
+  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke={danger} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+  </svg>
+);
+
+const MailIcon = () => (
+  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke={success} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 6-10 7L2 6"/>
+  </svg>
+);
+
+// ── Save / discard dialogs ────────────────────────────────────────────────────
+const SaveSuccessModal = ({ onClose }) => (
+  <StatusDialog
+    icon={<CheckIcon />}
+    title="Changes saved"
+    body="Your company information has been updated."
+    actionLabel="Done"
+    onAction={onClose}
+  />
+);
+
+const SaveErrorModal = ({ message, onClose }) => (
+  <StatusDialog
+    icon={<ErrorIcon />}
+    title="Save failed"
+    body={message || "Your information didn't save. Try again."}
+    actionLabel="Try again"
+    onAction={onClose}
+  />
+);
+
+const DiscardChangesModal = ({ onKeepEditing, onDiscard }) => (
+  <ConfirmDialog
+    icon={<AlertIcon />}
+    title="Discard changes?"
+    body="Your edits will be lost. Are you sure you want to cancel?"
+    cancelLabel="Keep editing"
+    confirmLabel="Discard"
+    onCancel={onKeepEditing}
+    onConfirm={onDiscard}
+  />
 );
 
 // ── Industry Autocomplete ────────────────────────────────────────────────────
@@ -2668,42 +2936,37 @@ const IndustryAutocomplete = ({ value, onChange, hasError, options, editable = t
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  const query   = value.trim().toLowerCase();
+  const q       = value.trim().toLowerCase();
   const list    = options || INDUSTRIES;
-  const matches = query === "" ? list : list.filter(ind => ind.toLowerCase().includes(query));
+  const matches = q === "" ? list : list.filter(ind => ind.toLowerCase().includes(q));
 
-  if (!editable) {
-    return <span style={{ fontWeight: 400 }}>{value || "—"}</span>;
-  }
+  if (!editable) return <span style={rowValue}>{value || "—"}</span>;
 
   return (
-    <div ref={wrapRef} style={{ position: "relative", marginBottom: "2px" }}>
+    <div ref={wrapRef} style={{ position: "relative" }}>
       <input
         type="text"
-        placeholder="Type your Industry:"
+        placeholder="Type your industry"
         value={value}
         onChange={e => onChange(e.target.value)}
         onFocus={() => setOpen(true)}
         autoComplete="off"
-        style={{ ...fieldStyle, border: hasError ? "1.5px solid #ffcccc" : "none" }}
+        style={hasError ? inlineInputErrorStyle : inlineInputStyle}
       />
       {open && matches.length > 0 && (
         <div style={{
           position: "absolute", top: "calc(100% + 6px)", left: 0, right: 0,
-          background: "white", border: `1.5px solid ${red}`, borderRadius: "14px",
-          boxShadow: "0 6px 20px rgba(0,0,0,0.18)", zIndex: 300,
-          maxHeight: "220px", overflowY: "auto", padding: "8px 0",
+          background: surface, border: `1px solid ${line}`, borderRadius: radius.card,
+          boxShadow: shadow.panel, zIndex: 300,
+          maxHeight: "220px", overflowY: "auto", padding: "6px 0",
         }}>
           {matches.map(ind => (
             <div
               key={ind}
               onClick={() => { onChange(ind); setOpen(false); }}
-              style={{
-                padding: "9px 16px", cursor: "pointer", userSelect: "none",
-                fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#222",
-              }}
-              onMouseEnter={e => { e.currentTarget.style.background = "#faf0f0"; }}
-              onMouseLeave={e => { e.currentTarget.style.background = "white"; }}
+              style={{ padding: "9px 16px", cursor: "pointer", userSelect: "none", fontFamily: font.ui, ...type.body, color: ink }}
+              onMouseEnter={e => { e.currentTarget.style.background = lineSoft; }}
+              onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}
             >
               {ind}
             </div>
@@ -2720,19 +2983,14 @@ const MultiCollegeProgramPicker = ({ selections, onChange, editable = true }) =>
 
   const addEntry    = () => onChange([...selections, { college: "", program: "", specialization: "" }]);
   const removeEntry = (idx) => onChange(selections.filter((_, i) => i !== idx));
-  const updateEntry = (idx, field, value) => {
+  const updateEntry = (idx, field_, value) => {
     const updated = selections.map((entry, i) => {
       if (i !== idx) return entry;
-      if (field === "college") return { college: value, program: "", specialization: "" };
-      if (field === "program") return { ...entry, program: value, specialization: "" };
-      return { ...entry, [field]: value };
+      if (field_ === "college") return { college: value, program: "", specialization: "" };
+      if (field_ === "program") return { ...entry, program: value, specialization: "" };
+      return { ...entry, [field_]: value };
     });
     onChange(updated);
-  };
-
-  const selStyle = {
-    ...fieldStyle, appearance: "none", WebkitAppearance: "none",
-    paddingRight: "28px", cursor: editable ? "pointer" : "default", marginBottom: "6px",
   };
 
   return (
@@ -2742,45 +3000,53 @@ const MultiCollegeProgramPicker = ({ selections, onChange, editable = true }) =>
         const specializations = entry.college && entry.program
           ? COLLEGE_PROGRAM_DATA[entry.college]?.programs[entry.program]?.specializations ?? []
           : [];
+        const hasSpecs = !!entry.program && specializations.length > 0;
 
         return (
-          <div key={idx} style={{ background: "rgba(0,0,0,0.15)", borderRadius: "10px", padding: "8px 10px", marginBottom: "6px", position: "relative" }}>
+          <div key={idx} style={{ background: lineSoft, border: `1px solid ${line}`, borderRadius: radius.card, padding: "12px 12px 12px", marginBottom: "8px", position: "relative" }}>
             {editable && selections.length > 1 && (
-              <button onClick={() => removeEntry(idx)}
-                style={{ position: "absolute", top: "6px", right: "8px", background: "none", border: "none", color: "white", fontSize: "1rem", cursor: "pointer", fontWeight: "700" }}>✕</button>
+              <button onClick={() => removeEntry(idx)} aria-label="Remove this college and program"
+                style={{ position: "absolute", top: "8px", right: "8px", background: "transparent", border: "none", color: inkMuted, cursor: "pointer", display: "flex", padding: "2px" }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </button>
             )}
-            <div style={{ position: "relative" }}>
-              <select disabled={!editable} value={entry.college} onChange={e => updateEntry(idx, "college", e.target.value)} style={selStyle}>
-                <option value="">Select College:</option>
+
+            <PickerField last={!entry.college}>
+              <select disabled={!editable} value={entry.college} onChange={e => updateEntry(idx, "college", e.target.value)} style={pickerSelectStyle}>
+                <option value="">Select college</option>
                 {colleges.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
-              {editable && <span style={{ position: "absolute", right: "10px", top: "38%", transform: "translateY(-50%)", color: "white", pointerEvents: "none", fontSize: "0.7rem" }}>▼</span>}
-            </div>
+            </PickerField>
+
             {entry.college && (
-              <div style={{ position: "relative" }}>
-                <select disabled={!editable} value={entry.program} onChange={e => updateEntry(idx, "program", e.target.value)} style={selStyle}>
-                  <option value="">Select Program:</option>
+              <PickerField last={!hasSpecs}>
+                <select disabled={!editable} value={entry.program} onChange={e => updateEntry(idx, "program", e.target.value)} style={pickerSelectStyle}>
+                  <option value="">Select program</option>
                   {programs.map(p => <option key={p} value={p}>{p}</option>)}
                 </select>
-                {editable && <span style={{ position: "absolute", right: "10px", top: "38%", transform: "translateY(-50%)", color: "white", pointerEvents: "none", fontSize: "0.7rem" }}>▼</span>}
-              </div>
+              </PickerField>
             )}
-            {entry.program && specializations.length > 0 && (
-              <div style={{ position: "relative" }}>
-                <select disabled={!editable} value={entry.specialization} onChange={e => updateEntry(idx, "specialization", e.target.value)} style={{ ...selStyle, marginBottom: 0 }}>
-                  <option value="">Select Major / Specialization:</option>
+
+            {hasSpecs && (
+              <PickerField last>
+                <select disabled={!editable} value={entry.specialization} onChange={e => updateEntry(idx, "specialization", e.target.value)} style={pickerSelectStyle}>
+                  <option value="">Select major / specialization</option>
                   {specializations.map(s => <option key={s} value={s}>{s}</option>)}
                 </select>
-                {editable && <span style={{ position: "absolute", right: "10px", top: "38%", transform: "translateY(-50%)", color: "white", pointerEvents: "none", fontSize: "0.7rem" }}>▼</span>}
-              </div>
+              </PickerField>
             )}
           </div>
         );
       })}
+
       {editable && (
         <button onClick={addEntry}
-          style={{ background: "none", border: "1.5px dashed rgba(255,255,255,0.5)", borderRadius: "10px", color: "rgba(255,255,255,0.9)", width: "100%", padding: "6px", fontFamily: "'Jersey 25', sans-serif", fontSize: "0.95rem", cursor: "pointer", marginTop: "2px" }}>
-          + Add Another College / Program
+          style={{ background: "transparent", border: `1px dashed ${line}`, borderRadius: radius.pill, color: inkMuted, width: "100%", padding: "10px", fontFamily: font.ui, ...type.control, cursor: "pointer", transition: `border-color 220ms ${ease}, color 220ms ${ease}` }}
+          onMouseEnter={e => { e.currentTarget.style.borderColor = color.wine400; e.currentTarget.style.color = ink; }}
+          onMouseLeave={e => { e.currentTarget.style.borderColor = line; e.currentTarget.style.color = inkMuted; }}>
+          + Add another college / program
         </button>
       )}
     </div>
@@ -2842,7 +3108,7 @@ const LocationMapPreview = ({ address, initialLat, initialLng, initialIsManual, 
 
       // Show the already-saved pin immediately, if there is one.
       if (initialLat != null && initialLng != null) {
-        markerRef.current = new window.mapboxgl.Marker({ color: "#8B0000" })
+        markerRef.current = new window.mapboxgl.Marker({ color: panel })
           .setLngLat([initialLng, initialLat])
           .addTo(mapRef.current);
       }
@@ -2855,7 +3121,7 @@ const LocationMapPreview = ({ address, initialLat, initialLng, initialIsManual, 
         if (markerRef.current) {
           markerRef.current.setLngLat([lng, lat]);
         } else {
-          markerRef.current = new window.mapboxgl.Marker({ color: "#8B0000" })
+          markerRef.current = new window.mapboxgl.Marker({ color: panel })
             .setLngLat([lng, lat])
             .addTo(mapRef.current);
         }
@@ -2889,7 +3155,7 @@ const LocationMapPreview = ({ address, initialLat, initialLng, initialIsManual, 
       if (markerRef.current) {
         markerRef.current.setLngLat([lng, lat]);
       } else {
-        markerRef.current = new window.mapboxgl.Marker({ color: "#8B0000" })
+        markerRef.current = new window.mapboxgl.Marker({ color: panel })
           .setLngLat([lng, lat])
           .addTo(mapRef.current);
       }
@@ -2902,42 +3168,43 @@ const LocationMapPreview = ({ address, initialLat, initialLng, initialIsManual, 
     return () => clearTimeout(debounceRef.current);
   }, [address, mapReady]);
 
+  const pillStyle = {
+    position: "absolute", top: "10px", left: "10px", zIndex: 5,
+    background: "rgba(10,10,10,0.62)", color: color.white,
+    fontFamily: font.ui, fontSize: "0.75rem", lineHeight: 1.4,
+    padding: "4px 10px", borderRadius: radius.pill,
+  };
+
   if (mapError) {
     return (
-      <div style={{ width: "100%", height: "160px", background: "#f0f0f0", borderRadius: "12px", marginTop: "8px", display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.75rem", color: "#888", textAlign: "center", padding: "0 12px" }}>
-          Map unavailable. Address will still be saved.
+      <div style={{ width: "100%", height: "170px", background: lineSoft, border: `1px solid ${line}`, borderRadius: radius.card, marginTop: space.sm, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, textAlign: "center", padding: `0 ${space.md}`, margin: 0 }}>
+          Map unavailable. Your address will still be saved.
         </p>
       </div>
     );
   }
 
   return (
-    <div style={{ marginTop: "8px" }}>
+    <div style={{ marginTop: space.sm }}>
       <div style={{ position: "relative" }}>
-        <div ref={mapContainerRef} className="su1-map-container" />
-        {geocoding && (
-          <span style={{ position: "absolute", top: "8px", left: "10px", background: "rgba(0,0,0,0.6)", color: "white", fontFamily: "'Kufam', sans-serif", fontSize: "0.68rem", padding: "3px 8px", borderRadius: "10px" }}>
-            Locating…
-          </span>
-        )}
-        {!geocoding && pinIsManual && (
-          <span style={{ position: "absolute", top: "8px", left: "10px", background: "rgba(139,0,0,0.85)", color: "white", fontFamily: "'Kufam', sans-serif", fontSize: "0.68rem", padding: "3px 8px", borderRadius: "10px" }}>
-            
-          </span>
-        )}
+        <div ref={mapContainerRef} className="cap-map-container" />
+        {geocoding && <span style={pillStyle}>Locating…</span>}
+        {!geocoding && pinIsManual && <span style={pillStyle}>Pin set manually</span>}
         {coords.lat != null && (
           <button
             onClick={() => setShowZoom(true)}
-            title="Click to view fullscreen"
             style={{
               position: "absolute", bottom: "10px", left: "50%", transform: "translateX(-50%)",
-              background: "rgba(0,0,0,0.6)", color: "white", border: "none", borderRadius: "16px",
-              padding: "4px 12px", fontSize: "0.72rem", fontFamily: "'Kufam', sans-serif",
-              cursor: "pointer", display: "flex", alignItems: "center", gap: "4px", zIndex: 5,
+              background: "rgba(10,10,10,0.62)", color: color.white, border: "none", borderRadius: radius.pill,
+              padding: "6px 14px", fontFamily: font.ui, fontSize: "0.75rem",
+              cursor: "pointer", display: "flex", alignItems: "center", gap: "6px", zIndex: 5,
             }}
           >
-            🔍 Click to zoom
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+            Click to zoom
           </button>
         )}
         {showZoom && (
@@ -2949,7 +3216,7 @@ const LocationMapPreview = ({ address, initialLat, initialLng, initialIsManual, 
               if (markerRef.current) {
                 markerRef.current.setLngLat([lng, lat]);
               } else if (mapRef.current) {
-                markerRef.current = new window.mapboxgl.Marker({ color: "#8B0000" })
+                markerRef.current = new window.mapboxgl.Marker({ color: panel })
                   .setLngLat([lng, lat])
                   .addTo(mapRef.current);
               }
@@ -2961,7 +3228,7 @@ const LocationMapPreview = ({ address, initialLat, initialLng, initialIsManual, 
           />
         )}
       </div>
-      <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.68rem", color: "#888", margin: "4px 0 0 2px" }}>
+      <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, margin: "6px 0 0 2px" }}>
         Relocated? Click anywhere on the map to drop the pin on your new exact location.
       </p>
     </div>
@@ -2985,7 +3252,7 @@ const MapZoomModal = ({ lat, lng, onClose, onPin }) => {
         zoom:      15,
       });
       mapRef.current.addControl(new window.mapboxgl.NavigationControl(), "top-right");
-      markerRef.current = new window.mapboxgl.Marker({ color: "#8B0000" }).setLngLat([lng, lat]).addTo(mapRef.current);
+      markerRef.current = new window.mapboxgl.Marker({ color: panel }).setLngLat([lng, lat]).addTo(mapRef.current);
 
       // Click anywhere in this larger fullscreen view to fine-tune the pin —
       // easier to be precise here than on the small preview.
@@ -3012,21 +3279,23 @@ const MapZoomModal = ({ lat, lng, onClose, onPin }) => {
 
   return (
     <div
+      className="cap-modal cap-overlay"
       onClick={onClose}
-      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: "16px" }}
+      style={{ position: "fixed", inset: 0, background: "rgba(10,10,10,0.7)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: space.md }}
     >
       <div
+        className="cap-dialog"
         onClick={e => e.stopPropagation()}
-        style={{ width: "min(92vw, 800px)", height: "min(85vh, 560px)", borderRadius: "16px", overflow: "hidden", position: "relative", boxShadow: "0 8px 32px rgba(0,0,0,0.4)" }}
+        style={{ width: "min(92vw, 800px)", height: "min(85vh, 560px)", borderRadius: radius.panel, overflow: "hidden", position: "relative", boxShadow: shadow.panel }}
       >
         <div ref={mapContainerRef} style={{ width: "100%", height: "100%" }} />
         <button
           onClick={onClose}
-          style={{ position: "absolute", top: "12px", left: "12px", zIndex: 10, background: "#8B0000", color: "white", border: "none", borderRadius: "20px", padding: "6px 16px", fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", cursor: "pointer", boxShadow: "0 2px 8px rgba(0,0,0,0.3)" }}
+          style={{ position: "absolute", top: "12px", left: "12px", zIndex: 10, background: panel, color: onPanel, border: "none", borderRadius: radius.pill, padding: "8px 18px", fontFamily: font.ui, ...type.control, cursor: "pointer", boxShadow: shadow.pill }}
         >
-          ✕ Close
+          Close
         </button>
-        <span style={{ position: "absolute", top: "12px", right: "56px", zIndex: 10, background: "rgba(0,0,0,0.6)", color: "white", borderRadius: "16px", padding: "6px 14px", fontFamily: "'Kufam', sans-serif", fontSize: "0.75rem" }}>
+        <span style={{ position: "absolute", top: "12px", right: "56px", zIndex: 10, background: "rgba(10,10,10,0.62)", color: color.white, borderRadius: radius.pill, padding: "7px 14px", fontFamily: font.ui, fontSize: "0.75rem" }}>
           Click anywhere to set your exact pin
         </span>
       </div>
@@ -3047,55 +3316,51 @@ const LocationPicker = ({ location, onChange, editable = true }) => {
   const handleBarangay = (val) => onChange({ region, province, city, barangay: val, street });
   const handleStreet   = (val) => onChange({ region, province, city, barangay, street: val });
 
-  const dropStyle = { ...fieldStyle, appearance: "none", WebkitAppearance: "none", paddingRight: "28px", cursor: editable ? "pointer" : "default", marginBottom: "6px" };
-  const Arrow = () => <span style={{ position: "absolute", right: "14px", top: "38%", transform: "translateY(-50%)", color: "white", pointerEvents: "none", fontSize: "0.7rem" }}>▼</span>;
-
   return (
     <div>
-      <div style={{ position: "relative" }}>
-        <select disabled={!editable} value={region} onChange={e => handleRegion(e.target.value)} style={dropStyle}>
-          <option value="">Select Region:</option>
+      <PickerField last={!region}>
+        <select disabled={!editable} value={region} onChange={e => handleRegion(e.target.value)} style={pickerSelectStyle}>
+          <option value="">Select region</option>
           {REGIONS.map(r => <option key={r.name} value={r.name}>{r.name}</option>)}
         </select>
-        {editable && <Arrow />}
-      </div>
+      </PickerField>
+
       {region && (
-        <div style={{ position: "relative" }}>
-          <select disabled={!editable} value={province} onChange={e => handleProvince(e.target.value)} style={dropStyle}>
-            <option value="">Select Province:</option>
+        <PickerField last={!province}>
+          <select disabled={!editable} value={province} onChange={e => handleProvince(e.target.value)} style={pickerSelectStyle}>
+            <option value="">Select province</option>
             {regionData?.provinces.map(p => <option key={p.name} value={p.name}>{p.name}</option>)}
           </select>
-          {editable && <Arrow />}
-        </div>
+        </PickerField>
       )}
+
       {province && (
-        <div style={{ position: "relative" }}>
-          <select disabled={!editable} value={city} onChange={e => handleCity(e.target.value)} style={dropStyle}>
-            <option value="">Select City / Municipality:</option>
+        <PickerField last={!city}>
+          <select disabled={!editable} value={city} onChange={e => handleCity(e.target.value)} style={pickerSelectStyle}>
+            <option value="">Select city / municipality</option>
             {provinceData?.cities.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
           </select>
-          {editable && <Arrow />}
-        </div>
+        </PickerField>
       )}
+
       {city && (
-        <div style={{ position: "relative" }}>
-          <select disabled={!editable} value={barangay} onChange={e => handleBarangay(e.target.value)} style={dropStyle}>
-            <option value="">Select Barangay:</option>
+        <PickerField>
+          <select disabled={!editable} value={barangay} onChange={e => handleBarangay(e.target.value)} style={pickerSelectStyle}>
+            <option value="">Select barangay</option>
             {cityData?.barangays.map(b => <option key={b} value={b}>{b}</option>)}
           </select>
-          {editable && <Arrow />}
-        </div>
+        </PickerField>
       )}
+
       {city && (
-        <input type="text" disabled={!editable} placeholder="Street / Building (optional):" value={street}
-          onChange={e => handleStreet(e.target.value)} style={{ ...fieldStyle, marginBottom: "6px" }} />
+        <input type="text" disabled={!editable} placeholder="Street / building (optional)" value={street}
+          onChange={e => handleStreet(e.target.value)} style={fieldStyle} />
       )}
     </div>
   );
 };
 
-// ── Reset Password Screen (current-password based, like Student) ─────────────
-// ── Reset Password Modal ──────────────────────────────────────────────────────
+// ─── Reset Password Modal ─────────────────────────────────────────────────────
 const ResetPasswordModal = ({ onClose, user, onLogout }) => {
   const [currentPass, setCurrentPass] = useState("");
   const [newPass, setNewPass]         = useState("");
@@ -3112,20 +3377,34 @@ const ResetPasswordModal = ({ onClose, user, onLogout }) => {
 
   const handleSave = async () => {
     const e = {};
-    if (!currentPass) e.currentPass = "Please enter your current password.";
-    if (!newPass) e.newPass = "Please enter a new password.";
-    else if (!isPasswordStrong(newPass)) e.newPass = "Password does not meet all the requirements below.";
+    if (!currentPass) e.currentPass = "Enter your current password.";
+    if (!newPass) e.newPass = "Enter a new password.";
+    else if (!isPasswordStrong(newPass)) e.newPass = "This password doesn't meet all the requirements below.";
     if (newPass !== confirm) e.confirm = "Passwords do not match.";
     setErrors(e);
     if (Object.keys(e).length > 0) return;
     setLoading(true);
     try {
-      const uid = user?.uid || getAuth().currentUser?.uid;
-      await changePassword(currentPass, newPass, "companies", uid, getAuth().currentUser?.email);
+      // auth.currentUser can be null here if this tab never established its
+      // own Firebase Auth session (e.g. persistence is per-tab and this tab
+      // was opened/reloaded separately) — every call below would then fail
+      // as permission-denied. Fail with a clear message instead.
+      const currentUser = getAuth().currentUser;
+      if (!currentUser) {
+        setErrors({ general: "Your session has expired. Refresh the page and log in again." });
+        setLoading(false);
+        return;
+      }
+      const uid = user?.uid || currentUser.uid;
+      await changePassword(currentPass, newPass, "companies", uid, currentUser.email);
       setSuccess(true);
       setCurrentPass(""); setNewPass(""); setConfirm("");
     } catch (err) {
-      setErrors({ general: err.message || "Failed to change password. Please try again." });
+      if (err.code === "auth/wrong-password" || err.code === "auth/invalid-credential") {
+        setErrors({ currentPass: "That current password is incorrect." });
+      } else {
+        setErrors({ general: err.message || "The password didn't change. Try again." });
+      }
     } finally {
       setLoading(false);
     }
@@ -3141,91 +3420,52 @@ const ResetPasswordModal = ({ onClose, user, onLogout }) => {
 
   if (success) {
     return (
-      <div style={{
-        position: "fixed", inset: 0, zIndex: 9999,
-        background: "rgba(0,0,0,0.45)",
-        display: "flex", alignItems: "center", justifyContent: "center",
-        padding: "16px",
-      }}>
-        <div style={{
-          background: "white", borderRadius: "20px",
-          padding: "36px 32px", width: "clamp(280px, 85vw, 380px)",
-          display: "flex", flexDirection: "column", alignItems: "center",
-          gap: "12px", boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
-        }}>
-          <div style={{
-            width: "64px", height: "64px", borderRadius: "50%",
-            background: "#e8f5e9", display: "flex",
-            alignItems: "center", justifyContent: "center", marginBottom: "4px",
-          }}>
-            <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#2d7a2d" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="10"/>
-              <polyline points="9 12 11 14 15 10"/>
-            </svg>
-          </div>
-          <p style={{
-            fontFamily: "'Kufam', sans-serif", fontWeight: 700,
-            fontSize: "1.15rem", color: "#1a1a1a", margin: 0, textAlign: "center",
-          }}>Password Changed!</p>
-          <p style={{
-            fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem",
-            color: "#666", margin: 0, textAlign: "center", lineHeight: 1.5,
-          }}>Your password has been updated successfully. Please log in again with your new password.</p>
-          <button onClick={handleDone} style={{
-            width: "100%", padding: "12px", borderRadius: "30px",
-            border: "none", background: "#590101",
-            fontFamily: "'Kufam', sans-serif", fontWeight: 700,
-            fontSize: "0.95rem", cursor: "pointer", color: "white",
-            boxShadow: "0 3px 10px rgba(89,1,1,0.3)", marginTop: "8px",
-          }}>Done</button>
-        </div>
-      </div>
+      <StatusDialog
+        icon={<CheckIcon />}
+        title="Password changed"
+        body="Your password is updated. Log in again with your new password."
+        actionLabel="Done"
+        onAction={handleDone}
+      />
     );
   }
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: "16px" }}>
-      <div className="cap-modal-inner">
+    <div className="cap-modal cap-overlay" style={{ position: "fixed", inset: 0, background: "rgba(10,10,10,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: space.md }}>
+      <div className="cap-modal-inner cap-dialog">
         <div className="cap-modal-body">
-          <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.3rem", color: red, marginBottom: "12px" }}>RESET PASSWORD:</p>
-          <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#666", marginBottom: "16px" }}>Enter your current password, then your new password below.</p>
+          <ModalTitle sub="Choose a password you don't use anywhere else.">Reset password</ModalTitle>
 
-          <label style={labelStyle}>Current Password:</label>
-          <PasswordInput value={currentPass} onChange={e => { setCurrentPass(e.target.value); setErrors(p => ({ ...p, currentPass: "" })); }} onKeyDown={handleKeyDown} />
-          {errors.currentPass && <p style={{ color: "red", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif", marginBottom: "6px" }}>{errors.currentPass}</p>}
+          <label style={labelStyle}>Current password</label>
+          <PasswordInput value={currentPass} onChange={e => { setCurrentPass(e.target.value); setErrors(p => ({ ...p, currentPass: "" })); }} onKeyDown={handleKeyDown} invalid={!!errors.currentPass} />
+          {errors.currentPass && <p style={errorTextStyle}>{errors.currentPass}</p>}
 
-          <label style={labelStyle}>New Password:</label>
-          <PasswordInput value={newPass} onChange={e => { setNewPass(e.target.value); setErrors(p => ({ ...p, newPass: "" })); }} onKeyDown={handleKeyDown} />
-          {errors.newPass && <p style={{ color: "red", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif", marginBottom: "6px" }}>{errors.newPass}</p>}
+          <hr style={{ border: "none", borderTop: `1px solid ${line}`, margin: `${space.lg} 0 ${space.md}` }} />
+
+          <label style={labelStyle}>New password</label>
+          <PasswordInput value={newPass} onChange={e => { setNewPass(e.target.value); setErrors(p => ({ ...p, newPass: "" })); }} onKeyDown={handleKeyDown} invalid={!!errors.newPass} />
+          {errors.newPass && <p style={errorTextStyle}>{errors.newPass}</p>}
 
           <PasswordChecklist password={newPass} />
 
-          <label style={labelStyle}>Confirm Password:</label>
-          <PasswordInput value={confirm} onChange={e => { setConfirm(e.target.value); setErrors(p => ({ ...p, confirm: "" })); }} onKeyDown={handleKeyDown} />
-          {errors.confirm && <p style={{ color: "red", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif", marginBottom: "6px" }}>{errors.confirm}</p>}
+          <label style={labelStyle}>Confirm new password</label>
+          <PasswordInput value={confirm} onChange={e => { setConfirm(e.target.value); setErrors(p => ({ ...p, confirm: "" })); }} onKeyDown={handleKeyDown} invalid={!!errors.confirm} />
+          {errors.confirm && <p style={errorTextStyle}>{errors.confirm}</p>}
 
-          {errors.general && (
-            <p style={{ color: "red", fontSize: "0.8rem", fontFamily: "'Kufam', sans-serif", textAlign: "center", marginTop: "12px" }}>
-              ⚠️ {errors.general}
-            </p>
-          )}
+          {errors.general && <p style={{ ...errorTextStyle, textAlign: "center", marginTop: space.md }}>{errors.general}</p>}
         </div>
         <div className="cap-modal-footer">
-          <button onClick={onClose} style={{ padding: "10px 28px", borderRadius: "20px", background: "white", color: darkRed, border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.9rem", cursor: "pointer" }}>
-            Cancel
-          </button>
-          <button onClick={handleSave} disabled={loading} style={{ padding: "10px 28px", borderRadius: "20px", background: "rgba(255,255,255,0.25)", color: "white", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.9rem", cursor: loading ? "not-allowed" : "pointer", opacity: loading ? 0.7 : 1 }}>
-            {loading ? "Saving…" : "Save New Password"}
-          </button>
+          <FooterGhostButton onClick={onClose}>Cancel</FooterGhostButton>
+          <FooterSolidButton onClick={handleSave} disabled={loading}>{loading ? "Saving…" : "Save password"}</FooterSolidButton>
         </div>
       </div>
     </div>
   );
 };
 
-// ── Terms Screen (company-facing, styled to match StudentAccountProfileScreen —
-// content unchanged from the official OJTern Terms and Conditions,
-// Dominican College of Tarlac, Inc., last updated July 19, 2026) ─────────────
+// ─── Terms & Conditions Data ──────────────────────────────────────────────────
+// Content unchanged from the official OJTern Terms and Conditions,
+// Dominican College of Tarlac, Inc., last updated July 19, 2026.
 const TERMS_LAST_UPDATED = "July 19, 2026";
 
 const COMPANY_TERMS_SECTIONS = [
@@ -3284,192 +3524,198 @@ const COMPANY_TERMS_SECTIONS = [
     title: "7. Contact Information",
     items: [
       "For questions, concerns, or requests regarding these Terms or your Personal Information, please contact the School through your assigned OJT Coordinator or the official support channel.",
-       <p style={{ fontFamily: "'Jua', sans-serif", color: "#1a1a1a" }}>Email: support@ojtern.com</p>
+      // Plain string, not JSX — LegalPanel runs every item through
+      // linkifyEmails(), which splits on the text and would throw on an
+      // element. The address gets turned into a link there anyway.
+      "Email: support@ojtern.com",
     ],
   },
 ];
 
-const TermsScreen = ({ onBack }) => (
-  <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-    <SectionHeaderBar iconSrc={termsIcon} title="Terms & Condition" onBack={onBack} />
-    <div className="cap-sub-body">
-      <div style={{ background: "#e8e8e8", borderRadius: "16px", padding: "24px 28px" }}>
+// ── Email addresses in the legal text ─────────────────────────────────────────
+// Gmail's compose URL rather than a plain mailto: — this is a web app, and
+// mailto: hands the click to whatever desktop client is registered, which on
+// most machines is nothing at all, so the link just looks broken.
+const EMAIL_SPLIT = /([\w.+-]+@[\w-]+\.[\w-]+)/g;
+const IS_EMAIL    = /^[\w.+-]+@[\w-]+\.[\w-]+$/;
+const composeUrl  = (addr) => `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(addr)}`;
 
-        <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.78rem", fontStyle: "italic", color: "#888", marginBottom: "18px" }}>
-          Last updated: {TERMS_LAST_UPDATED}
-        </p>
+const linkifyEmails = (text) =>
+  String(text).split(EMAIL_SPLIT).map((part, i) => {
+    if (!IS_EMAIL.test(part)) return part;
+    const linkStyle = { color: ink, fontWeight: 500, textDecoration: "underline", textUnderlineOffset: "3px" };
+    return <a key={i} href={composeUrl(part)} target="_blank" rel="noopener noreferrer" style={linkStyle}>{part}</a>;
+  });
 
-        {COMPANY_TERMS_SECTIONS.map((section, idx) => (
-        <div key={section.title} style={{ marginBottom: idx === COMPANY_TERMS_SECTIONS.length - 1 ? 0 : "20px" }}>
-          <h3 style={{
-            fontFamily: "'Kufam', sans-serif",
-            fontWeight: 700,
-            fontSize: "0.92rem",
-            color: darkRed,
-            margin: "0 0 8px",
-          }}>
-            {section.title}
-          </h3>
+// ── Legal document panel ──────────────────────────────────────────────────────
+// Same reading layout the student gets: a progress rail across the top, an
+// "On this page" sidebar built straight from the section titles (so it can't
+// drift out of sync with the text), and the document body itself.
+const LegalPanel = ({ title, lastUpdated, sections, onBack }) => {
+  const scrollRef = useRef(null);
+  const [progress, setProgress] = useState(0);
+  const [activeId, setActiveId] = useState(null);
 
-          <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-            {section.items.map((item, i) => (
-              <p
-                key={i}
-                style={{
-                  fontFamily: "'Kufam', sans-serif",
-                  fontSize: "0.85rem",
-                  color: "#444",
-                  lineHeight: 1.7,
-                  margin: 0,
-                }}
-              >
-                {item}
-              </p>
-            ))}
+  const toc = useMemo(
+    () => sections.map((s, i) => ({ id: `sec-${i}`, text: s.title })),
+    [sections]
+  );
+
+  // Progress + active-section tracking read from this panel's own scroll
+  // container, not the window — nothing behind it scrolls here.
+  useEffect(() => {
+    const box = scrollRef.current;
+    if (!box) return;
+    const onScroll = () => {
+      const max = box.scrollHeight - box.clientHeight;
+      setProgress(max > 0 ? Math.min(100, (box.scrollTop / max) * 100) : 0);
+
+      const headings = box.querySelectorAll("[data-heading]");
+      const boxTop   = box.getBoundingClientRect().top;
+      let current = null;
+      headings.forEach(h => {
+        if (h.getBoundingClientRect().top - boxTop <= 90) current = h.getAttribute("data-heading");
+      });
+      // The last section's heading may never cross that threshold if its
+      // body is too short to push it up — snap to it at the bottom instead.
+      if (max > 0 && box.scrollTop >= max - 2 && toc.length > 0) current = toc[toc.length - 1].id;
+      if (current) setActiveId(current);
+    };
+    box.addEventListener("scroll", onScroll, { passive: true });
+    onScroll();
+    return () => box.removeEventListener("scroll", onScroll);
+  }, [toc]);
+
+  // Keep the highlighted rail item in view as the reader moves down.
+  useEffect(() => {
+    if (!activeId) return;
+    document.getElementById(`toc-link-${activeId}`)?.scrollIntoView({ block: "nearest" });
+  }, [activeId]);
+
+  const scrollTo = (id) => {
+    const el  = document.getElementById(id);
+    const box = scrollRef.current;
+    if (!el || !box) return;
+    box.scrollTo({ top: el.offsetTop - 16, behavior: "smooth" });
+  };
+
+  return (
+    <div className="cap-screen legal-panel">
+      <LegalStyles />
+      <SectionHeaderBar title={title} onBack={onBack} />
+
+      <div className="legal-progress-track">
+        <div className="legal-progress-fill" style={{ width: `${progress}%` }} />
+      </div>
+
+      <div className="legal-cols">
+        {toc.length > 0 && (
+          <nav className="legal-toc" aria-label="Sections">
+            <p className="legal-toc-heading">On this page</p>
+            <ol style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: "2px" }}>
+              {toc.map(item => {
+                const isActive = activeId === item.id;
+                return (
+                  <li key={item.id} id={`toc-link-${item.id}`}>
+                    <button
+                      type="button"
+                      className="legal-toc-btn"
+                      onClick={() => scrollTo(item.id)}
+                      style={{
+                        borderLeft: `2px solid ${isActive ? ink : "transparent"}`,
+                        color: isActive ? ink : inkMuted,
+                        fontWeight: isActive ? 600 : 400,
+                      }}
+                    >
+                      {item.text}
+                    </button>
+                  </li>
+                );
+              })}
+            </ol>
+          </nav>
+        )}
+
+        <div className="legal-scroll" ref={scrollRef}>
+          <h1 style={{ fontFamily: font.ui, fontSize: "clamp(1.4rem, 4vw, 2rem)", fontWeight: 600, letterSpacing: "-0.02em", color: ink, margin: `0 0 ${space.md}`, lineHeight: 1.2 }}>
+            {title}
+          </h1>
+
+          {lastUpdated && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: space.sm, marginBottom: space.xl }}>
+              <span style={{ fontFamily: font.ui, ...type.helper, fontWeight: 500, color: onPanel, background: panel, borderRadius: radius.pill, padding: "6px 15px" }}>
+                Last updated {lastUpdated}
+              </span>
+            </div>
+          )}
+
+          {sections.map((section, idx) => {
+            const id = `sec-${idx}`;
+            const isFirst = idx === 0;
+            return (
+              <section key={section.title}>
+                <h2
+                  id={id}
+                  data-heading={id}
+                  style={{
+                    fontFamily: font.ui, fontSize: "clamp(1.05rem, 3vw, 1.25rem)", fontWeight: 600,
+                    letterSpacing: "-0.01em", color: ink,
+                    margin: isFirst ? `0 0 ${space.sm}` : `${space.xl} 0 ${space.sm}`,
+                    paddingTop: isFirst ? 0 : space.lg,
+                    borderTop: isFirst ? "none" : `1px solid ${line}`,
+                    scrollMarginTop: space.lg,
+                  }}
+                >
+                  {section.title}
+                </h2>
+
+                {section.intro && (
+                  <p style={{ fontFamily: font.ui, ...type.body, lineHeight: 1.7, color: inkBody, margin: `0 0 ${space.sm}`, maxWidth: "74ch" }}>
+                    {section.intro}
+                  </p>
+                )}
+
+                {section.intro ? (
+                  <ul style={{ margin: `8px 0 ${space.md}`, paddingLeft: "22px" }}>
+                    {section.items.map((item, i) => (
+                      <li key={i} style={{ fontFamily: font.ui, ...type.body, lineHeight: 1.7, color: inkBody, marginBottom: "5px", maxWidth: "74ch" }}>
+                        {linkifyEmails(item)}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  section.items.map((item, i) => (
+                    <p key={i} style={{ fontFamily: font.ui, ...type.body, lineHeight: 1.7, color: inkBody, margin: `0 0 ${space.md}`, maxWidth: "74ch" }}>
+                      {linkifyEmails(item)}
+                    </p>
+                  ))
+                )}
+              </section>
+            );
+          })}
+
+          <div style={{ display: "flex", justifyContent: "flex-end", marginTop: space.xl }}>
+            <button
+              type="button"
+              onClick={onBack}
+              style={{ padding: "13px 36px", borderRadius: radius.pill, border: "none", background: panel, color: onPanel, fontFamily: font.ui, ...type.control, cursor: "pointer", boxShadow: shadow.pill, transition: `background 240ms ${ease}` }}
+              onMouseEnter={e => (e.currentTarget.style.background = panelDeep)}
+              onMouseLeave={e => (e.currentTarget.style.background = panel)}
+            >
+              I understand
+            </button>
           </div>
         </div>
-      ))}
-
       </div>
     </div>
-  </div>
+  );
+};
+
+const TermsScreen = ({ onBack }) => (
+  <LegalPanel title="Terms and conditions" lastUpdated={TERMS_LAST_UPDATED} sections={COMPANY_TERMS_SECTIONS} onBack={onBack} />
 );
 
-// ── Save Modals ───────────────────────────────────────────────────────────────
-const DiscardChangesModal = ({ onKeepEditing, onDiscard }) => (
-  <div style={{
-    position: "fixed", inset: 0, zIndex: 9999,
-    background: "rgba(0,0,0,0.45)",
-    display: "flex", alignItems: "center", justifyContent: "center",
-    padding: "16px",
-  }}>
-    <div style={{
-      background: "white", borderRadius: "20px",
-      padding: "36px 32px", width: "clamp(280px, 85vw, 360px)",
-      display: "flex", flexDirection: "column", alignItems: "center",
-      gap: "12px", boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
-    }}>
-      <div style={{
-        width: "64px", height: "64px", borderRadius: "50%",
-        background: "#fdf0e0", display: "flex",
-        alignItems: "center", justifyContent: "center", marginBottom: "4px",
-      }}>
-        <svg width="30" height="30" viewBox="0 0 24 24" fill="none"
-          stroke="#b8730a" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
-          <line x1="12" y1="9" x2="12" y2="13"/>
-          <line x1="12" y1="17" x2="12.01" y2="17"/>
-        </svg>
-      </div>
-      <p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "1.1rem", color: "#1a1a1a", margin: 0, textAlign: "center" }}>
-        Discard Changes?
-      </p>
-      <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.88rem", color: "#666", margin: 0, textAlign: "center", lineHeight: 1.5 }}>
-        All your changes will be lost. Are you sure you want to cancel this change?
-      </p>
-      <div style={{ display: "flex", gap: "10px", width: "100%", marginTop: "8px" }}>
-        <button onClick={onKeepEditing} style={{
-          flex: 1, padding: "12px", borderRadius: "30px",
-          border: "1.5px solid #8B0000", background: "white",
-          fontFamily: "'Kufam', sans-serif", fontWeight: 700,
-          fontSize: "0.88rem", cursor: "pointer", color: "#8B0000",
-        }}>Keep Editing</button>
-        <button onClick={onDiscard} style={{
-          flex: 1, padding: "12px", borderRadius: "30px",
-          border: "none", background: "#8B0000",
-          fontFamily: "'Kufam', sans-serif", fontWeight: 700,
-          fontSize: "0.88rem", cursor: "pointer", color: "white",
-          boxShadow: "0 3px 10px rgba(139,0,0,0.3)",
-        }}>Yes, Cancel</button>
-      </div>
-    </div>
-  </div>
-);
-
-const SaveSuccessModal = ({ onClose }) => (
-  <div style={{
-    position: "fixed", inset: 0, zIndex: 9999,
-    background: "rgba(0,0,0,0.45)",
-    display: "flex", alignItems: "center", justifyContent: "center",
-    padding: "16px",
-  }}>
-    <div style={{
-      background: "white", borderRadius: "20px",
-      padding: "36px 32px", width: "clamp(280px, 85vw, 360px)",
-      display: "flex", flexDirection: "column", alignItems: "center",
-      gap: "12px", boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
-    }}>
-      <div style={{
-        width: "64px", height: "64px", borderRadius: "50%",
-        background: "#e8f5e9", display: "flex",
-        alignItems: "center", justifyContent: "center", marginBottom: "4px",
-      }}>
-        <svg width="32" height="32" viewBox="0 0 24 24" fill="none"
-          stroke="#2d7a2d" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-          <polyline points="20 6 9 17 4 12"/>
-        </svg>
-      </div>
-      <p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "1.15rem", color: "#1a1a1a", margin: 0 }}>
-        Saved Successfully!
-      </p>
-      <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem", color: "#666", margin: 0, textAlign: "center", lineHeight: 1.5 }}>
-        Your profile information has been updated.
-      </p>
-      <button onClick={onClose} style={{
-        marginTop: "8px", width: "100%", padding: "12px", borderRadius: "30px",
-        border: "none", background: "#8B0000",
-        fontFamily: "'Kufam', sans-serif", fontWeight: 700,
-        fontSize: "0.95rem", cursor: "pointer", color: "white",
-        boxShadow: "0 3px 10px rgba(139,0,0,0.3)",
-      }}>Done</button>
-    </div>
-  </div>
-);
-
-const SaveErrorModal = ({ message, onClose }) => (
-  <div style={{
-    position: "fixed", inset: 0, zIndex: 9999,
-    background: "rgba(0,0,0,0.45)",
-    display: "flex", alignItems: "center", justifyContent: "center",
-    padding: "16px",
-  }}>
-    <div style={{
-      background: "white", borderRadius: "20px",
-      padding: "36px 32px", width: "clamp(280px, 85vw, 360px)",
-      display: "flex", flexDirection: "column", alignItems: "center",
-      gap: "12px", boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
-    }}>
-      <div style={{
-        width: "64px", height: "64px", borderRadius: "50%",
-        background: "#fde8e8", display: "flex",
-        alignItems: "center", justifyContent: "center", marginBottom: "4px",
-      }}>
-        <svg width="30" height="30" viewBox="0 0 24 24" fill="none"
-          stroke="#8B0000" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-          <circle cx="12" cy="12" r="10"/>
-          <line x1="12" y1="8" x2="12" y2="12"/>
-          <line x1="12" y1="16" x2="12.01" y2="16"/>
-        </svg>
-      </div>
-      <p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "1.15rem", color: "#1a1a1a", margin: 0 }}>
-        Save Failed
-      </p>
-      <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem", color: "#666", margin: 0, textAlign: "center", lineHeight: 1.5 }}>
-        {message || "Something went wrong. Please try again."}
-      </p>
-      <button onClick={onClose} style={{
-        marginTop: "8px", width: "100%", padding: "12px", borderRadius: "30px",
-        border: "none", background: "#8B0000",
-        fontFamily: "'Kufam', sans-serif", fontWeight: 700,
-        fontSize: "0.95rem", cursor: "pointer", color: "white",
-        boxShadow: "0 3px 10px rgba(139,0,0,0.3)",
-      }}>Try Again</button>
-    </div>
-  </div>
-);
-
-// ── Personal Information Screen ───────────────────────────────────────────────
-// ── Email Change Confirm Modal ────────────────────────────────────────────────
+// ─── Email Change Confirm Modal ───────────────────────────────────────────────
 // Changing a company's login email needs the current password (Firebase
 // treats it as a sensitive Auth operation) and is usually a two-step,
 // verify-by-link process — see requestCompanyEmailChange in AuthService.js
@@ -3486,7 +3732,7 @@ const EmailChangeConfirmModal = ({ newEmail, uid, onCancel, onDone }) => {
   };
 
   const handleConfirm = async () => {
-    if (!currentPass) { setError("Please enter your current password."); return; }
+    if (!currentPass) { setError("Enter your current password."); return; }
     setLoading(true);
     setError("");
     try {
@@ -3505,7 +3751,7 @@ const EmailChangeConfirmModal = ({ newEmail, uid, onCancel, onDone }) => {
         onCancel();
       }
     } catch (err) {
-      setError(err.message || "Failed to update email. Please try again.");
+      setError(err.message || "The email didn't change. Try again.");
     } finally {
       setLoading(false);
     }
@@ -3513,58 +3759,42 @@ const EmailChangeConfirmModal = ({ newEmail, uid, onCancel, onDone }) => {
 
   if (sent) {
     return (
-      <div style={{ position: "fixed", inset: 0, zIndex: 9999, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: "16px" }}>
-        <div style={{ background: "white", borderRadius: "20px", padding: "36px 32px", width: "clamp(280px, 85vw, 400px)", display: "flex", flexDirection: "column", alignItems: "center", gap: "12px", boxShadow: "0 8px 32px rgba(0,0,0,0.18)" }}>
-          <div style={{ width: "64px", height: "64px", borderRadius: "50%", background: "#e8f5e9", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: "4px" }}>
-            <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#2d7a2d" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M4 4h16v16H4z" opacity="0"/>
-              <path d="M22 6 12 13 2 6"/>
-              <path d="M2 6h20v12H2z"/>
-            </svg>
-          </div>
-          <p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "1.1rem", color: "#1a1a1a", margin: 0, textAlign: "center" }}>
-            Confirmation Email Sent
-          </p>
-          <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.88rem", color: "#666", margin: 0, textAlign: "center", lineHeight: 1.5 }}>
-            We sent a confirmation link to <b>{newEmail}</b>. Click it to finish changing your login email.
-            Until then, keep using your <b>current</b> email to log in.
-          </p>
-          <button onClick={onCancel} style={{ width: "100%", padding: "12px", borderRadius: "30px", border: "none", background: "#590101", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.95rem", cursor: "pointer", color: "white", boxShadow: "0 3px 10px rgba(89,1,1,0.3)", marginTop: "8px" }}>
-            Got it
-          </button>
-        </div>
-      </div>
+      <StatusDialog
+        icon={<MailIcon />}
+        title="Confirmation email sent"
+        body={`We sent a confirmation link to ${newEmail}. Click it to finish changing your login email — until then, keep using your current email to log in.`}
+        actionLabel="Got it"
+        onAction={onCancel}
+      />
     );
   }
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: "16px" }}>
-      <div className="cap-modal-inner">
+    <div className="cap-modal cap-overlay" style={{ position: "fixed", inset: 0, background: "rgba(10,10,10,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: space.md }}>
+      <div className="cap-modal-inner cap-dialog">
         <div className="cap-modal-body">
-          <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.3rem", color: red, marginBottom: "12px" }}>CONFIRM EMAIL CHANGE:</p>
-          <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#666", marginBottom: "16px" }}>
-            You're changing your login email to <b>{newEmail}</b>. Enter your current password to continue.
-          </p>
-          <label style={labelStyle}>Current Password:</label>
-          <PasswordInput value={currentPass} onChange={e => { setCurrentPass(e.target.value); setError(""); }} onKeyDown={handleKeyDown} />
-          {error && <p style={{ color: "red", fontSize: "0.8rem", fontFamily: "'Kufam', sans-serif", textAlign: "center", marginTop: "12px" }}>⚠️ {error}</p>}
+          <ModalTitle sub={`You're changing your login email to ${newEmail}. Enter your current password to continue.`}>
+            Confirm email change
+          </ModalTitle>
+
+          <label style={labelStyle}>Current password</label>
+          <PasswordInput value={currentPass} onChange={e => { setCurrentPass(e.target.value); setError(""); }} onKeyDown={handleKeyDown} invalid={!!error} />
+          {error && <p style={{ ...errorTextStyle, textAlign: "center", marginTop: space.sm }}>{error}</p>}
         </div>
         <div className="cap-modal-footer">
-          <button onClick={onCancel} disabled={loading} style={{ padding: "10px 28px", borderRadius: "20px", background: "white", color: darkRed, border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.9rem", cursor: "pointer" }}>
-            Cancel
-          </button>
-          <button onClick={handleConfirm} disabled={loading} style={{ padding: "10px 28px", borderRadius: "20px", background: "rgba(255,255,255,0.25)", color: "white", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.9rem", cursor: loading ? "not-allowed" : "pointer", opacity: loading ? 0.7 : 1 }}>
-            {loading ? "Confirming…" : "Confirm"}
-          </button>
+          <FooterGhostButton onClick={onCancel} disabled={loading}>Cancel</FooterGhostButton>
+          <FooterSolidButton onClick={handleConfirm} disabled={loading}>{loading ? "Confirming…" : "Confirm"}</FooterSolidButton>
         </div>
       </div>
     </div>
   );
 };
 
+// ─── PersonalInfoScreen ───────────────────────────────────────────────────────
 const PersonalInfoScreen = ({ onBack, user }) => {
-  const [editing, setEditing]             = useState(false);
-  const [loading, setLoading]             = useState(true);
+  const [editing, setEditing] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving]   = useState(false);
 
   const [companyName, setCompanyName]     = useState("");
   const [industry, setIndustry]           = useState("");
@@ -3677,6 +3907,9 @@ const PersonalInfoScreen = ({ onBack, user }) => {
         deptSelectionsRef.current = Array.isArray(d.deptSelections) ? d.deptSelections : [];
       }
       setLoading(false);
+    }, (err) => {
+      console.error("Failed to load company profile:", err);
+      setLoading(false);
     });
     return () => unsub();
   }, [user?.uid]);
@@ -3684,13 +3917,13 @@ const PersonalInfoScreen = ({ onBack, user }) => {
   const validate = () => {
     const e = {};
     if (!companyName.trim()) e.companyName = "Company name is required.";
-    if (!industry.trim()) e.industry = "Please enter your industry.";
+    if (!industry.trim()) e.industry = "Industry is required.";
     if (!email.trim()) e.email = "Email is required.";
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) e.email = "Invalid email address.";
-    if (!location.region) e.location = "Please select a region.";
-    else if (!location.province) e.location = "Please select a province.";
-    else if (!location.city) e.location = "Please select a city/municipality.";
-    else if (!location.barangay) e.location = "Please select a barangay.";
+    if (!location.region) e.location = "Select a region.";
+    else if (!location.province) e.location = "Select a province.";
+    else if (!location.city) e.location = "Select a city or municipality.";
+    else if (!location.barangay) e.location = "Select a barangay.";
     // Street address is optional - no validation required
     setErrors(e);
     return Object.keys(e).length === 0;
@@ -3699,7 +3932,7 @@ const PersonalInfoScreen = ({ onBack, user }) => {
   const handleSave = async () => {
     if (!validate()) return;
     const uid = user?.uid || getAuth().currentUser?.uid;
-    if (!uid) { setErrorMsg("Error: Not logged in."); setShowError(true); return; }
+    if (!uid) { setErrorMsg("You're not logged in."); setShowError(true); return; }
 
     // Email changes go through Firebase Auth (see requestCompanyEmailChange
     // in AuthService.js) — they need the current password AND aren't
@@ -3719,6 +3952,7 @@ const PersonalInfoScreen = ({ onBack, user }) => {
   // run either directly (email unchanged) or after the email-change modal
   // successfully reauthenticates and calls requestCompanyEmailChange.
   const saveNonEmailFields = async (uid) => {
+    setSaving(true);
     try {
       // If the typed industry isn't one we already know about (curated or
       // previously crowd-added), save it so future Companies see it as a
@@ -3803,25 +4037,43 @@ const PersonalInfoScreen = ({ onBack, user }) => {
       console.error("Save failed:", err);
       setErrorMsg(err.message);
       setShowError(true);
+    } finally {
+      setSaving(false);
     }
   };
 
-  const inlineInputStyle = {
-    background: "transparent", border: "none", borderBottom: "1px solid white",
-    color: "white", fontFamily: "'Kufam', sans-serif", fontSize: "0.88rem",
-    outline: "none", width: "calc(100% - 120px)", marginLeft: "8px", boxSizing: "border-box",
+  const startEditing = () => {
+    editSnapshotRef.current = JSON.stringify({ companyName, industry, courseSelections, location, email });
+    setEditing(true);
   };
 
-  const rowStyle = {
-    display: "flex", alignItems: editing ? "flex-start" : "center",
-    justifyContent: "space-between", background: "#7A4F4F",
-    borderRadius: "10px", padding: "12px 16px", marginBottom: "8px",
+  const requestCancel = () => {
+    const current = JSON.stringify({ companyName, industry, courseSelections, location, email });
+    if (current !== editSnapshotRef.current) {
+      setShowDiscardConfirm(true);
+    } else {
+      setEditing(false);
+      setErrors({});
+    }
   };
 
-  const locationDisplay = [location.street, location.barangay, location.city, location.province, location.region].filter(Boolean).join(", ");
+  const acceptedCourses = courseSelections.filter(s => s.college);
+  const locationDisplay = [location.street, location.barangay, location.city, location.province, location.region]
+    .filter(Boolean).join(", ");
+
+  if (loading) {
+    return (
+      <div className="cap-screen" style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden", background: page }}>
+        <SectionHeaderBar title="Personal information" onBack={onBack} />
+        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <p style={{ fontFamily: font.ui, ...type.body, color: inkFaint }}>Loading profile…</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+    <div className="cap-screen" style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden", background: page }}>
       {showSuccess && <SaveSuccessModal onClose={() => setShowSuccess(false)} />}
       {showError   && <SaveErrorModal message={errorMsg} onClose={() => setShowError(false)} />}
       {showEmailConfirm && (
@@ -3850,7 +4102,9 @@ const PersonalInfoScreen = ({ onBack, user }) => {
           }}
         />
       )}
-      <SectionHeaderBar iconSrc={personalInfoIcon} title="Personal Information" onBack={onBack} />
+
+      <SectionHeaderBar title={editing ? "Edit personal information" : "Personal information"} onBack={onBack} />
+
       <div className="cap-info-body">
         <div
           className="cap-info-card"
@@ -3861,80 +4115,81 @@ const PersonalInfoScreen = ({ onBack, user }) => {
             }
           }}
         >
-          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "8px" }}>
-            {!editing && (
-              <button onClick={() => {
-                editSnapshotRef.current = JSON.stringify({ companyName, industry, courseSelections, location, email });
-                setEditing(true);
-              }} title="Edit"
-                style={{ width: "32px", height: "32px", borderRadius: "50%", border: "2px solid white", background: "transparent", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
-                <EditIcon size={15} color="white" />
+          {/* Edit button */}
+          {!editing && (
+            <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: space.sm }}>
+              <button onClick={startEditing}
+                style={{ display: "inline-flex", alignItems: "center", gap: "7px", padding: "8px 16px", borderRadius: radius.pill, border: `1px solid ${line}`, background: surface, color: ink, fontFamily: font.ui, ...type.control, cursor: "pointer", boxShadow: shadow.input }}>
+                <EditIcon size={14} />
+                Edit
               </button>
-            )}
-          </div>
-
-          {/* Company Name */}
-          <div style={rowStyle}>
-            <div style={{ flex: 1 }}>
-              <span style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.88rem", color: "white" }}>Company Name: </span>
-              {editing ? (
-                <>
-                  <input value={companyName} onChange={e => setCompanyName(e.target.value)} placeholder="Company Name" style={inlineInputStyle} />
-                  {errors.companyName && <p style={{ color: "#ffcccc", fontSize: "0.72rem", fontFamily: "'Kufam', sans-serif", margin: "2px 0 0 8px" }}>{errors.companyName}</p>}
-                </>
-              ) : (
-                <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.88rem", color: "white", marginLeft: "4px" }}>{companyName || "—"}</span>
-              )}
             </div>
+          )}
+
+          {/* Company name */}
+          <div className="cap-info-row">
+            {fieldLabel("Company name")}
+            {editing ? (
+              <>
+                <input
+                  value={companyName}
+                  onChange={e => { setCompanyName(e.target.value); setErrors(p => ({ ...p, companyName: "" })); }}
+                  placeholder="Company name"
+                  style={errors.companyName ? inlineInputErrorStyle : inlineInputStyle}
+                />
+                {errText(errors.companyName)}
+              </>
+            ) : (
+              <span style={rowValue}>{companyName || "—"}</span>
+            )}
           </div>
 
           {/* Industry */}
-          <div style={{ ...rowStyle, flexDirection: "column", alignItems: "stretch" }}>
-            <span style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.88rem", color: "white", marginBottom: editing ? "8px" : "0" }}>
-              Industry:{" "}
-              {!editing && <span style={{ fontWeight: 400 }}>{industry || "—"}</span>}
-            </span>
-            {editing && (
+          <div className="cap-info-row">
+            {fieldLabel("Industry")}
+            {editing ? (
               <>
-                <IndustryAutocomplete value={industry} onChange={setIndustry} hasError={!!errors.industry} options={allIndustries} editable={true} />
-                {errors.industry && <p style={{ color: "#ffcccc", fontSize: "0.72rem", fontFamily: "'Kufam', sans-serif", margin: "2px 0 0" }}>{errors.industry}</p>}
+                <IndustryAutocomplete
+                  value={industry}
+                  onChange={v => { setIndustry(v); setErrors(p => ({ ...p, industry: "" })); }}
+                  hasError={!!errors.industry}
+                  options={allIndustries}
+                  editable={true}
+                />
+                {errText(errors.industry)}
               </>
+            ) : (
+              <span style={rowValue}>{industry || "—"}</span>
             )}
           </div>
 
-
-          {/* Courses / Programs Accepted */}
-          <div style={{ ...rowStyle, flexDirection: "column", alignItems: "stretch" }}>
-            <span style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.88rem", color: "white", marginBottom: editing ? "8px" : "0" }}>
-              Courses / Programs Accepted:{" "}
-              {!editing && courseSelections.filter(s => s.college).length === 0 && (
-                <span style={{ fontWeight: 400 }}>—</span>
-              )}
-            </span>
-            {!editing && courseSelections.filter(s => s.college).length > 0 && (
-              <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-                {courseSelections.filter(s => s.college).map((s, idx) => (
-                  <span key={idx} style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", color: "white", fontWeight: 400 }}>
-                    • {[s.college, s.program, s.specialization].filter(Boolean).join(" — ")}
-                  </span>
-                ))}
+          {/* Courses / programs accepted */}
+          <div className="cap-info-row">
+            {fieldLabel("Courses / programs accepted")}
+            {editing ? (
+              <div style={{ marginTop: "6px" }}>
+                <MultiCollegeProgramPicker selections={courseSelections} onChange={setCourseSelections} editable={true} />
               </div>
-            )}
-            {editing && (
-              <MultiCollegeProgramPicker selections={courseSelections} onChange={setCourseSelections} editable={true} />
+            ) : acceptedCourses.length > 0 ? (
+              <ul style={{ margin: 0, paddingLeft: "18px" }}>
+                {acceptedCourses.map((s, idx) => (
+                  <li key={idx} style={{ fontFamily: font.ui, ...type.body, color: ink, marginBottom: "2px" }}>
+                    {[s.college, s.program, s.specialization].filter(Boolean).join(" — ")}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <span style={rowValue}>—</span>
             )}
           </div>
 
           {/* Location */}
-          <div style={{ ...rowStyle, flexDirection: "column", alignItems: "stretch" }}>
-            <span style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.88rem", color: "white", marginBottom: editing ? "8px" : "0" }}>
-              Location:{" "}
-              {!editing && <span style={{ fontWeight: 400, fontSize: "0.82rem" }}>{locationDisplay || "—"}</span>}
-            </span>
-            {editing && (
-              <>
+          <div className="cap-info-row">
+            {fieldLabel("Location")}
+            {editing ? (
+              <div style={{ marginTop: "6px" }}>
                 <LocationPicker location={location} onChange={setLocation} editable={true} />
-                {errors.location && <p style={{ color: "#ffcccc", fontSize: "0.72rem", fontFamily: "'Kufam', sans-serif", margin: "2px 0 0" }}>{errors.location}</p>}
+                {errText(errors.location)}
                 {location.city && (
                   <LocationMapPreview
                     address={[location.street, location.barangay, location.city, location.province, location.region].filter(Boolean).join(", ")}
@@ -3946,47 +4201,50 @@ const PersonalInfoScreen = ({ onBack, user }) => {
                     }}
                   />
                 )}
-              </>
+              </div>
+            ) : (
+              <span style={rowValue}>{locationDisplay || "—"}</span>
             )}
           </div>
 
-          {/* Email */}
-          <div style={rowStyle}>
-            <div style={{ flex: 1 }}>
-              <span style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.88rem", color: "white" }}>Email Address: </span>
-              {editing ? (
-                <>
-                  <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="example@gmail.com" style={inlineInputStyle} />
-                  {errors.email && <p style={{ color: "#ffcccc", fontSize: "0.72rem", fontFamily: "'Kufam', sans-serif", margin: "2px 0 0 8px" }}>{errors.email}</p>}
-                </>
-              ) : (
-                <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.88rem", color: "white", marginLeft: "4px" }}>{email || "—"}</span>
-              )}
-              {/* A pendingEmail on file means a verification link is still
-                  waiting to be clicked — `email` above is still the real,
-                  active login address until then. */}
-              {pendingEmail && (
-                <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.74rem", color: "#ffd7a3", margin: "4px 0 0" }}>
-                  ⏳ Confirmation pending for <b>{pendingEmail}</b> — check that inbox to finish the change.
-                </p>
-              )}
-            </div>
+          {/* Email address */}
+          <div className="cap-info-row">
+            {fieldLabel("Email address")}
+            {editing ? (
+              <>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={e => { setEmail(e.target.value); setErrors(p => ({ ...p, email: "" })); }}
+                  placeholder="example@gmail.com"
+                  style={errors.email ? inlineInputErrorStyle : inlineInputStyle}
+                />
+                {errText(errors.email)}
+              </>
+            ) : (
+              <span style={rowValue}>{email || "—"}</span>
+            )}
+            {/* A pendingEmail on file means a verification link is still
+                waiting to be clicked — `email` above is still the real,
+                active login address until then. */}
+            {pendingEmail && (
+              <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, margin: "6px 0 0" }}>
+                Confirmation pending for <b style={{ fontWeight: 600, color: ink }}>{pendingEmail}</b> — check that inbox to finish the change.
+              </p>
+            )}
           </div>
 
+          {/* Cancel / Save */}
           {editing && (
             <div className="cap-save-row">
-              <button onClick={() => {
-                const current = JSON.stringify({ companyName, industry, courseSelections, location, email });
-                if (current !== editSnapshotRef.current) {
-                  setShowDiscardConfirm(true);
-                } else {
-                  setEditing(false);
-                  setErrors({});
-                }
-              }}
-                style={{ padding: "6px 18px", borderRadius: "14px", background: "rgba(255,255,255,0.15)", color: "white", border: "1px solid white", fontFamily: "'Kufam', sans-serif", fontSize: "0.78rem", cursor: "pointer" }}>Cancel</button>
-              <button onClick={handleSave}
-                style={{ padding: "6px 18px", borderRadius: "14px", background: "white", color: darkRed, border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.78rem", cursor: "pointer" }}>Save Changes</button>
+              <button onClick={requestCancel}
+                style={{ padding: "9px 20px", borderRadius: radius.pill, background: "transparent", color: inkMuted, border: `1px solid ${line}`, fontFamily: font.ui, ...type.control, cursor: "pointer" }}>
+                Cancel
+              </button>
+              <button onClick={handleSave} disabled={saving}
+                style={{ padding: "9px 22px", borderRadius: radius.pill, background: panel, color: onPanel, border: "none", fontFamily: font.ui, ...type.control, cursor: saving ? "not-allowed" : "pointer", opacity: saving ? 0.7 : 1, boxShadow: shadow.pill }}>
+                {saving ? "Saving…" : "Save changes"}
+              </button>
             </div>
           )}
         </div>
@@ -3995,10 +4253,10 @@ const PersonalInfoScreen = ({ onBack, user }) => {
   );
 };
 
-// ── Main Company Account Profile Screen ───────────────────────────────────────
+// ─── Main Screen ──────────────────────────────────────────────────────────────
 const CompanyAccountProfileScreen = ({ user, onLogout }) => {
-  const [view, setView]             = useState("main");
-  const [showReset, setShowReset]   = useState(false);
+  const [view, setView]               = useState("main");
+  const [showReset, setShowReset]     = useState(false);
   const [profileName, setProfileName] = useState("");
 
   useEffect(() => {
@@ -4013,22 +4271,22 @@ const CompanyAccountProfileScreen = ({ user, onLogout }) => {
     return () => unsub();
   }, [user?.uid]);
 
-  if (view === "personalInfo") return <><ResponsiveStyles /><PersonalInfoScreen onBack={() => setView("main")} user={user} /></>;
-  if (view === "terms")        return <><ResponsiveStyles /><TermsScreen onBack={() => setView("main")} /></>;
+  if (view === "personalInfo") return <><ResponsiveStyles /><GlobalStyles /><PersonalInfoScreen onBack={() => setView("main")} user={user} /></>;
+  if (view === "terms")        return <><ResponsiveStyles /><GlobalStyles /><TermsScreen        onBack={() => setView("main")} /></>;
 
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "#f5f5f5" }}>
+    <div className="cap-screen" style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: page }}>
       <ResponsiveStyles />
       <GlobalStyles />
 
-      {/* Red banner + overlapping profile card */}
+      {/* Dark banner + overlapping profile card */}
       <div style={{ position: "relative", flexShrink: 0, zIndex: 1, display: "flex", justifyContent: "center" }}>
-        <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: "80px", background: "#590101", borderBottomLeftRadius: "30px", borderBottomRightRadius: "30px", zIndex: 1 }} />
+        <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: "78px", background: panel, borderBottomLeftRadius: radius.panel, borderBottomRightRadius: radius.panel, zIndex: 1 }} />
         <div className="cap-header-card">
-          <div style={{ position: "absolute", top: "-40px", width: "80px", height: "80px", borderRadius: "50%", background: "#320000", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 3, boxShadow: "0 4px 12px rgba(0,0,0,0.4)" }}>
-            <PngIcon src={PersonalAccountProfile} size={50} />
+          <div style={{ position: "absolute", top: "-38px", width: "76px", height: "76px", borderRadius: "50%", background: panelDeep, border: `2px solid ${surface}`, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 3, boxShadow: shadow.pill }}>
+            <img src={PersonalAccountProfile} alt="" style={{ width: "42px", height: "42px", objectFit: "contain" }} />
           </div>
-          <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(1.1rem, 5vw, 1.5rem)", color: darkRed, fontWeight: 500, margin: 0, textAlign: "center" }}>
+          <p style={{ fontFamily: font.ui, fontSize: "clamp(1rem, 4vw, 1.125rem)", fontWeight: 600, letterSpacing: "-0.01em", color: ink, margin: 0, textAlign: "center" }}>
             {profileName || "—"}
           </p>
         </div>
@@ -4036,12 +4294,20 @@ const CompanyAccountProfileScreen = ({ user, onLogout }) => {
 
       <div className="cap-divider" />
 
-      {/* Scrollable body */}
+      {/* Scrollable body — grouped list */}
       <div className="cap-body">
-        <div className="cap-menu-box">
-          <MenuRow iconSrc={personalInfoIcon} label="Personal Information" onClick={() => setView("personalInfo")} />
-          <MenuRow iconSrc={privacyIcon}      label="Reset Password"       onClick={() => setShowReset(true)} />
-          <MenuRow iconSrc={termsIcon}        label="Terms & Condition"    onClick={() => setView("terms")} />
+        <div className="cap-menu-stack">
+          <MenuGroup title="Personal Information:">
+            <MenuRow icon="person" label="Personal Information" onClick={() => setView("personalInfo")} />
+          </MenuGroup>
+
+          <MenuGroup title="Security:">
+            <MenuRow icon="key" label="Reset Password" onClick={() => setShowReset(true)} />
+          </MenuGroup>
+
+          <MenuGroup title="Legal:">
+            <MenuRow icon="document" label="Terms & Condition" onClick={() => setView("terms")} />
+          </MenuGroup>
         </div>
 
         {showReset && <ResetPasswordModal onClose={() => setShowReset(false)} user={user} onLogout={onLogout} />}
@@ -4051,3 +4317,4 @@ const CompanyAccountProfileScreen = ({ user, onLogout }) => {
 };
 
 export default CompanyAccountProfileScreen;
+export { PersonalInfoScreen, ResponsiveStyles, TermsScreen, LegalPanel };

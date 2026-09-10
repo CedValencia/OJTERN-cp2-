@@ -854,12 +854,15 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
           setPendingContact({ id: company.companyId || company.id, name: company.companyName || company.name, fromMessageNow: true });
           navigate("messages");
         }}
-        onApplyNow={(company) => {
-          setApplyCompany({
-            id: company.companyId || company.id,
-            companyId: company.companyId || company.id,
-            name: company.companyName || company.company || company.name,
-          });
+        onApplyNow={() => {
+          // No-op / no navigation here — the Apply modal should pop up right
+          // on FindCompany (StudentFindCompanyScreen already opens it locally
+          // via its own showApplyModal state). We only navigate to the
+          // Applications screen after a successful submit, via
+          // onNavigateToApplications below — so there's nothing to track here.
+        }}
+        onNavigateToApplications={() => {
+          setApplyCompany(null);
           navigate("application");
         }}
         onVisitCompany={({ id, name }) => {

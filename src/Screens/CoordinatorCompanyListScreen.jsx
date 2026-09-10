@@ -28,7 +28,11 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
       .clist-search-input::placeholder { color: ${color.inkFaint}; }
 
       @media (max-width: 480px) {
-        .clist-search-input { width: 110px; }
+        .clist-search-input { width: 90px; }
+      }
+
+      @media (max-width: 380px) {
+        .clist-search-input { width: 62px; }
       }
 
       .clist-search-bar {
@@ -38,10 +42,11 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
         align-items: center;
         justify-content: space-between;
         gap: ${space.md};
+        flex-wrap: nowrap;
       }
 
       @media (max-width: 480px) {
-        .clist-search-bar { padding: 14px; }
+        .clist-search-bar { padding: 14px; gap: 10px; }
       }
 
       .clist-content {
@@ -3537,25 +3542,34 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
 
           {/* Search + Filter bar — same layout as Find Company */}
           <div className="clist-search-bar" style={{ background: color.blush100, borderRadius: radius.panel }}>
-            <div style={{ minWidth: 0 }}>
+            <div style={{ minWidth: 0, flex: "1 1 auto" }}>
               <span
+                title="Company List"
                 style={{
                   fontFamily: font.ui,
                   fontSize: "clamp(1.1rem, 3.5vw, 1.375rem)",
                   fontWeight: 600,
                   letterSpacing: "-0.01em",
                   color: color.onWine,
+                  display: "block",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
                 }}
               >
                 Company List
               </span>
               <p
+                title={`${filteredRegistered.length + filteredReview.length} companies`}
                 style={{
                   fontFamily: font.ui,
                   ...type.helper,
                   color: color.onWineMuted,
                   marginTop: "2px",
                   marginBottom: 0,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
                 }}
               >
                 {filteredRegistered.length + filteredReview.length} companies

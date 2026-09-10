@@ -222,16 +222,19 @@ const ResponsiveStyles = () => (
       align-items: center;
       justify-content: space-between;
       gap: ${space.md};
-      flex-wrap: wrap;
+      flex-wrap: nowrap;
     }
     @media (max-width: 480px) {
-      .sp-search-bar { padding: 14px; }
+      .sp-search-bar { padding: 14px; gap: 10px; }
     }
 
     .sp-search-input { width: 170px; }
     .sp-search-input::placeholder { color: ${inkFaint}; }
     @media (max-width: 480px) {
-      .sp-search-input { width: 110px; }
+      .sp-search-input { width: 90px; }
+    }
+    @media (max-width: 380px) {
+      .sp-search-input { width: 62px; }
     }
 
     /* Full-width student rows */
@@ -285,7 +288,9 @@ const ResponsiveStyles = () => (
       width: 420px;
       max-width: calc(100vw - 32px);
       max-height: 80vh;
-      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
       box-shadow: ${shadow.panel};
     }
 
@@ -302,12 +307,18 @@ const ResponsiveStyles = () => (
       display: flex;
       align-items: center;
       justify-content: space-between;
+      flex-shrink: 0;
     }
     @media (max-width: 480px) {
       .sp-modal-header { padding: 16px 16px 10px; }
     }
 
-    .sp-modal-body { padding: 0 26px 26px; }
+    .sp-modal-body {
+      padding: 0 26px 26px;
+      overflow-y: auto;
+      flex: 1;
+      min-height: 0;
+    }
     @media (max-width: 480px) {
       .sp-modal-body { padding: 0 16px 18px; }
     }
@@ -868,10 +879,10 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
 
         {/* Header bar — same floating dark panel as Find Company */}
         <div className="sp-search-bar">
-          <div style={{ minWidth: 0 }}>
-            <span style={{ fontFamily: font.ui, fontSize: "clamp(1.1rem, 3.5vw, 1.375rem)", fontWeight: 600, letterSpacing: "-0.01em", color: onPanel }}>Students List</span>
+          <div style={{ minWidth: 0, flex: "1 1 auto" }}>
+            <span title="Students List" style={{ fontFamily: font.ui, fontSize: "clamp(1.1rem, 3.5vw, 1.375rem)", fontWeight: 600, letterSpacing: "-0.01em", color: onPanel, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>Students List</span>
             {!loadingStudents && (
-              <p style={{ fontFamily: font.ui, ...type.helper, color: onPanelDim, marginTop: "2px" }}>
+              <p title={`${filtered.length} of ${students.length} in your departments`} style={{ fontFamily: font.ui, ...type.helper, color: onPanelDim, marginTop: "2px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 {filtered.length} of {students.length} in your departments
               </p>
             )}
@@ -972,11 +983,11 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
             // Each option keeps the colour of the status it represents, so the
             // chips and the row badges read as the same language.
             const statusColor =
-              statusOption === "Accepted"            ? color.success :
-              statusOption === "In Progress"         ? color.info    :
-              statusOption === "All Declined"        ? color.danger  :
-              statusOption === "No Applications yet" ? color.wine400 : ink;
-            const activeText = statusOption === "No Applications yet" ? ink : color.white;
+              statusOption === "Accepted"            ? "#358D5E" :
+              statusOption === "In Progress"         ? "#CCC929" :
+              statusOption === "All Declined"        ? "#FF0000" :
+              statusOption === "No Applications yet" ? "#A9A9A9" : "#000000";
+            const activeText = color.white;
 
             return (
               <button

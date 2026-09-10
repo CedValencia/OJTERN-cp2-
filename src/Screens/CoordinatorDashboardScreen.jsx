@@ -189,12 +189,13 @@ const FontImport = () => (
     }
     .nav-item:active { transform: scale(0.98); }
     .nav-item .nav-icon,
-    .nav-item .nav-label { transition: color 0.16s ${ease}; }
+    .nav-item .nav-label { transition: filter 0.16s ${ease}, color 0.16s ${ease}; }
     .nav-item.active .nav-label {
       color: ${paper} !important;
       font-weight: 600 !important;
       letter-spacing: 0.01em;
     }
+    .nav-item.active .nav-icon { filter: brightness(0) invert(1); }
 
     .nav-logout {
       margin: 4px 12px 14px;
@@ -271,7 +272,7 @@ const FontImport = () => (
       display: flex;
       gap: 14px;
       padding: 12px;
-      min-height: 260px;
+      min-height: 220px;
       overflow: visible;
     }
     @media (max-width: 480px) {
@@ -565,7 +566,7 @@ const CompanyRow = ({ company, onView, mr = "0", showTime = false }) => (
 );
 
 // ── Stat card ──────────────────────────────────────────────────────────────────
-// Label on top → coloured rounded box (155px) → big number or "—" centred →
+// Label on top → coloured rounded box (120px) → big number or "—" centred →
 // view button overlapping the bottom-right corner of the box (responsive, no
 // hardcoded left/top pixel values).
 const StatCard = ({ label, value, bg = steel, onView }) => (
@@ -576,7 +577,7 @@ const StatCard = ({ label, value, bg = steel, onView }) => (
     <div style={{ position: "relative", marginBottom: "35px" }}>
       <div style={{
         background: bg, borderRadius: "8px",
-        width: "100%", height: "155px",
+        width: "100%", height: "120px",
         display: "flex", alignItems: "center", justifyContent: "center",
       }}>
         {value !== null ? (

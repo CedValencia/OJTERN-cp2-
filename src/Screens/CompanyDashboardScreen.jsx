@@ -464,6 +464,11 @@ const StatusBadge = ({ status }) => {
 // ── Notification bell + dropdown (new applicant notifications) ────────────────
 const NotificationBell = ({ items, open, onToggle }) => {
   const unread = items.filter((n) => n.unread).length;
+  // Same responsive sizing as StudentDashboardScreen: sa desktop, absolute
+  // dropdown na naka-anchor sa bell; sa mobile/tablet, fixed panel na naka-pin
+  // sa ilalim ng topbar. Kung absolute pa rin sa maliit na screen, lumalabas
+  // ang 340px na dropdown sa gilid at umaabot sa baba ng viewport.
+  const { isMobile, isTablet } = useBreakpoint();
   return (
     <div style={{ position: "relative" }}>
       <div style={{ cursor: "pointer", padding: "8px", position: "relative" }} onClick={onToggle} aria-label="Notifications">
@@ -488,11 +493,15 @@ const NotificationBell = ({ items, open, onToggle }) => {
       {open && (
       <>
         <div onClick={onToggle} style={{ position: "fixed", inset: 0, zIndex: 998 }} />
-        <div style={{
-          position: "absolute", top: "50px", right: 0, width: "340px", maxWidth: "88vw",
-          background: paper, borderRadius: "16px", overflow: "hidden",
-          boxShadow: "0 12px 32px rgba(0,0,0,0.28)", border: `1px solid ${hairline}`, zIndex: 999,
-        }}>
+        <div style={(isMobile || isTablet) ? {
+            position: "fixed", top: "76px", right: "12px", width: "min(320px, 88vw)", maxHeight: "min(45vh, 320px)",
+            overflowY: "auto", background: paper, border: `1px solid ${ink}`,
+            borderRadius: "10px", boxShadow: "0 8px 24px rgba(0,0,0,0.18)", zIndex: 999,
+          } : {
+            position: "absolute", top: "50px", right: 0, width: "340px", maxWidth: "88vw",
+            background: paper, borderRadius: "16px", overflow: "hidden",
+            boxShadow: "0 12px 32px rgba(0,0,0,0.28)", border: `1px solid ${hairline}`, zIndex: 999,
+          }}>
           <div style={{ padding: "16px 18px 12px", background: paper }}>
             <span style={{ fontFamily: uiFont, fontWeight: 700, fontSize: "1.05rem", color: inkText }}>
               Notifications
@@ -981,16 +990,6 @@ const CompanyDashboardScreen = ({ user, onLogout, onAuthStateChange }) => {
                 OJTern
               </span>
             </button>
-            {/* Current page label — mobile only */}
-            {isMobile && (
-              <span style={{
-                fontFamily: uiFont, fontWeight: 500,
-                fontSize: "0.9rem", color: "rgba(255,255,255,0.7)", marginLeft: "4px",
-                whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0,
-              }}>
-                / {currentLabel}
-              </span>
-            )}
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: "4px", flexShrink: 0 }}>
             <NotificationBell items={notifications} open={notifOpen} onToggle={toggleNotif} />
