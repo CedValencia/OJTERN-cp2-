@@ -725,7 +725,7 @@ const ChatListView = ({ contacts, messages, onOpen, myUid }) => {
         {/* Title + search bar */}
         <div className="msg-search-bar" style={{ background: panel, borderRadius: radius.panel, marginBottom: space.lg, flexShrink: 0 }}>
           <div style={{ minWidth: 0 }}>
-            <span style={{ fontFamily: font.ui, fontSize: "clamp(1.1rem, 3.5vw, 1.375rem)", fontWeight: 600, letterSpacing: "-0.01em", color: onPanel }}>Messages</span>
+            <span style={{ fontFamily: font.ui, fontSize: "clamp(1.1rem, 3.5vw, 1.375rem)", fontWeight: 600, letterSpacing: "-0.01em", color: onPanel }}>Chats</span>
             <p style={{ fontFamily: font.ui, ...type.helper, color: onPanelDim, marginTop: "2px" }}>
               {activeContacts.length === 0
                 ? "No conversations yet"

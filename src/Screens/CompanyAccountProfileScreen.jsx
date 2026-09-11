@@ -2785,6 +2785,7 @@ const icons = {
   person:   <><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></>,
   key:      <><path d="M21 2l-2 2m-7.6 7.6a5.5 5.5 0 1 1-7.8 7.8 5.5 5.5 0 0 1 7.8-7.8zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3"/></>,
   document: <><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></>,
+  shield:   <><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></>,
 };
 
 // ── Menu row + grouped section ────────────────────────────────────────────────
@@ -3527,7 +3528,90 @@ const COMPANY_TERMS_SECTIONS = [
       // Plain string, not JSX — LegalPanel runs every item through
       // linkifyEmails(), which splits on the text and would throw on an
       // element. The address gets turned into a link there anyway.
-      "Email: support@ojtern.com",
+      "Email: ojtern@gmail.com",
+    ],
+  },
+];
+
+// ─── Privacy Policy Data ────────────────────────────────────────────────────
+const PRIVACY_LAST_UPDATED = "July 19, 2026";
+
+const COMPANY_PRIVACY_SECTIONS = [
+  {
+    title: "1. Introduction",
+    items: [
+      'This Privacy Policy explains how OJTern — the On-the-Job Training Management Platform of Dominican College of Tarlac, Inc. ("the School") — collects, uses, stores, and protects Personal Information in connection with your Company account, in compliance with the Data Privacy Act of 2012 (Republic Act No. 10173).',
+      "By registering and maintaining a Company account, you consent to the collection and processing of information as described in this Policy.",
+    ],
+  },
+  {
+    title: "2. Information We Collect",
+    items: [
+      "Organizational details you provide during registration and verification, such as your company name, industry classification, accepted courses/programs, business location, and official email address.",
+      "Contact information for your authorized representative(s) who manage the account.",
+      "Activity on the Platform, such as internship postings, applications received, messages exchanged with Students and Coordinators, and account login records.",
+    ],
+  },
+  {
+    title: "3. How We Use Your Information",
+    items: [
+      "To verify your Company's identity, industry classification, and eligibility for partnership with the School.",
+      "To route your registration to the appropriate Coordinator(s) for review and approval.",
+      "To let your Company post internship opportunities and process applications from Students.",
+      "To send Platform notifications, such as application updates and Coordinator communications.",
+    ],
+  },
+  {
+    title: "4. Student Data You Access as a Company",
+    items: [
+      "In the course of using the Platform, your Company may receive Personal Information belonging to Students who apply to your internship postings — such as their name, program, contact information, resume, and application status.",
+      "This student data is shared with you solely for legitimate OJT evaluation and placement, and must be kept confidential, used only for that purpose, and never shared, sold, or repurposed.",
+      "Your Company is expected to apply reasonable safeguards of its own when handling this data, consistent with the Data Privacy Act of 2012.",
+    ],
+  },
+  {
+    title: "5. Sharing of Your Information",
+    items: [
+      "Your Company's registration and account information is shared with the Coordinator(s) assigned to review and approve your partnership with the School.",
+      "The School does not sell, rent, or trade your organizational information to third parties for marketing purposes.",
+    ],
+  },
+  {
+    title: "6. Data Storage and Security",
+    items: [
+      "Your information is stored using secure, cloud-based infrastructure with access controls limited to authorized personnel.",
+      "The Platform applies reasonable organizational, physical, and technical safeguards to protect data against unauthorized access, alteration, disclosure, or destruction.",
+    ],
+  },
+  {
+    title: "7. Your Rights Under the Data Privacy Act",
+    intro: "As a data subject, your authorized representative has the right to:",
+    items: [
+      "Be informed of how the Company's Personal Information is collected and processed;",
+      "Access the information the Platform holds about your Company;",
+      "Request correction of inaccurate or outdated information;",
+      "Object to or withdraw consent for certain processing, subject to legitimate School and partnership requirements; and",
+      "File a complaint with the National Privacy Commission if you believe these rights have been violated.",
+    ],
+  },
+  {
+    title: "8. Data Retention",
+    items: [
+      "Your Company's information is retained for as long as your account remains active, and for a reasonable period afterward as required for School records, reporting, and legal compliance.",
+    ],
+  },
+  {
+    title: "9. Changes to This Policy",
+    items: [
+      "The School reserves the right to update this Privacy Policy from time to time.",
+      "Material changes will be communicated through the Platform or your registered email address.",
+    ],
+  },
+  {
+    title: "10. Contact Information",
+    items: [
+      "For questions, concerns, or requests regarding this Privacy Policy or your Company's Personal Information, please contact the School through your assigned OJT Coordinator or the official support channel.",
+      "Email: ojtern@gmail.com",
     ],
   },
 ];
@@ -3713,6 +3797,10 @@ const LegalPanel = ({ title, lastUpdated, sections, onBack }) => {
 
 const TermsScreen = ({ onBack }) => (
   <LegalPanel title="Terms and conditions" lastUpdated={TERMS_LAST_UPDATED} sections={COMPANY_TERMS_SECTIONS} onBack={onBack} />
+);
+
+const PrivacyScreen = ({ onBack }) => (
+  <LegalPanel title="Privacy policy" lastUpdated={PRIVACY_LAST_UPDATED} sections={COMPANY_PRIVACY_SECTIONS} onBack={onBack} />
 );
 
 // ─── Email Change Confirm Modal ───────────────────────────────────────────────
@@ -4273,6 +4361,7 @@ const CompanyAccountProfileScreen = ({ user, onLogout }) => {
 
   if (view === "personalInfo") return <><ResponsiveStyles /><GlobalStyles /><PersonalInfoScreen onBack={() => setView("main")} user={user} /></>;
   if (view === "terms")        return <><ResponsiveStyles /><GlobalStyles /><TermsScreen        onBack={() => setView("main")} /></>;
+  if (view === "privacy")      return <><ResponsiveStyles /><GlobalStyles /><PrivacyScreen       onBack={() => setView("main")} /></>;
 
   return (
     <div className="cap-screen" style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: page }}>
@@ -4307,6 +4396,7 @@ const CompanyAccountProfileScreen = ({ user, onLogout }) => {
 
           <MenuGroup title="Legal:">
             <MenuRow icon="document" label="Terms & Condition" onClick={() => setView("terms")} />
+            <MenuRow icon="shield" label="Privacy Policy" onClick={() => setView("privacy")} />
           </MenuGroup>
         </div>
 
@@ -4317,4 +4407,4 @@ const CompanyAccountProfileScreen = ({ user, onLogout }) => {
 };
 
 export default CompanyAccountProfileScreen;
-export { PersonalInfoScreen, ResponsiveStyles, TermsScreen, LegalPanel };
+export { PersonalInfoScreen, ResponsiveStyles, TermsScreen, PrivacyScreen, LegalPanel };

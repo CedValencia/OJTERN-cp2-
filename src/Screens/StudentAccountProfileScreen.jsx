@@ -410,6 +410,7 @@ const icons = {
   person:   <><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></>,
   key:      <><path d="M21 2l-2 2m-7.6 7.6a5.5 5.5 0 1 1-7.8 7.8 5.5 5.5 0 0 1 7.8-7.8zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3"/></>,
   document: <><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></>,
+  shield:   <><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></>,
 };
 
 // ── Menu row + grouped section ────────────────────────────────────────────────
@@ -1136,7 +1137,83 @@ const TERMS_SECTIONS = [
     title: "8. Contact Information",
     items: [
       "For questions, concerns, or requests regarding these Terms or your Personal Information, please contact the School through its designated OJT Coordinator or official support channel.",
-      "Email: support@ojtern.com",
+      "Email: ojtern@gmail.com",
+    ],
+  },
+];
+
+// ─── Privacy Policy Data ────────────────────────────────────────────────────
+const PRIVACY_LAST_UPDATED = "July 19, 2026";
+
+const PRIVACY_SECTIONS = [
+  {
+    title: "1. Introduction",
+    items: [
+      'This Privacy Policy explains how OJTern — the On-the-Job Training Management Platform of Dominican College of Tarlac, Inc. ("the School") — collects, uses, stores, and protects your Personal Information as a Student user, in compliance with the Data Privacy Act of 2012 (Republic Act No. 10173).',
+      "By creating and using your Student account, you consent to the collection and processing of your Personal Information as described in this Policy.",
+    ],
+  },
+  {
+    title: "2. Information We Collect",
+    items: [
+      "Personal details you provide, such as your full name, student ID, program, year level, contact number, and email address.",
+      "Application materials you upload, including your resume, requirements, and other OJT-related documents.",
+      "Activity on the Platform, such as internship applications submitted, messages exchanged with Coordinators and Companies, and account login records.",
+    ],
+  },
+  {
+    title: "3. How We Use Your Information",
+    items: [
+      "To create and manage your Student account and verify your enrollment status.",
+      "To match you with internship opportunities and process your applications with partner Companies.",
+      "To allow your assigned OJT Coordinator to monitor and evaluate your OJT progress.",
+      "To send you Platform notifications, such as application status updates and Coordinator announcements.",
+    ],
+  },
+  {
+    title: "4. Sharing of Your Information",
+    items: [
+      "Your name, program, contact information, resume, and application status may be shared with the specific Company you apply to, solely for internship evaluation and placement.",
+      "Your information may also be accessed by your assigned OJT Coordinator and other authorized School personnel for administrative and monitoring purposes.",
+      "The School does not sell, rent, or trade your Personal Information to third parties for marketing purposes.",
+    ],
+  },
+  {
+    title: "5. Data Storage and Security",
+    items: [
+      "Your information is stored using secure, cloud-based infrastructure with access controls limited to authorized personnel.",
+      "The Platform applies reasonable organizational, physical, and technical safeguards to protect your data against unauthorized access, alteration, disclosure, or destruction.",
+    ],
+  },
+  {
+    title: "6. Your Rights Under the Data Privacy Act",
+    intro: "As a data subject, you have the right to:",
+    items: [
+      "Be informed of how your Personal Information is collected and processed;",
+      "Access the Personal Information the Platform holds about you;",
+      "Request correction of inaccurate or outdated information;",
+      "Object to or withdraw consent for certain processing, subject to legitimate School requirements; and",
+      "File a complaint with the National Privacy Commission if you believe your rights have been violated.",
+    ],
+  },
+  {
+    title: "7. Data Retention",
+    items: [
+      "Your Personal Information is retained for as long as your account remains active, and for a reasonable period afterward as required for School records, reporting, and legal compliance.",
+    ],
+  },
+  {
+    title: "8. Changes to This Policy",
+    items: [
+      "The School may update this Privacy Policy from time to time.",
+      "Material changes will be communicated through the Platform or your registered email address.",
+    ],
+  },
+  {
+    title: "9. Contact Information",
+    items: [
+      "For questions, concerns, or requests regarding this Privacy Policy or your Personal Information, please contact the School through your assigned OJT Coordinator or the official support channel.",
+      "Email: ojtern@gmail.com",
     ],
   },
 ];
@@ -1324,6 +1401,10 @@ const TermsScreen = ({ onBack }) => (
   <LegalPanel title="Terms and conditions" lastUpdated={TERMS_LAST_UPDATED} sections={TERMS_SECTIONS} onBack={onBack} />
 );
 
+const PrivacyScreen = ({ onBack }) => (
+  <LegalPanel title="Privacy policy" lastUpdated={PRIVACY_LAST_UPDATED} sections={PRIVACY_SECTIONS} onBack={onBack} />
+);
+
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 const StudentAccountProfileScreen = ({ user, onLogout }) => {
   const [view, setView] = useState("main");
@@ -1343,6 +1424,7 @@ const StudentAccountProfileScreen = ({ user, onLogout }) => {
 
   if (view === "personalInfo") return <><ResponsiveStyles /><GlobalStyles /><PersonalInfoScreen onBack={() => setView("main")} user={user} /></>;
   if (view === "terms")        return <><ResponsiveStyles /><GlobalStyles /><TermsScreen        onBack={() => setView("main")} /></>;
+  if (view === "privacy")      return <><ResponsiveStyles /><GlobalStyles /><PrivacyScreen       onBack={() => setView("main")} /></>;
 
   return (
     <div className="sap-screen" style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: page }}>
@@ -1377,6 +1459,7 @@ const StudentAccountProfileScreen = ({ user, onLogout }) => {
 
           <MenuGroup title="Legal:">
             <MenuRow icon="document" label="Terms & Condition" onClick={() => setView("terms")} />
+            <MenuRow icon="shield" label="Privacy Policy" onClick={() => setView("privacy")} />
           </MenuGroup>
         </div>
 
@@ -1387,4 +1470,4 @@ const StudentAccountProfileScreen = ({ user, onLogout }) => {
 };
 
 export default StudentAccountProfileScreen;
-export { PersonalInfoScreen, ResponsiveStyles, TermsScreen, LegalPanel };
+export { PersonalInfoScreen, ResponsiveStyles, TermsScreen, PrivacyScreen, LegalPanel };

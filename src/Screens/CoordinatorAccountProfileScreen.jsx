@@ -4,7 +4,6 @@ import { getAuth, reauthenticateWithCredential, EmailAuthProvider } from "fireba
 import { db } from "./firebase";
 import { initiateCoordinatorTransfer, initiateCoordinatorAddition, changePassword, requestCoordinatorEmailChange } from "./AuthService";
 import { useDepartmentsPrograms } from "./departmentsPrograms";
-import { TERMS_TEXT, PRIVACY_TEXT, parseLegalDoc } from "./legalContent";
 import { color, font, type, space, radius, shadow, ease } from "./theme";
 
 import PersonalAccountProfile from "../icons/personalaccountprofile.png";
@@ -309,29 +308,143 @@ const LegalStyles = () => (
   `}</style>
 );
 
-// ── Which parts of the shared legal documents a coordinator sees ──────────────
-// TERMS_TEXT and PRIVACY_TEXT in legalContent.js address all three roles at
-// once. The numbered subsections listed here are written purely for Students
-// or for Companies, so they're dropped from this screen. Everything else is
-// kept, which means a new section added to legalContent.js shows up here on
-// its own. Subsections that describe what a Coordinator does with student or
-// company data (2.2, 2.3, 3.x) stay in on purpose — those are the
-// coordinator's own obligations, not another role's.
-const COORDINATOR_SKIP = {
-  terms:   [],
-  privacy: [],
-};
+// ─── Terms & Conditions Data ──────────────────────────────────────────────────
+const TERMS_LAST_UPDATED = "July 19, 2026";
 
-const forCoordinator = (blocks, skip) => {
-  const out = [];
-  let skipping = false;
-  for (const b of blocks) {
-    if (b.type === "h3")      skipping = skip.some(n => b.text.startsWith(`${n} `));
-    else if (b.type === "h2") skipping = false;
-    if (!skipping) out.push(b);
-  }
-  return out;
-};
+const COORDINATOR_TERMS_SECTIONS = [
+  {
+    title: "1. Acceptance of Terms",
+    items: [
+      'By using your Coordinator account on OJTern — the On-the-Job Training Management Platform of Dominican College of Tarlac, Inc. ("the School") — you agree to be bound by these Terms and Conditions and the School\'s Privacy Policy.',
+      "Electronic acceptance of these Terms has the same legal effect as a handwritten signature.",
+    ],
+  },
+  {
+    title: "2. Coordinator Role and Responsibilities",
+    items: [
+      "Your Coordinator account is created by an authorized School administrator or by a transferring Coordinator, and grants you administrative access over Company verification, Student account creation, and internship monitoring within your assigned scope.",
+      "You are expected to review Company registrations and Student records accurately, fairly, and in accordance with School policy.",
+    ],
+  },
+  {
+    title: "3. Managing Company and Student Accounts",
+    items: [
+      "You may review and approve or reject Company registrations assigned to your industry classification.",
+      "You may create Student accounts, and are responsible for the accuracy of the information you provide during account creation.",
+      "You may add another Coordinator account or transfer your own Coordinator role to another authorized personnel, subject to the Platform's verification requirements.",
+    ],
+  },
+  {
+    title: "4. Data Privacy Obligations",
+    items: [
+      "In performing your duties, you will access Personal Information belonging to Students and Companies, including contact details, resumes, and application records.",
+      "This information must be handled in accordance with the Data Privacy Act of 2012 (Republic Act No. 10173) and used only for legitimate OJT administration, monitoring, and reporting.",
+      "You must not disclose, share, or use Student or Company data for any purpose outside your official duties.",
+    ],
+  },
+  {
+    title: "5. Account Responsibility",
+    items: [
+      "You are responsible for maintaining the confidentiality of your login credentials and for all activity under your account.",
+      "Notify the School immediately of any unauthorized access or suspected security breach.",
+      "The School may suspend or revoke Coordinator access for violation of these Terms, misuse of administrative privileges, or conduct that compromises the security or integrity of the Platform.",
+    ],
+  },
+  {
+    title: "6. Changes to These Terms",
+    items: [
+      "The School reserves the right to modify these Terms at any time.",
+      "Material changes will be communicated through the Platform or your registered email address.",
+    ],
+  },
+  {
+    title: "7. Contact Information",
+    items: [
+      "For questions or concerns regarding these Terms or your Personal Information, please contact the School's Platform administrator or official support channel.",
+      "Email: ojtern@gmail.com",
+    ],
+  },
+];
+
+// ─── Privacy Policy Data ────────────────────────────────────────────────────
+const PRIVACY_LAST_UPDATED = "July 19, 2026";
+
+const COORDINATOR_PRIVACY_SECTIONS = [
+  {
+    title: "1. Introduction",
+    items: [
+      'This Privacy Policy explains how OJTern — the On-the-Job Training Management Platform of Dominican College of Tarlac, Inc. ("the School") — collects, uses, stores, and protects Personal Information in connection with your Coordinator account, in compliance with the Data Privacy Act of 2012 (Republic Act No. 10173).',
+      "By using your Coordinator account, you consent to the collection and processing of information as described in this Policy.",
+    ],
+  },
+  {
+    title: "2. Information We Collect",
+    items: [
+      "Your own account details, such as your full name, department or industry assignment, contact number, and email address.",
+      "Records of the administrative actions you perform, such as Company approvals or rejections and Student account creation, kept for audit purposes.",
+    ],
+  },
+  {
+    title: "3. Student and Company Information You Access",
+    items: [
+      "As a Coordinator, you access Personal Information belonging to Students (such as name, ID, contact information, resume, and application records) and Companies (such as registration details, contact person, and postings) solely to perform verification, monitoring, and administrative duties.",
+      "This information must be kept confidential and used only for legitimate OJT administration; it must never be shared, sold, or repurposed.",
+    ],
+  },
+  {
+    title: "4. How We Use Your Information",
+    items: [
+      "To verify your identity and administrative scope on the Platform.",
+      "To maintain an audit trail of account approvals, rejections, and other administrative actions for accountability.",
+      "To send you Platform notifications relevant to your administrative duties.",
+    ],
+  },
+  {
+    title: "5. Sharing of Your Information",
+    items: [
+      "Your Coordinator account information may be shared with School administrators for account management and audit purposes.",
+      "The School does not sell, rent, or trade your Personal Information to third parties for marketing purposes.",
+    ],
+  },
+  {
+    title: "6. Data Storage and Security",
+    items: [
+      "Your information is stored using secure, cloud-based infrastructure with access controls limited to authorized personnel.",
+      "The Platform applies reasonable organizational, physical, and technical safeguards to protect data against unauthorized access, alteration, disclosure, or destruction.",
+    ],
+  },
+  {
+    title: "7. Your Rights Under the Data Privacy Act",
+    intro: "As a data subject, you have the right to:",
+    items: [
+      "Be informed of how your Personal Information is collected and processed;",
+      "Access the Personal Information the Platform holds about you;",
+      "Request correction of inaccurate or outdated information;",
+      "Object to or withdraw consent for certain processing, subject to legitimate School requirements; and",
+      "File a complaint with the National Privacy Commission if you believe your rights have been violated.",
+    ],
+  },
+  {
+    title: "8. Data Retention",
+    items: [
+      "Your Personal Information is retained for as long as your account remains active, and for a reasonable period afterward as required for School records, audit, and legal compliance.",
+    ],
+  },
+  {
+    title: "9. Changes to This Policy",
+    items: [
+      "The School reserves the right to update this Privacy Policy from time to time.",
+      "Material changes will be communicated through the Platform or your registered email address.",
+    ],
+  },
+  {
+    title: "10. Contact Information",
+    items: [
+      "For questions, concerns, or requests regarding this Privacy Policy or your Personal Information, please contact the School's Platform administrator or official support channel.",
+      "Email: ojtern@gmail.com",
+    ],
+  },
+];
 
 // ── Shared section header bar ─────────────────────────────────────────────────
 function SectionHeaderBar({ title, onBack }) {
@@ -347,7 +460,7 @@ function SectionHeaderBar({ title, onBack }) {
 // Gmail's compose URL rather than a plain mailto: — this is a web app, and
 // mailto: hands the click to whatever desktop client is registered, which on
 // most machines is nothing at all, so the link just looks broken. Applied to
-// every paragraph and bullet, so any address added to legalContent.js later
+// every paragraph and bullet, so any support address added to a section
 // becomes clickable without touching this file.
 const EMAIL_SPLIT = /([\w.+-]+@[\w-]+\.[\w-]+)/g;
 const IS_EMAIL    = /^[\w.+-]+@[\w-]+\.[\w-]+$/;
@@ -361,19 +474,15 @@ const linkifyEmails = (text) =>
   });
   
 // ── Legal document panel (Terms / Privacy) ────────────────────────────────────
-const LegalPanel = ({ title, text, skip, onBack }) => {
-  const blocks    = useMemo(() => forCoordinator(parseLegalDoc(text), skip), [text, skip]);
+const LegalPanel = ({ title, lastUpdated, sections, onBack }) => {
   const scrollRef = useRef(null);
   const [progress, setProgress] = useState(0);
   const [activeId, setActiveId] = useState(null);
 
-  // Section list for the rail — built straight from the document's own h2
-  // headings, so it can never drift out of sync with the text.
   const toc = useMemo(
-    () => blocks.map((b, i) => (b.type === "h2" ? { id: `sec-${i}`, text: b.text } : null)).filter(Boolean),
-    [blocks]
+    () => sections.map((s, i) => ({ id: `sec-${i}`, text: s.title })),
+    [sections]
   );
-  const metaBlocks = useMemo(() => blocks.filter(b => b.type === "meta"), [blocks]);
 
   // Progress + active-section tracking read from this panel's own scroll
   // container, not the window — nothing behind it scrolls here.
@@ -412,8 +521,6 @@ const LegalPanel = ({ title, text, skip, onBack }) => {
     if (!el || !box) return;
     box.scrollTo({ top: el.offsetTop - 16, behavior: "smooth" });
   };
-
-  let seenFirstH2 = false;
 
   return (
     <div className="cap-screen legal-panel">
@@ -457,26 +564,20 @@ const LegalPanel = ({ title, text, skip, onBack }) => {
             {title}
           </h1>
 
-          {metaBlocks.length > 0 && (
+          {lastUpdated && (
             <div style={{ display: "flex", flexWrap: "wrap", gap: space.sm, marginBottom: space.xl }}>
-              {metaBlocks.map((m, i) => (
-                <span key={i} style={{ fontFamily: font.ui, ...type.helper, fontWeight: 500, color: onPanel, background: panel, borderRadius: radius.pill, padding: "6px 15px" }}>
-                  {m.text}
-                </span>
-              ))}
+              <span style={{ fontFamily: font.ui, ...type.helper, fontWeight: 500, color: onPanel, background: panel, borderRadius: radius.pill, padding: "6px 15px" }}>
+                Last updated {lastUpdated}
+              </span>
             </div>
           )}
 
-          {blocks.map((b, i) => {
-            if (b.type === "meta") return null;
-
-            if (b.type === "h2") {
-              const id = `sec-${i}`;
-              const isFirst = !seenFirstH2;
-              seenFirstH2 = true;
-              return (
+          {sections.map((section, idx) => {
+            const id = `sec-${idx}`;
+            const isFirst = idx === 0;
+            return (
+              <section key={section.title}>
                 <h2
-                  key={i}
                   id={id}
                   data-heading={id}
                   style={{
@@ -488,35 +589,31 @@ const LegalPanel = ({ title, text, skip, onBack }) => {
                     scrollMarginTop: space.lg,
                   }}
                 >
-                  {b.text}
+                  {section.title}
                 </h2>
-              );
-            }
 
-            if (b.type === "h3") {
-              return (
-                <h3 key={i} style={{ fontFamily: font.ui, fontSize: "1rem", fontWeight: 600, color: ink, margin: `${space.lg} 0 6px` }}>
-                  {b.text}
-                </h3>
-              );
-            }
+                {section.intro && (
+                  <p style={{ fontFamily: font.ui, ...type.body, lineHeight: 1.7, color: inkBody, margin: `0 0 ${space.sm}`, maxWidth: "74ch" }}>
+                    {section.intro}
+                  </p>
+                )}
 
-            if (b.type === "ul") {
-              return (
-                <ul key={i} style={{ margin: `8px 0 ${space.md}`, paddingLeft: "22px" }}>
-                  {b.items.map((it, j) => (
-                    <li key={j} style={{ fontFamily: font.ui, ...type.body, lineHeight: 1.7, color: inkBody, marginBottom: "5px", maxWidth: "74ch" }}>
-                      {linkifyEmails(it)}
-                    </li>
-                  ))}
-                </ul>
-              );
-            }
-
-            return (
-              <p key={i} style={{ fontFamily: font.ui, ...type.body, lineHeight: 1.7, color: inkBody, margin: `0 0 ${space.md}`, maxWidth: "74ch" }}>
-                {linkifyEmails(b.text)}
-              </p>
+                {section.intro ? (
+                  <ul style={{ margin: `8px 0 ${space.md}`, paddingLeft: "22px" }}>
+                    {section.items.map((item, i) => (
+                      <li key={i} style={{ fontFamily: font.ui, ...type.body, lineHeight: 1.7, color: inkBody, marginBottom: "5px", maxWidth: "74ch" }}>
+                        {linkifyEmails(item)}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  section.items.map((item, i) => (
+                    <p key={i} style={{ fontFamily: font.ui, ...type.body, lineHeight: 1.7, color: inkBody, margin: `0 0 ${space.md}`, maxWidth: "74ch" }}>
+                      {linkifyEmails(item)}
+                    </p>
+                  ))
+                )}
+              </section>
             );
           })}
 
@@ -537,8 +634,9 @@ const LegalPanel = ({ title, text, skip, onBack }) => {
   );
 };
 
-const TermsScreen   = ({ onBack }) => <LegalPanel title="Terms and conditions" text={TERMS_TEXT}   skip={COORDINATOR_SKIP.terms}   onBack={onBack} />;
-const PrivacyScreen = ({ onBack }) => <LegalPanel title="Privacy policy"       text={PRIVACY_TEXT} skip={COORDINATOR_SKIP.privacy} onBack={onBack} />;
+const TermsScreen   = ({ onBack }) => <LegalPanel title="Terms and conditions" lastUpdated={TERMS_LAST_UPDATED}   sections={COORDINATOR_TERMS_SECTIONS}   onBack={onBack} />;
+const PrivacyScreen = ({ onBack }) => <LegalPanel title="Privacy policy"       lastUpdated={PRIVACY_LAST_UPDATED} sections={COORDINATOR_PRIVACY_SECTIONS} onBack={onBack} />;
+
 
 // ── Multi-Department Picker ───────────────────────────────────────────────────
 const MultiDepartmentPicker = ({ selections, onChange, readOnly, errors, departments, departmentNames }) => {
