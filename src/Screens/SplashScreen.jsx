@@ -628,55 +628,101 @@ const SplashScreen = () => {
     return () => clearTimeout(t);
   }, [gateVisible]);
 
-  const isInitialAuthCheck = useRef(true);
+  // Nagiging `true` lang ito kapag may aktwal nang na-restore na session.
+  // Hindi sapat ang "unang auth event" bilang bantay: may mga pagkakataong
+  // `null` muna ang ipinapadala ng Firebase bago ang totoong user — halimbawa
+  // kapag hindi pa tapos mag-resolve ang persistence sa pag-load — at kapag
+  // nangyari yun, naubos na ang iisang pagkakataon bago pa dumating ang user,
+  // kaya nagmumukhang na-logout ang tao tuwing nagre-refresh.
+  const hasRestored = useRef(false);
 
-  // ── Restore session after page refresh ────────────────────────────────────
+  // ── Restore session after page refresh ──────────────────────────────────
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
-      const isInitial = isInitialAuthCheck.current;
-      isInitialAuthCheck.current = false;
+      try {
+        if (firebaseUser && !hasRestored.current) {
+          // Ang uid ay dapat lumitaw sa IISANG collection lang, pero hindi
+          // ito ginagarantiya ng Firestore: kahit anong `setDoc(..., { merge:
+          // true })` ay lumilikha ng dokumento sa path na tinutukoy nito kahit
+          // wala pa itong laman. Kaya posibleng may basyong `coordinators/<uid>`
+          // o `students/<uid>` na kapareho ng uid ng isang company.
+          //
+          // Dahil `coordinators` at `students` ang unang binabasa, ang basyong
+          // doc na yun ang unang tumatama — walang `role`, walang `status` —
+          // kaya nare-restore ang maling profile, hindi tumutugma ang role sa
+          // route guard, at itinatapon ang user pabalik sa /signin tuwing
+          // magre-refresh. Kaya hinihingi na rin dito na tumugma ang `role` ng
+          // dokumento sa collection na pinagkunan nito bago ito tanggapin.
+          const COLLECTION_ROLE = {
+            coordinators: "coordinator",
+            students:     "student",
+            companies:    "company",
+          };
+          const readErrors = []; // ginagamit lang sa logging
+          let userData = null;
+          for (const col of Object.keys(COLLECTION_ROLE)) {
+            try {
+              const snap = await getDoc(doc(db, col, firebaseUser.uid));
+              if (snap.exists() && snap.data().role === COLLECTION_ROLE[col]) {
+                userData = snap.data();
+                break;
+              }
+              if (snap.exists()) {
+                console.warn(
+                  `[restore] nilaktawan ang ${col}/${firebaseUser.uid}: role=`,
+                  snap.data().role,
+                  "(hindi tugma sa collection \u2014 malamang basyo o maling doc)"
+                );
+              }
+            } catch (err) {
+              readErrors.push(col);
+              // Maaaring ipagbawal ng security rules ang pagbasa ng collection
+              // na hindi kabilang sa role na ito. Hindi dapat nito patayin ang
+              // buong restore — tuloy lang sa susunod na collection.
+              console.warn(`[restore] hindi mabasa ang ${col}:`, err?.code || err);
+            }
+          }
 
-      if (firebaseUser && isInitial) {
-        const collections = ["coordinators", "students", "companies"];
-        let userData = null;
-        for (const col of collections) {
-          const snap = await getDoc(doc(db, col, firebaseUser.uid));
-          if (snap.exists()) { userData = snap.data(); break; }
-        }
+          // A timed suspension may have already expired since the last time
+          // this company signed in — reflect that before deciding whether to
+          // restore the session, same as signIn() does in AuthService.js.
+          if (userData?.role === "company" && userData.status === "suspended") {
+            await checkAndReactivateCompany(firebaseUser.uid).catch(() => {});
+            const freshSnap = await getDoc(doc(db, "companies", firebaseUser.uid));
+            if (freshSnap.exists()) userData = freshSnap.data();
+          }
 
-        // A timed suspension may have already expired since the last time
-        // this company signed in — reflect that before deciding whether to
-        // restore the session, same as signIn() does in AuthService.js.
-        if (userData?.role === "company" && userData.status === "suspended") {
-          await checkAndReactivateCompany(firebaseUser.uid).catch(() => {});
-          const freshSnap = await getDoc(doc(db, "companies", firebaseUser.uid));
-          if (freshSnap.exists()) userData = freshSnap.data();
-        }
-
-        // "suspended"/"blocked" MUST be excluded here too — otherwise a
-        // company whose account was suspended/blocked while logged in could
-        // regain access simply by refreshing the page, since this is what
-        // restores `currentUser` (and therefore dashboard access) on refresh.
-        const badStatuses = ["pending", "rejected", "transferred", "suspended", "blocked"];
-        if (userData && badStatuses.includes(userData.status)) {
-          // Don't leave a live Firebase Auth session sitting around for an
-          // account that isn't allowed to use the app right now.
-          await signOut(auth).catch(() => {});
-        }
-        if (userData && !badStatuses.includes(userData.status)) {
-          setCurrentUser(userData);
-          const onDashboardRoute = ["/coordinator", "/student", "/company"].some(p => location.pathname.startsWith(p));
-          // Also exempt the emailed password-reset link — a stale/logged-in
-          // session shouldn't bounce someone away from a reset link they just clicked.
-          const onPublicStandaloneRoute = ["/accept-invite", "/reset-password"].some(p => location.pathname.startsWith(p));
-          if (!onDashboardRoute && !onPublicStandaloneRoute) {
-            if (userData.role === "coordinator") navigate("/coordinator/dashboard");
-            else if (userData.role === "student")  navigate("/student/dashboard");
-            else if (userData.role === "company")  navigate("/company/dashboard");
+          // "suspended"/"blocked" MUST be excluded here too — otherwise a
+          // company whose account was suspended/blocked while logged in could
+          // regain access simply by refreshing the page, since this is what
+          // restores `currentUser` (and therefore dashboard access) on refresh.
+          const badStatuses = ["pending", "rejected", "transferred", "suspended", "blocked"];
+          if (userData && badStatuses.includes(userData.status)) {
+            // Don't leave a live Firebase Auth session sitting around for an
+            // account that isn't allowed to use the app right now.
+            await signOut(auth).catch(() => {});
+          }
+          if (userData && !badStatuses.includes(userData.status)) {
+            hasRestored.current = true;
+            setCurrentUser(userData);
+            const onDashboardRoute = ["/coordinator", "/student", "/company"].some(p => location.pathname.startsWith(p));
+            // Also exempt the emailed password-reset link — a stale/logged-in
+            // session shouldn't bounce someone away from a reset link they just clicked.
+            const onPublicStandaloneRoute = ["/accept-invite", "/reset-password"].some(p => location.pathname.startsWith(p));
+            if (!onDashboardRoute && !onPublicStandaloneRoute) {
+              if (userData.role === "coordinator") navigate("/coordinator/dashboard");
+              else if (userData.role === "student")  navigate("/student/dashboard");
+              else if (userData.role === "company")  navigate("/company/dashboard");
+            }
           }
         }
+      } catch (err) {
+        // Kahit anong sumabog sa itaas, kailangan pa ring mabitawan ang gate —
+        // kung hindi, mananatiling naka-loading nang habambuhay ang dashboard.
+        console.error("[restore] nabigo ang pag-restore ng session:", err);
+      } finally {
+        setAuthChecking(false);
       }
-      setAuthChecking(false);
     });
     return unsub;
   }, []);

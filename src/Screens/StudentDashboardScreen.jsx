@@ -1,15 +1,17 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { collection, onSnapshot, query, where, orderBy, limit, doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
+import { collection, onSnapshot, query, where, orderBy, limit, doc, getDoc, setDoc, updateDoc, serverTimestamp } from "firebase/firestore";
+import { getAuth, EmailAuthProvider, reauthenticateWithCredential } from "firebase/auth";
 import { db } from "./firebase";
 import { changePassword, logOut } from "./AuthService";
+import { normalizeEmail, isValidEmail } from "./studentPersonalEmail";
 import { useUnreadCount } from "./useChat";
 import { color, font, ease } from "./theme";
 
 import StudentFindCompanyScreen, { useOjtPosts } from "./StudentFindCompanyScreen";
 import StudentApplicationScreen from "./StudentApplicationScreen";
 import StudentMessagesScreen from "./StudentMessagesScreen";
-import StudentAccountProfileScreen from "./StudentAccountProfileScreen";
+import StudentAccountProfileScreen, { PersonalInfoScreen, ResponsiveStyles as ProfileResponsiveStyles } from "./StudentAccountProfileScreen";
 import AboutUsScreen from "./AboutUsScreen";
 
 import logo from "../icons/ojtern.png";
@@ -75,6 +77,176 @@ const PasswordChecklist = ({ password }) => {
     </div>
   );
 };
+
+// ── First-login account setup (Student ID accounts) ────────────────────────────
+// Bulk-created student accounts sign in to Firebase Auth with a system-generated
+// email nobody can receive mail at. Before the dashboard opens, the student must:
+//   1. replace the temporary password  → students/{uid}.passwordChanged = true
+//   2. log in again with the new password
+//   3. register a real recovery email  → students/{uid}.personalEmail
+// The Firebase Auth email is deliberately NOT changed: Student ID login depends
+// on it. Forgot Password reads personalEmail server-side (Cloud Function) instead.
+// Email validation and the uniqueness index live in ./studentPersonalEmail.
+// Decides which setup step to show, from the student's Firestore document.
+// Every missing field is treated as "not done yet", so older bulk-created
+// documents that never had these fields still enter the first-login flow.
+const computeSetupStage = (data = {}, authUser = null) => {
+  if (data.passwordChanged !== true) return "password";
+
+  // Password was changed, but this sign-in session started *before* that change
+  // (for example, the page was reloaded on the success screen). Require a fresh
+  // login with the new password before moving on.
+  const changedAtMs  = typeof data.passwordChangedAt?.toMillis === "function" ? data.passwordChangedAt.toMillis() : null;
+  const signedInAtMs = authUser?.metadata?.lastSignInTime ? Date.parse(authUser.metadata.lastSignInTime) : null;
+  if (changedAtMs && signedInAtMs && signedInAtMs < changedAtMs) return "relogin";
+
+  if (!isValidEmail(data.personalEmail)) return "personal";
+  return "done";
+};
+
+const isAuthError = (err) => String(err?.code || "").startsWith("auth/");
+
+// changePassword() can throw *after* Firebase already accepted the new password
+// (e.g. its Firestore write failed). Re-authenticating with the new password tells
+// us which side of that line we're on, so we never show "failed" for a password
+// that actually changed.
+const passwordNowMatches = async (password) => {
+  const authUser = getAuth().currentUser;
+  if (!authUser?.email) return false;
+  try {
+    await reauthenticateWithCredential(authUser, EmailAuthProvider.credential(authUser.email, password));
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const SESSION_EXPIRED_MSG = "Your session has expired. Log out, log in again, then set your new password.";
+const PASSWORD_ERROR_MESSAGES = {
+  "auth/wrong-password":            "Your temporary password is incorrect.",
+  "auth/invalid-credential":        "Your temporary password is incorrect.",
+  "auth/invalid-login-credentials": "Your temporary password is incorrect.",
+  "auth/too-many-requests":         "Too many attempts. Wait a few minutes, then try again.",
+  "auth/network-request-failed":    "No internet connection. Check your connection, then try again.",
+  "auth/weak-password":             "That password is too weak. Choose a stronger one.",
+  "auth/requires-recent-login":     SESSION_EXPIRED_MSG,
+  "auth/user-token-expired":        SESSION_EXPIRED_MSG,
+};
+const friendlyPasswordError = (err) => {
+  if (PASSWORD_ERROR_MESSAGES[err?.code]) return PASSWORD_ERROR_MESSAGES[err.code];
+  if (isAuthError(err)) return "We couldn't update your password. Try again.";
+  return err?.message || "We couldn't update your password. Try again.";
+};
+
+// ── Setup modal building blocks (same look as the original Set New Password modal) ──
+const EyeIcon = ({ open }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    {open
+      ? <><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></>
+      : <><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></>}
+  </svg>
+);
+
+const SetupModal = ({ title, titleId, children }) => (
+  <div style={{
+    position: "fixed", inset: 0, zIndex: 9999,
+    background: "rgba(0,0,0,0.65)",
+    display: "flex", alignItems: "center", justifyContent: "center",
+    padding: "1rem",
+  }}>
+    <div role="dialog" aria-modal="true" aria-labelledby={titleId} style={{
+      background: paper, borderRadius: "24px",
+      border: `2px solid ${ink}`, overflow: "hidden",
+      width: "100%", maxWidth: "400px", maxHeight: "calc(100vh - 2rem)",
+      display: "flex", flexDirection: "column",
+      boxShadow: "0 8px 32px rgba(0,0,0,0.3)",
+    }}>
+      <div style={{ background: ink, padding: "14px 18px", textAlign: "center", flexShrink: 0 }}>
+        <span id={titleId} style={{ fontFamily: uiFont, fontWeight: 700, fontSize: "1.15rem", color: paper, letterSpacing: "0.02em" }}>
+          {title}
+        </span>
+      </div>
+      <div style={{ padding: "20px clamp(16px, 5vw, 24px) 24px", overflowY: "auto", overflowWrap: "anywhere" }}>
+        {children}
+      </div>
+    </div>
+  </div>
+);
+
+const SetupIntro = ({ children }) => (
+  <p style={{ fontFamily: uiFont, fontSize: "0.85rem", color: inkMuted, textAlign: "center", marginBottom: "16px", lineHeight: 1.6 }}>
+    {children}
+  </p>
+);
+
+const setupInputStyle = (hasError, withToggle) => ({
+  width: "100%",
+  padding: withToggle ? "10px 44px 10px 16px" : "10px 16px",
+  background: ink,
+  border: hasError ? `1.5px solid ${color.danger}` : "none",
+  borderRadius: "20px",
+  color: paper,
+  fontSize: "0.88rem",
+  fontFamily: uiFont,
+  outline: "none",
+  boxSizing: "border-box",
+});
+
+const SetupPasswordInput = ({ value, onChange, placeholder, visible, onToggle, hasError, disabled, onEnter, autoComplete, marginBottom = "10px" }) => (
+  <div style={{ position: "relative", marginBottom }}>
+    <input
+      type={visible ? "text" : "password"}
+      placeholder={placeholder}
+      aria-label={placeholder.replace(/:$/, "")}
+      value={value}
+      disabled={disabled}
+      autoComplete={autoComplete}
+      onChange={e => onChange(e.target.value)}
+      onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); onEnter(); } }}
+      style={setupInputStyle(hasError, true)}
+    />
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-label={visible ? "Hide password" : "Show password"}
+      style={{ position: "absolute", right: "12px", top: "50%", transform: "translateY(-50%)", cursor: "pointer", background: "none", border: "none", padding: "2px", display: "flex" }}
+    >
+      <EyeIcon open={visible} />
+    </button>
+  </div>
+);
+
+const SetupError = ({ msg }) => msg ? (
+  <p role="alert" style={{ fontFamily: uiFont, fontSize: "0.78rem", color: color.danger, margin: "4px 0 8px 4px", lineHeight: 1.5 }}>⚠️ {msg}</p>
+) : null;
+
+const SetupActions = ({ label, loadingLabel, loading, onClick, onLogout, logoutBusy }) => (
+  <>
+    <hr style={{ border: "none", borderTop: `1.5px solid ${hairline}`, margin: "16px 0" }} />
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "10px" }}>
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={loading}
+        aria-busy={loading}
+        className="pill-btn"
+        style={{ background: ink, color: paper, border: "none", borderRadius: "24px", padding: "12px 20px", width: "100%", maxWidth: "260px", fontFamily: uiFont, fontWeight: 700, fontSize: "1.05rem", letterSpacing: "0.02em", cursor: loading ? "not-allowed" : "pointer", opacity: loading ? 0.7 : 1 }}
+      >
+        {loading ? loadingLabel : label}
+      </button>
+      {onLogout && (
+        <button
+          type="button"
+          onClick={onLogout}
+          disabled={loading || logoutBusy}
+          style={{ background: "none", border: "none", fontFamily: uiFont, fontSize: "0.8rem", color: inkMuted, textDecoration: "underline", cursor: loading || logoutBusy ? "not-allowed" : "pointer", padding: "4px" }}
+        >
+          {logoutBusy ? "Logging out…" : "Log out"}
+        </button>
+      )}
+    </div>
+  </>
+);
 
 // ── Time ago helper ────────────────────────────────────────────────────────────
 const timeAgo = (ts) => {
@@ -716,70 +888,162 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
   const [applyCompany, setApplyCompany]         = useState(null);
   const [pendingContact, setPendingContact]     = useState(null);
   const [pendingApplicationId, setPendingApplicationId] = useState(null);
-  const [showChangePass, setShowChangePass]     = useState(false);
-  const [showPassSuccess, setShowPassSuccess]   = useState(false);
-  const [currentPass, setCurrentPass] = useState("");
+  // ── First-login account setup gate ─────────────────────────────────────────
+  // Stages: "checking" → "password" → "relogin" → (log in again) → "personal" → "done".
+  // Re-computed from Firestore on every load (computeSetupStage), so closing or
+  // reloading the page part-way through never skips a step.
+  const [setupStage, setSetupStage]             = useState("checking");
+  const [setupProfile, setSetupProfile]         = useState({});
+  const [setupLogoutBusy, setSetupLogoutBusy]   = useState(false);
+
+  // Step 1 — Set new password
+  const [currentPass, setCurrentPass]           = useState("");
   const [newPass, setNewPass]                   = useState("");
   const [confirmPass, setConfirmPass]           = useState("");
   const [passError, setPassError]               = useState("");
   const [passLoading, setPassLoading]           = useState(false);
+  const [passFlagPending, setPassFlagPending]   = useState(false);
   const [showNew, setShowNew]                   = useState(false);
   const [showConfirm, setShowConfirm]           = useState(false);
   const [showCurrent, setShowCurrent]           = useState(false);
 
+
+  const loadSetupStatus = async (uid) => {
+    setSetupStage("checking");
+    try {
+      const snap = await getDoc(doc(db, "students", uid));
+      const data = snap.exists() ? snap.data() : {};
+      setSetupProfile({ personalEmail: isValidEmail(data.personalEmail) ? normalizeEmail(data.personalEmail) : "" });
+      setSetupStage(computeSetupStage(data, getAuth().currentUser));
+    } catch (err) {
+      console.error("Failed to load account setup status:", err);
+      setSetupStage("error");
+    }
+  };
+
+  // `user` ay null sa unang render pagka-refresh — naka-mount na ang dashboard
+  // bago pa dumating ang profile. Ang null ay "hindi pa alam", kaya hinihintay
+  // muna bago magpasya. Isang beses lang bawat user (didGateInit). The status is
+  // read straight from Firestore instead of trusting the `user` prop, because the
+  // prop can be stale right after a password or email update.
+  const didGateInit = useRef(null);
+  useEffect(() => {
+    if (!user?.uid || didGateInit.current === user.uid) return;
+    didGateInit.current = user.uid;
+    loadSetupStatus(user.uid);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.uid]);
+
+  // Child screens get the freshly saved personal email even before the parent
+  // reloads the profile (e.g. to pre-fill the application form).
+  const effectiveUser = useMemo(() => (
+    user && setupProfile.personalEmail ? { ...user, personalEmail: setupProfile.personalEmail } : user
+  ), [user, setupProfile.personalEmail]);
+
+  const handleSetupLogout = async () => {
+    if (setupLogoutBusy) return;
+    setSetupLogoutBusy(true);
+    try {
+      await logOut();
+    } catch (err) {
+      console.error("Logout failed:", err);
+    } finally {
+      setSetupLogoutBusy(false);
+      onLogout?.();
+    }
+  };
+
+  // Records that the temporary password is gone. passwordChangedAt lets
+  // computeSetupStage demand a fresh login if the page is reloaded afterwards.
+  // The new password itself is never written anywhere — only Firebase Auth has it.
+  const finishPasswordStep = async () => {
+    if (!getAuth().currentUser) {
+      // AuthService already ended the session; nothing more to write from here.
+      setSetupStage("relogin");
+      return;
+    }
+    try {
+      await setDoc(
+        doc(db, "students", user.uid),
+        { passwordChanged: true, passwordChangedAt: serverTimestamp() },
+        { merge: true }
+      );
+    } catch (err) {
+      console.error("Password changed, but saving setup progress failed:", err);
+      setPassFlagPending(true);
+      setPassError(
+        "Your password was changed, but we couldn't save your setup progress. Select Retry. " +
+        "If this keeps failing, log out and log in with your NEW password — you'll be asked to confirm it once more."
+      );
+      return;
+    }
+    setPassFlagPending(false);
+    setCurrentPass(""); setNewPass(""); setConfirmPass(""); setPassError("");
+    setShowCurrent(false); setShowNew(false); setShowConfirm(false);
+    setSetupStage("relogin");
+  };
+
   const handleChangePassword = async () => {
+    if (passLoading) return;
     setPassError("");
 
+    // Password already changed in Auth; only the Firestore flag needs retrying.
+    if (passFlagPending) {
+      setPassLoading(true);
+      try { await finishPasswordStep(); } finally { setPassLoading(false); }
+      return;
+    }
+
     if (!currentPass) {
-      setPassError("Please enter your current password.");
+      setPassError("Enter the temporary password you used to log in.");
       return;
     }
-
     if (!newPass) {
-      setPassError("Please enter a new password.");
+      setPassError("Enter a new password.");
       return;
     }
-
     if (!isPasswordStrong(newPass)) {
       setPassError("Password does not meet all the requirements below.");
       return;
     }
-
+    if (newPass === currentPass) {
+      setPassError("Your new password must be different from your temporary password.");
+      return;
+    }
     if (newPass !== confirmPass) {
       setPassError("Passwords do not match.");
       return;
     }
 
+    const authUser = getAuth().currentUser;
+    if (!authUser) {
+      setPassError("Your session has expired. Refresh the page and log in again.");
+      return;
+    }
+
     setPassLoading(true);
-
     try {
-      await changePassword(
-        currentPass,
-        newPass,
-        "students",
-        user.uid
-      );
-
-      setShowPassSuccess(true);
-
-    } catch (err) {
-      setPassError(err.message || "Failed to change password.");
-        } finally {
+      try {
+        await changePassword(currentPass, newPass, "students", user.uid, authUser.email);
+      } catch (err) {
+        const actuallyChanged = !isAuthError(err) && await passwordNowMatches(newPass);
+        if (!actuallyChanged) {
+          setPassError(friendlyPasswordError(err));
+          return;
+        }
+      }
+      await finishPasswordStep();
+    } finally {
       setPassLoading(false);
     }
   };
 
-  // `user` ay null sa unang render pagka-refresh — naka-mount na ang dashboard
-  // bago pa dumating ang profile. Ang null ay "hindi pa alam", hindi "hindi pa
-  // nagpalit ng password", kaya hinihintay muna bago magpasya. Isang beses lang
-  // bawat user (didGateInit), para hindi muling bumukas ang modal matapos
-  // i-dismiss o matapos mag-save.
-  const didGateInit = useRef(false);
-  useEffect(() => {
-    if (!user || didGateInit.current) return;
-    didGateInit.current = true;
-    setShowChangePass(!user.passwordChanged);
-  }, [user]);
+  // Step 2 — Personal information. PersonalInfoScreen (setupMode) validates the
+  // whole form and saves personalEmail through the studentPersonalEmails index.
+  const handlePersonalInfoComplete = (savedEmail) => {
+    setSetupProfile(prev => ({ ...prev, personalEmail: savedEmail }));
+    setSetupStage("done");
+  };
 
   const handleReportSubmit = (report) => {
     console.log("Report submitted:", report);
@@ -849,7 +1113,7 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
       <StudentFindCompanyScreen
         initialCompanyId={initialCompanyId}
         onClearInitialCompany={() => setInitialCompanyId(null)}
-        user={user}
+        user={effectiveUser}
         onMessageNow={(company) => {
           setPendingContact({ id: company.companyId || company.id, name: company.companyName || company.name, fromMessageNow: true });
           navigate("messages");
@@ -878,7 +1142,7 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
       <StudentApplicationScreen
         initialCompany={applyCompany}
         onModalClose={() => setApplyCompany(null)}
-        user={user}
+        user={effectiveUser}
         openApplicationId={pendingApplicationId}
         onApplicationOpened={() => setPendingApplicationId(null)}
       />
@@ -886,15 +1150,182 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
 
     if (activeNav === "messages") return (
       <StudentMessagesScreen
-        user={user}
+        user={effectiveUser}
         openContact={pendingContact} onContactOpened={() => setPendingContact(null)}
         onReportSubmit={handleReportSubmit}
       />
     );
 
-    if (activeNav === "accountprofile") return <StudentAccountProfileScreen user={user} onLogout={onLogout} />;
+    if (activeNav === "accountprofile") return <StudentAccountProfileScreen user={effectiveUser} onLogout={onLogout} />;
     if (activeNav === "about")          return <AboutUsScreen onBack={() => navigate("dashboard")} />;
   };
+
+  // ── Setup gate: nothing of the dashboard renders until setup is "done" ──────
+  if (setupStage !== "done") {
+    return (
+      <>
+        <FontImport />
+        <div style={{
+          position: "fixed", inset: 0, background: paperTint,
+          display: "flex", alignItems: "center", justifyContent: "center", padding: "16px",
+        }}>
+          {setupStage === "checking" && (
+            <p role="status" style={{ fontFamily: uiFont, fontSize: "0.9rem", color: inkMuted }}>
+              Checking your account…
+            </p>
+          )}
+        </div>
+
+        {setupStage === "error" && (
+          <SetupModal title="Couldn't Load Your Account" titleId="setup-error-title">
+            <SetupIntro>
+              We couldn't check your account setup. Check your internet connection, then try again.
+            </SetupIntro>
+            <SetupActions
+              label="Try Again"
+              loadingLabel="Checking…"
+              loading={false}
+              onClick={() => user?.uid && loadSetupStatus(user.uid)}
+              onLogout={handleSetupLogout}
+              logoutBusy={setupLogoutBusy}
+            />
+          </SetupModal>
+        )}
+
+        {/* ── Step 1: Set New Password ── */}
+        {setupStage === "password" && (
+          <SetupModal title="Set New Password" titleId="setup-password-title">
+            <SetupIntro>
+              Welcome! Before you continue, replace the current password you were given with a new one that only you know.
+            </SetupIntro>
+
+            <SetupPasswordInput
+              placeholder="Current Password:"
+              autoComplete="current-password"
+              value={currentPass}
+              onChange={v => { setCurrentPass(v); setPassError(""); }}
+              visible={showCurrent}
+              onToggle={() => setShowCurrent(p => !p)}
+              hasError={!!passError && !passFlagPending}
+              disabled={passLoading || passFlagPending}
+              onEnter={handleChangePassword}
+            />
+            <SetupPasswordInput
+              placeholder="Enter New Password:"
+              autoComplete="new-password"
+              value={newPass}
+              onChange={v => { setNewPass(v); setPassError(""); }}
+              visible={showNew}
+              onToggle={() => setShowNew(p => !p)}
+              hasError={!!passError && !passFlagPending}
+              disabled={passLoading || passFlagPending}
+              onEnter={handleChangePassword}
+            />
+
+            {!passFlagPending && <PasswordChecklist password={newPass} />}
+
+            <SetupPasswordInput
+              placeholder="Confirm New Password:"
+              autoComplete="new-password"
+              value={confirmPass}
+              onChange={v => { setConfirmPass(v); setPassError(""); }}
+              visible={showConfirm}
+              onToggle={() => setShowConfirm(p => !p)}
+              hasError={!!passError && !passFlagPending}
+              disabled={passLoading || passFlagPending}
+              onEnter={handleChangePassword}
+              marginBottom="4px"
+            />
+
+            <SetupError msg={passError} />
+
+            <SetupActions
+              label={passFlagPending ? "Retry" : "Save Password"}
+              loadingLabel="Saving…"
+              loading={passLoading}
+              onClick={handleChangePassword}
+              onLogout={handleSetupLogout}
+              logoutBusy={setupLogoutBusy}
+            />
+          </SetupModal>
+        )}
+
+        {/* ── Password updated → must log in again ── */}
+        {setupStage === "relogin" && (
+          <div style={{
+            position: "fixed", inset: 0, zIndex: 9999,
+            background: "rgba(0,0,0,0.45)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            padding: "16px",
+          }}>
+            <div role="dialog" aria-modal="true" aria-labelledby="setup-relogin-title" style={{
+              background: paper, borderRadius: "20px",
+              padding: "36px clamp(20px, 6vw, 32px)", width: "clamp(280px, 85vw, 380px)",
+              display: "flex", flexDirection: "column", alignItems: "center",
+              gap: "12px", boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
+            }}>
+              <div style={{
+                width: "64px", height: "64px", borderRadius: "50%",
+                background: "#e8f5e9", display: "flex",
+                alignItems: "center", justifyContent: "center", marginBottom: "4px",
+              }}>
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none"
+                  stroke="#2d7a2d" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <polyline points="20 6 9 17 4 12"/>
+                </svg>
+              </div>
+              <p id="setup-relogin-title" style={{
+                fontFamily: uiFont, fontWeight: 700,
+                fontSize: "1.15rem", color: inkText, margin: 0, textAlign: "center",
+              }}>Password Updated</p>
+              <p style={{
+                fontFamily: uiFont, fontSize: "0.9rem",
+                color: inkMuted, margin: 0, textAlign: "center", lineHeight: 1.5,
+              }}>
+                Password updated successfully.<br />
+                Please log in again using your Student ID and new password.
+              </p>
+              <button onClick={handleSetupLogout} disabled={setupLogoutBusy} className="pill-btn" style={{
+                width: "100%", padding: "12px", borderRadius: "30px",
+                border: "none", background: ink,
+                fontFamily: uiFont, fontWeight: 700,
+                fontSize: "0.95rem", cursor: setupLogoutBusy ? "not-allowed" : "pointer", color: paper,
+                boxShadow: "0 3px 10px rgba(0,0,0,0.5)", marginTop: "8px",
+                opacity: setupLogoutBusy ? 0.7 : 1,
+              }}>{setupLogoutBusy ? "Logging out…" : "Log In Again"}</button>
+            </div>
+          </div>
+        )}
+
+        {/* ── Step 2: Personal Information (full edit form, like the coordinator's first login) ── */}
+        {setupStage === "personal" && (
+          <div style={{
+            position: "fixed", inset: 0, zIndex: 9999,
+            background: "rgba(0,0,0,0.65)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            padding: "clamp(0px, 3vw, 24px)",
+          }}>
+            <div role="dialog" aria-modal="true" aria-label="Edit personal information" style={{
+              width: "100%", maxWidth: "760px",
+              height: "100%", maxHeight: "900px",
+              display: "flex", flexDirection: "column",
+              borderRadius: "clamp(0px, 3vw, 20px)", overflow: "hidden",
+              boxShadow: "0 8px 32px rgba(0,0,0,0.3)",
+            }}>
+              <ProfileResponsiveStyles />
+              <PersonalInfoScreen
+                user={effectiveUser}
+                setupMode
+                onSetupComplete={handlePersonalInfoComplete}
+                onLogout={handleSetupLogout}
+                logoutBusy={setupLogoutBusy}
+              />
+            </div>
+          </div>
+        )}
+      </>
+    );
+  }
 
   const currentLabel = navItems.find(n => n.key === activeNav)?.label ?? "";
 
@@ -1054,154 +1485,6 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
         </div>
       </div>
 
-      {/* ── Password Change Success Modal ── */}
-      {showPassSuccess && (
-        <div style={{
-          position: "fixed", inset: 0, zIndex: 9999,
-          background: "rgba(0,0,0,0.45)",
-          display: "flex", alignItems: "center", justifyContent: "center",
-          padding: "16px",
-        }}>
-          <div style={{
-            background: paper, borderRadius: "20px",
-            padding: "36px 32px", width: "clamp(280px, 85vw, 380px)",
-            display: "flex", flexDirection: "column", alignItems: "center",
-            gap: "12px", boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
-          }}>
-            <div style={{
-              width: "64px", height: "64px", borderRadius: "50%",
-              background: "#e8f5e9", display: "flex",
-              alignItems: "center", justifyContent: "center", marginBottom: "4px",
-            }}>
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none"
-                stroke="#2d7a2d" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="20 6 9 17 4 12"/>
-              </svg>
-            </div>
-            <p style={{
-              fontFamily: uiFont, fontWeight: 700,
-              fontSize: "1.15rem", color: inkText, margin: 0, textAlign: "center",
-            }}>Password Changed!</p>
-            <p style={{
-              fontFamily: uiFont, fontSize: "0.9rem",
-              color: inkMuted, margin: 0, textAlign: "center", lineHeight: 1.5,
-            }}>Your password has been updated successfully. Please log in again with your new password.</p>
-            <button onClick={() => {
-              setShowPassSuccess(false);
-              onLogout();
-            }} className="pill-btn" style={{
-              width: "100%", padding: "12px", borderRadius: "30px",
-              border: "none", background: ink,
-              fontFamily: uiFont, fontWeight: 700,
-              fontSize: "0.95rem", cursor: "pointer", color: paper,
-              boxShadow: "0 3px 10px rgba(0,0,0,0.5)", marginTop: "8px",
-            }}>Done</button>
-          </div>
-        </div>
-      )}
-
-      {/* ── Change Password Modal Overlay ── */}
-      {showChangePass && !showPassSuccess && (
-        <div style={{
-          position: "fixed", inset: 0, zIndex: 9999,
-          background: "rgba(0,0,0,0.65)",
-          display: "flex", alignItems: "center", justifyContent: "center",
-          padding: "1rem",
-        }}>
-          <div style={{
-            background: paper, borderRadius: "24px",
-            border: `2px solid ${ink}`, overflow: "hidden",
-            width: "100%", maxWidth: "370px", boxShadow: "0 8px 32px rgba(0,0,0,0.3)",
-          }}>
-            <div style={{ background: ink, padding: "14px", textAlign: "center" }}>
-              <span style={{ fontFamily: uiFont, fontWeight: 700, fontSize: "1.15rem", color: paper, letterSpacing: "0.02em" }}>
-                Set New Password
-              </span>
-            </div>
-            <div style={{ padding: "20px 24px 28px" }}>
-              <p style={{ fontFamily: uiFont, fontSize: "0.85rem", color: inkMuted, textAlign: "center", marginBottom: "16px", lineHeight: 1.6 }}>
-                For your security, please change your password before continuing.
-              </p>
-              <div style={{ position: "relative", marginBottom: "10px" }}>
-                <input
-                  type={showCurrent ? "text" : "password"}
-                  placeholder="Current Password:"
-                  value={currentPass}
-                  onChange={(e) => {
-                    setCurrentPass(e.target.value);
-                    setPassError("");
-                  }}
-                  onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); handleChangePassword(); } }}
-                  style={{
-                    width: "100%",
-                    padding: "10px 44px 10px 16px",
-                    background: ink,
-                    border: passError ? `1.5px solid ${color.danger}` : "none",
-                    borderRadius: "20px",
-                    color: paper,
-                    fontSize: "0.88rem",
-                    fontFamily: uiFont,
-                    outline: "none",
-                    boxSizing: "border-box",
-                  }}
-                />
-                <span onClick={() => setShowCurrent(p => !p)} style={{ position: "absolute", right: "14px", top: "50%", transform: "translateY(-50%)", cursor: "pointer" }}>
-                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    {showCurrent ? <><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></> : <><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></>}
-                  </svg>
-                </span>
-              </div>
-              <div style={{ position: "relative", marginBottom: "10px" }}>
-                <input
-                  type={showNew ? "text" : "password"}
-                  placeholder="Enter New Password:"
-                  value={newPass}
-                  onChange={e => { setNewPass(e.target.value); setPassError(""); }}
-                  onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); handleChangePassword(); } }}
-                  style={{ width: "100%", padding: "10px 44px 10px 16px", background: ink, border: passError ? `1.5px solid ${color.danger}` : "none", borderRadius: "20px", color: paper, fontSize: "0.88rem", fontFamily: uiFont, outline: "none", boxSizing: "border-box" }}
-                />
-                <span onClick={() => setShowNew(p => !p)} style={{ position: "absolute", right: "14px", top: "50%", transform: "translateY(-50%)", cursor: "pointer" }}>
-                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    {showNew ? <><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></> : <><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></>}
-                  </svg>
-                </span>
-              </div>
-
-              <PasswordChecklist password={newPass} />
-
-              <div style={{ position: "relative", marginBottom: "4px" }}>
-                <input
-                  type={showConfirm ? "text" : "password"}
-                  placeholder="Confirm New Password:"
-                  value={confirmPass}
-                  onChange={e => { setConfirmPass(e.target.value); setPassError(""); }}
-                  onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); handleChangePassword(); } }}
-                  style={{ width: "100%", padding: "10px 44px 10px 16px", background: ink, border: passError ? `1.5px solid ${color.danger}` : "none", borderRadius: "20px", color: paper, fontSize: "0.88rem", fontFamily: uiFont, outline: "none", boxSizing: "border-box" }}
-                />
-                <span onClick={() => setShowConfirm(p => !p)} style={{ position: "absolute", right: "14px", top: "50%", transform: "translateY(-50%)", cursor: "pointer" }}>
-                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    {showConfirm ? <><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></> : <><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></>}
-                  </svg>
-                </span>
-              </div>
-              {passError && (
-                <p style={{ fontFamily: uiFont, fontSize: "0.78rem", color: color.danger, margin: "4px 0 8px 4px" }}>⚠️ {passError}</p>
-              )}
-              <hr style={{ border: "none", borderTop: `1.5px solid ${hairline}`, margin: "16px 0" }} />
-              <div style={{ textAlign: "center" }}>
-                <button
-                  onClick={handleChangePassword}
-                  disabled={passLoading}
-                  className="pill-btn"
-                  style={{ background: ink, color: paper, border: "none", borderRadius: "24px", padding: "12px 48px", fontFamily: uiFont, fontWeight: 700, fontSize: "1.05rem", letterSpacing: "0.02em", cursor: passLoading ? "not-allowed" : "pointer", opacity: passLoading ? 0.7 : 1 }}
-                >
-                  {passLoading ? "Saving…" : "Continue"}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </>
   );
 };

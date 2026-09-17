@@ -353,8 +353,8 @@ const FontImport = () => (
 const navItems = [
   { key: "dashboard",         label: "Dashboard",          icon: dashboardIcon },
   { key: "findcompany",       label: "Find Company",      icon: findIcon },
-  { key: "studentlist", label: "Student List", icon: studentPlacementIcon },
   { key: "studentsaccount",      label: "Students Account",      icon: studentListIcon },
+  { key: "studentlist", label: "Student List", icon: studentPlacementIcon },  
   { key: "companylist",       label: "Company List",       icon: companyListIcon },
   { key: "reportcompany",     label: "Report List",     icon: reportCompanyIcon },
   { key: "messages",          label: "Messages",           icon: messagesIcon },

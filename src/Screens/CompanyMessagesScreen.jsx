@@ -39,6 +39,23 @@ const reportCategories = [
   { label: "Others",                 description: "Any other concern not listed above. Please provide a detailed description.",                                                                            details: [] },
 ];
 
+// ── Who a company is allowed to report ────────────────────────────────────────
+// Coordinators are school staff who oversee this company's OJT postings, so a
+// company reporting one would be a retaliation tool against its own overseer.
+// Same rule as CompanyApplicantsScreen: students only.
+const NON_REPORTABLE_ROLES = ["coordinator", "adviser", "admin", "superadmin", "company"];
+
+// `ensureConversation` always stores a role for the other participant (falling
+// back to "student"), so every contact carries one. Anything that isn't an
+// explicit student is treated as not reportable — failing closed here costs a
+// hidden menu item at worst, while failing open would let a coordinator be
+// reported.
+const canCompanyReport = (contact) => {
+  const role = String(contact?.role || contact?.userType || "").toLowerCase();
+  if (NON_REPORTABLE_ROLES.includes(role)) return false;
+  return role === "student";
+};
+
 // ── Responsive breakpoint hook ────────────────────────────────────────────────
 const useIsMobile = () => {
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 640);
@@ -384,6 +401,8 @@ const ChatView = ({ contact, messages, onSend, onBack, onReport, onDeleteConvers
   const [editText, setEditText]       = useState("");
   const [popupMsgId, setPopupMsgId]   = useState(null);
   const [showReport, setShowReport]   = useState(false);
+  // Students can be reported; coordinators never can.
+  const canReport = canCompanyReport(contact);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [unsendTarget, setUnsendTarget] = useState(null);
   const [replyTo, setReplyTo]         = useState(null);   // composer reply target
@@ -566,7 +585,9 @@ const ChatView = ({ contact, messages, onSend, onBack, onReport, onDeleteConvers
           </button>
           {showInfo && (
             <div className="msg-popover" style={{ position: "absolute", top: "40px", right: 0, background: surface, borderRadius: radius.card, border: `1px solid ${line}`, boxShadow: shadow.panel, zIndex: 200, minWidth: "190px", overflow: "hidden" }}>
-              <div onClick={() => { setShowInfo(false); setShowReport(true); }} style={{ padding: "12px 18px", fontFamily: font.ui, ...type.helper, color: inkBody, cursor: "pointer", borderBottom: `1px solid ${lineSoft}` }} onMouseEnter={e => e.currentTarget.style.background = lineSoft} onMouseLeave={e => e.currentTarget.style.background = surface}>Report</div>
+              {canReport && (
+                <div onClick={() => { setShowInfo(false); setShowReport(true); }} style={{ padding: "12px 18px", fontFamily: font.ui, ...type.helper, color: inkBody, cursor: "pointer", borderBottom: `1px solid ${lineSoft}` }} onMouseEnter={e => e.currentTarget.style.background = lineSoft} onMouseLeave={e => e.currentTarget.style.background = surface}>Report</div>
+              )}
               <div onClick={handleDeleteConversation} style={{ padding: "12px 18px", fontFamily: font.ui, ...type.helper, color: danger, fontWeight: 500, cursor: "pointer" }} onMouseEnter={e => e.currentTarget.style.background = lineSoft} onMouseLeave={e => e.currentTarget.style.background = surface}>Delete conversation</div>
             </div>
           )}
@@ -798,7 +819,7 @@ const ChatView = ({ contact, messages, onSend, onBack, onReport, onDeleteConvers
         </>
       )}
 
-      {showReport && <ReportModal company={contact} onClose={() => setShowReport(false)} onSubmit={report => { onReport(report); setShowReport(false); }} />}
+      {showReport && canReport && <ReportModal company={contact} onClose={() => setShowReport(false)} onSubmit={report => { onReport(report); setShowReport(false); }} />}
       {showDeleteConfirm && <ConfirmModal message="Delete this conversation? It will be removed for you." confirmLabel="Delete" cancelLabel="Keep" onConfirm={confirmDeleteConversation} onCancel={() => setShowDeleteConfirm(false)} />}
       {unsendTarget && <ConfirmModal message="This message will be unsent for everyone in the chat." confirmLabel="Unsend" cancelLabel="Cancel" onConfirm={confirmUnsend} onCancel={() => setUnsendTarget(null)} />}
       {historyMsg && <EditHistoryModal msg={historyMsg} onClose={() => setHistoryMsg(null)} />}
@@ -1010,6 +1031,13 @@ const CompanyMessagesScreen = ({
   };
 
   const handleReport = async (report) => {
+    // Second line of defence: the Report menu item is already hidden for
+    // coordinators, but never write the report doc without re-checking.
+    if (!canCompanyReport(activeContact)) {
+      console.warn("Blocked report: a company can only report a student.");
+      setReportError("Coordinators can't be reported from here.");
+      return;
+    }
     try {
       let uploadedFile = null;
       if (report.attachedFile?.file) {

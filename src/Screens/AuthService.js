@@ -939,8 +939,14 @@ export const getUserProfile = async (collectionName, uid) => {
 
 /**
  * Generates the default student password.
- * Format: firstInitial + lastName + last3DigitsOfStudentId + "." + college
- * e.g. firstName "Juan", lastName "Dela Cruz", studentId "2021-00123", college "CCS"  →  "jdelacruz123.ccs"
+ * Format: FirstInitial(upper) + lastName + last3DigitsOfStudentId + "." + college
+ * e.g. firstName "Juan", lastName "Dela Cruz", studentId "2021-00123", college "CCS"  →  "Jdelacruz123.ccs"
+ *
+ * The leading initial is capitalized (rather than lowercased) so the
+ * password always contains an uppercase character — this Firebase project's
+ * password policy requires one, and an all-lowercase password like
+ * "jdelacruz123.ccs" gets rejected with auth/password-does-not-meet-
+ * requirements at account-creation time.
  *
  * @param {string} firstName
  * @param {string} lastName
@@ -952,7 +958,7 @@ export const getUserProfile = async (collectionName, uid) => {
  * @returns {string}
  */
 export const generateStudentPassword = (firstName, lastName, studentId, collegeAbbr) => {
-  const firstInitial = firstName.trim()[0].toLowerCase();
+  const firstInitial = firstName.trim()[0].toUpperCase();
   const cleanLast    = lastName.trim().toLowerCase().replace(/\s+/g, "");
   const last3        = String(studentId).trim().replace(/\D/g, "").slice(-3);
   const cleanCollege = collegeAbbr.trim().toLowerCase().replace(/\s+/g, "");
@@ -1002,8 +1008,28 @@ export const createStudentAccount = async (studentData, createdByUid) => {
   // than the unwieldy ".collegeofcomputerstudies".
   const password = generateStudentPassword(firstName, lastName, studentId, collegeAbbr || college);
 
+  // 2b. Bulk-imported students arrive here with email: "" — the import
+  // template intentionally has no Email column, since students fill their
+  // own email in later from their personal information page. But Firebase
+  // Auth still requires SOME syntactically valid email to create the
+  // account with — createUserWithEmailAndPassword throws auth/missing-email
+  // on an empty string. That's what was breaking every imported row (e.g.
+  // 202210112, 202210156), not just those two.
+  //
+  // Fall back to a deterministic placeholder derived from the student ID
+  // when no real email was supplied. This becomes both the Auth credential
+  // and the Firestore `email` field (which student sign-in resolves by
+  // studentId — see signIn() above) until the student sets their real
+  // email, same as manually-created students still go through the real
+  // email path unaffected.
+  const trimmedEmail = (email || "").trim();
+  const hasRealEmail = trimmedEmail.length > 0;
+  const authEmail = hasRealEmail
+    ? trimmedEmail.toLowerCase()
+    : `${studentId.trim()}@pending.student`;
+
   // 3. Firebase Auth — isolated so it doesn't sign the coordinator out
-  const uid = await createAuthUserIsolated(email.trim().toLowerCase(), password, async (newUid) => {
+  const uid = await createAuthUserIsolated(authEmail, password, async (newUid) => {
     await setDoc(doc(db, "students", newUid), {
       uid:            newUid,
       studentId:      studentId.trim(),
@@ -1017,7 +1043,11 @@ export const createStudentAccount = async (studentData, createdByUid) => {
       yearSection:    yearSection.trim(),
       sex,
       age:            Number(age),
-      email:          email.trim().toLowerCase(),
+      email:          authEmail,
+      // Lets the UI (and a future "add your email" first-login prompt)
+      // distinguish a real address from the placeholder, without having to
+      // pattern-match on "@pending.student".
+      hasRealEmail,
       role:           "student",
       status:         "active",
       passwordChanged: false,

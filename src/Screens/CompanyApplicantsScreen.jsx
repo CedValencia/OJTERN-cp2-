@@ -15,6 +15,7 @@ import aboutIcon          from "../icons/about.png";
 import downloadIcon       from "../icons/download.png";
 import pdfIcon            from "../icons/pdf.png";
 import viewIcon           from "../icons/view.png";
+import reportIcon         from "../icons/report.png";
 
 // ── Design tokens, aliased for this screen ────────────────────────────────────
 // Same aliases as CoordinatorStudentListScreen so the two screens stay in sync.
@@ -30,6 +31,33 @@ const panel      = color.blush100;     // dark header bar
 const panelDeep  = color.blush50;
 const onPanel    = color.onWine;
 const onPanelDim = color.onWineMuted;
+
+// ── Report support ────────────────────────────────────────────────────────────
+// Same Cloudinary target as StudentFindCompanyScreen so every report's evidence
+// lands in one folder regardless of who filed it.
+const CLOUDINARY_CLOUD_NAME    = "doalndt5l";
+const CLOUDINARY_UPLOAD_PRESET = "ojtern_docs";
+
+// Concerns a company can raise about an applicant. Mirrors the student-side
+// flow in StudentFindCompanyScreen, but the categories describe applicant
+// behaviour rather than employer behaviour.
+const reportCategories = [
+  { label: "Falsified Requirements", description: "Submitted documents, endorsements, or credentials that appear forged, edited, or that belong to someone else.", details: ["Edited or forged endorsement letter", "Credentials belonging to another student", "Altered grades or certificates"] },
+  { label: "Misrepresentation", description: "Claimed a program, skill set, or status that does not match the applicant's actual record.", details: ["Wrong program or college claimed", "Fabricated skills or experience", "Applying on behalf of someone else"] },
+  { label: "Harassment or Abusive Conduct", description: "Threatening, abusive, or sexually inappropriate behaviour toward staff during the application or interview process.", details: ["Abusive or threatening messages", "Sexually inappropriate conduct", "Repeated unwanted contact"] },
+  { label: "No-show or Unprofessional Conduct", description: "Repeatedly missing scheduled interviews or agreed commitments without notice.", details: ["Missed interviews without notice", "Backed out after accepting", "Unresponsive after being scheduled"] },
+  { label: "Spam or Fake Application", description: "Bulk, automated, or non-serious applications, or an account that does not appear to be a real student.", details: ["Placeholder or nonsense application message", "Duplicate applications", "Account appears fake"] },
+  { label: "Others", description: "Any other concern not listed above. Please provide a detailed description of the issue.", details: [] },
+];
+
+// A company may only ever report a student. Coordinators are school staff and
+// are never reportable from the company side, so anything that isn't clearly a
+// student record gets no Report button at all. Records with no role field are
+// treated as students because every document in `applications` is a student's.
+const isReportableApplicant = (person) => {
+  const role = String(person?.role || person?.userType || "student").toLowerCase();
+  return role === "student";
+};
 
 // ── College → Program → Specialization data ────────────────────────────────
 const COLLEGE_DATA = {
@@ -84,14 +112,22 @@ const STATUS_COLORS = {
 // an applicant can be declined from any non-final stage.
 const STATUS_RANK = { "Pending": 0, "In Review": 1, "To Interview": 2, "Accepted": 3 };
 
-// An applicant can only move forward through the sequence (or be declined at
-// any point) — never back to an earlier status. Accepted/Declined are final
-// and are handled separately via the `locked` prop.
+// An applicant can only move forward through the sequence — never back to an
+// earlier status. On top of that, the two final decisions (Accepted/Declined)
+// are only unlocked once the applicant has reached "To Interview", so nobody
+// can be accepted or declined straight out of Pending or In Review.
+// Accepted/Declined themselves are terminal and handled via the `locked` prop.
 const getDisabledStatusOptions = (currentStatus) => {
   if (!(currentStatus in STATUS_RANK)) return [];
-  return STATUS_OPTIONS.filter(
+  const disabled = STATUS_OPTIONS.filter(
     opt => opt in STATUS_RANK && STATUS_RANK[opt] < STATUS_RANK[currentStatus]
   );
+  if (STATUS_RANK[currentStatus] < STATUS_RANK["To Interview"]) {
+    for (const finalOpt of ["Accepted", "Declined"]) {
+      if (!disabled.includes(finalOpt)) disabled.push(finalOpt);
+    }
+  }
+  return disabled;
 };
 
 const DROPDOWN_ITEM_HEIGHT = 36;
@@ -318,6 +354,7 @@ const ResponsiveStyles = () => (
       padding: 14px 24px;
       display: flex;
       justify-content: flex-end;
+      gap: 10px;
       margin-top: 8px;
     }
     @media (max-width: 480px) {
@@ -433,7 +470,10 @@ const StatusDropdown = ({ status, onChange, open, setOpen, locked = false, disab
           {STATUS_OPTIONS.map(opt => {
             const sc = STATUS_COLORS[opt];
             const isActive = opt === status;
-            const isDisabled = !isActive && disabledOptions.includes(opt);
+            // Unavailable options are dimmed; the current status keeps its
+            // coloured pill. Neither one can be clicked.
+            const isBlocked  = !isActive && disabledOptions.includes(opt);
+            const isDisabled = isActive || isBlocked;
             return (
               <div
                 key={opt}
@@ -443,10 +483,9 @@ const StatusDropdown = ({ status, onChange, open, setOpen, locked = false, disab
                   color: isActive ? sc.color : inkBody,
                   borderRadius: radius.pill, padding: "5px 12px",
                   fontFamily: font.ui, fontSize: "0.78rem",
-                  fontWeight: 500, cursor: isDisabled ? "not-allowed" : "pointer", textAlign: "center",
+                  fontWeight: 500, cursor: isBlocked ? "not-allowed" : isActive ? "default" : "pointer", textAlign: "center",
                   whiteSpace: "nowrap", transition: `background 140ms ${ease}, color 140ms ${ease}`, userSelect: "none",
-                  opacity: isDisabled ? 0.5 : 1,
-                  textDecoration: isDisabled ? "line-through" : "none",
+                  opacity: isBlocked ? 0.45 : 1,
                 }}
                 onMouseEnter={e => { if (isDisabled) return; e.currentTarget.style.background = sc.bg; e.currentTarget.style.color = sc.color; }}
                 onMouseLeave={e => {
@@ -533,6 +572,242 @@ const StatusSavedModal = ({ onClose }) => (
   </div>
 );
 
+// ── Alert (used by the report flow for inline validation) ─────────────────────
+const AlertModal = ({ message, onClose }) => (
+  <div style={{ position: "fixed", inset: 0, background: "rgba(10,10,10,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 3100, padding: "16px" }}>
+    <div style={{ background: surface, borderRadius: radius.card, width: "100%", maxWidth: "340px", overflow: "hidden", textAlign: "center", border: `1px solid ${line}`, boxShadow: shadow.panel }}>
+      <div style={{ padding: "22px 22px 16px" }}>
+        <p style={{ fontFamily: font.ui, ...type.body, color: inkBody, margin: 0 }}>{message}</p>
+      </div>
+      <button onClick={onClose} style={{ width: "100%", padding: "13px", border: "none", borderTop: `1px solid ${line}`, background: surface, color: ink, fontFamily: font.ui, ...type.control, cursor: "pointer" }}>OK</button>
+    </div>
+  </div>
+);
+
+// ── Report sent confirmation ──────────────────────────────────────────────────
+const ReportSentModal = ({ onClose }) => (
+  <div style={{ position: "fixed", inset: 0, background: "rgba(10,10,10,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 3000, padding: "16px" }}>
+    <div style={{ background: color.white, border: `1px solid ${line}`, borderRadius: radius.panel, maxWidth: "340px", width: "90%", padding: "30px 22px 24px", boxShadow: shadow.panel, textAlign: "center" }}>
+      <div style={{ width: "52px", height: "52px", borderRadius: "50%", background: "rgba(90,117,96,0.14)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 14px", fontSize: "1.6rem", color: color.success }}>
+        ✓
+      </div>
+      <p style={{ fontFamily: font.ui, fontSize: "1.1rem", fontWeight: 600, color: ink, margin: "0 0 6px" }}>Report sent</p>
+      <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, margin: "0 0 20px" }}>
+        The review team will look into this. The applicant isn't told who filed the report.
+      </p>
+      <button onClick={onClose} style={{ padding: "9px 30px", borderRadius: radius.pill, background: panel, color: onPanel, border: "none", fontFamily: font.ui, ...type.control, cursor: "pointer" }}>
+        OK
+      </button>
+    </div>
+  </div>
+);
+
+// ── Report Applicant Modal ────────────────────────────────────────────────────
+// Three-step flow kept deliberately identical to the student-side ReportModal in
+// StudentFindCompanyScreen: pick a concern → read what it covers → describe it
+// and attach evidence.
+const ReportApplicantModal = ({ applicant, reporter, onClose, onSubmitted }) => {
+  const [step, setStep]                 = useState(1);
+  const [selected, setSelected]         = useState(null);
+  const [description, setDescription]   = useState("");
+  const [attachedFile, setAttachedFile] = useState(null); // { name, type, url (local preview), file (raw) }
+  const [submitting, setSubmitting]     = useState(false);
+  const [submitError, setSubmitError]   = useState("");
+  const [alertMsg, setAlertMsg]         = useState("");
+  const fileRef = useRef();
+
+  const handleFile = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (!["image/png", "application/pdf"].includes(file.type)) { setAlertMsg("That file type isn't supported. Attach a PNG or a PDF."); return; }
+    const MAX_SIZE = 10 * 1024 * 1024; // 10MB
+    if (file.size > MAX_SIZE) { setAlertMsg("That file is over 10MB. Attach a smaller one."); return; }
+    setAttachedFile({ name: file.name, type: file.type, url: URL.createObjectURL(file), file });
+  };
+
+  const uploadToCloudinary = async (file) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("upload_preset", CLOUDINARY_UPLOAD_PRESET);
+    formData.append("folder", "ojtern_reports");
+    const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/upload`, {
+      method: "POST",
+      body: formData,
+    });
+    if (!res.ok) throw new Error("The file didn't upload. Try again.");
+    const data = await res.json();
+    return { url: data.secure_url, name: file.name, type: file.type };
+  };
+
+  const handleSubmit = async () => {
+    // Last line of defence: even if this modal were opened some other way, a
+    // company can only ever file against a student.
+    if (!isReportableApplicant(applicant)) { setAlertMsg("Only student applicants can be reported from this screen."); return; }
+    if (!description.trim()) { setAlertMsg("Add a description of what happened."); return; }
+    if (!attachedFile)       { setAlertMsg("Attach a file that supports your report."); return; }
+    setSubmitting(true);
+    setSubmitError("");
+    try {
+      let fileData = null;
+      if (attachedFile?.file) {
+        fileData = await uploadToCloudinary(attachedFile.file);
+      }
+
+      const reportDoc = {
+        // `applicant.id` is the applications document id, so the student's own
+        // uid comes from `studentId` — the same distinction handleMessage makes.
+        studentId:      applicant.studentId || "",
+        applicationId:  applicant.id || "",
+        reportedName:   buildFullName(applicant),
+        reportedRole:   "student",
+        concern:        selected?.label || "Others",
+        description,
+        attachedFile:   fileData,
+        reportedBy:     reporter?.uid || "",
+        reporterName:   applicant.companyName || reporter?.companyName || reporter?.name || "Unknown",
+        reporterRole:   "company",
+        date:           new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
+        createdAt:      serverTimestamp(),
+        status:         "pending",
+      };
+
+      await addDoc(collection(db, "reports"), reportDoc);
+      onSubmitted?.({ ...reportDoc, attachedFile: fileData || attachedFile });
+      onClose();
+    } catch (err) {
+      setSubmitError(err.message || "The report didn't send. Try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const cat = reportCategories.find(c => c.label === selected?.label);
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(10,10,10,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2500, padding: "16px" }}>
+      <div style={{ background: surface, borderRadius: radius.panel, width: "100%", maxWidth: "540px", maxHeight: "86vh", overflow: "hidden", display: "flex", flexDirection: "column", border: `1px solid ${line}`, boxShadow: shadow.panel }}>
+        <div style={{ padding: "16px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: `1px solid ${line}` }}>
+          <div style={{ minWidth: 0 }}>
+            <span style={{ fontFamily: font.ui, fontSize: "1.125rem", fontWeight: 600, letterSpacing: "-0.01em", color: ink }}>Report this applicant</span>
+            <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, marginTop: "2px" }}>Step {step} of 3</p>
+          </div>
+          <button onClick={onClose} aria-label="Close" style={{ background: "none", border: "none", fontSize: "1.15rem", cursor: "pointer", color: inkMuted, lineHeight: 1 }}>✕</button>
+        </div>
+
+        {/* Progress hairline — three segments, one per step */}
+        <div style={{ display: "flex", gap: "3px", padding: "0 24px", marginTop: "10px" }}>
+          {[1, 2, 3].map(n => (
+            <div key={n} style={{ flex: 1, height: "3px", borderRadius: radius.pill, background: n <= step ? ink : line, transition: `background 260ms ${ease}` }} />
+          ))}
+        </div>
+
+        <div style={{ flex: 1, overflowY: "auto", padding: "16px 24px 24px" }}>
+          {step === 1 && (
+            <>
+              <p style={{ fontFamily: font.ui, ...type.label, color: ink, marginBottom: "12px" }}>What is the concern?</p>
+              {reportCategories.map((c) => {
+                const isOn = selected?.label === c.label;
+                return (
+                  <div key={c.label} onClick={() => setSelected(c)} style={{ display: "flex", alignItems: "center", gap: "12px", padding: "12px 0", cursor: "pointer", borderBottom: `1px solid ${lineSoft}` }}>
+                    <div style={{ width: "20px", height: "20px", borderRadius: "50%", border: `1.5px solid ${isOn ? ink : color.wine400}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, background: isOn ? ink : surface, transition: `all 180ms ${ease}` }}>
+                      {isOn && <div style={{ width: "7px", height: "7px", borderRadius: "50%", background: color.white }} />}
+                    </div>
+                    <span style={{ fontFamily: font.ui, ...type.body, color: isOn ? ink : inkBody }}>{c.label}</span>
+                  </div>
+                );
+              })}
+            </>
+          )}
+          {step === 2 && cat && (
+            <>
+              <p style={{ fontFamily: font.ui, fontSize: "1rem", fontWeight: 600, color: ink, marginBottom: "10px" }}>{cat.label}</p>
+              <p style={{ fontFamily: font.ui, ...type.body, color: inkBody, marginBottom: "16px", maxWidth: "62ch" }}>{cat.description}</p>
+              {cat.details.length > 0 && (
+                <>
+                  <p style={{ fontFamily: font.ui, ...type.label, color: ink, marginBottom: "10px" }}>Common forms this takes</p>
+                  <ul style={{ paddingLeft: "18px", margin: 0 }}>
+                    {cat.details.map((d, i) => <li key={i} style={{ fontFamily: font.ui, ...type.helper, color: inkBody, marginBottom: "6px" }}>{d}</li>)}
+                  </ul>
+                </>
+              )}
+            </>
+          )}
+          {step === 3 && (
+            <>
+              <p style={{ fontFamily: font.ui, ...type.label, color: ink, marginBottom: "10px" }}>Describe what happened</p>
+              <textarea
+                value={description}
+                onChange={e => setDescription(e.target.value)}
+                placeholder="Include dates, names, and anything the review team should see."
+                style={{ width: "100%", minHeight: "112px", border: `1px solid ${line}`, borderRadius: radius.card, padding: "12px 14px", outline: "none", fontFamily: font.ui, ...type.body, resize: "vertical", background: color.wine800, color: ink, marginBottom: "20px", boxSizing: "border-box" }}
+              />
+              <p style={{ fontFamily: font.ui, ...type.label, color: ink, marginBottom: "4px" }}>Attach evidence</p>
+              <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, marginBottom: "10px" }}>PNG or PDF, up to 10MB.</p>
+              <input ref={fileRef} type="file" accept=".png,.pdf" style={{ display: "none" }} onChange={handleFile} />
+              {!attachedFile ? (
+                <button onClick={() => fileRef.current.click()} style={{ display: "flex", alignItems: "center", gap: "10px", background: color.wine800, border: `1px dashed ${color.wine400}`, borderRadius: radius.card, padding: "12px 18px", cursor: "pointer", fontFamily: font.ui, ...type.control, color: ink }}>
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={inkMuted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+                  </svg>
+                  Choose a file
+                </button>
+              ) : (
+                <div style={{ display: "flex", alignItems: "center", gap: "10px", background: color.wine800, border: `1px solid ${line}`, padding: "10px 14px", borderRadius: radius.card }}>
+                  {attachedFile.type.startsWith("image/") ? (
+                    <img src={attachedFile.url} alt="Attachment preview" style={{ width: "44px", height: "44px", objectFit: "cover", borderRadius: "10px" }} />
+                  ) : (
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={inkMuted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                      <polyline points="14 2 14 8 20 8"/>
+                    </svg>
+                  )}
+                  <span style={{ fontFamily: font.ui, ...type.helper, color: inkBody, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{attachedFile.name}</span>
+                  <button onClick={() => setAttachedFile(null)} aria-label="Remove file" style={{ marginLeft: "auto", background: "none", border: "none", cursor: "pointer", color: inkMuted, fontSize: "0.95rem" }}>✕</button>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        <div style={{ background: panel, padding: "12px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "16px" }}>
+          <div style={{ minWidth: 0 }}>
+            {submitError
+              ? <p style={{ fontFamily: font.ui, ...type.helper, color: "#E8A5A2", margin: 0 }}>{submitError}</p>
+              : <p style={{ fontFamily: font.ui, ...type.helper, color: onPanelDim, margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{buildFullName(applicant)}</p>}
+          </div>
+          <div style={{ display: "flex", gap: "10px", flexShrink: 0 }}>
+            {step > 1 && (
+              <button
+                onClick={() => setStep(step - 1)}
+                style={{ padding: "9px 18px", borderRadius: radius.pill, background: "transparent", color: onPanelDim, border: `1px solid ${color.onWineFaint}`, fontFamily: font.ui, ...type.control, cursor: "pointer" }}
+              >
+                Back
+              </button>
+            )}
+            {step < 3 ? (
+              <button
+                onClick={() => { if (step === 1 && !selected) { setAlertMsg("Pick a concern to continue."); return; } setStep(step + 1); }}
+                style={{ padding: "9px 22px", borderRadius: radius.pill, background: color.white, color: ink, border: "none", fontFamily: font.ui, ...type.control, cursor: "pointer" }}
+              >
+                Continue
+              </button>
+            ) : (
+              <button
+                onClick={handleSubmit}
+                disabled={submitting}
+                style={{ padding: "9px 22px", borderRadius: radius.pill, background: color.white, color: ink, border: "none", fontFamily: font.ui, ...type.control, cursor: submitting ? "not-allowed" : "pointer", opacity: submitting ? 0.6 : 1 }}
+              >
+                {submitting ? "Sending…" : "Send report"}
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+      {alertMsg && <AlertModal message={alertMsg} onClose={() => setAlertMsg("")} />}
+    </div>
+  );
+};
+
 // ── Status Description Popup ──────────────────────────────────────────────────
 const StatusDescriptionPopup = ({ status, onClose, onSend }) => {
   const [description, setDescription] = useState("");
@@ -541,10 +816,11 @@ const StatusDescriptionPopup = ({ status, onClose, onSend }) => {
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(10,10,10,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2000, padding: "16px" }}>
       <div className="ca-popup-inner">
-        <div style={{ padding: "20px 28px 0 28px" }}>
+        <div style={{ padding: "20px 28px 0 28px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px" }}>
           <span style={{ display: "inline-block", background: sc.bg, color: sc.color, borderRadius: radius.pill, padding: "5px 18px", fontFamily: font.ui, fontSize: "0.85rem", fontWeight: 500 }}>
             {status}
           </span>
+          <button onClick={onClose} aria-label="Close" style={{ background: color.wine800, border: `1px solid ${line}`, borderRadius: "50%", width: "28px", height: "28px", color: ink, fontSize: "1rem", fontWeight: "bold", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>✕</button>
         </div>
         <div style={{ margin: "16px 28px 0", borderTop: `1px solid ${line}` }} />
         <div className="ca-popup-body">
@@ -560,6 +836,10 @@ const StatusDescriptionPopup = ({ status, onClose, onSend }) => {
             style={{ width: "100%", minHeight: "90px", border: "none", outline: "none", background: "transparent", fontFamily: font.ui, ...type.body, color: inkBody, resize: "none", lineHeight: 1.6 }} />
         </div>
         <div className="ca-popup-footer">
+          <button onClick={onClose}
+            style={{ background: "transparent", border: `1px solid ${onPanel}`, borderRadius: radius.pill, padding: "9px 26px", color: onPanel, fontFamily: font.ui, ...type.control, cursor: "pointer" }}>
+            Close
+          </button>
           <button onClick={() => { onSend(description); onClose(); }}
             style={{ background: color.goldTint, border: "none", borderRadius: radius.pill, padding: "9px 26px", color: onPanel, fontFamily: font.ui, ...type.control, cursor: "pointer" }}>
             Send
@@ -571,12 +851,20 @@ const StatusDescriptionPopup = ({ status, onClose, onSend }) => {
 };
 
 // ── Personal Details Modal ─────────────────────────────────────────────────────
-const PersonalDetailsModal = ({ applicant, onClose, onStatusChange, onMessage }) => {
+const PersonalDetailsModal = ({ applicant, onClose, onStatusChange, onMessage, user }) => {
   const locationChips = [applicant.region, applicant.province, applicant.city, applicant.barangay].filter(Boolean);
   const collegeChips  = [applicant.college, applicant.program, applicant.major].filter(Boolean);
   const [pendingStatus, setPendingStatus] = useState(null);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [showStatusSaved, setShowStatusSaved] = useState(false);
+  const [showReport, setShowReport] = useState(false);
+  const [showReportSent, setShowReportSent] = useState(false);
+
+  // Messaging only opens up once the company has actually started reviewing
+  // the application — a still-Pending applicant can't be contacted yet.
+  const canMessage = applicant.status !== "Pending";
+  // Companies report students only — never coordinators.
+  const canReport  = isReportableApplicant(applicant);
 
   return (
     <>
@@ -652,7 +940,7 @@ const PersonalDetailsModal = ({ applicant, onClose, onStatusChange, onMessage })
                   <FieldLabel style={{ margin: 0 }}>Status:</FieldLabel>
                   <StatusDropdown
                     status={applicant.status}
-                    onChange={setPendingStatus}
+                    onChange={(next) => { if (next !== applicant.status) setPendingStatus(next); }}
                     open={dropdownOpen}
                     setOpen={setDropdownOpen}
                     locked={applicant.status === "Accepted" || applicant.status === "Declined"}
@@ -669,23 +957,54 @@ const PersonalDetailsModal = ({ applicant, onClose, onStatusChange, onMessage })
                   <div style={{ height: DROPDOWN_HEIGHT, flexShrink: 0 }} aria-hidden="true" />
                 )}
 
+                <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
                 <button
-                  onClick={() => onMessage(applicant)}
+                  onClick={() => { if (canMessage) onMessage(applicant); }}
+                  disabled={!canMessage}
+                  aria-disabled={!canMessage}
+                  title={canMessage ? "" : "Move this applicant to In Review before sending a message."}
                   style={{
                     display: "flex", alignItems: "center", gap: "8px",
                     background: panel, border: "none", borderRadius: radius.pill,
-                    padding: "9px 18px", cursor: "pointer", color: onPanel,
+                    padding: "9px 18px", cursor: canMessage ? "pointer" : "not-allowed",
+                    color: onPanel, opacity: canMessage ? 1 : 0.45,
                     fontFamily: font.ui, ...type.control,
                     transition: `background 220ms ${ease}`,
                   }}
-                  onMouseEnter={e => (e.currentTarget.style.background = panelDeep)}
-                  onMouseLeave={e => (e.currentTarget.style.background = panel)}
+                  onMouseEnter={e => { if (canMessage) e.currentTarget.style.background = panelDeep; }}
+                  onMouseLeave={e => { if (canMessage) e.currentTarget.style.background = panel; }}
                 >
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
                   </svg>
                   Message
                 </button>
+
+                {canReport && (
+                  <button
+                    onClick={() => setShowReport(true)}
+                    title="Report this applicant"
+                    style={{
+                      display: "flex", alignItems: "center", gap: "8px",
+                      background: "transparent", border: `1px solid ${line}`, borderRadius: radius.pill,
+                      padding: "8px 16px", cursor: "pointer", color: inkBody,
+                      fontFamily: font.ui, ...type.control,
+                      transition: `background 220ms ${ease}`,
+                    }}
+                    onMouseEnter={e => (e.currentTarget.style.background = color.wine800)}
+                    onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+                  >
+                    <img src={reportIcon} alt="" style={{ width: "16px", height: "16px", objectFit: "contain", opacity: 0.75 }} />
+                    Report
+                  </button>
+                )}
+                </div>
+
+                {!canMessage && (
+                  <span style={{ fontFamily: font.ui, ...type.helper, color: inkFaint, fontStyle: "italic" }}>
+                    Set the status to In Review before you can message this applicant.
+                  </span>
+                )}
               </div>
             </div>
           </div>
@@ -706,6 +1025,19 @@ const PersonalDetailsModal = ({ applicant, onClose, onStatusChange, onMessage })
 
       {showStatusSaved && (
         <StatusSavedModal onClose={() => setShowStatusSaved(false)} />
+      )}
+
+      {showReport && canReport && (
+        <ReportApplicantModal
+          applicant={applicant}
+          reporter={user}
+          onClose={() => setShowReport(false)}
+          onSubmitted={() => setShowReportSent(true)}
+        />
+      )}
+
+      {showReportSent && (
+        <ReportSentModal onClose={() => setShowReportSent(false)} />
       )}
     </>
   );
@@ -934,10 +1266,11 @@ const CompanyApplicantsScreen = ({ embedded = false, onNavigateToMessages, user,
       console.warn(`Blocked status change: applicant already ${current.status}.`);
       return;
     }
-    // Block backward moves (e.g. In Review -> Pending). Declined is always
-    // allowed since an applicant can be declined at any stage.
-    if (newStatus !== "Declined" && getDisabledStatusOptions(current?.status).includes(newStatus)) {
-      console.warn(`Blocked status change: cannot revert from ${current?.status} back to ${newStatus}.`);
+    // Block backward moves (e.g. In Review -> Pending) and premature final
+    // decisions (e.g. Pending -> Accepted). Mirrors the greyed-out options in
+    // the dropdown so the rule holds even if the UI is bypassed.
+    if (getDisabledStatusOptions(current?.status).includes(newStatus)) {
+      console.warn(`Blocked status change: ${current?.status} -> ${newStatus} is not an allowed transition.`);
       return;
     }
     const note = (description || "").trim();
@@ -1140,6 +1473,7 @@ const CompanyApplicantsScreen = ({ embedded = false, onNavigateToMessages, user,
           onClose={() => setViewingApplicant(null)}
           onStatusChange={handleStatusChange}
           onMessage={handleMessage}
+          user={user}
         />
       )}
     </>

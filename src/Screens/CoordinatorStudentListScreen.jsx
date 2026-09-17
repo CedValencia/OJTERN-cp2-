@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
-import { collection, onSnapshot, query, orderBy, where, getDocs } from "firebase/firestore";
+import { collection, onSnapshot, query, where, getDocs } from "firebase/firestore";
 import { db } from "./firebase";
+import { useDepartmentsPrograms } from "./departmentsPrograms";
 import userIcon from "../icons/user.png";
 import { color, font, type, space, radius, shadow, ease } from "./theme";
 
@@ -674,6 +675,34 @@ const FilterPanel = ({ filters, setFilters, filterRef, coordinatorColleges = [] 
   );
 };
 
+// ── College name variants ────────────────────────────────────────
+// Student docs are not consistent about `college`: older ones hold the short
+// code ("CCS"), newer ones the full name ("College of Computer Studies"). And
+// `coordinatorColleges` itself may arrive as either, depending on what the
+// parent computed from the coordinator's deptSelections. Querying one form
+// alone silently hides every student saved in the other — which is exactly how
+// this screen and the Students Account screen ended up showing different
+// people. So match on both forms until the data is cleaned up.
+// Firestore allows up to 10 values in an "in" clause, hence the slice.
+const useCollegeVariants = (coordinatorColleges) => {
+  const { departments, departmentNames } = useDepartmentsPrograms();
+  return React.useMemo(() => {
+    const abbrToFull = {}, fullToAbbr = {};
+    departmentNames.forEach(name => {
+      const abbr = departments[name]?.abbr;
+      if (abbr) { abbrToFull[abbr] = name; fullToAbbr[name] = abbr; }
+    });
+    const out = new Set();
+    (coordinatorColleges || []).forEach(c => {
+      if (!c) return;
+      out.add(c);
+      if (abbrToFull[c]) out.add(abbrToFull[c]);
+      if (fullToAbbr[c]) out.add(fullToAbbr[c]);
+    });
+    return [...out].slice(0, 10);
+  }, [coordinatorColleges, departments, departmentNames]);
+};
+
 const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany, onMessageStudent, initialViewingStudentId, onClearInitialViewingStudent }) => {
   const [search, setSearch]                 = useState("");
   const [viewingStudent, setViewingStudent] = useState(null);
@@ -689,6 +718,8 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
   const [loadingStudents, setLoadingStudents] = useState(true);
   const [applicationsByStudent, setApplicationsByStudent] = useState({});
 
+  const collegeVariants = useCollegeVariants(coordinatorColleges);
+
   // If we got here because the coordinator pressed "back" on a company
   // profile they reached via a student's Placement modal, reopen that
   // same student's modal instead of dropping them on a bare list.
@@ -700,19 +731,24 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
   }, [initialViewingStudentId, loadingStudents, students]);
 
   // ── Load students — scoped to this coordinator's own department(s). ──────
-  // NOTE: needs a Firestore composite index (college + createdAt) the first
-  // time it runs; Firestore will log a console link to auto-create it.
+  // No orderBy in the query on purpose: Firestore drops any document that is
+  // missing the ordered field, so orderBy("createdAt") silently hid every
+  // student saved without one. Sorting below keeps them in the list — those
+  // without a createdAt just sink to the bottom. Dropping the orderBy also
+  // means this no longer needs a composite index.
   useEffect(() => {
-    if (!coordinatorColleges || coordinatorColleges.length === 0) {
+    if (collegeVariants.length === 0) {
+      console.warn("[StudentList] No colleges assigned to this coordinator — nothing to load.", coordinatorColleges);
       setStudents([]); setLoadingStudents(false); return;
     }
     const q = query(
       collection(db, "students"),
-      where("college", "in", coordinatorColleges),
-      orderBy("createdAt", "desc")
+      where("college", "in", collegeVariants)
     );
     const unsub = onSnapshot(q, snap => {
-      const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const rows = snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
       setStudents(rows);
       setLoadingStudents(false);
 
@@ -730,9 +766,14 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
           console.warn(`[DUPLICATE STUDENT] studentId ${sid} has ${docIds.length} Firestore docs:`, docIds);
         }
       });
-    }, () => setLoadingStudents(false));
+    }, err => {
+      // Was a bare `() => setLoadingStudents(false)`, which made a failed query
+      // look identical to an empty department.
+      console.error("[StudentList] Failed to load students:", err);
+      setLoadingStudents(false);
+    });
     return () => unsub();
-  }, [coordinatorColleges]);
+  }, [collegeVariants]);
 
   // ── Load companies ─────────────────────────────────────────────────────────
   useEffect(() => {

@@ -203,8 +203,49 @@ const SuccessModal = ({ onClose }) => (
   </div>
 );
 
-// ─── INDUSTRIES ───────────────────────────────────────────────────────────────
-const INDUSTRIES = [];
+// ─── INDUSTRY OPTIONS ───────────────────────────────────────
+// Nothing is hardcoded here anymore — this used to be an empty INDUSTRIES array,
+// so the filter had no options to show at all. The list is built from the
+// industry each company actually typed at Sign-Up Step 1 (IndustryAutocomplete
+// there); CompanyCreatePostScreen copies that onto every post it saves, so a
+// newly registered industry turns up in the filter on its own, and no option
+// can ever come back with zero results.
+const industriesOf = (c) =>
+  (Array.isArray(c?.industry) ? c.industry : (c?.industry ? [c.industry] : []))
+    .map(i => String(i).trim())
+    .filter(Boolean);
+
+// De-duplicated case-insensitively (Industry is free-typed, so casing drifts)
+// and sorted A→Z, the same way Step 1 builds its own suggestion list.
+const buildIndustryOptions = (posts = []) => {
+  const seen = new Map();
+  posts.forEach(p => industriesOf(p).forEach(ind => {
+    const key = ind.toLowerCase();
+    if (!seen.has(key)) seen.set(key, ind);
+  }));
+  return [...seen.values()].sort((a, b) => a.localeCompare(b));
+};
+
+// ─── POST EXPIRATION ─────────────────────────────────────────────
+// Same rules as CompanyCreatePostScreen, which writes the field: the date is a
+// plain "YYYY-MM-DD" string so it compares lexicographically without timezone
+// drift, a post only counts as expired the day AFTER its expirationDate (set
+// Sept 9 and Sept 9 itself is still open), and an empty value means the post
+// never expires.
+const getTodayStr = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
+
+const isPostExpired = (post) => !!post?.expirationDate && post.expirationDate < getTodayStr();
+
+// Built from the date parts instead of new Date("YYYY-MM-DD") — that parses as
+// UTC midnight and would render a day early anywhere behind UTC.
+const formatDateStr = (str) => {
+  const [y, m, d] = String(str || "").split("-").map(Number);
+  if (!y || !m || !d) return "";
+  return new Date(y, m - 1, d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+};
 
 // ─── ALL COMPANIES (kept for legacy import compatibility — use useOjtPosts hook instead) ──
 export const ALL_COMPANIES = [];
@@ -569,8 +610,6 @@ const SectionTitle = ({ children }) => (
 
 // ─── COMPANY PROFILE ──────────────────────────────────────────────────────────
 const CompanyProfile = ({ company, onBack, onReport, onMessageNow, onApplyNow }) => {
-  const _s = company?.slots || "0/0";
-  const isFull = _s.split("/")[0] === _s.split("/")[1];
   const loc = company.location || {};
   const locationParts = [loc.street, loc.barangay, loc.city, loc.province, loc.region].filter(Boolean);
   const fullLocation = loc.fullAddress || locationParts.join(", ");
@@ -581,6 +620,13 @@ const CompanyProfile = ({ company, onBack, onReport, onMessageNow, onApplyNow })
     loc.barangay ? ["Barangay", loc.barangay]         : null,
     loc.street   ? ["Street or building", loc.street] : null,
   ].filter(Boolean);
+
+  // Per-department slot rows. `courseSelections` is the only shape that carries
+  // a per-department `slot` (written by Create Post); `departments` is the
+  // legacy department-only fallback, which has no count of its own.
+  const deptSlotRows = Array.isArray(company.courseSelections) && company.courseSelections.length
+    ? company.courseSelections
+    : (Array.isArray(company.departments) ? company.departments.map(d => ({ college: d })) : []);
 
   const bodyStyle = { fontFamily: font.ui, ...type.body, color: inkBody, maxWidth: "68ch" };
 
@@ -598,10 +644,7 @@ const CompanyProfile = ({ company, onBack, onReport, onMessageNow, onApplyNow })
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
               Back
             </button>
-            <h1 style={{ fontFamily: font.ui, fontSize: "clamp(1.5rem, 4vw, 2rem)", fontWeight: 600, lineHeight: 1.15, letterSpacing: "-0.02em", color: ink, marginBottom: "4px" }}>{company.companyName || company.name}</h1>
-            <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, marginBottom: "10px" }}>
-              {Array.isArray(company.industry) ? (company.industry.join(", ") || "—") : (company.industry || "—")}
-            </p>
+            <h1 style={{ fontFamily: font.ui, fontSize: "clamp(1.5rem, 4vw, 2rem)", fontWeight: 600, lineHeight: 1.15, letterSpacing: "-0.02em", color: ink, marginBottom: "10px" }}>{company.companyName || company.name}</h1>
             <p style={bodyStyle}>{company.description}</p>
           </div>
           <div className="stud-map-box" style={{ borderRadius: radius.card, overflow: "hidden" }}>
@@ -615,25 +658,17 @@ const CompanyProfile = ({ company, onBack, onReport, onMessageNow, onApplyNow })
 
         <hr style={{ border: "none", borderTop: `1px solid ${line}`, margin: `0 0 ${space.lg}` }} />
 
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: space.lg, flexWrap: "wrap", gap: space.md }}>
-          <div>
-            <SectionTitle>Requirements</SectionTitle>
-            <p style={{ ...bodyStyle, whiteSpace: "pre-line" }}>{Array.isArray(company.requirements) ? company.requirements.join("\n") : (company.requirements || "Not listed")}</p>
-          </div>
-          <div style={{ display: "inline-flex", alignItems: "center", gap: space.sm, background: surface, border: `1px solid ${line}`, borderRadius: radius.pill, padding: "8px 16px" }}>
-            <span style={{ fontFamily: font.ui, ...type.helper, color: inkMuted }}>Slots</span>
-            <span style={{ fontFamily: font.ui, ...type.control, color: isFull ? danger : success }}>{company.slot || company.slots}</span>
-          </div>
-        </div>
+        <SectionTitle>Requirements:</SectionTitle>
+        <p style={{ ...bodyStyle, whiteSpace: "pre-line", marginBottom: space.lg }}>{Array.isArray(company.requirements) ? company.requirements.join("\n") : (company.requirements || "Not listed")}</p>
 
-        <SectionTitle>Working hours</SectionTitle>
+        <SectionTitle>Working hours:</SectionTitle>
         <p style={{ ...bodyStyle, marginBottom: space.lg, whiteSpace: "pre-line" }}>{company.workingHours}</p>
 
-        <SectionTitle>Contact</SectionTitle>
+        <SectionTitle>Contact:</SectionTitle>
         <p style={{ ...bodyStyle, marginBottom: space.xs }}>Phone: {company.phone || company.contact?.phone || "Not listed"}</p>
         <p style={{ ...bodyStyle, marginBottom: space.lg }}>Email: {company.contactEmail || company.contact?.email || company.email || "Not listed"}</p>
 
-        <SectionTitle>Location</SectionTitle>
+        <SectionTitle>Location:</SectionTitle>
         <div style={{ marginBottom: space.lg }}>
           {locationLines.length > 0 ? (
             locationLines.map(([k, v], i) => (
@@ -646,22 +681,41 @@ const CompanyProfile = ({ company, onBack, onReport, onMessageNow, onApplyNow })
           )}
         </div>
 
-        <SectionTitle>Benefits</SectionTitle>
+        <SectionTitle>Benefits:</SectionTitle>
         <p style={{ ...bodyStyle, whiteSpace: "pre-line", marginBottom: space.lg }}>{Array.isArray(company.benefits) ? company.benefits.join("\n") : (company.benefits || "Not listed")}</p>
 
-        <SectionTitle>Open to these programs</SectionTitle>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: space.sm, marginBottom: space.lg }}>
-          {(Array.isArray(company.courseSelections) ? company.courseSelections : []).map((cp, i) => {
+        {/* Open to these programs — slots are per department/program now (see
+            ApprovedDepartmentPicker in CompanyCreatePostScreen), so each count
+            sits beside the department it actually belongs to instead of one
+            combined number for the whole post. */}
+        <SectionTitle>Open to these programs:</SectionTitle>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: space.sm, marginBottom: space.lg }}>
+          {deptSlotRows.length === 0 && <p style={bodyStyle}>Not listed</p>}
+          {deptSlotRows.map((cp, i) => {
             const label = [cp.college, cp.program, cp.specialization].filter(Boolean).join(" · ");
+            const deptSlot = Number(cp.slot) || 0;
             return (
-              <span key={i} style={{ padding: "5px 14px", borderRadius: radius.pill, background: color.wine800, border: `1px solid ${line}`, color: inkBody, fontFamily: font.ui, ...type.helper }}>
-                {label}
+              <span
+                key={i}
+                style={{ display: "inline-flex", alignItems: "center", gap: space.sm, maxWidth: "100%", padding: "5px 5px 5px 14px", borderRadius: radius.pill, background: color.wine800, border: `1px solid ${line}`, color: inkBody, fontFamily: font.ui, ...type.helper }}
+              >
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</span>
+                <span style={{ flexShrink: 0, padding: "2px 10px", borderRadius: radius.pill, background: surface, border: `1px solid ${line}`, color: deptSlot > 0 ? success : inkMuted, fontWeight: 500, whiteSpace: "nowrap" }}>
+                  {deptSlot > 0 ? `${deptSlot} slot${deptSlot !== 1 ? "s" : ""}` : "No slot set"}
+                </span>
               </span>
             );
           })}
         </div>
 
-        <SectionTitle>Skills required</SectionTitle>
+        {/* Industry sits under the programs block, not up in the header — it's the
+            company detail a reader checks after seeing which departments the
+            post is open to. Value comes from Sign-Up Step 1 and is copied onto
+            the post by CompanyCreatePostScreen. */}
+        <SectionTitle>Industry:</SectionTitle>
+        <p style={{ ...bodyStyle, marginBottom: space.lg }}>{industriesOf(company).join(", ") || "Not listed"}</p>
+
+        <SectionTitle>Skills required:</SectionTitle>
         <p style={{ ...bodyStyle, whiteSpace: "pre-line" }}>{Array.isArray(company.skillsRequired) ? company.skillsRequired.join("\n") : (company.skillsRequired || company.skills?.join(", ") || "Not listed")}</p>
       </div>
 
@@ -701,11 +755,24 @@ const CompanyProfile = ({ company, onBack, onReport, onMessageNow, onApplyNow })
 };
 
 // ─── FILTER PANEL ─────────────────────────────────────────────────────────────
-const FilterPanel = ({ selectedIndustries, setSelectedIndustries, citySearch, setCitySearch }) => {
+const FilterPanel = ({ selectedIndustries, setSelectedIndustries, citySearch, setCitySearch, industryOptions }) => {
+  // Industry is a type-to-search field now, the same interaction as Sign-Up
+  // Step 1's IndustryAutocomplete: type, pick a suggestion, and it becomes a
+  // chip you can click off. The old version painted every industry as a pill at
+  // once, which stops working the moment companies start typing their own.
+  const [industryQuery, setIndustryQuery] = useState("");
+  const [showSuggestions, setShowSuggestions] = useState(false);
+
   const toggleIndustry = (ind) =>
     setSelectedIndustries(prev => prev.includes(ind) ? prev.filter(i => i !== ind) : [...prev, ind]);
 
-  const clearAll = () => { setSelectedIndustries([]); setCitySearch(""); };
+  const clearAll = () => { setSelectedIndustries([]); setCitySearch(""); setIndustryQuery(""); };
+
+  const q = industryQuery.trim().toLowerCase();
+  const options = industryOptions || [];
+  const matches = options.filter(ind => !selectedIndustries.includes(ind) && (q === "" || ind.toLowerCase().includes(q)));
+
+  const fieldStyle = { width: "100%", padding: "9px 14px", borderRadius: radius.pill, border: `1px solid ${line}`, background: color.wine800, ...type.helper, fontFamily: font.ui, outline: "none", boxSizing: "border-box", color: ink };
 
   return (
     <div style={{ position: "absolute", top: "48px", right: 0, width: "250px", background: surface, border: `1px solid ${line}`, borderRadius: radius.card, boxShadow: shadow.panel, zIndex: 100, overflow: "hidden", fontFamily: font.ui }}>
@@ -714,14 +781,51 @@ const FilterPanel = ({ selectedIndustries, setSelectedIndustries, citySearch, se
           <p style={{ ...type.label, color: ink }}>Industry</p>
           <button onClick={clearAll} style={{ background: "none", border: "none", ...type.helper, color: inkMuted, cursor: "pointer", fontFamily: font.ui, padding: 0, textDecoration: "underline" }}>Clear all</button>
         </div>
-        <div style={{ maxHeight: "130px", overflowY: "auto", display: "flex", flexWrap: "wrap", gap: "6px" }}>
-          {INDUSTRIES.map(ind => {
-            const on = selectedIndustries.includes(ind);
-            return (
-              <span key={ind} onClick={() => toggleIndustry(ind)} style={{ padding: "4px 11px", borderRadius: radius.pill, ...type.helper, cursor: "pointer", userSelect: "none", background: on ? ink : color.wine800, color: on ? color.white : inkBody, border: `1px solid ${on ? ink : line}`, transition: `all 160ms ${ease}` }}>{ind}</span>
-            );
-          })}
-        </div>
+
+        <input
+          type="text"
+          value={industryQuery}
+          onChange={e => { setIndustryQuery(e.target.value); setShowSuggestions(true); }}
+          onFocus={() => setShowSuggestions(true)}
+          placeholder="Type an industry"
+          autoComplete="off"
+          style={fieldStyle}
+        />
+
+        {showSuggestions && (
+          <div style={{ marginTop: "8px", maxHeight: "130px", overflowY: "auto", border: `1px solid ${lineSoft}`, borderRadius: radius.card }}>
+            {matches.length === 0 ? (
+              <p style={{ ...type.helper, color: inkMuted, fontFamily: font.ui, padding: "8px 12px", margin: 0 }}>
+                {options.length === 0 ? "No industries posted yet." : "No industry matches that."}
+              </p>
+            ) : matches.map(ind => (
+              <div
+                key={ind}
+                onClick={() => { toggleIndustry(ind); setIndustryQuery(""); setShowSuggestions(false); }}
+                style={{ padding: "7px 12px", cursor: "pointer", fontFamily: font.ui, ...type.helper, color: inkBody }}
+                onMouseEnter={e => (e.currentTarget.style.background = color.wine800)}
+                onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+              >
+                {ind}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {selectedIndustries.length > 0 && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "8px" }}>
+            {selectedIndustries.map(ind => (
+              <span
+                key={ind}
+                onClick={() => toggleIndustry(ind)}
+                title="Remove"
+                style={{ display: "inline-flex", alignItems: "center", gap: "6px", padding: "4px 11px", borderRadius: radius.pill, ...type.helper, fontFamily: font.ui, cursor: "pointer", userSelect: "none", background: ink, color: color.white, border: `1px solid ${ink}`, transition: `all 160ms ${ease}` }}
+              >
+                {ind}<span style={{ opacity: 0.7 }}>✕</span>
+              </span>
+            ))}
+          </div>
+        )}
       </div>
 
       <hr style={{ border: "none", borderTop: `1px solid ${lineSoft}`, margin: "10px 0" }} />
@@ -742,20 +846,23 @@ const FilterPanel = ({ selectedIndustries, setSelectedIndustries, citySearch, se
 
 // ─── COMPANY CARD ─────────────────────────────────────────────────────────────
 const CompanyCard = ({ company, onViewProfile }) => {
-  // Support both old static shape ({ slots: "0/10" }) and Firestore shape ({ slot: 10 })
   const isActive = company.disabled === false || company.active !== false;
   const displayName = company.companyName || company.name || "Unnamed company";
-  const displayIndustry = Array.isArray(company.industry) ? (company.industry.join(", ") || "—") : (company.industry || "—");
+  const displayIndustry = industriesOf(company).join(", ") || "—";
   const displayLocation = typeof company.location === "object"
     ? [company.location?.barangay, company.location?.city, company.location?.province, company.location?.region].filter(Boolean).join(", ")
     : (company.location || "—");
-  const _slots = company?.slots || "0/0";
-  const totalSlots = company?.slot ?? (typeof _slots === "string" ? parseInt(_slots.split("/")[1]) : 0) ?? 0;
-  const usedSlots  = typeof _slots === "string" ? parseInt(_slots.split("/")[0]) : 0;
-  const isFull = usedSlots >= totalSlots && totalSlots > 0;
+  // No slot count on the card on purpose — slots are per department now, and a
+  // single combined number here says nothing about the department a reader
+  // cares about. The per-department counts live on the profile instead.
   const postedDate = company.createdAt?.seconds
     ? new Date(company.createdAt.seconds * 1000).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
     : (company.posted || "");
+
+  // Expiration is worth seeing before opening a post — an expired one can't be
+  // applied to. Posts with no expirationDate simply don't show the line.
+  const expired = isPostExpired(company);
+  const expiryDate = formatDateStr(company.expirationDate);
 
   const meta = { fontFamily: font.ui, ...type.helper, color: inkMuted };
 
@@ -779,14 +886,18 @@ const CompanyCard = ({ company, onViewProfile }) => {
       onMouseEnter={e => { if (isActive) { e.currentTarget.style.boxShadow = "0 10px 28px rgba(10,10,10,0.10)"; e.currentTarget.style.borderColor = color.wine400; } }}
       onMouseLeave={e => { e.currentTarget.style.boxShadow = isActive ? shadow.input : "none"; e.currentTarget.style.borderColor = line; }}
     >
-      <div style={{ position: "absolute", top: "18px", right: "18px", background: isFull ? color.wine700 : surface, border: `1px solid ${isFull ? color.wine400 : line}`, borderRadius: radius.pill, padding: "3px 10px", fontFamily: font.ui, ...type.helper, color: isFull ? inkMuted : success, fontWeight: 500 }}>
-        {isFull ? "Full" : `${totalSlots} slot${totalSlots !== 1 ? "s" : ""}`}
-      </div>
-      <h3 style={{ fontFamily: font.ui, fontSize: "1.0625rem", fontWeight: 600, letterSpacing: "-0.01em", color: isActive ? ink : inkMuted, paddingRight: "76px", lineHeight: 1.3, margin: 0 }}>{displayName}</h3>
+      <h3 style={{ fontFamily: font.ui, fontSize: "1.0625rem", fontWeight: 600, letterSpacing: "-0.01em", color: isActive ? ink : inkMuted, lineHeight: 1.3, margin: 0 }}>{displayName}</h3>
       <p style={meta}>{displayIndustry}</p>
       <p style={{ ...meta, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{displayLocation}</p>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "10px", paddingTop: "10px", borderTop: `1px solid ${lineSoft}` }}>
-        <span style={{ ...meta, color: inkFaint }}>{postedDate ? `Posted ${postedDate}` : ""}</span>
+        <div style={{ display: "flex", flexDirection: "column", gap: "2px", minWidth: 0 }}>
+          <span style={{ ...meta, color: inkFaint }}>{postedDate ? `Posted ${postedDate}` : ""}</span>
+          {expiryDate && (
+            <span style={{ ...meta, color: expired ? danger : inkFaint, fontWeight: expired ? 500 : 400 }}>
+              {expired ? `Expired ${expiryDate}` : `Open until ${expiryDate}`}
+            </span>
+          )}
+        </div>
         <span
           onClick={() => isActive && onViewProfile(company)}
           style={{ fontFamily: font.ui, ...type.helper, fontWeight: 500, color: isActive ? ink : inkFaint, cursor: isActive ? "pointer" : "default", flexShrink: 0 }}
@@ -837,8 +948,23 @@ const StudentFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onNavig
   // post's Program actually lives; the newer flat `departments` field is
   // department-only, so those posts still match on Department alone rather
   // than disappearing for lack of Program data).
-  const myCollege = user?.college || "";
-  const myProgram = user?.program || "";
+  // College/Program strings are written by several different screens, so they
+  // drift in cosmetic ways — em dash vs hyphen, double spaces, casing, a stray
+  // trailing space. Exact === made a post vanish for one of those differences.
+  // Compare on a normalised form instead: still equality, just not brittle.
+  const normalizeScope = (v) => String(v || "")
+    .replace(/[\u2010-\u2015]/g, "-")   // ‐ ‑ ‒ – — ― all become a plain hyphen
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+
+  // Different screens have written the student's scope under different field
+  // names over time; read every one that has been used rather than showing an
+  // empty list because the value sits under `department` instead of `college`.
+  const myCollege = user?.college || user?.department || user?.collegeName || "";
+  const myProgram = user?.program || user?.course || "";
+  const myCollegeKey = normalizeScope(myCollege);
+  const myProgramKey = normalizeScope(myProgram);
 
   const getPostScopes = (c) => {
     if (Array.isArray(c.courseSelections) && c.courseSelections.length) {
@@ -853,17 +979,28 @@ const StudentFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onNavig
   };
 
   const inScopeCompanies = React.useMemo(() => {
-    if (!myCollege) return [];
+    if (!myCollegeKey) return [];
     return companies.filter(c =>
-      getPostScopes(c).some(p =>
-        p.department === myCollege && (!myProgram || !p.program || p.program === myProgram)
-      )
+      getPostScopes(c).some(p => {
+        const postDept    = normalizeScope(p.department);
+        const postProgram = normalizeScope(p.program);
+        // Department always has to match. Program only has to match when both
+        // sides actually name one — same rule the coordinator screen uses.
+        return postDept === myCollegeKey
+          && (!myProgramKey || !postProgram || postProgram === myProgramKey);
+      })
     );
-  }, [companies, myCollege, myProgram]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [companies, myCollegeKey, myProgramKey]);
+
+  // Filter options come from the posts this viewer can actually see, so every
+  // suggestion in the panel has at least one post behind it.
+  const industryOptions = React.useMemo(() => buildIndustryOptions(inScopeCompanies), [inScopeCompanies]);
+  const selectedIndustriesLower = selectedIndustries.map(i => i.toLowerCase());
 
   const filtered = inScopeCompanies.filter(c => {
     const name = (c.companyName || c.company || c.name || "").toLowerCase();
-    const industryArr = Array.isArray(c.industry) ? c.industry : (c.industry ? [c.industry] : []);
+    const industryArr = industriesOf(c);
     const industry = industryArr.join(" ").toLowerCase();
     const locObj = (c.location && typeof c.location === "object") ? c.location : {};
     // Full location text = everything actually shown on the profile's Location section
@@ -880,7 +1017,7 @@ const StudentFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onNavig
       typeof c.location === "string" ? c.location : null,
     ].filter(Boolean).join(", ").toLowerCase();
     const matchSearch   = name.includes(search.toLowerCase()) || industry.includes(search.toLowerCase()) || fullLocationText.includes(search.toLowerCase());
-    const matchIndustry = selectedIndustries.length === 0 || industryArr.some(ind => selectedIndustries.includes(ind));
+    const matchIndustry = selectedIndustries.length === 0 || industryArr.some(ind => selectedIndustriesLower.includes(ind.toLowerCase()));
     const matchCity     = !citySearch.trim() || fullLocationText.includes(citySearch.trim().toLowerCase());
     return matchSearch && matchIndustry && matchCity;
   });
@@ -970,6 +1107,7 @@ const StudentFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onNavig
               {showFilter && (
                 <FilterPanel
                   selectedIndustries={selectedIndustries} setSelectedIndustries={setSelectedIndustries}
+                  industryOptions={industryOptions}
                   citySearch={citySearch} setCitySearch={setCitySearch}
                 />
               )}

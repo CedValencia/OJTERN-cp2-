@@ -2686,7 +2686,7 @@ const appValidators = {
     return "";
   },
   suffix: (v) => {
-    if (!v || !v.trim()) return "Required";
+    if (!v || !v.trim()) return "";
     if (!SUFFIX_REGEX.test(v.trim())) return "e.g. Jr. Sr. II III IV";
     return "";
   },
@@ -3187,7 +3187,9 @@ export const ApplyModal = ({ company, onClose, onSuccessClose, onSubmit, user })
     middleInitial: user?.middleInitial || "",
     lastName:      user?.lastName      || "",
     sex:           user?.sex           || "",
-    email:         user?.email         || "",
+    // Use the student's own recovery email; `user.email` is the system-generated
+    // login address for bulk-created accounts and must never reach companies.
+    email:         user?.personalEmail || "",
     college:       COLLEGE_ABBR_MAP[user?.college] || user?.college || "",
     program:       PROGRAM_ABBR_MAP[user?.program] || user?.program || "",
     region:        user?.location?.region   || "",

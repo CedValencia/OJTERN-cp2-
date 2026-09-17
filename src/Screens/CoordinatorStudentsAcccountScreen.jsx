@@ -97,10 +97,14 @@ const EXCEL_COLUMNS = [
 // Columns for the bulk-IMPORT template — separate from EXCEL_COLUMNS above,
 // which is only for the 3-column credentials export. Order must match the
 // row[0..10] indices read in ImportModal.parseFile below.
+// No Email column: students fill their own email in on first login, from their
+// personal information page. Everything downstream — the downloadable template,
+// the header check, and the "Columns, in this order" hint — is derived from
+// this list, so removing it here removes it everywhere.
 const IMPORT_TEMPLATE_COLUMNS = [
   "Student ID", "Last Name", "Middle Initial", "First Name",
   "College Code", "Program Code", "Major/Specialization (or N/A)",
-  "Year & Section", "Sex", "Age", "Email",
+  "Year & Section", "Sex", "Age",
 ];
 
 const NAME_REGEX = /^[A-Za-zÑñ][A-Za-zÑñ\s\-]*$/;
@@ -416,11 +420,6 @@ const validators = {
     if (!Number.isInteger(n) || n < 1 || n > 100) return "Must be 1–100";
     return "";
   },
-  email: (v) => {
-    if (!v) return "Required";
-    return "";
-  },
-
 };
 
 const exportToXLSX = (students, departments) => {
@@ -479,15 +478,14 @@ const downloadTemplateXLSX = () => {
       "e.g. 201112345", "e.g. Dela Cruz", "e.g. M.", "e.g. Juan",
       "e.g. CED", "e.g. BSED (Major in English)",
       "e.g. Major in English or N/A", "e.g. 4-A", "e.g. Male", "e.g. 21",
-      "e.g. juandelacruz@gmail.com",
     ],
   ];
   const ws = XLSX.utils.aoa_to_sheet(rows);
   ws["!cols"] = [
     { wch: 15 }, { wch: 20 }, { wch: 15 }, { wch: 20 }, { wch: 35 },
-    { wch: 40 }, { wch: 25 }, { wch: 18 }, { wch: 10 }, { wch: 8 }, { wch: 30 },
+    { wch: 40 }, { wch: 25 }, { wch: 18 }, { wch: 10 }, { wch: 8 },
   ];
-  // Note: 11 columns now (added Major), ref updated below
+  // Note: 10 columns (Major added, Email removed), ref updated below
   for (let r = 2; r < 200; r++) {
     for (let c = 0; c < IMPORT_TEMPLATE_COLUMNS.length; c++) {
       const cell = XLSX.utils.encode_cell({ r, c });
@@ -520,7 +518,7 @@ const downloadTemplateXLSX = () => {
       },
     };
   }
-  ws["!ref"] = `A1:K200`;
+  ws["!ref"] = `A1:J200`;
   ws["!freeze"] = { xSplit: 0, ySplit: 1 };
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Student Template");
@@ -577,7 +575,6 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
   const sex           = useField(initial.sex || "", "sex");
   const yearSection   = useField(initial.yearSection || "", "yearSection");
   const age           = useField(initial.age || "", "age");
-  const email         = useField(initial.email || "", "email");
 
   // New students are always created under one of the coordinator's own
   // assigned department(s) — it's not a free choice of ALL colleges anymore.
@@ -603,7 +600,7 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
   const handleCollegeChange = (val) => { setCollege(val); setProgram(""); setCollegeTouched(true); };
   const handleProgramChange = (val) => { setProgram(val); setProgramTouched(true); };
 
-  const allFields = [studentId, lastName, middleInitial, firstName, suffix, sex, yearSection, age, email];
+  const allFields = [studentId, lastName, middleInitial, firstName, suffix, sex, yearSection, age];
   const touchAll = () => { allFields.forEach(f => f.touch()); setCollegeTouched(true); setProgramTouched(true); };
 
   const isValid = () => {
@@ -615,7 +612,6 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
     if (validators.sex(sex.value)) return false;
     if (validators.yearSection(yearSection.value)) return false;
     if (validators.age(age.value)) return false;
-    if (validators.email(email.value)) return false;
     if (!college) return false;
     if (!program) return false;
     return true;
@@ -633,7 +629,14 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
         middleInitial: middleInitial.value, firstName: firstName.value,
         suffix: suffix.value, college, program, specialization: "",
         yearSection: yearSection.value, sex: sex.value,
-        age: age.value, email: email.value,
+        age: age.value,
+        // Sinasadyang WALANG `email` dito. Sa create, si createStudentAccount
+        // na ang gumagawa ng `<studentId>@pending.student` na placeholder at
+        // nagtatakda ng hasRealEmail:false. Sa edit naman, isinasalin ng
+        // handleSave ang buong `form` papunta sa updateDoc — kaya kung
+        // magpapadala tayo ng `email: ""` dito, mabubura ang tunay na email
+        // na naisulat mismo ng estudyante. Ang hindi pagpapadala ang siyang
+        // nag-iiwan sa field na hindi nagagalaw.
       });
     } catch (err) {
       setSubmitError(err.message || "That didn't save. Try again.");
@@ -659,7 +662,16 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
   const onLastNameChange      = (v) => { lastName.onChange(v.replace(/[^A-Za-zÑñ\s\-]/g, "")); };
   const onFirstNameChange     = (v) => { firstName.onChange(v.replace(/[^A-Za-zÑñ\s\-]/g, "")); };
   const onMiddleInitialChange = (v) => { middleInitial.onChange(v.replace(/[^A-Z.]/g, "").slice(0, 2)); };
-  const onAgeChange           = (v) => { if (v === "" || /^\d+$/.test(v)) age.onChange(v); };
+  // Hinaharang na ang 101 pataas sa mismong pagta-type, hindi lang sa
+  // validation pagka-submit: tinatanggihan ang keystroke kaya hindi na
+  // lumalabas sa input. Pinapayagan pa rin ang blangko para makabura, at
+  // tatlong digit ang pinakamahaba na posible (100).
+  const onAgeChange           = (v) => {
+    if (v === "") { age.onChange(v); return; }
+    if (!/^\d{1,3}$/.test(v)) return;
+    if (Number(v) > 100) return;
+    age.onChange(v);
+  };
 
   return (
       <div style={{ position: "fixed", inset: 0, background: "rgba(10,10,10,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: "clamp(16px, 5vw, 24px)" }}>
@@ -754,12 +766,6 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
             </div>
           </div>
 
-          <div style={{ marginBottom: "12px" }}>
-            <FieldLabel>Email address</FieldLabel>
-            <StyledInput value={email.value} onChange={(v) => email.onChange(v)} type="email" placeholder="student@gmail.com" disabled={locked} hasError={!!email.error} />
-            <FieldError msg={email.error} />
-          </div>
-
           {/* Password preview — shown on create, and when coordinator views an existing student */}
           {lastName.value && college && (
             <div style={{ background: color.wine800, border: `1px solid ${line}`, borderRadius: radius.card, padding: "12px 16px", marginTop: space.md }}>
@@ -839,7 +845,6 @@ const validateRow = (row, rowIndex, coordinatorColleges = [], departments = {}) 
   else if (SEX_OPTIONS.length > 0 && !SEX_OPTIONS.includes(row.sex)) errs.push(`Row ${r}: Sex must be "Male" or "Female"`);
   if (!row.age) errs.push(`Row ${r}: Age is required`);
   else { const n = Number(row.age); if (!Number.isInteger(n) || n < 1 || n > 100) errs.push(`Row ${r}: Age must be 1–100`); }
-  if (!row.email) errs.push(`Row ${r}: Email is required`);
   return errs;
 };
 
@@ -877,7 +882,7 @@ const ImportModal = ({ onClose, onImport, coordinatorColleges = [], departments 
         // Extra safety net: skip any row that still looks like the
         // template's own "e.g. ..." example row.
         if (String(row[0] ?? "").trim().toLowerCase().startsWith("e.g.")) return;
-        const student = { studentId: String(row[0]||"").trim(), lastName: String(row[1]||"").trim(), middleInitial: String(row[2]||"").trim(), firstName: String(row[3]||"").trim(), college: String(row[4]||"").trim(), program: String(row[5]||"").trim(), major: String(row[6]||"").trim(), specialization: String(row[6]||"").trim(), yearSection: String(row[7]||"").trim(), sex: String(row[8]||"").trim(), age: String(row[9]||"").trim(), email: String(row[10]||"").trim(), password: "" };
+        const student = { studentId: String(row[0]||"").trim(), lastName: String(row[1]||"").trim(), middleInitial: String(row[2]||"").trim(), firstName: String(row[3]||"").trim(), college: String(row[4]||"").trim(), program: String(row[5]||"").trim(), major: String(row[6]||"").trim(), specialization: String(row[6]||"").trim(), yearSection: String(row[7]||"").trim(), sex: String(row[8]||"").trim(), age: String(row[9]||"").trim(), email: "", password: "" };
         const errs = validateRow(student, i, coordinatorColleges, departments);
         if (errs.length > 0) rowErrors.push(...errs); else valid.push(student);
       });
@@ -1269,6 +1274,28 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
     [coordinatorColleges, abbrToFullName]
   );
 
+  // ── College name variants, for the Firestore query only ────────────────
+  // Normalizing to the full name assumes every student doc uses the full name
+  // too, and they don't — older ones hold the short code ("CCS"). Matching on
+  // the full name alone silently hides those, which is how this screen and the
+  // Student List screen ended up showing different people. Match on both forms
+  // until the data is cleaned up. Firestore allows 10 values in an "in" clause.
+  const fullNameToAbbr = React.useMemo(() => {
+    const map = {};
+    departmentNames.forEach(name => { if (departments[name]?.abbr) map[name] = departments[name].abbr; });
+    return map;
+  }, [departments, departmentNames]);
+
+  const collegeQueryVariants = React.useMemo(() => {
+    const out = new Set();
+    normalizedCoordinatorColleges.forEach(name => {
+      if (!name) return;
+      out.add(name);
+      if (fullNameToAbbr[name]) out.add(fullNameToAbbr[name]);
+    });
+    return [...out].slice(0, 10);
+  }, [normalizedCoordinatorColleges, fullNameToAbbr]);
+
   const [students, setStudents]                 = useState([]);
   const [loading, setLoading]                   = useState(true);
   const [selected, setSelected]                 = useState(new Set());
@@ -1282,6 +1309,7 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
   const [showFilterDrawer, setShowFilterDrawer] = useState(false);
   const [viewingStudent, setViewingStudent]     = useState(null);
   const [successInfo, setSuccessInfo]           = useState(null); // { fullName, password }
+  const [importResult, setImportResult]        = useState(null); // { successCount, failures[] }
   const [filters, setFilters]                   = useState({ college: "", program: "", sex: "", section: "" });
   const filterRef = useRef(null);
 
@@ -1290,19 +1318,25 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
   // given college (e.g. all of CED) manages the same pool of student
   // accounts, regardless of which coordinator originally created them.
   useEffect(() => {
-    if (!coordinatorUid || normalizedCoordinatorColleges.length === 0) {
+    if (!coordinatorUid || collegeQueryVariants.length === 0) {
+      console.warn("[StudentAccounts] No colleges assigned to this coordinator — nothing to load.", coordinatorColleges);
       setStudents([]); setLoading(false); return;
     }
     const q = query(
       collection(db, "students"),
-      where("college", "in", normalizedCoordinatorColleges)
+      where("college", "in", collegeQueryVariants)
     );
     const unsub = onSnapshot(q, (snap) => {
       setStudents(snap.docs.map(mapStudentDoc));
       setLoading(false);
+    }, (err) => {
+      // Without this the listener fails silently and an errored query is
+      // indistinguishable from an empty department.
+      console.error("[StudentAccounts] Failed to load students:", err);
+      setLoading(false);
     });
     return () => unsub();
-  }, [coordinatorUid, normalizedCoordinatorColleges]);
+  }, [coordinatorUid, collegeQueryVariants]);
 
   // ── Close filter panel on outside click ───────────────────────────────────
   useEffect(() => {
@@ -1341,7 +1375,6 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
     setSuccessInfo({
       fullName,
       studentId: form.studentId,
-      email:     form.email,
       password,
     });
     // onSnapshot will auto-update the list
@@ -1390,6 +1423,7 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
   // ── Import — batch creates via AuthService ────────────────────────────────
   const handleImport = async (newStudents) => {
     let successCount = 0;
+    const failures = [];
     // Fire in sequence to avoid hammering Firebase Auth rate limits
     for (const s of newStudents) {
       try {
@@ -1399,11 +1433,16 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
         successCount++;
       } catch (err) {
         console.warn(`Skipped ${s.studentId}:`, err.message);
+        failures.push({ studentId: s.studentId, message: err.message });
       }
     }
     if (successCount > 0) {
       logActivity(coordinatorUid, "student_imported_bulk", `Imported ${successCount} student account(s)`, { targetCount: successCount }).catch(err => console.error("Failed to log activity:", err));
     }
+    // Silence here used to look exactly like success: rows that failed at the
+    // Auth step were only ever console.warn-ed, so a fully failed import
+    // looked like nothing had happened at all.
+    setImportResult({ successCount, failures });
     // onSnapshot auto-updates the list
   };
 
@@ -1565,6 +1604,41 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
         </Dialog>
       )}
 
+      {/* ── Import result ── */}
+      {/* Rows that fail at the Firebase Auth step used to be console.warn-ed
+          only, so a fully failed import was indistinguishable from nothing
+          happening at all. Dialog renders `body` inside a <p>, so the failure
+          list uses block-display spans rather than divs. */}
+      {importResult && (
+        <Dialog
+          title={
+            importResult.successCount > 0
+              ? `Imported ${importResult.successCount} student${importResult.successCount !== 1 ? "s" : ""}`
+              : "No students were imported"
+          }
+          body={
+            importResult.failures.length === 0
+              ? "Every row went through."
+              : (
+                <>
+                  <span style={{ display: "block", marginBottom: space.sm }}>
+                    {importResult.failures.length} row{importResult.failures.length !== 1 ? "s" : ""} couldn't be created:
+                  </span>
+                  <span style={{ display: "block", textAlign: "left", maxHeight: "150px", overflowY: "auto", background: color.wine800, border: `1px solid ${warning}`, borderRadius: radius.card, padding: "10px 14px" }}>
+                    {importResult.failures.map((f, i) => (
+                      <span key={i} style={{ display: "block", ...type.helper, color: inkBody, lineHeight: 1.6 }}>
+                        {f.studentId}: {f.message}
+                      </span>
+                    ))}
+                  </span>
+                </>
+              )
+          }
+        >
+          <button onClick={() => setImportResult(null)} style={primaryBtn}>OK</button>
+        </Dialog>
+      )}
+
       {/* ── Export confirmation ── */}
       {confirmExport && (
         <Dialog
@@ -1597,7 +1671,7 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
             <p style={{ fontFamily: font.ui, fontSize: "1.125rem", fontWeight: 600, letterSpacing: "-0.01em", color: ink, marginBottom: space.xs }}>Account created</p>
             <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, marginBottom: space.md }}>Share these details with the student.</p>
             <div style={{ background: color.wine800, border: `1px solid ${line}`, borderRadius: radius.card, padding: "14px 16px", textAlign: "left", marginBottom: space.md }}>
-              {[["Student ID", successInfo.studentId], ["Full name", successInfo.fullName], ["Email", successInfo.email], ["Password", successInfo.password]].map(([label, val]) => (
+              {[["Student ID", successInfo.studentId], ["Full name", successInfo.fullName], ["Password", successInfo.password]].map(([label, val]) => (
                 <div key={label} style={{ marginBottom: space.sm }}>
                   <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted }}>{label}</p>
                   <p style={{ fontFamily: font.ui, ...type.label, color: ink, wordBreak: "break-all" }}>{val}</p>

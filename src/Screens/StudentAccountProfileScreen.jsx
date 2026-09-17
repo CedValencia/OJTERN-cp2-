@@ -1,8 +1,9 @@
 import React, { useState, useRef, useEffect, useMemo } from "react";
-import { doc, updateDoc, onSnapshot } from "firebase/firestore";
+import { doc, onSnapshot, runTransaction, serverTimestamp } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 import { db } from "./firebase";
 import { changePassword } from "./AuthService";
+import { normalizeEmail, validatePersonalEmail, claimPersonalEmail, personalEmailErrorMessage } from "./studentPersonalEmail";
 import { useDepartmentsPrograms } from "./departmentsPrograms";
 import { color, font, type, space, radius, shadow, ease } from "./theme";
 
@@ -495,10 +496,15 @@ const YEAR_SECTIONS = [
 ];
 
 // ─── PersonalInfoScreen ───────────────────────────────────────────────────────
-const PersonalInfoScreen = ({ onBack, user }) => {
-  const [editing, setEditing] = useState(false);
+// setupMode: used by StudentDashboardScreen on a student's first login. The form
+// opens already in edit mode with no Back/Edit/Cancel, and after a successful
+// save calls onSetupComplete(personalEmail) instead of showing the success sheet.
+const PersonalInfoScreen = ({ onBack, user, setupMode = false, onSetupComplete, onLogout, logoutBusy = false }) => {
+  const [editing, setEditing] = useState(setupMode);
   const [showSaveSuccess, setShowSaveSuccess] = useState(false);
-  const editingRef = useRef(false);
+  const editingRef = useRef(setupMode);
+  // Always fill the form from the first snapshot, even when it opens in edit mode.
+  const hasLoadedRef = useRef(false);
   useEffect(() => { editingRef.current = editing; }, [editing]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving]   = useState(false);
@@ -515,8 +521,10 @@ const PersonalInfoScreen = ({ onBack, user }) => {
     yearSection:    "",
     sex:            "",
     age:            "",
-    email:          "",
+    personalEmail:  "",   // recovery email — NOT students/{uid}.email (the login address)
   });
+  // Last personal email saved in Firestore, so a change can release the old one.
+  const [savedPersonalEmail, setSavedPersonalEmail] = useState("");
 
   const { departments, departmentNames } = useDepartmentsPrograms();
 
@@ -557,7 +565,8 @@ const PersonalInfoScreen = ({ onBack, user }) => {
   useEffect(() => {
     if (!user?.uid) return;
     const unsub = onSnapshot(doc(db, "students", user.uid), (snap) => {
-      if (snap.exists() && !editingRef.current) {
+      if (snap.exists() && (!editingRef.current || !hasLoadedRef.current)) {
+        hasLoadedRef.current = true;
         const d = snap.data();
         const rawCollege = d.college || "";
         const rawProgram = d.program || "";
@@ -572,8 +581,11 @@ const PersonalInfoScreen = ({ onBack, user }) => {
           yearSection:    d.yearSection    || "",
           sex:            d.sex            || "",
           age:            String(d.age     || ""),
-          email:          d.email          || "",
+          // Blank until the student provides one. Never fall back to d.email:
+          // for bulk-created accounts that is the system-generated login address.
+          personalEmail:  normalizeEmail(d.personalEmail),
         });
+        setSavedPersonalEmail(normalizeEmail(d.personalEmail));
       }
       setLoading(false);
     }, (err) => {
@@ -633,19 +645,22 @@ const PersonalInfoScreen = ({ onBack, user }) => {
     if (!form.sex) e.sex = "Select sex.";
     const ageErr = validateAge(form.age);
     if (ageErr) e.age = ageErr;
-    if (!form.email.trim()) e.email = "Email is required.";
-    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) e.email = "Invalid email address.";
+    const emailErr = validatePersonalEmail(form.personalEmail);
+    if (emailErr) e.personalEmail = emailErr;
     setErrors(e);
     return Object.keys(e).length === 0;
   };
 
   const handleSave = async () => {
-    if (!validate()) return;
+    if (saving || !validate()) return;
     setSaving(true);
     setSaveError("");
     try {
-      await updateDoc(doc(db, "students", user?.uid), {
+      const nextPersonalEmail = normalizeEmail(form.personalEmail);
+      const profileUpdate = {
         // studentId intentionally omitted — no longer editable from this screen.
+        // email intentionally omitted — AuthService.signIn resolves it by Student ID,
+        // so letting students edit it here would lock them out of their account.
         lastName:       form.lastName,
         middleInitial:  form.middleInitial,
         firstName:      form.firstName,
@@ -656,14 +671,45 @@ const PersonalInfoScreen = ({ onBack, user }) => {
         yearSection:    form.yearSection,
         sex:            form.sex,
         age:            Number(form.age),
-        email:          form.email,
+      };
+
+      await runTransaction(db, async (tx) => {
+        const studentRef = doc(db, "students", user?.uid);
+        if (nextPersonalEmail !== savedPersonalEmail) {
+          // Reserve the new address (fails if another student owns it) and
+          // release the old one, in the same transaction as the profile update.
+          await claimPersonalEmail(tx, { uid: user?.uid, email: nextPersonalEmail, previousEmail: savedPersonalEmail });
+          tx.update(studentRef, {
+            ...profileUpdate,
+            personalEmail: nextPersonalEmail,
+            personalInformationCompleted: true,
+            personalEmailUpdatedAt: serverTimestamp(),
+          });
+        } else {
+          tx.update(studentRef, profileUpdate);
+        }
       });
+      setSavedPersonalEmail(nextPersonalEmail);
+      setField("personalEmail", nextPersonalEmail);
+      if (setupMode) {
+        setErrors({});
+        onSetupComplete?.(nextPersonalEmail);
+        return;
+      }
       setEditing(false);
       setErrors({});
       setShowSaveSuccess(true);
     } catch (err) {
       console.error("Failed to save profile:", err);
-      setSaveError(err.message || "Your information didn't save. Try again.");
+      if (err?.code === "email-in-use") {
+        setErrors(prev => ({ ...prev, personalEmail: personalEmailErrorMessage(err) }));
+      } else if (err?.code === "permission-denied") {
+        setSaveError("Your information couldn't be saved because your account doesn't have permission. Contact your coordinator for assistance.");
+      } else if (err?.code === "unavailable" || err?.code === "deadline-exceeded") {
+        setSaveError("No internet connection. Check your connection, then try again.");
+      } else {
+        setSaveError(err.message || "Your information didn't save. Try again.");
+      }
     } finally {
       setSaving(false);
     }
@@ -701,7 +747,7 @@ const PersonalInfoScreen = ({ onBack, user }) => {
   if (loading) {
     return (
       <div className="sap-screen" style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden", background: page }}>
-        <SectionHeaderBar title="Personal information" onBack={onBack} />
+        <SectionHeaderBar title={setupMode ? "Edit personal information" : "Personal information"} onBack={setupMode ? undefined : onBack} />
         <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
           <p style={{ fontFamily: font.ui, ...type.body, color: inkFaint }}>Loading profile…</p>
         </div>
@@ -711,7 +757,10 @@ const PersonalInfoScreen = ({ onBack, user }) => {
 
   return (
     <div className="sap-screen" style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden", background: page }}>
-      <SectionHeaderBar title={editing ? "Edit personal information" : "Personal information"} onBack={onBack} />
+      <SectionHeaderBar
+        title={editing ? "Edit personal information" : "Personal information"}
+        onBack={setupMode ? undefined : onBack}
+      />
 
       <div className="sap-info-body">
         <div
@@ -724,7 +773,7 @@ const PersonalInfoScreen = ({ onBack, user }) => {
           }}
         >
           {/* Edit button */}
-          {!editing && (
+          {!editing && !setupMode && (
             <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: space.sm }}>
               <button onClick={() => setEditing(true)}
                 style={{ display: "inline-flex", alignItems: "center", gap: "7px", padding: "8px 16px", borderRadius: radius.pill, border: `1px solid ${line}`, background: surface, color: ink, fontFamily: font.ui, ...type.control, cursor: "pointer", boxShadow: shadow.input }}>
@@ -930,39 +979,57 @@ const PersonalInfoScreen = ({ onBack, user }) => {
             )}
           </div>
 
-          {/* Email address */}
+          {/* Personal email — the student's own address, used for Forgot Password.
+              The login address (students/{uid}.email) is intentionally not shown. */}
           <div className="sap-info-row">
             {fieldLabel("Email address")}
             {editing ? (
               <>
                 <input
                   type="email"
-                  value={form.email}
-                  onChange={e => { setField("email", e.target.value); setErrors(p => ({ ...p, email: "" })); }}
+                  inputMode="email"
+                  autoComplete="email"
+                  autoCapitalize="none"
+                  spellCheck={false}
+                  maxLength={254}
+                  value={form.personalEmail}
+                  onChange={e => { setField("personalEmail", e.target.value); setErrors(p => ({ ...p, personalEmail: "" })); }}
                   placeholder="example@gmail.com"
-                  style={errors.email ? inlineInputErrorStyle : inlineInputStyle}
+                  style={errors.personalEmail ? inlineInputErrorStyle : inlineInputStyle}
                 />
-                {errText(errors.email)}
+                {errText(errors.personalEmail)}
               </>
             ) : (
-              <span style={rowValue}>{form.email || "—"}</span>
+              <span style={{ ...rowValue, overflowWrap: "anywhere" }}>{form.personalEmail || "—"}</span>
             )}
+            <span style={{ fontFamily: font.ui, ...type.helper, color: inkFaint, display: "block", marginTop: "4px" }}>
+              Used to send you a reset link if you forget your password.
+            </span>
           </div>
 
           {saveError && (
             <p style={{ ...errorTextStyle, textAlign: "center", margin: `${space.sm} 0 0` }}>{saveError}</p>
           )}
 
-          {/* Cancel / Save */}
+          {/* Cancel / Save (setup mode: Log out / Save and Continue) */}
           {editing && (
             <div className="sap-save-row">
-              <button onClick={() => { setEditing(false); setErrors({}); setSaveError(""); }}
-                style={{ padding: "9px 20px", borderRadius: radius.pill, background: "transparent", color: inkMuted, border: `1px solid ${line}`, fontFamily: font.ui, ...type.control, cursor: "pointer" }}>
-                Cancel
-              </button>
+              {setupMode ? (
+                onLogout && (
+                  <button onClick={onLogout} disabled={saving || logoutBusy}
+                    style={{ padding: "9px 20px", borderRadius: radius.pill, background: "transparent", color: inkMuted, border: `1px solid ${line}`, fontFamily: font.ui, ...type.control, cursor: saving || logoutBusy ? "not-allowed" : "pointer" }}>
+                    {logoutBusy ? "Logging out…" : "Log out"}
+                  </button>
+                )
+              ) : (
+                <button onClick={() => { setEditing(false); setErrors({}); setSaveError(""); }}
+                  style={{ padding: "9px 20px", borderRadius: radius.pill, background: "transparent", color: inkMuted, border: `1px solid ${line}`, fontFamily: font.ui, ...type.control, cursor: "pointer" }}>
+                  Cancel
+                </button>
+              )}
               <button onClick={handleSave} disabled={saving}
                 style={{ padding: "9px 22px", borderRadius: radius.pill, background: panel, color: onPanel, border: "none", fontFamily: font.ui, ...type.control, cursor: saving ? "not-allowed" : "pointer", opacity: saving ? 0.7 : 1, boxShadow: shadow.pill }}>
-                {saving ? "Saving…" : "Save changes"}
+                {saving ? "Saving…" : (setupMode ? "Save and Continue" : "Save changes")}
               </button>
             </div>
           )}
@@ -1084,7 +1151,7 @@ const TERMS_SECTIONS = [
     title: "1. Account Usage",
     items: [
       "Your account is created by an authorized OJT Coordinator and is intended solely for your official On-the-Job Training (OJT) activities.",
-      "You must change your temporary password and complete your personal information upon your first login before accessing the Platform's full features.",
+      "You must change your Welcome! Before you continue, replace the current password you were given with a new one that only you know. password and complete your personal information upon your first login before accessing the Platform's full features.",
     ],
   },
   {
