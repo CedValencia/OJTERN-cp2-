@@ -38,6 +38,10 @@ const resendApiKey = defineSecret("RESEND_API_KEY");
 const EMAIL_FROM      = process.env.EMAIL_FROM || "OJTern <noreply@ojtern.com>";
 const EMAIL_REPLY_TO  = process.env.EMAIL_REPLY_TO || "support@ojtern.com";
 
+// studentPersonalEmails/{email} → { uid }: written by the app when a student
+// saves a personal (recovery) email. See requestStudentPasswordReset below.
+const STUDENT_PERSONAL_EMAIL_INDEX = "studentPersonalEmails";
+
 // Strips HTML tags for a reasonable plain-text fallback when a caller
 // doesn't hand-write one. Good enough for our simple templates (no tables,
 // no nested markup) — mail clients that skip HTML rendering still get
@@ -307,7 +311,11 @@ exports.sendApplicationStatusEmail = onDocumentUpdated(
       const studentSnap = await db.collection("students").doc(studentId).get();
       if (studentSnap.exists) {
         const student = studentSnap.data();
-        studentEmail = (student.email || "").trim();
+        // personalEmail only: for bulk-created accounts, `email` is the
+        // system-generated login address and would bounce (and a bounce puts
+        // the address on Resend's suppression list). Every student who can
+        // apply has one, since the dashboard requires it before continuing.
+        studentEmail = (student.personalEmail || "").trim();
         studentName  = student.fullName
           || [student.firstName, student.lastName].filter(Boolean).join(" ")
           || "Student";
@@ -317,7 +325,7 @@ exports.sendApplicationStatusEmail = onDocumentUpdated(
     }
 
     if (!studentEmail) {
-      console.warn(`Student ${studentId} has no registered email — skipping status email for application ${event.params.applicationId}.`);
+      console.warn(`Student ${studentId} has no personal email — skipping status email for application ${event.params.applicationId}.`);
       return;
     }
 
@@ -479,6 +487,21 @@ exports.deleteStudentAuthOnDocDelete = onDocumentDeleted(
       console.log(`Deleted Auth account for student: ${uid}`);
     } catch (error) {
       console.error(`Failed to delete Auth account for ${uid}:`, error);
+    }
+
+    // Free the deleted student's personal email so it can be registered again.
+    const personalEmail = String(deletedData.personalEmail || "").trim().toLowerCase();
+    if (personalEmail) {
+      try {
+        const indexRef = getFirestore().collection(STUDENT_PERSONAL_EMAIL_INDEX).doc(personalEmail);
+        const indexSnap = await indexRef.get();
+        if (indexSnap.exists && indexSnap.get("uid") === uid) {
+          await indexRef.delete();
+          console.log(`Released personal email index for student: ${uid}`);
+        }
+      } catch (error) {
+        console.error(`Failed to release personal email index for ${uid}:`, error);
+      }
     }
   }
 );
@@ -732,6 +755,133 @@ OJTern Team`;
       if (error instanceof HttpsError) throw error;
       console.error(`Activation resend: UNHANDLED failure for "${email}":`, error);
       throw new HttpsError("internal", `Activation resend failed: ${error.message || error}`);
+    }
+  }
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STUDENT PASSWORD RESET — by personal email.
+//
+// Bulk-created student accounts sign in with a system-generated address
+// (students/{uid}.email) that nobody can receive mail at, so the client SDK's
+// sendPasswordResetEmail can't reach them. ForgotPasswordScreen calls this
+// alongside AuthService.resetPassword: it finds the student through the
+// studentPersonalEmails/{email} → { uid } index (written by the app when the
+// student saves a personal email), generates the reset link for the account's
+// login address, and mails that link to the personal email instead.
+//
+// Every path returns the same response, including send failures, so this can't
+// be used to find out which emails belong to students. Failures are logged.
+const STUDENT_RESET_COOLDOWN_MS = 60 * 1000;
+const STUDENT_EMAIL_REGEX = /^[a-z0-9._%+\-]+@[a-z0-9\-]+(\.[a-z0-9\-]+)*\.[a-z]{2,}$/;
+
+exports.requestStudentPasswordReset = onCall(
+  { region: "asia-southeast1", secrets: [resendApiKey] },
+  async (request) => {
+    const rawEmail = (request.data && request.data.email) || "";
+    const email = String(rawEmail).trim().toLowerCase();
+
+    if (!email || email.length > 254 || email.includes("..") || !STUDENT_EMAIL_REGEX.test(email)) {
+      throw new HttpsError("invalid-argument", "Please enter a valid email address.");
+    }
+
+    const genericOk = { sent: true };
+
+    try {
+      const db = getFirestore();
+      const indexSnap = await db.collection(STUDENT_PERSONAL_EMAIL_INDEX).doc(email).get();
+      const uid = indexSnap.exists ? indexSnap.get("uid") : null;
+      if (!uid) {
+        console.log(`Student reset requested for unregistered personal email: ${email}`);
+        return genericOk;
+      }
+
+      const studentRef  = db.collection("students").doc(uid);
+      const studentSnap = await studentRef.get();
+      const student     = studentSnap.exists ? studentSnap.data() : null;
+
+      // The index can outlive a changed email; only the current one counts.
+      if (!student || String(student.personalEmail || "").toLowerCase() !== email) {
+        console.log(`Student reset skipped for ${email} — no longer the personal email of ${uid}.`);
+        return genericOk;
+      }
+
+      const lastSent = student.lastPasswordResetRequestAt ? student.lastPasswordResetRequestAt.toMillis() : 0;
+      if (Date.now() - lastSent < STUDENT_RESET_COOLDOWN_MS) {
+        console.log(`Student reset skipped for ${uid} — within cooldown.`);
+        return genericOk;
+      }
+
+      let loginEmail;
+      try {
+        loginEmail = (await getAuth().getUser(uid)).email;
+      } catch (error) {
+        console.error(`Student reset: no Auth user for student ${uid}:`, error);
+        return genericOk;
+      }
+      if (!loginEmail) {
+        console.error(`Student reset: Auth user ${uid} has no login email.`);
+        return genericOk;
+      }
+
+      let resetUrl;
+      try {
+        resetUrl = await getAuth().generatePasswordResetLink(loginEmail, {
+          url: "https://ojtern.com/signin",
+        });
+      } catch (error) {
+        console.error(`Student reset: link generation failed for ${uid}:`, error);
+        return genericOk;
+      }
+
+      const name = student.firstName || student.fullName || "there";
+      const html = `
+        <h2>Reset your OJTern password</h2>
+        <p>Hi <strong>${name}</strong>,</p>
+        <p>We received a request to reset the password for your OJTern student account${student.studentId ? ` (Student ID <strong>${student.studentId}</strong>)` : ""}.</p>
+        <table role="presentation" cellpadding="0" cellspacing="0" style="margin: 20px 0;">
+          <tr>
+            <td style="background:#8B0000; border-radius:24px;">
+              <a href="${resetUrl}" style="display:inline-block; padding:13px 32px; font-family:Arial, Helvetica, sans-serif; font-size:15px; font-weight:bold; color:#ffffff; text-decoration:none; border-radius:24px;">
+                Reset Password
+              </a>
+            </td>
+          </tr>
+        </table>
+        <p>After resetting, log in with your Student ID and your new password.</p>
+        <p>If you didn't request this, you can safely ignore this email. Your password won't change.</p>
+        <p>Best regards,<br/>OJTern Team</p>
+      `;
+      const text = `Reset your OJTern password
+
+Hi ${name},
+
+We received a request to reset the password for your OJTern student account${student.studentId ? ` (Student ID ${student.studentId})` : ""}.
+
+${resetUrl}
+
+After resetting, log in with your Student ID and your new password.
+
+If you didn't request this, you can safely ignore this email. Your password won't change.
+
+Best regards,
+OJTern Team`;
+
+      try {
+        await sendMail({ to: email, subject: "OJTern - Reset Your Password", html, text });
+      } catch (error) {
+        console.error(`Student reset: Resend rejected the send for ${uid}:`, error);
+        return genericOk;
+      }
+
+      // Recorded only after a successful send, so a failed send doesn't block retrying.
+      await studentRef.update({ lastPasswordResetRequestAt: FieldValue.serverTimestamp() });
+
+      console.log(`Student password reset link sent for ${uid}`);
+      return genericOk;
+    } catch (error) {
+      console.error(`Student reset: UNHANDLED failure for "${email}":`, error);
+      return genericOk;
     }
   }
 );
