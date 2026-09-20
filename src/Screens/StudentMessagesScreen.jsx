@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useLayoutEffect } from "react";
-import userIcon from "../icons/user.png";
+import blackUserIcon from "../icons/blackuser.png";
 import { useChat } from "./useChat";
 import { uploadFilesToFolder, uploadFileToFolder } from "./CloudinaryService";
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
@@ -150,7 +150,7 @@ const MessagesStyles = () => (
 );
 
 // ── CompanyAvatar ─────────────────────────────────────────────────────────────
-const CompanyAvatar = ({ size = 40 }) => (
+const CompanyAvatar = ({ size = 40, userIcon: themedUserIcon = blackUserIcon }) => (
   <div
     style={{
       width: size,
@@ -162,7 +162,7 @@ const CompanyAvatar = ({ size = 40 }) => (
       overflow: "hidden",
     }}
   >
-    <img src={userIcon} alt="" style={{ width: size, height: size, objectFit: "contain" }} />
+    <img src={themedUserIcon} alt="" style={{ width: size, height: size, objectFit: "contain" }} />
   </div>
 );
 
@@ -452,7 +452,7 @@ const ReportModal = ({ company, onClose, onSubmit }) => {
 };
 
 // ── ChatView ──────────────────────────────────────────────────────────────────
-const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onReport }) => {
+const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onReport, userIcon: themedUserIcon = blackUserIcon }) => {
   const [input, setInput]             = useState("");
   const [attachments, setAttachments] = useState([]);
   const [showInfo, setShowInfo]       = useState(false);
@@ -609,7 +609,7 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onR
   useEffect(() => () => { if (flashTimer.current) clearTimeout(flashTimer.current); }, []);
   const confirmDeleteConversation = () => { onDeleteConversation(contact.id); setShowDeleteConfirm(false); };
 
-  const avatarSize     = isMobile ? 30 : 34;
+  const avatarSize     = isMobile ? 40 : 44;
   // Reserves room for the avatar and the 3-dot button at every width, so a
   // long message can never push the action button off screen.
   const bubbleMaxWidth = isMobile ? "min(78%, calc(100% - 44px))" : "min(56%, calc(100% - 72px))";
@@ -647,7 +647,7 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onR
               <div
                 onClick={() => { setShowInfo(false); setShowReport(true); }}
                 style={{ ...menuItem, color: inkBody, borderBottom: `1px solid ${lineSoft}` }}
-                onMouseEnter={e => e.currentTarget.style.background = lineSoft}
+                onMouseEnter={e => e.currentTarget.style.background = color.hoverWash}
                 onMouseLeave={e => e.currentTarget.style.background = surface}
               >
                 Report this company
@@ -655,7 +655,7 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onR
               <div
                 onClick={handleDeleteConversation}
                 style={{ ...menuItem, color: danger, fontWeight: 500 }}
-                onMouseEnter={e => e.currentTarget.style.background = lineSoft}
+                onMouseEnter={e => e.currentTarget.style.background = color.hoverWash}
                 onMouseLeave={e => e.currentTarget.style.background = surface}
               >
                 Delete conversation
@@ -742,7 +742,7 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onR
                 className={`msg-row${highlightId === msg.id ? " msg-row-flash" : ""}`}
                 style={{ display: "flex", alignItems: "flex-end", gap: isMobile ? "6px" : "10px", justifyContent: isMe ? "flex-end" : "flex-start", marginBottom: "4px", maxWidth: "100%", minWidth: 0 }}
               >
-                {!isMe && <CompanyAvatar size={avatarSize} />}
+                {!isMe && <CompanyAvatar size={avatarSize} userIcon={themedUserIcon} />}
                 <div style={{ maxWidth: bubbleMaxWidth, minWidth: 0, flex: "0 1 auto", display: "flex", flexDirection: "column", alignItems: isMe ? "flex-end" : "flex-start", gap: "3px", position: "relative" }}>
                   {msg.unsent ? (
                     <div style={{ background: "transparent", border: `1px dashed ${color.wine400}`, borderRadius: isMe ? bubbleMine : bubbleTheirs, padding: "9px 16px", fontFamily: font.ui, ...type.helper, color: inkFaint, userSelect: "none" }}>Message unsent</div>
@@ -808,7 +808,7 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, onR
                     </>
                   )}
                 </div>
-                {isMe && <CompanyAvatar size={avatarSize} />}
+                {isMe && <CompanyAvatar size={avatarSize} userIcon={themedUserIcon} />}
               </div>
             </React.Fragment>
           );
@@ -926,7 +926,7 @@ const formatChatTime = (ts) => {
 };
 
 // ── ChatListView ──────────────────────────────────────────────────────────────
-const ChatListView = ({ contacts, messages, onOpen, myUid }) => {
+const ChatListView = ({ contacts, messages, onOpen, myUid, userIcon: themedUserIcon = blackUserIcon }) => {
   const [search, setSearch] = useState("");
   const isMobile = useIsMobile();
 
@@ -1025,10 +1025,10 @@ const ChatListView = ({ contacts, messages, onOpen, myUid }) => {
                     cursor: "pointer",
                     transition: `background 200ms ${ease}`,
                   }}
-                  onMouseEnter={e => e.currentTarget.style.background = field}
+                  onMouseEnter={e => e.currentTarget.style.background = color.hoverWash}
                   onMouseLeave={e => e.currentTarget.style.background = baseBg}
                 >
-                  <CompanyAvatar size={isMobile ? 36 : 42} />
+                  <CompanyAvatar size={isMobile ? 46 : 48} userIcon={themedUserIcon} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: space.sm, marginBottom: "2px" }}>
                       <p style={{ fontFamily: font.ui, fontSize: isMobile ? "0.9375rem" : "1rem", fontWeight: isUnread ? 600 : 500, letterSpacing: "-0.01em", color: ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", margin: 0, flex: 1 }}>{contact.name}</p>
@@ -1065,6 +1065,7 @@ const StudentMessagesScreen = ({
   onReportSubmit,
   openContact,        // { id: uid, name, role } — navigate directly to this chat
   onContactOpened,
+  userIcon: themedUserIcon = blackUserIcon,   // accent-themed user icon (default: blackuser.png)
 }) => {
   const {
     contacts, messages, loading,
@@ -1173,6 +1174,7 @@ const StudentMessagesScreen = ({
           onBack={() => setActiveContact(null)}
           onDeleteConversation={() => handleDeleteConversation(activeContact.convId)}
           onReport={handleReport}
+          userIcon={themedUserIcon}
         />
         {showReportSuccess && <ReportSuccessModal onClose={() => setShowReportSuccess(false)} />}
         {reportError && <InfoModal message={reportError} onClose={() => setReportError("")} />}
@@ -1185,6 +1187,7 @@ const StudentMessagesScreen = ({
       contacts={contacts}
       messages={uiMessages}
       myUid={user?.uid}
+      userIcon={themedUserIcon}
       onOpen={async (c) => {
         const convId = await ensureConversation(c.id, c.name, c.role || "company");
         const contact = { ...c, convId };

@@ -4,10 +4,30 @@ import { getAuth, reauthenticateWithCredential, EmailAuthProvider } from "fireba
 import { db } from "./firebase";
 import { initiateCoordinatorTransfer, initiateCoordinatorAddition, changePassword, requestCoordinatorEmailChange } from "./AuthService";
 import { useDepartmentsPrograms } from "./departmentsPrograms";
-import { color, font, type, space, radius, shadow, ease } from "./theme";
+import { color, font, type, space, radius, shadow, ease, getThemedAsset } from "./theme";
 
 import PersonalAccountProfile from "../icons/personalaccountprofile.png";
-import viewIcon from "../icons/view.png";
+import blackViewIcon  from "../icons/blackview.png";
+import redViewIcon    from "../icons/redview.png";
+import blueViewIcon   from "../icons/blueview.png";
+import violetViewIcon from "../icons/violetview.png";
+import pinkViewIcon   from "../icons/pinkview.png";
+import yellowViewIcon from "../icons/yellowview.png";
+
+// Nav bar "change color" accent theme → matching view-icon asset. Keyed by
+// ACCENT_THEMES id (see theme.js); "default" ("Original") uses blackview.png.
+// This screen doesn't own the accentThemeId state itself (the picker lives
+// on the dashboard shell) — the resolved icon is passed down as the
+// `viewIcon` prop from CoordinatorDashboardScreen via getThemedAsset there,
+// so this map + blackViewIcon just supply this screen's own fallback.
+const VIEW_ICON_BY_THEME = {
+  default: blackViewIcon,
+  red:     redViewIcon,
+  blue:    blueViewIcon,
+  violet:  violetViewIcon,
+  pink:    pinkViewIcon,
+  yellow:  yellowViewIcon,
+};
 
 // ── Design tokens, aliased for this screen ────────────────────────────────────
 // Same aliases as CoordinatorFindCompanyScreen / CoordinatorMessagesScreen.
@@ -123,7 +143,7 @@ const ResponsiveStyles = () => (
     }
     .cap-menu-row:last-child { margin-bottom: 0; }
     .cap-menu-row:hover {
-      border-color: ${color.wine400};
+      border-color: ${color.hoverBorder};
       box-shadow: 0 8px 22px rgba(10,10,10,0.08);
     }
     @media (max-width: 480px) {
@@ -841,13 +861,13 @@ const icons = {
 };
 
 // ── Menu row + grouped section ────────────────────────────────────────────────
-const MenuRow = ({ label, icon, onClick }) => (
+const MenuRow = ({ label, icon, onClick, viewIcon: themedViewIcon = blackViewIcon }) => (
   <button type="button" onClick={onClick} className="cap-menu-row">
     <span style={{ display: "flex", alignItems: "center", gap: "14px", minWidth: 0 }}>
       {icon && <RowIcon>{icons[icon]}</RowIcon>}
       <span style={{ fontFamily: font.ui, fontSize: "1rem", fontWeight: 500, letterSpacing: "-0.01em", color: ink }}>{label}</span>
     </span>
-    <img src={viewIcon} alt="" style={{ width: "30px", height: "30px", objectFit: "contain", flexShrink: 0 }} />
+    <img src={themedViewIcon} alt="" style={{ width: "30px", height: "30px", objectFit: "contain", flexShrink: 0 }} />
   </button>
 );
 
@@ -1765,7 +1785,7 @@ const CoordinatorSaveSuccessModal = ({ onClose }) => (
 );
 
 // ── Main Screen ───────────────────────────────────────────────────────────────
-const CoordinatorAccountProfileScreen = ({ user, onLogout }) => {
+const CoordinatorAccountProfileScreen = ({ user, onLogout, viewIcon: themedViewIcon = blackViewIcon }) => {
   const [view, setView]                     = useState("main");
   const [showReset, setShowReset]           = useState(false);
   const [showTransfer, setShowTransfer]     = useState(false);
@@ -1823,21 +1843,21 @@ const CoordinatorAccountProfileScreen = ({ user, onLogout }) => {
       <div className="cap-body">
         <div className="cap-menu-stack">
           <MenuGroup title="Personal Information:">
-            <MenuRow icon="person" label="Personal Information" onClick={() => setView("personalInfo")} />
+            <MenuRow icon="person" label="Personal Information" onClick={() => setView("personalInfo")} viewIcon={themedViewIcon} />
           </MenuGroup>
 
           <MenuGroup title="Security:">
-            <MenuRow icon="key" label="Reset Password" onClick={() => setShowReset(true)} />
+            <MenuRow icon="key" label="Reset Password" onClick={() => setShowReset(true)} viewIcon={themedViewIcon} />
           </MenuGroup>
 
           <MenuGroup title="Account:">
-            <MenuRow icon="addUser"  label="Add Account"      onClick={() => setShowAddAccount(true)} />
-            <MenuRow icon="transfer" label="Transfer Account" onClick={() => setShowTransfer(true)} />
+            <MenuRow icon="addUser"  label="Add Account"      onClick={() => setShowAddAccount(true)} viewIcon={themedViewIcon} />
+            <MenuRow icon="transfer" label="Transfer Account" onClick={() => setShowTransfer(true)} viewIcon={themedViewIcon} />
           </MenuGroup>
 
           <MenuGroup title="Legal:">
-            <MenuRow icon="document" label="Terms & Condition" onClick={() => setView("terms")} />
-            <MenuRow icon="shield"   label="Privacy Policy"    onClick={() => setView("privacy")} />
+            <MenuRow icon="document" label="Terms & Condition" onClick={() => setView("terms")} viewIcon={themedViewIcon} />
+            <MenuRow icon="shield"   label="Privacy Policy"    onClick={() => setView("privacy")} viewIcon={themedViewIcon} />
           </MenuGroup>
         </div>
 

@@ -211,7 +211,7 @@ const ResponsiveStyles = () => (
       border: 1px solid ${line};
       border-radius: ${radius.pill};
       box-shadow: ${shadow.input};
-      padding: 8px 16px 8px 8px;
+      padding: 10px 20px 10px 18px;
       display: flex;
       align-items: center;
       gap: 14px;
@@ -235,7 +235,7 @@ const ResponsiveStyles = () => (
       .ca-row-program { display: none; }
     }
     @media (max-width: 560px) {
-      .ca-row { padding: 8px 12px 8px 8px; gap: 10px; }
+      .ca-row { padding: 10px 14px 10px 14px; gap: 10px; }
     }
 
     .ca-list-wrapper :focus-visible,

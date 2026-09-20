@@ -214,6 +214,8 @@ const FilterPanel = ({ filterRef, filterCollege, filterProgram, setFilterCollege
 // ── Main CompanyCoordinatorsScreen ────────────────────────────────────────────
 const CompanyCoordinatorsScreen = ({ embedded, user, onNavigateToMessages }) => {
   const isMobile = useIsMobile();
+  // Coordinator icon size — same as the chat-list icon in CompanyMessagesScreen.
+  const avatarSize = isMobile ? 46 : 48;
   const [search, setSearch] = useState("");
   const [coordinators, setCoordinators] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -526,11 +528,11 @@ const CompanyCoordinatorsScreen = ({ embedded, user, onNavigateToMessages }) => 
                   }}
                 >
                   <div style={{
-                    width: "44px", height: "44px", borderRadius: "14px",
+                    width: `${avatarSize}px`, height: `${avatarSize}px`, borderRadius: "14px",
                     background: color.wine800, display: "flex", alignItems: "center",
                     justifyContent: "center", flexShrink: 0, overflow: "hidden",
                   }}>
-                    <CoordinatorAvatar size={38} />
+                    <CoordinatorAvatar size={avatarSize} />
                   </div>
 
                   <div style={{ flex: 1, minWidth: 0 }}>

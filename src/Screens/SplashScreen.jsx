@@ -113,7 +113,7 @@ const FontImport = () => (
       box-shadow: ${shadow.focus};
     }
 
-    ::selection { background: ${color.blush200}; color: ${color.onWine}; }
+    ::selection { background: ${splashSelectionDark}; color: ${color.onWine}; }
 
     ::-webkit-scrollbar { width: 7px; height: 7px; }
     ::-webkit-scrollbar-track { background: transparent; }
@@ -199,6 +199,16 @@ const GATE_FADE_MS = 300;
 const GATE_MIN_MS = 800;
 
 // Module scope rather than inside SplashScreen.
+// NOTE: color.blush100 / color.blush200 are now wired to the Coordinator
+// dashboard's accent-color picker (see theme.js) — they resolve through a
+// CSS var that changes per-browser once a Coordinator picks red/blue/violet/
+// pink/yellow. This screen is shared by ALL roles before anyone is even
+// logged in, so it should NOT shift color just because some coordinator on
+// this device chose a color — it pins its own dark-panel/selection tones to
+// fixed values instead of reading color.blush100/blush200 directly.
+const splashPanelDark     = "#161616"; // was color.blush100 — pinned, not accent-linked
+const splashSelectionDark = "#1F1F1F"; // was color.blush200 — pinned, not accent-linked
+
 const wineSurface = {
   backgroundColor: color.wine700,
   backgroundImage: wineField,
@@ -1011,7 +1021,7 @@ const SplashScreen = () => {
   const bareForm = currentView === "signup1" || currentView === "signup2";
 
   const formPanelStyle = {
-    background: bareForm ? "transparent" : color.blush100,
+    background: bareForm ? "transparent" : splashPanelDark,
     borderRadius: radius.panel,
     padding: bareForm ? "0" : (isMobile ? "28px 22px 32px" : "40px 40px 44px"),
     width: "100%",

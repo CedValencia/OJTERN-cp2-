@@ -5,7 +5,7 @@ import { collection, query, where, orderBy, limit, onSnapshot, doc, getDoc, setD
 import { db } from "./firebase";
 import { PersonalInfoScreen, ResponsiveStyles } from "./CoordinatorAccountProfileScreen";
 import { useUnreadCount } from "./useChat";
-import { color, font, ease } from "./theme";
+import { color, font, ease, ACCENT_THEMES, ACCENT_THEME_ORDER, getSavedAccentThemeId, saveAccentThemeId, getAccentThemeVars, getThemedAsset } from "./theme";
 
 import CoordinatorStudentsAcccountScreen      from "./CoordinatorStudentsAcccountScreen";
 import CoordinatorStudentListScreen from "./CoordinatorStudentListScreen";
@@ -18,8 +18,25 @@ import AboutUsScreen from "./AboutUsScreen";
 
 import logo                 from "../icons/ojtern.png";
 import dashboardIcon        from "../icons/dashboard.png";
-import viewIcon             from "../icons/view.png";
-import companyProfileIcon   from "../icons/companyprofile.png";
+import blackViewIcon        from "../icons/blackview.png";
+import redViewIcon          from "../icons/redview.png";
+import blueViewIcon         from "../icons/blueview.png";
+import violetViewIcon       from "../icons/violetview.png";
+import pinkViewIcon         from "../icons/pinkview.png";
+import yellowViewIcon       from "../icons/yellowview.png";
+
+import blackCompanyProfileIcon   from "../icons/blackcompanyprofile.png";
+import blackUserIcon              from "../icons/blackuser.png";
+import redUserIcon           from "../icons/reduser.png";
+import blueUserIcon          from "../icons/blueuser.png";
+import yellowUserIcon        from "../icons/yellowuser.png";
+import pinkUserIcon          from "../icons/pinkuser.png";
+import violetUserIcon        from "../icons/violetuser.png";
+import redCompanyProfileIcon    from "../icons/redcompanyprofile.png";
+import blueCompanyProfileIcon   from "../icons/bluecompanyprofile.png";
+import yellowCompanyProfileIcon from "../icons/yellowcompanyprofile.png";
+import pinkCompanyProfileIcon   from "../icons/pinkcompanyprofile.png";
+import violetCompanyProfileIcon from "../icons/violetcompanyprofile.png";
 import findIcon           from "../icons/find.png";
 import studentListIcon      from "../icons/studentlist.png";
 import studentPlacementIcon from "../icons/studentsplacement.png";
@@ -28,6 +45,41 @@ import reportCompanyIcon    from "../icons/reportcompany.png";
 import messagesIcon         from "../icons/messages.png";
 import accountProfileIcon   from "../icons/accountprofile.png";
 import aboutIcon            from "../icons/about.png";
+
+// Nav bar "change color" accent theme → matching view-icon asset. Keyed by
+// ACCENT_THEMES id (see theme.js); "default" ("Original") uses blackview.png.
+// Resolved once per render via getThemedAsset(VIEW_ICON_BY_THEME,
+// accentThemeId) and threaded down as a prop, since CompanyRow/StatCard are
+// module-level components that don't otherwise see accentThemeId.
+const VIEW_ICON_BY_THEME = {
+  default: blackViewIcon,
+  red:     redViewIcon,
+  blue:    blueViewIcon,
+  violet:  violetViewIcon,
+  pink:    pinkViewIcon,
+  yellow:  yellowViewIcon,
+};
+
+// Nav bar "change color" accent theme → matching user / company-profile icon.
+// Same keying as VIEW_ICON_BY_THEME above; "default" ("Original") keeps the
+// original blackuser.png / blackcompanyprofile.png. Resolved once in the screen
+// component via getThemedAsset(...) and threaded down as props.
+const USER_ICON_BY_THEME = {
+  default: blackUserIcon,
+  red:     redUserIcon,
+  blue:    blueUserIcon,
+  violet:  violetUserIcon,
+  pink:    pinkUserIcon,
+  yellow:  yellowUserIcon,
+};
+const COMPANY_PROFILE_ICON_BY_THEME = {
+  default: blackCompanyProfileIcon,
+  red:     redCompanyProfileIcon,
+  blue:    blueCompanyProfileIcon,
+  violet:  violetCompanyProfileIcon,
+  pink:    pinkCompanyProfileIcon,
+  yellow:  yellowCompanyProfileIcon,
+};
 
 // ── Design tokens ──────────────────────────────────────────────────────────────
 // Pulled straight from theme.js so this screen shares the app's palette.
@@ -178,7 +230,7 @@ const FontImport = () => (
       transition: height 0.18s ${ease};
     }
     .nav-item:hover {
-      background: ${paperCard};
+      background: ${color.hoverWash};
     }
     .nav-item.active {
       background: ${ink};
@@ -203,7 +255,7 @@ const FontImport = () => (
       border-radius: 14px;
       transition: background 0.18s ${ease}, transform 0.1s ${ease};
     }
-    .nav-logout:hover  { background: ${paperCard}; }
+    .nav-logout:hover  { background: ${color.hoverWash}; }
     .nav-logout:active { transform: scale(0.98); }
 
     .nav-badge {
@@ -233,10 +285,10 @@ const FontImport = () => (
     .pill-btn:active { transform: scale(0.97); }
 
     .notif-row { transition: background 0.15s ${ease}; }
-    .notif-row:hover { background: ${paperCard}; }
+    .notif-row:hover { background: ${color.hoverWash}; }
 
     .company-row { transition: background 0.15s ${ease}; }
-    .company-row:hover { background: ${hairline} !important; }
+    .company-row:hover { background: ${color.hoverWashStrong} !important; }
 
     /* ── Slide-in drawer (mobile / tablet) ── */
     .sidebar-drawer {
@@ -375,14 +427,14 @@ const getNavKeyFromPath = (pathname) => {
 // ── Shared sub-components ──────────────────────────────────────────────────────
 // Box shadow added so the icon itself reads as a raised chip against the
 // row background, instead of sitting flush/flat with no visible edge.
-const CompanyAvatar = ({ size = 38 }) => (
+const CompanyAvatar = ({ size = 38, companyProfileIcon: themedCompanyIcon = blackCompanyProfileIcon }) => (
   <div style={{
     width: size, height: size, flexShrink: 0, borderRadius: "50%",
     display: "flex", alignItems: "center", justifyContent: "center",
     background: paper,
     boxShadow: "0 1px 3px rgba(20,20,20,0.18), 0 1px 2px rgba(20,20,20,0.10)",
   }}>
-    <img src={companyProfileIcon} alt="company" style={{ width: size, height: size, objectFit: "contain" }} />
+    <img src={themedCompanyIcon} alt="company" style={{ width: size, height: size, objectFit: "contain" }} />
   </div>
 );
 
@@ -521,7 +573,7 @@ const LogoutConfirmModal = ({ onConfirm, onCancel }) => (
 );
 
 // ── Company row ────────────────────────────────────────────────────────────────
-const CompanyRow = ({ company, onView, mr = "0", showTime = false }) => (
+const CompanyRow = ({ company, onView, mr = "0", showTime = false, viewIcon: themedViewIcon = blackViewIcon, companyProfileIcon: themedCompanyIcon = blackCompanyProfileIcon }) => (
   <div
     className="company-row"
     onClick={() => onView(company.id)}
@@ -532,7 +584,7 @@ const CompanyRow = ({ company, onView, mr = "0", showTime = false }) => (
     }}
   >
     <div style={{ display: "flex", alignItems: "center", gap: "8px", minWidth: 0 }}>
-      <CompanyAvatar />
+      <CompanyAvatar companyProfileIcon={themedCompanyIcon} />
       <div style={{ minWidth: 0 }}>
         <span className="company-row-name" style={{
           fontFamily: uiFont,
@@ -560,7 +612,7 @@ const CompanyRow = ({ company, onView, mr = "0", showTime = false }) => (
         cursor: "pointer", WebkitTapHighlightColor: "transparent",
       }}
     >
-      <img src={viewIcon} alt="view" style={{ width: "35px", height: "35px", objectFit: "contain" }} />
+      <img src={themedViewIcon} alt="view" style={{ width: "35px", height: "35px", objectFit: "contain" }} />
     </div>
   </div>
 );
@@ -569,7 +621,7 @@ const CompanyRow = ({ company, onView, mr = "0", showTime = false }) => (
 // Label on top → coloured rounded box (120px) → big number or "—" centred →
 // view button overlapping the bottom-right corner of the box (responsive, no
 // hardcoded left/top pixel values).
-const StatCard = ({ label, value, bg = steel, onView }) => (
+const StatCard = ({ label, value, bg = steel, onView, viewIcon: themedViewIcon = blackViewIcon }) => (
   <div style={{ flex: 1, background: "transparent", borderRadius: "12px", padding: "2px 16px", display: "flex", flexDirection: "column" }}>
     <p style={{ fontFamily: uiFont, fontWeight: 500, fontSize: "clamp(0.9rem, 1.8vw, 1.05rem)", color: inkText, marginBottom: "12px" }}>
       {label}
@@ -603,14 +655,14 @@ const StatCard = ({ label, value, bg = steel, onView }) => (
           zIndex: 2,
         }}
       >
-        <img src={viewIcon} alt="view" style={{ width: "70px", height: "70px", objectFit: "contain" }} />
+        <img src={themedViewIcon} alt="view" style={{ width: "70px", height: "70px", objectFit: "contain" }} />
       </div>
     </div>
   </div>
 );
 
 // ── Dashboard Content ──────────────────────────────────────────────────────────
-const DashboardContent = ({ onNavigate, onViewCompany, onViewRegistered, coordinatorUid, coordinatorColleges, coordinatorIndustries = [], recentVisited = [] }) => {
+const DashboardContent = ({ onNavigate, onViewCompany, onViewRegistered, coordinatorUid, coordinatorColleges, coordinatorIndustries = [], recentVisited = [], viewIcon: themedViewIcon = blackViewIcon, companyProfileIcon: themedCompanyIcon = blackCompanyProfileIcon }) => {
   const [recentRegistered, setRecentRegistered] = React.useState([]);
   const [totalStudents,    setTotalStudents]    = React.useState(null);
   const [acceptedStudents, setAcceptedStudents] = React.useState(null);
@@ -697,7 +749,7 @@ const DashboardContent = ({ onNavigate, onViewCompany, onViewRegistered, coordin
         boxShadow: "inset 0 2px 8px rgba(0,0,0,0.10)",
       }}>
         <h1 className="welcome-heading welcome-animate">Welcome to OJTern</h1>
-        <p className="welcome-sub welcome-animate">Find the perfect OJT for you!</p>
+        <p className="welcome-sub welcome-animate">Find the perfect OJT partners for your department!</p>
       </div>
 
       <hr style={{ border: "none", borderTop: `1.5px solid ${hairline}`, marginBottom: "24px" }} />
@@ -714,12 +766,14 @@ const DashboardContent = ({ onNavigate, onViewCompany, onViewRegistered, coordin
               value={totalStudents}
               bg={steel}
               onView={() => onNavigate("studentlist")}
+              viewIcon={themedViewIcon}
             />
             <StatCard
               label="Accepted Students"
               value={acceptedStudents}
               bg={ink}
               onView={() => onNavigate("studentlist")}
+              viewIcon={themedViewIcon}
             />
           </div>
         </div>
@@ -730,7 +784,7 @@ const DashboardContent = ({ onNavigate, onViewCompany, onViewRegistered, coordin
           <div style={{ padding: "10px 0 10px 12px", display: "flex", flexDirection: "column", gap: "6px", maxHeight: "240px", overflowY: "auto" }}>
             {recentRegistered.length > 0 ? (
               recentRegistered.map((company, i) => (
-                <CompanyRow key={i} company={company} onView={onViewRegistered} mr="12px" />
+                <CompanyRow key={i} company={company} onView={onViewRegistered} mr="12px" viewIcon={themedViewIcon} companyProfileIcon={themedCompanyIcon} />
               ))
             ) : (
               <EmptyListPlaceholder label="No registered companies yet" />
@@ -741,11 +795,11 @@ const DashboardContent = ({ onNavigate, onViewCompany, onViewRegistered, coordin
 
       {/* Recent Visited Company */}
       <div className="dash-card" style={{ background: paperCard, borderRadius: "14px", overflow: "hidden" }}>
-        <div className="card-header"><span>Recent Visited Company</span></div>
+        <div className="card-header"><span>Recent Visited Company Post</span></div>
         <div style={{ padding: "10px 12px", display: "flex", flexDirection: "column", gap: "6px", maxHeight: "260px", overflowY: "auto" }}>
           {recentVisited.length > 0 ? (
             recentVisited.map((company, i) => (
-              <CompanyRow key={i} company={company} onView={onViewCompany} showTime />
+              <CompanyRow key={i} company={company} onView={onViewCompany} showTime viewIcon={themedViewIcon} companyProfileIcon={themedCompanyIcon} />
             ))
           ) : (
             <EmptyListPlaceholder label="No recently visited companies" />
@@ -833,6 +887,22 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
   const [recentActivity, setRecentActivity]                     = useState([]);
   const [coordinatorNames, setCoordinatorNames]                  = useState({});
   const [showActivityDropdown, setShowActivityDropdown]         = useState(false);
+
+  // ── Nav bar accent color picker ─────────────────────────────────────────────
+  // "coordinator" scope: its own storage key, independent of Student's — see
+  // theme.js. Lazy-init from localStorage.
+  const [accentThemeId, setAccentThemeId]                        = useState(() => getSavedAccentThemeId("coordinator"));
+  const [showThemeDropdown, setShowThemeDropdown]                = useState(false);
+  const handleSelectAccent = (id) => {
+    setAccentThemeId(saveAccentThemeId("coordinator", id));
+    setShowThemeDropdown(false);
+  };
+  // View-icon PNG matching the current accent color (falls back to the
+  // original black/white blackview.png for "default").
+  const themedViewIcon = getThemedAsset(VIEW_ICON_BY_THEME, accentThemeId);
+  // blackuser.png / blackcompanyprofile.png (default) and colored variants for the same accent color.
+  const themedUserIcon    = getThemedAsset(USER_ICON_BY_THEME, accentThemeId);
+  const themedCompanyIcon = getThemedAsset(COMPANY_PROFILE_ICON_BY_THEME, accentThemeId);
 
   // ── Load reports from Firestore in real-time ───────────────────────────────
   useEffect(() => {
@@ -1166,6 +1236,8 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
         onViewCompany={handleViewCompany}
         onViewRegistered={handleViewRegistered}
         recentVisited={recentVisited}
+        viewIcon={themedViewIcon}
+        companyProfileIcon={themedCompanyIcon}
       />
     );
 
@@ -1194,6 +1266,7 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
       <CoordinatorStudentsAcccountScreen
         coordinatorUid={user?.uid}
         coordinatorColleges={coordinatorColleges}
+        userIcon={themedUserIcon}
       />
     );
 
@@ -1209,6 +1282,7 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
         initialViewingStudentId={placementTargetStudentId}
         onClearInitialViewingStudent={() => setPlacementTargetStudentId(null)}
         onMessageStudent={handleMessageStudent}
+        userIcon={themedUserIcon}
       />
     );
 
@@ -1228,10 +1302,11 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
         onNavigateToReports={() => navigate("reportcompany")}
         openContact={messageTarget}
         onContactOpened={() => setMessageTarget(null)}
+        userIcon={themedUserIcon}
       />
     );
 
-    if (activeNav === "accountprofile") return <CoordinatorAccountProfileScreen user={user} onLogout={onLogout} />;
+    if (activeNav === "accountprofile") return <CoordinatorAccountProfileScreen user={user} onLogout={onLogout} viewIcon={themedViewIcon} />;
     if (activeNav === "about") return <AboutUsScreen onBack={() => navigate("dashboard")} />;
 
     if (activeNav === "reportcompany") return (
@@ -1245,7 +1320,10 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
   const currentLabel = navItems.find(n => n.key === activeNav)?.label ?? "";
 
   return (
-    <>
+    <div style={{
+      width: "100vw", height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden",
+      ...getAccentThemeVars(accentThemeId),
+    }}>
       <FontImport />
       {showLogoutConfirm && (
         <LogoutConfirmModal
@@ -1253,7 +1331,6 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
           onCancel={() => setShowLogoutConfirm(false)}
         />
       )}
-      <div style={{ width: "100vw", height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
 
         {/* ── Top Navbar ── */}
         <div style={{
@@ -1396,6 +1473,65 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
                 <path d="M11 12h1v4h1"/>
               </svg>
             </div>
+
+            {/* Theme color picker */}
+            <div style={{ position: "relative" }}>
+              <div className="topbar-icon-btn" style={{ cursor: "pointer", padding: "8px" }} onClick={() => setShowThemeDropdown(p => !p)} title="Dashboard theme color">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 2a10 10 0 1 0 0 20c1.1 0 1.8-.85 1.8-1.85 0-.5-.2-.95-.5-1.28-.32-.33-.5-.75-.5-1.27a1.9 1.9 0 0 1 1.9-1.9h2.24C19.6 15.7 22 13.35 22 10.4 22 5.76 17.5 2 12 2z"/>
+                  <circle cx="7.5" cy="10.5" r="1" fill="white" stroke="none"/>
+                  <circle cx="11" cy="7" r="1" fill="white" stroke="none"/>
+                  <circle cx="15.5" cy="8" r="1" fill="white" stroke="none"/>
+                </svg>
+              </div>
+              {showThemeDropdown && (
+                <>
+                  <div style={{ position: "fixed", inset: 0, zIndex: 40 }} onClick={() => setShowThemeDropdown(false)} />
+                  <div style={{
+                      position: "absolute", top: "48px", right: 0, width: "224px",
+                      background: paper, border: `1px solid ${hairline}`,
+                      borderRadius: "16px", boxShadow: "0 8px 24px rgba(0,0,0,0.18)", zIndex: 50,
+                      padding: "16px",
+                    }}>
+                    <p style={{ fontFamily: uiFont, fontWeight: 600, fontSize: "0.85rem", color: inkText, margin: "0 0 3px" }}>
+                      Dashboard Theme
+                    </p>
+                    <p style={{ fontFamily: uiFont, fontSize: "0.72rem", color: inkMuted, margin: "0 0 14px", lineHeight: 1.4 }}>
+                      Applies to every module. Saved on this device — stays after you log out.
+                    </p>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "14px 10px" }}>
+                      {ACCENT_THEME_ORDER.map((id) => {
+                        const t = ACCENT_THEMES[id];
+                        const isSelected = accentThemeId === id;
+                        return (
+                          <button
+                            key={id}
+                            onClick={() => handleSelectAccent(id)}
+                            title={t.label}
+                            style={{
+                              display: "flex", flexDirection: "column", alignItems: "center", gap: "6px",
+                              background: "none", border: "none", cursor: "pointer", padding: "2px",
+                            }}
+                          >
+                            <span style={{
+                              width: "30px", height: "30px", borderRadius: "50%",
+                              background: id === "default" ? "linear-gradient(135deg, #000000 50%, #FFFFFF 50%)" : t.swatch,
+                              border: isSelected ? `2px solid ${t.ink}` : `1px solid ${hairline}`,
+                              outline: isSelected ? `2px solid ${hairline}` : "none",
+                              outlineOffset: isSelected ? "1px" : "0",
+                              boxSizing: "border-box",
+                            }} />
+                            <span style={{ fontFamily: uiFont, fontSize: "0.68rem", fontWeight: isSelected ? 700 : 400, color: isSelected ? inkText : inkMuted }}>
+                              {t.label}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </div>
 
@@ -1437,7 +1573,6 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
             {renderContent()}
           </div>
         </div>
-      </div>
 
       {viewingReport && (
         <ReportDetailModal report={viewingReport} onClose={() => setViewingReport(null)} coordinatorUid={user?.uid} coordinatorName={user?.name} />
@@ -1479,7 +1614,7 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
           </div>
         </div>
       )}
-    </>
+    </div>
   );
 };
 

@@ -51,7 +51,7 @@ const Styles = () => (
       cursor: pointer;
       transition: background 160ms ${ease}, transform 160ms ${ease}, border-color 160ms ${ease};
     }
-    .au-back-btn:hover { background: rgba(255,255,255,0.12); border-color: rgba(255,255,255,0.4); }
+    .au-back-btn:hover { background: ${color.blush200}; border-color: ${color.badge}; }
     .au-back-btn:active { transform: scale(0.96); }
 
     .au-header-card {
@@ -67,7 +67,7 @@ const Styles = () => (
     }
     .au-logo-badge {
       width: 80px; height: 80px; border-radius: 50%;
-      background: #898989;
+      background: ${color.badge};
       border: 2px solid #ffffff;
       display: flex; align-items: center; justify-content: center;
       box-shadow: 0 4px 14px rgba(0,0,0,0.28);
@@ -143,9 +143,9 @@ const Styles = () => (
       background: ${color.white}; color: ${color.ink};
       cursor: pointer; display: flex; align-items: center; justify-content: center;
       box-shadow: ${shadow.input};
-      transition: background 160ms ${ease}, transform 160ms ${ease}, box-shadow 160ms ${ease};
+      transition: background 160ms ${ease}, border-color 160ms ${ease}, transform 160ms ${ease}, box-shadow 160ms ${ease};
     }
-    .au-nav-arrow:hover { background: ${color.ink}; color: ${color.white}; box-shadow: ${shadow.pill}; }
+    .au-nav-arrow:hover { background: ${color.ink}; border-color: ${color.ink}; color: ${color.white}; box-shadow: ${shadow.pill}; }
     .au-nav-arrow:active { transform: scale(0.9); }
 
     .au-spotlight-content { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; text-align: center; }
@@ -174,7 +174,7 @@ const Styles = () => (
       transition: background 160ms ${ease}, transform 160ms ${ease}, width 220ms ${ease};
     }
     .au-spot-dots button.active { background: ${color.ink}; width: 20px; border-radius: 999px; }
-    .au-spot-dots button:hover:not(.active) { background: ${color.inkMuted}; }
+    .au-spot-dots button:hover:not(.active) { background: ${color.badge}; }
 
     /* ── Features ── */
     .au-features-title {
@@ -192,13 +192,14 @@ const Styles = () => (
       padding: 18px 18px; box-shadow: ${shadow.input};
       display: flex; flex-direction: column; gap: 5px;
       border: 1px solid transparent;
-      transition: transform 200ms ${ease}, box-shadow 200ms ${ease}, border-color 200ms ${ease};
+      transition: transform 200ms ${ease}, box-shadow 200ms ${ease}, border-color 200ms ${ease}, background 200ms ${ease};
       animation: auFadeUp 480ms ${ease} both;
     }
     .au-feature-card:hover {
       transform: translateY(-4px);
       box-shadow: ${shadow.panel};
-      border-color: ${color.blush300};
+      background: ${color.hoverWash};
+      border-color: ${color.hoverBorder};
     }
     .au-feature-icon {
       width: 36px; height: 36px; border-radius: 10px;
@@ -229,9 +230,9 @@ const Styles = () => (
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-weight: 700; font-size: 0.82rem;
       cursor: pointer; text-decoration: none; white-space: nowrap;
       box-shadow: ${shadow.pill};
-      transition: transform 160ms ${ease}, filter 160ms ${ease};
+      transition: transform 160ms ${ease}, background 160ms ${ease};
     }
-    .au-cta-btn:hover { filter: brightness(1.05); transform: translateY(-2px); }
+    .au-cta-btn:hover { background: ${color.hoverWash}; transform: translateY(-2px); }
     .au-cta-btn:active { transform: scale(0.97); }
 
     .au-footer-note { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 0.7rem; color: ${color.inkFaint}; text-align: center; margin-top: 4px; font-weight: 600; }

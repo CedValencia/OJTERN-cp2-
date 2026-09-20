@@ -112,7 +112,7 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
 
       .clist-card:hover {
         box-shadow: 0 10px 28px rgba(10,10,10,0.10);
-        border-color: ${color.wine400};
+        border-color: ${color.hoverBorder};
       }
 
       .clist-list-wrapper {
@@ -2624,7 +2624,7 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
                   <div key={r.name}
                     onClick={() => { setSelectedRegion(r.name); setSelectedProvince(""); setSelectedCity(""); setSelectedBarangay(""); }}
                     style={{ padding: "4px 8px", borderRadius: "6px", fontSize: "0.72rem", cursor: "pointer", background: "#f7f0f0", color: darkRed, border: "1px solid #e0c0c0" }}
-                    onMouseEnter={e => e.currentTarget.style.background = "#f0d0d0"}
+                    onMouseEnter={e => e.currentTarget.style.background = color.hoverWashStrong}
                     onMouseLeave={e => e.currentTarget.style.background = "#f7f0f0"}
                   >{r.name}</div>
                 ))
@@ -2646,7 +2646,7 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
                   <div key={p.name}
                     onClick={() => { setSelectedProvince(p.name); setSelectedCity(""); setSelectedBarangay(""); }}
                     style={{ padding: "4px 8px", borderRadius: "6px", fontSize: "0.72rem", cursor: "pointer", background: "#f7f0f0", color: darkRed, border: "1px solid #e0c0c0" }}
-                    onMouseEnter={e => e.currentTarget.style.background = "#f0d0d0"}
+                    onMouseEnter={e => e.currentTarget.style.background = color.hoverWashStrong}
                     onMouseLeave={e => e.currentTarget.style.background = "#f7f0f0"}
                   >{p.name}</div>
                 ))}
@@ -3070,7 +3070,7 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
         onClick={() => onViewProfile(company)}
         onMouseEnter={e => {
           e.currentTarget.style.boxShadow = "0 10px 28px rgba(10,10,10,0.10)";
-          e.currentTarget.style.borderColor = color.wine400;
+          e.currentTarget.style.borderColor = color.hoverBorder;
         }}
         onMouseLeave={e => {
           e.currentTarget.style.boxShadow = shadow.input;

@@ -806,7 +806,7 @@ const FilterPanel = ({ selectedIndustries, setSelectedIndustries, citySearch, se
                 key={ind}
                 onClick={() => { toggleIndustry(ind); setIndustryQuery(""); setShowSuggestions(false); }}
                 style={{ padding: "7px 12px", cursor: "pointer", fontFamily: font.ui, ...type.helper, color: inkBody }}
-                onMouseEnter={e => (e.currentTarget.style.background = color.wine800)}
+                onMouseEnter={e => (e.currentTarget.style.background = color.hoverWash)}
                 onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
               >
                 {ind}
@@ -886,7 +886,7 @@ const CompanyCard = ({ company, onViewProfile }) => {
         position: "relative",
         minWidth: 0, overflow: "hidden",
       }}
-      onMouseEnter={e => { if (isActive) { e.currentTarget.style.boxShadow = "0 10px 28px rgba(10,10,10,0.10)"; e.currentTarget.style.borderColor = color.wine400; } }}
+      onMouseEnter={e => { if (isActive) { e.currentTarget.style.boxShadow = "0 10px 28px rgba(10,10,10,0.10)"; e.currentTarget.style.borderColor = color.hoverBorder; } }}
       onMouseLeave={e => { e.currentTarget.style.boxShadow = isActive ? shadow.input : "none"; e.currentTarget.style.borderColor = line; }}
     >
       <h3 style={{ fontFamily: font.ui, fontSize: "1.0625rem", fontWeight: 600, letterSpacing: "-0.01em", color: isActive ? ink : inkMuted, lineHeight: 1.3, margin: 0 }}>{displayName}</h3>

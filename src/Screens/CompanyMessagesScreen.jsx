@@ -552,10 +552,10 @@ const ChatView = ({ contact, messages, onSend, onBack, onReport, onDeleteConvers
   useEffect(() => () => { if (flashTimer.current) clearTimeout(flashTimer.current); }, []);
   const confirmDeleteConversation = () => { onDeleteConversation(contact.id); setShowDeleteConfirm(false); };
 
-  const avatarSize     = isMobile ? 30 : 34;
+  const avatarSize     = isMobile ? 40 : 44;
   // Reserves room for the avatar and the 3-dot button at every width, so a
   // long message can never push the action button off screen.
-  const bubbleMaxWidth = isMobile ? "min(78%, calc(100% - 44px))" : "min(56%, calc(100% - 72px))";
+  const bubbleMaxWidth = isMobile ? "min(78%, calc(100% - 54px))" : "min(56%, calc(100% - 82px))";
   const headerPadding  = isMobile ? "12px 16px" : "14px 24px";
   const inputPadding   = isMobile ? "10px 14px" : "14px 24px";
 
@@ -947,7 +947,7 @@ const ChatListView = ({ contacts, messages, onOpen, myUid }) => {
                   onMouseEnter={e => e.currentTarget.style.background = field}
                   onMouseLeave={e => e.currentTarget.style.background = baseBg}
                 >
-                  <CompanyAvatar size={isMobile ? 36 : 42} />
+                  <CompanyAvatar size={isMobile ? 46 : 48} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: space.sm, marginBottom: "2px" }}>
                       <p style={{ fontFamily: font.ui, fontSize: isMobile ? "0.9375rem" : "1rem", fontWeight: isUnread ? 600 : 500, letterSpacing: "-0.01em", color: ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", margin: 0, flex: 1 }}>{contact.name}</p>

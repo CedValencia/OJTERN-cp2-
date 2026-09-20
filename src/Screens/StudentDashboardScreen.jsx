@@ -6,7 +6,7 @@ import { db } from "./firebase";
 import { changePassword, logOut } from "./AuthService";
 import { normalizeEmail, isValidEmail } from "./studentPersonalEmail";
 import { useUnreadCount } from "./useChat";
-import { color, font, ease } from "./theme";
+import { color, font, ease, ACCENT_THEMES, ACCENT_THEME_ORDER, getSavedAccentThemeId, saveAccentThemeId, getAccentThemeVars, getThemedAsset } from "./theme";
 
 import StudentFindCompanyScreen, { useOjtPosts } from "./StudentFindCompanyScreen";
 import StudentApplicationScreen from "./StudentApplicationScreen";
@@ -16,13 +16,65 @@ import AboutUsScreen from "./AboutUsScreen";
 
 import logo from "../icons/ojtern.png";
 import dashboardIcon      from "../icons/dashboard.png";
-import viewIcon           from "../icons/view.png";
-import companyProfileIcon from "../icons/companyprofile.png";
+import blackViewIcon      from "../icons/blackview.png";
+import redViewIcon        from "../icons/redview.png";
+import blueViewIcon       from "../icons/blueview.png";
+import violetViewIcon     from "../icons/violetview.png";
+import pinkViewIcon       from "../icons/pinkview.png";
+import yellowViewIcon     from "../icons/yellowview.png";
+
+import blackCompanyProfileIcon from "../icons/blackcompanyprofile.png";
+import blackUserIcon              from "../icons/blackuser.png";
+import redUserIcon           from "../icons/reduser.png";
+import blueUserIcon          from "../icons/blueuser.png";
+import yellowUserIcon        from "../icons/yellowuser.png";
+import pinkUserIcon          from "../icons/pinkuser.png";
+import violetUserIcon        from "../icons/violetuser.png";
+import redCompanyProfileIcon    from "../icons/redcompanyprofile.png";
+import blueCompanyProfileIcon   from "../icons/bluecompanyprofile.png";
+import yellowCompanyProfileIcon from "../icons/yellowcompanyprofile.png";
+import pinkCompanyProfileIcon   from "../icons/pinkcompanyprofile.png";
+import violetCompanyProfileIcon from "../icons/violetcompanyprofile.png";
 import findIcon           from "../icons/find.png";
 import applicationIcon    from "../icons/application.png";
 import messagesIcon       from "../icons/messages.png";
 import accountProfileIcon from "../icons/accountprofile.png";
 import aboutIcon          from "../icons/about.png";
+
+// Nav bar "change color" accent theme → matching view-icon asset. Keyed by
+// ACCENT_THEMES id (see theme.js); "default" ("Original") uses blackview.png.
+// Resolved once per render via getThemedAsset(VIEW_ICON_BY_THEME,
+// accentThemeId) and threaded down as a prop, since ViewBtn/ArrowBtn are
+// module-level components that don't otherwise see accentThemeId.
+const VIEW_ICON_BY_THEME = {
+  default: blackViewIcon,
+  red:     redViewIcon,
+  blue:    blueViewIcon,
+  violet:  violetViewIcon,
+  pink:    pinkViewIcon,
+  yellow:  yellowViewIcon,
+};
+
+// Nav bar "change color" accent theme → matching user / company-profile icon.
+// Same keying as VIEW_ICON_BY_THEME above; "default" ("Original") keeps the
+// original blackuser.png / blackcompanyprofile.png. Resolved once in the screen
+// component via getThemedAsset(...) and threaded down as props.
+const USER_ICON_BY_THEME = {
+  default: blackUserIcon,
+  red:     redUserIcon,
+  blue:    blueUserIcon,
+  violet:  violetUserIcon,
+  pink:    pinkUserIcon,
+  yellow:  yellowUserIcon,
+};
+const COMPANY_PROFILE_ICON_BY_THEME = {
+  default: blackCompanyProfileIcon,
+  red:     redCompanyProfileIcon,
+  blue:    blueCompanyProfileIcon,
+  violet:  violetCompanyProfileIcon,
+  pink:    pinkCompanyProfileIcon,
+  yellow:  yellowCompanyProfileIcon,
+};
 
 // ── Design tokens ──────────────────────────────────────────────────────────────
 // Same three-tier system as Company/Coordinator dashboards: ink (strongest
@@ -308,7 +360,7 @@ const FontImport = () => (
       transform: translateY(-50%);
       transition: height 0.18s ${ease};
     }
-    .snav-item:hover  { background: ${paperCard}; }
+    .snav-item:hover  { background: ${color.hoverWash}; }
     .snav-item.active { background: ${ink}; box-shadow: 0 6px 16px rgba(20,20,20,0.18); }
     .snav-item.active::before { height: 22px; }
     .snav-item:active { transform: scale(0.98); }
@@ -327,7 +379,7 @@ const FontImport = () => (
       border-radius: 14px;
       transition: background 0.18s ${ease}, transform 0.1s ${ease};
     }
-    .snav-logout:hover  { background: ${paperCard}; }
+    .snav-logout:hover  { background: ${color.hoverWash}; }
     .snav-logout:active { transform: scale(0.98); }
 
     @keyframes badgePop {
@@ -338,11 +390,11 @@ const FontImport = () => (
     .nav-badge { animation: badgePop 0.25s ${ease}; box-shadow: 0 2px 6px rgba(20,20,20,0.25); }
 
     .company-row { transition: background 0.15s; cursor: pointer; }
-    .company-row:hover { background: ${hairline} !important; }
+    .company-row:hover { background: ${color.hoverWashStrong} !important; }
     .visited-row { transition: background 0.15s; cursor: pointer; }
-    .visited-row:hover { background: ${hairline} !important; }
+    .visited-row:hover { background: ${color.hoverWashStrong} !important; }
     .app-row { transition: background 0.15s; cursor: pointer; }
-    .app-row:hover { background: ${hairline} !important; }
+    .app-row:hover { background: ${color.hoverWashStrong} !important; }
 
     .topbar-icon-btn { transition: background 0.18s ${ease}, transform 0.12s ${ease}; border-radius: 999px; }
     .topbar-icon-btn:hover { background: rgba(255,255,255,0.14); }
@@ -356,7 +408,7 @@ const FontImport = () => (
     .pill-btn:active { transform: scale(0.97); }
 
     .notif-row { transition: background 0.15s ${ease}; }
-    .notif-row:hover { background: ${paperCard} !important; }
+    .notif-row:hover { background: ${color.hoverWash} !important; }
 
     /* ── Slide-in drawer ── */
     .ssidebar-drawer {
@@ -458,7 +510,7 @@ const FontImport = () => (
 const navItems = [
   { key: "dashboard",      label: "Dashboard",       icon: dashboardIcon },
   { key: "findcompany",    label: "Find Company",    icon: findIcon },
-  { key: "application",    label: "Application",     icon: applicationIcon },
+  { key: "application",    label: "Recent Application",     icon: applicationIcon },
   { key: "messages",       label: "Messages",        icon: messagesIcon },
   { key: "accountprofile", label: "Account Profile", icon: accountProfileIcon },
 ];
@@ -466,26 +518,26 @@ const navItems = [
 // ── Shared sub-components ──────────────────────────────────────────────────────
 // Chip-style avatar (raised, boxed) — matches CompanyAvatar in the
 // Coordinator/Company dashboards instead of a bare flat icon.
-const CompanyAvatar = ({ size = 38 }) => (
+const CompanyAvatar = ({ size = 38, companyProfileIcon: themedCompanyIcon = blackCompanyProfileIcon }) => (
   <div style={{
     width: size, height: size, flexShrink: 0, borderRadius: "50%",
     display: "flex", alignItems: "center", justifyContent: "center",
     background: paper,
     boxShadow: "0 1px 3px rgba(20,20,20,0.18), 0 1px 2px rgba(20,20,20,0.10)",
   }}>
-    <img src={companyProfileIcon} alt="company" style={{ width: size, height: size, objectFit: "contain" }} />
+    <img src={themedCompanyIcon} alt="company" style={{ width: size, height: size, objectFit: "contain" }} />
   </div>
 );
 
-const ViewBtn = () => (
+const ViewBtn = ({ viewIcon: themedViewIcon = blackViewIcon }) => (
   <div style={{ width: "44px", height: "44px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0, WebkitTapHighlightColor: "transparent" }}>
-    <img src={viewIcon} alt="view" style={{ width: "33px", height: "33px", objectFit: "contain" }} />
+    <img src={themedViewIcon} alt="view" style={{ width: "33px", height: "33px", objectFit: "contain" }} />
   </div>
 );
 
-const ArrowBtn = () => (
+const ArrowBtn = ({ viewIcon: themedViewIcon = blackViewIcon }) => (
   <div style={{ width: "44px", height: "44px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0, WebkitTapHighlightColor: "transparent" }}>
-    <img src={viewIcon} alt="view" style={{ width: "33px", height: "33px", objectFit: "contain" }} />
+    <img src={themedViewIcon} alt="view" style={{ width: "33px", height: "33px", objectFit: "contain" }} />
   </div>
 );
 
@@ -658,7 +710,7 @@ const LogoutConfirmModal = ({ onConfirm, onCancel }) => (
 );
 
 // ── Dashboard Content ──────────────────────────────────────────────────────────
-const DashboardContent = ({ onNavigate, onViewCompany, recentVisited = [], recentApplications = [] }) => {
+const DashboardContent = ({ onNavigate, onViewCompany, recentVisited = [], recentApplications = [], viewIcon: themedViewIcon = blackViewIcon, companyProfileIcon: themedCompanyIcon = blackCompanyProfileIcon }) => {
 
   const { posts: allPosts = [] } = useOjtPosts();
   const recommendedCompanies = allPosts.slice(0, 5);
@@ -674,7 +726,7 @@ const DashboardContent = ({ onNavigate, onViewCompany, recentVisited = [], recen
         boxShadow: "inset 0 2px 8px rgba(0,0,0,0.07)",
       }}>
         <h1 className="welcome-heading welcome-animate">Welcome to OJTern</h1>
-        <p className="welcome-sub welcome-animate">Find the perfect OJT for you!</p>
+        <p className="welcome-sub welcome-animate">Find the perfect OJT placements for you!</p>
       </div>
 
       <hr style={{ border: "none", borderTop: `1.5px solid ${hairline}`, marginBottom: "24px" }} />
@@ -698,12 +750,12 @@ const DashboardContent = ({ onNavigate, onViewCompany, recentVisited = [], recen
                   }}
                 >
                   <div style={{ display: "flex", alignItems: "center", gap: "8px", minWidth: 0 }}>
-                    <CompanyAvatar size={38} />
+                    <CompanyAvatar size={38} companyProfileIcon={themedCompanyIcon} />
                     <span style={{ fontFamily: uiFont, fontSize: "clamp(0.75rem, 2vw, 0.82rem)", color: inkText, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                       {company.companyName || company.company || company.name}
                     </span>
                   </div>
-                  <ViewBtn />
+                  <ViewBtn viewIcon={themedViewIcon} />
                 </div>
               ))
             ) : (
@@ -714,7 +766,7 @@ const DashboardContent = ({ onNavigate, onViewCompany, recentVisited = [], recen
 
         {/* Recent Visited Company Profiles */}
         <div className="sdash-card" style={{ background: paperCard, borderRadius: "14px", overflow: "hidden", display: "flex", flexDirection: "column" }}>
-          <div className="scard-header"><span>Recent Visited Company Profiles</span></div>
+          <div className="scard-header"><span>Recent Visited Company Post</span></div>
           <div style={{ padding: "10px 0 10px 12px", display: "flex", flexDirection: "column", gap: "6px", maxHeight: "280px", overflowY: "auto" }}>
             {recentVisited.length > 0 ? (
               recentVisited.map((company, i) => (
@@ -728,7 +780,7 @@ const DashboardContent = ({ onNavigate, onViewCompany, recentVisited = [], recen
                   }}
                 >
                   <div style={{ display: "flex", alignItems: "center", gap: "8px", minWidth: 0 }}>
-                    <CompanyAvatar size={38} />
+                    <CompanyAvatar size={38} companyProfileIcon={themedCompanyIcon} />
                     <div style={{ minWidth: 0 }}>
                       <span style={{ fontFamily: uiFont, fontSize: "clamp(0.75rem, 2vw, 0.82rem)", color: inkText, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>
                         {company.companyName || company.name}
@@ -736,7 +788,7 @@ const DashboardContent = ({ onNavigate, onViewCompany, recentVisited = [], recen
                       {company.visitedAt && <span style={{ fontFamily: uiFont, fontSize: "0.68rem", color: steel, fontWeight: 600 }}>{timeAgo(company.visitedAt)}</span>}
                     </div>
                   </div>
-                  <ArrowBtn />
+                  <ArrowBtn viewIcon={themedViewIcon} />
                 </div>
               ))
             ) : (
@@ -762,7 +814,7 @@ const DashboardContent = ({ onNavigate, onViewCompany, recentVisited = [], recen
                 }}
               >
                 <div style={{ display: "flex", alignItems: "center", gap: "8px", minWidth: 0 }}>
-                  <CompanyAvatar size={38} />
+                  <CompanyAvatar size={38} companyProfileIcon={themedCompanyIcon} />
                   <div style={{ minWidth: 0 }}>
                     <span style={{ fontFamily: uiFont, fontSize: "clamp(0.75rem, 2vw, 0.82rem)", color: inkText, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>
                       {a.companyName || a.name}
@@ -821,6 +873,22 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
   const [recentApplications, setRecentApplications] = useState([]);
   const [notifications, setNotifications]         = useState([]);
   const [showNotifDropdown, setShowNotifDropdown]  = useState(false);
+
+  // ── Nav bar accent color picker ─────────────────────────────────────────────
+  // "student" scope: its own storage key, independent of Coordinator's — see
+  // theme.js. Lazy-init from localStorage.
+  const [accentThemeId, setAccentThemeId]           = useState(() => getSavedAccentThemeId("student"));
+  const [showThemeDropdown, setShowThemeDropdown]   = useState(false);
+  const handleSelectAccent = (id) => {
+    setAccentThemeId(saveAccentThemeId("student", id));
+    setShowThemeDropdown(false);
+  };
+  // View-icon PNG matching the current accent color (falls back to the
+  // original black/white blackview.png for "default").
+  const themedViewIcon = getThemedAsset(VIEW_ICON_BY_THEME, accentThemeId);
+  // blackuser.png / blackcompanyprofile.png (default) and colored variants for the same accent color.
+  const themedUserIcon    = getThemedAsset(USER_ICON_BY_THEME, accentThemeId);
+  const themedCompanyIcon = getThemedAsset(COMPANY_PROFILE_ICON_BY_THEME, accentThemeId);
 
   // Fetch this student's notifications in real-time (application status updates, etc.)
   useEffect(() => {
@@ -1096,6 +1164,8 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
           onNavigate={navigate}
           recentVisited={recentVisited}
           recentApplications={recentApplications}
+          viewIcon={themedViewIcon}
+          companyProfileIcon={themedCompanyIcon}
           onViewCompany={(id, company) => {
             setInitialCompanyId(id);
             if (company) {
@@ -1145,6 +1215,7 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
         user={effectiveUser}
         openApplicationId={pendingApplicationId}
         onApplicationOpened={() => setPendingApplicationId(null)}
+        companyProfileIcon={themedCompanyIcon}
       />
     );
 
@@ -1153,15 +1224,16 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
         user={effectiveUser}
         openContact={pendingContact} onContactOpened={() => setPendingContact(null)}
         onReportSubmit={handleReportSubmit}
+        userIcon={themedUserIcon}
       />
     );
 
-    if (activeNav === "accountprofile") return <StudentAccountProfileScreen user={effectiveUser} onLogout={onLogout} />;
+    if (activeNav === "accountprofile") return <StudentAccountProfileScreen user={effectiveUser} onLogout={onLogout} viewIcon={themedViewIcon} />;
     if (activeNav === "about")          return <AboutUsScreen onBack={() => navigate("dashboard")} />;
   };
 
   // ── Setup gate: nothing of the dashboard renders until setup is "done" ──────
-  if (setupStage !== "done") {
+  if (setupStage !== "done" && setupStage !== "checking") {
     return (
       <>
         <FontImport />
@@ -1169,11 +1241,6 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
           position: "fixed", inset: 0, background: paperTint,
           display: "flex", alignItems: "center", justifyContent: "center", padding: "16px",
         }}>
-          {setupStage === "checking" && (
-            <p role="status" style={{ fontFamily: uiFont, fontSize: "0.9rem", color: inkMuted }}>
-              Checking your account…
-            </p>
-          )}
         </div>
 
         {setupStage === "error" && (
@@ -1330,7 +1397,10 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
   const currentLabel = navItems.find(n => n.key === activeNav)?.label ?? "";
 
   return (
-    <>
+    <div style={{
+      width: "100vw", height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden",
+      ...getAccentThemeVars(accentThemeId),
+    }}>
       <FontImport />
       {showLogoutConfirm && (
         <LogoutConfirmModal
@@ -1338,7 +1408,6 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
           onCancel={() => setShowLogoutConfirm(false)}
         />
       )}
-      <div style={{ width: "100vw", height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
 
         {/* ── Top Navbar ── */}
         <div style={{
@@ -1448,6 +1517,65 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
                 <path d="M11 12h1v4h1"/>
               </svg>
             </div>
+
+            {/* Theme color picker */}
+            <div style={{ position: "relative" }}>
+              <div className="topbar-icon-btn" style={{ cursor: "pointer", padding: "8px" }} onClick={() => setShowThemeDropdown(p => !p)} title="Dashboard theme color">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 2a10 10 0 1 0 0 20c1.1 0 1.8-.85 1.8-1.85 0-.5-.2-.95-.5-1.28-.32-.33-.5-.75-.5-1.27a1.9 1.9 0 0 1 1.9-1.9h2.24C19.6 15.7 22 13.35 22 10.4 22 5.76 17.5 2 12 2z"/>
+                  <circle cx="7.5" cy="10.5" r="1" fill="white" stroke="none"/>
+                  <circle cx="11" cy="7" r="1" fill="white" stroke="none"/>
+                  <circle cx="15.5" cy="8" r="1" fill="white" stroke="none"/>
+                </svg>
+              </div>
+              {showThemeDropdown && (
+                <>
+                  <div style={{ position: "fixed", inset: 0, zIndex: 998 }} onClick={() => setShowThemeDropdown(false)} />
+                  <div style={{
+                      position: "absolute", top: "50px", right: 0, width: "224px",
+                      background: paper, border: `1px solid ${hairline}`,
+                      borderRadius: "16px", boxShadow: "0 12px 32px rgba(0,0,0,0.28)", zIndex: 999,
+                      padding: "16px",
+                    }}>
+                    <p style={{ fontFamily: uiFont, fontWeight: 600, fontSize: "0.85rem", color: inkText, margin: "0 0 3px" }}>
+                      Dashboard Theme
+                    </p>
+                    <p style={{ fontFamily: uiFont, fontSize: "0.72rem", color: inkMuted, margin: "0 0 14px", lineHeight: 1.4 }}>
+                      Applies to every module. Saved on this device — stays after you log out.
+                    </p>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "14px 10px" }}>
+                      {ACCENT_THEME_ORDER.map((id) => {
+                        const t = ACCENT_THEMES[id];
+                        const isSelected = accentThemeId === id;
+                        return (
+                          <button
+                            key={id}
+                            onClick={() => handleSelectAccent(id)}
+                            title={t.label}
+                            style={{
+                              display: "flex", flexDirection: "column", alignItems: "center", gap: "6px",
+                              background: "none", border: "none", cursor: "pointer", padding: "2px",
+                            }}
+                          >
+                            <span style={{
+                              width: "30px", height: "30px", borderRadius: "50%",
+                              background: id === "default" ? "linear-gradient(135deg, #000000 50%, #FFFFFF 50%)" : t.swatch,
+                              border: isSelected ? `2px solid ${t.ink}` : `1px solid ${hairline}`,
+                              outline: isSelected ? `2px solid ${hairline}` : "none",
+                              outlineOffset: isSelected ? "1px" : "0",
+                              boxSizing: "border-box",
+                            }} />
+                            <span style={{ fontFamily: uiFont, fontSize: "0.68rem", fontWeight: isSelected ? 700 : 400, color: isSelected ? inkText : inkMuted }}>
+                              {t.label}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </div>
 
@@ -1481,11 +1609,10 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
           )}
 
           {/* Main content */}
-          <div className="smain-content">{renderContent()}</div>
+          <div className="smain-content">{(user || activeNav === "dashboard") ? renderContent() : null}</div>
         </div>
-      </div>
 
-    </>
+    </div>
   );
 };
 

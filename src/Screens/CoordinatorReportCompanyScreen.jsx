@@ -24,10 +24,15 @@ const surface    = "#FFFFFF";
 const page       = "#FFFFFF";
 const line       = "#E5E5E5";
 const lineSoft   = "#F4F4F4";
-const panel      = "#000000";
-const panelDeep  = "#222222";
-const onPanel    = "#FFFFFF";
-const onPanelDim = "#F5F5F5";
+// panel now points at blush100 (inkDeep) instead of blush50 (base ink) so
+// the header bar/buttons match the darker shade used on CoordinatorStudentList
+// — the two modules were pulling from different accent tokens, which is why
+// "Report List" and "Students List" showed different colors under the same
+// theme pick.
+const panel      = color.blush100;
+const panelDeep  = color.blush50;
+const onPanel    = color.onWine;
+const onPanelDim = color.onWineMuted;
 
 const red      = "#111111";
 const darkRed = "#000000";
@@ -254,7 +259,7 @@ const ResponsiveStyles = () => (
     }
 
     .rc-table tbody tr:hover .rc-td {
-      background: ${lineSoft} !important;
+      background: ${color.hoverWash} !important;
     }
 
     .rc-card-list {
@@ -348,7 +353,7 @@ const ResponsiveStyles = () => (
 const downloadBtnStyle = {
   display: "flex", alignItems: "center", gap: "6px",
   padding: "7px 18px", borderRadius: "16px",
-  border: `1.5px solid ${panel}`, background: panel, color: "white",
+  border: `1.5px solid ${panel}`, background: panel, color: onPanel,
   fontFamily: font.ui, fontSize: "0.82rem",
   cursor: "pointer", fontWeight: 600,
 };
@@ -839,7 +844,7 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid, coordinator
                 onClick={openHistory}
                 style={{
                   padding: "4px 14px", borderRadius: "14px",
-                  border: `1.5px solid ${panel}`, background: panel, color: "white",
+                  border: `1.5px solid ${panel}`, background: panel, color: onPanel,
                   fontFamily: font.ui, fontSize: "0.74rem", fontWeight: 600,
                   cursor: "pointer",
                 }}

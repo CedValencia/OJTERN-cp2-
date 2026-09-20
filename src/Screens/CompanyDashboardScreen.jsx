@@ -579,7 +579,7 @@ const DashboardContent = ({ onNavigate, applications = [], posts = [] }) => {
         boxShadow: "inset 0 2px 8px rgba(0,0,0,0.07)",
       }}>
         <h1 className={`cwelcome-heading ${playIntro ? "cwelcome-animate" : ""}`}>Welcome to OJTern</h1>
-        <p className={`cwelcome-sub ${playIntro ? "cwelcome-animate" : ""}`}>Find the perfect OJT for you!</p>
+        <p className={`cwelcome-sub ${playIntro ? "cwelcome-animate" : ""}`}>Find the perfect DCT OJT students for your company!</p>
       </div>
 
       <hr style={{ border: "none", borderTop: `1.5px solid ${hairline}`, marginBottom: "24px" }} />
@@ -589,7 +589,7 @@ const DashboardContent = ({ onNavigate, applications = [], posts = [] }) => {
 
         {/* Company Stats */}
         <div className="cdash-card" style={{ background: paperCard, borderRadius: "14px", overflow: "visible", display: "flex", flexDirection: "column" }}>
-          <div className="ccard-header"><span>Company Stats</span></div>
+          <div className="ccard-header"><span>Applicants Overview</span></div>
           <div className="cstats-inner">
             <StatCard
               label="Total Applicants"

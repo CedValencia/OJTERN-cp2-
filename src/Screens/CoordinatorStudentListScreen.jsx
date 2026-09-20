@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { collection, onSnapshot, query, where, getDocs } from "firebase/firestore";
 import { db } from "./firebase";
 import { useDepartmentsPrograms } from "./departmentsPrograms";
-import userIcon from "../icons/user.png";
+import blackUserIcon from "../icons/blackuser.png";
 import { color, font, type, space, radius, shadow, ease } from "./theme";
 
 // ── Design tokens, aliased for this screen ────────────────────────────────────
@@ -249,7 +249,7 @@ const ResponsiveStyles = () => (
       border: 1px solid ${line};
       border-radius: ${radius.pill};
       box-shadow: ${shadow.input};
-      padding: 10px 20px 10px 10px;
+      padding: 10px 20px 10px 18px;
       display: flex;
       align-items: center;
       gap: 14px;
@@ -257,7 +257,7 @@ const ResponsiveStyles = () => (
       transition: border-color 200ms ${ease}, box-shadow 200ms ${ease};
     }
     .sp-row:hover {
-      border-color: ${color.wine400};
+      border-color: ${color.hoverBorder};
       box-shadow: 0 8px 22px rgba(10,10,10,0.08);
     }
     /* Row meta line: wraps gracefully on narrow screens */
@@ -272,7 +272,7 @@ const ResponsiveStyles = () => (
     /* The "View placement" link is redundant on small screens — the whole
        row is tappable, and the space is better spent on the name. */
     @media (max-width: 560px) {
-      .sp-row { padding: 10px 14px 10px 10px; gap: 10px; }
+      .sp-row { padding: 10px 14px 10px 14px; gap: 10px; }
       .sp-row-action { display: none; }
     }
 
@@ -402,15 +402,15 @@ const chip = (on) => ({
   transition: `all 160ms ${ease}`,
 });
 
-const StudentAvatar = ({ size = 42 }) => (
+const StudentAvatar = ({ size = 42, userIcon: themedUserIcon = blackUserIcon }) => (
   <img
-    src={userIcon}
+    src={themedUserIcon}
     alt=""
     style={{ width: size, height: size, objectFit: "contain", flexShrink: 0 }}
   />
 );
 
-const PlacementModal = ({ student, onClose, onNavigateToCompany, companies, onMessageStudent }) => {
+const PlacementModal = ({ student, onClose, onNavigateToCompany, companies, onMessageStudent, userIcon: themedUserIcon = blackUserIcon }) => {
   const [applications, setApplications] = useState([]);
 
   useEffect(() => {
@@ -445,7 +445,7 @@ const PlacementModal = ({ student, onClose, onNavigateToCompany, companies, onMe
         <div className="sp-modal-body">
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px" }}>
             <div className="sp-name-pill" style={{ flex: 1, minWidth: 0 }}>
-              <StudentAvatar size={42} />
+              <StudentAvatar size={45} userIcon={themedUserIcon} />
               <span style={{ fontFamily: font.ui, fontSize: "clamp(0.95rem, 4vw, 1.0625rem)", fontWeight: 600, letterSpacing: "-0.01em", color: ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fullName}</span>
             </div>
             <button
@@ -635,7 +635,7 @@ const FilterPanel = ({ filters, setFilters, filterRef, coordinatorColleges = [] 
               allColleges.map(col => (
                 <div key={col} onClick={() => toggleCollege(col)}
                   style={{ padding: "7px 11px", borderRadius: "10px", fontFamily: font.ui, ...type.helper, color: inkBody, cursor: "pointer", background: color.wine800, border: `1px solid ${line}`, transition: `background 160ms ${ease}` }}
-                  onMouseEnter={e => e.currentTarget.style.background = color.wine700}
+                  onMouseEnter={e => e.currentTarget.style.background = color.hoverWashStrong}
                   onMouseLeave={e => e.currentTarget.style.background = color.wine800}
                 >{COLLEGE_DATA[col]?.label || col}</div>
               ))
@@ -703,7 +703,7 @@ const useCollegeVariants = (coordinatorColleges) => {
   }, [coordinatorColleges, departments, departmentNames]);
 };
 
-const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany, onMessageStudent, initialViewingStudentId, onClearInitialViewingStudent }) => {
+const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany, onMessageStudent, initialViewingStudentId, onClearInitialViewingStudent, userIcon: themedUserIcon = blackUserIcon }) => {
   const [search, setSearch]                 = useState("");
   const [viewingStudent, setViewingStudent] = useState(null);
   const [showFilter, setShowFilter]         = useState(false);
@@ -880,7 +880,7 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
 
     return (
       <div key={student.id} className="sp-row" onClick={() => setViewingStudent(student)}>
-        <StudentAvatar size={42} />
+        <StudentAvatar size={45} userIcon={themedUserIcon} />
         <div style={{ width: "1px", height: "30px", background: line, flexShrink: 0 }} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <p style={{ fontFamily: font.ui, ...type.label, color: ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{fullName}</p>
@@ -1048,7 +1048,7 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
                   whiteSpace: "nowrap",
                   flexShrink: 0,
                 }}
-                onMouseEnter={e => { if (!isActive) e.currentTarget.style.borderColor = color.wine400; }}
+                onMouseEnter={e => { if (!isActive) e.currentTarget.style.borderColor = color.hoverBorder; }}
                 onMouseLeave={e => { if (!isActive) e.currentTarget.style.borderColor = line; }}
               >
                 {statusOption}
@@ -1089,6 +1089,7 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
       {viewingStudent && (
         <PlacementModal
           student={viewingStudent}
+          userIcon={themedUserIcon}
           companies={companies}
           onClose={() => setViewingStudent(null)}
           onNavigateToCompany={(companyId, studentId) => {

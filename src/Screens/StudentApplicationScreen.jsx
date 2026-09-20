@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { collection, addDoc, serverTimestamp, onSnapshot, query, where, doc, updateDoc, deleteDoc, getDocs } from "firebase/firestore";
 import { db } from "./firebase";
 import { uploadFilesToFolder } from "./CloudinaryService";
-import companyProfileIcon from "../icons/companyprofile.png";
+import blackCompanyProfileIcon from "../icons/blackcompanyprofile.png";
 import { color, font, type, space, radius, shadow, ease } from "./theme";
 
 // ─── COLORS ───────────────────────────────────────────────────────────────────
@@ -2346,7 +2346,7 @@ const ResponsiveStyles = () => (
       transition: border-color 200ms ${ease}, box-shadow 200ms ${ease};
     }
     .sa-app-row:hover {
-      border-color: ${color.wine400};
+      border-color: ${color.hoverBorder};
       box-shadow: 0 8px 22px rgba(10,10,10,0.08);
     }
     .sa-list-wrapper :focus-visible {
@@ -2423,7 +2423,7 @@ const ResponsiveStyles = () => (
       transition: background 180ms ${ease}, border-color 180ms ${ease};
     }
     .sa-modal-close:hover {
-      background: ${lineSoft};
+      background: ${color.hoverWash};
       border-color: ${inkMuted};
     }
 
@@ -2550,7 +2550,7 @@ const ResponsiveStyles = () => (
       color: ${inkBody};
       border-color: ${line};
     }
-    .sa-btn-ghost:hover:not(:disabled) { border-color: ${color.wine400}; }
+    .sa-btn-ghost:hover:not(:disabled) { border-color: ${color.hoverBorder}; }
     .sa-btn-primary {
       background: ${panel};
       color: ${onPanel};
@@ -2821,7 +2821,7 @@ const StyledSelect = ({ value, onChange, options, placeholder, disabled, hasErro
                 cursor: "pointer",
                 background: o === value ? "#f0e5e5" : "white",
               }}
-              onMouseEnter={e => e.currentTarget.style.background = "#f5f5f5"}
+              onMouseEnter={e => e.currentTarget.style.background = color.hoverWash}
               onMouseLeave={e => e.currentTarget.style.background = o === value ? "#f0e5e5" : "white"}
             >
               {o}
@@ -3742,7 +3742,7 @@ const DeleteConfirmPopup = ({ companyName, onCancel, onConfirm, deleting }) => (
 );
 
 // ─── APPLICATION ROW ──────────────────────────────────────────────────────────
-const ApplicationRow = ({ application, onView, onDelete }) => {
+const ApplicationRow = ({ application, onView, onDelete, companyProfileIcon: themedCompanyIcon = blackCompanyProfileIcon }) => {
   const [showMenu, setShowMenu] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -3768,10 +3768,18 @@ const ApplicationRow = ({ application, onView, onDelete }) => {
     <>
       <div
         className="sa-app-row"
-        style={{ padding: "10px 20px 10px 10px", display: "flex", alignItems: "center", gap: "14px", cursor: "pointer", position: "relative" }}
+        style={{ padding: "10px 20px 10px 18px", display: "flex", alignItems: "center", gap: "14px", cursor: "pointer", position: "relative" }}
         onClick={() => onView(application)}
       >
-        <img src={companyProfileIcon} alt="" style={{ width: 42, height: 42, objectFit: "contain", flexShrink: 0 }} />
+        {/* Raised white chip behind the icon — same look as CompanyAvatar on the dashboards */}
+        <div style={{
+          width: 42, height: 42, flexShrink: 0, borderRadius: "50%",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          background: color.white,
+          boxShadow: "0 1px 3px rgba(20,20,20,0.18), 0 1px 2px rgba(20,20,20,0.10)",
+        }}>
+          <img src={themedCompanyIcon} alt="" style={{ width: 42, height: 42, objectFit: "contain" }} />
+        </div>
         <div style={{ width: "1px", height: "30px", background: line, flexShrink: 0 }} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <p style={{ fontFamily: font.ui, ...type.label, color: ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{application.company}</p>
@@ -3790,13 +3798,13 @@ const ApplicationRow = ({ application, onView, onDelete }) => {
             <div style={{ position: "absolute", top: "26px", right: 0, background: surface, border: `1px solid ${line}`, borderRadius: radius.card, boxShadow: shadow.panel, overflow: "hidden", zIndex: 10, minWidth: "100px" }}>
               <button onClick={() => { onView(application); setShowMenu(false); }}
                 style={{ width: "100%", border: "none", background: "transparent", padding: "9px 14px", textAlign: "left", cursor: "pointer", fontFamily: font.ui, ...type.helper, fontWeight: 500, color: ink }}
-                onMouseEnter={e => e.currentTarget.style.background = lineSoft}
+                onMouseEnter={e => e.currentTarget.style.background = color.hoverWash}
                 onMouseLeave={e => e.currentTarget.style.background = "transparent"}>View</button>
               <div style={{ height: "1px", background: line, margin: "0 8px" }} />
               <button
                 onClick={() => { setConfirming(true); setShowMenu(false); }}
                 style={{ width: "100%", border: "none", background: "transparent", padding: "9px 14px", textAlign: "left", cursor: "pointer", fontFamily: font.ui, ...type.helper, fontWeight: 500, color: color.danger }}
-                onMouseEnter={e => e.currentTarget.style.background = lineSoft}
+                onMouseEnter={e => e.currentTarget.style.background = color.hoverWash}
                 onMouseLeave={e => e.currentTarget.style.background = "transparent"}
               >
                 Delete
@@ -3819,7 +3827,7 @@ const ApplicationRow = ({ application, onView, onDelete }) => {
 };
 
 // ─── MAIN APPLICATION SCREEN ──────────────────────────────────────────────────
-const StudentApplicationScreen = ({ initialCompany, onModalClose, user, openApplicationId, onApplicationOpened }) => {
+const StudentApplicationScreen = ({ initialCompany, onModalClose, user, openApplicationId, onApplicationOpened, companyProfileIcon: themedCompanyIcon = blackCompanyProfileIcon }) => {
   const [search, setSearch]                     = useState("");
   const [showApply, setShowApply]               = useState(!!initialCompany);
   const [applyCompany, setApplyCompany]         = useState(initialCompany || null);
@@ -3962,7 +3970,7 @@ const StudentApplicationScreen = ({ initialCompany, onModalClose, user, openAppl
                   whiteSpace: "nowrap",
                   flexShrink: 0,
                 }}
-                onMouseEnter={e => { if (!isActive) e.currentTarget.style.borderColor = color.wine400; }}
+                onMouseEnter={e => { if (!isActive) e.currentTarget.style.borderColor = color.hoverBorder; }}
                 onMouseLeave={e => { if (!isActive) e.currentTarget.style.borderColor = line; }}
               >
                 {statusOption}
@@ -3975,7 +3983,7 @@ const StudentApplicationScreen = ({ initialCompany, onModalClose, user, openAppl
         {filteredApplications.length > 0 ? (
           <div className="sa-list-area">
             {filteredApplications.map(application => (
-              <ApplicationRow key={application.id} application={application} onView={handleView} onDelete={handleDelete} />
+              <ApplicationRow key={application.id} application={application} onView={handleView} onDelete={handleDelete} companyProfileIcon={themedCompanyIcon} />
             ))}
             <p style={{ textAlign: "center", fontFamily: font.ui, ...type.helper, color: inkFaint, padding: "16px 0 0" }}>
               No more recent applications!

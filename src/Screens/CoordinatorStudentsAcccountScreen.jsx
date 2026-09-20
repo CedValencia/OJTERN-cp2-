@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect } from "react";
 import XLSX from "xlsx-js-style";
-import userIcon from "../icons/user.png";
+import blackUserIcon from "../icons/blackuser.png";
 
 // Firebase
 import { db }                          from "./firebase";
@@ -195,7 +195,7 @@ const ResponsiveStyles = () => (
       transition: border-color 200ms ${ease}, box-shadow 200ms ${ease};
     }
     .sa-row:hover {
-      border-color: ${color.wine400};
+      border-color: ${color.hoverBorder};
       box-shadow: 0 6px 20px rgba(10,10,10,0.08);
     }
 
@@ -1004,13 +1004,12 @@ const FilterPanel = ({ filters, setFilters, filterRef, coordinatorColleges = [],
   const toggleProgram = (prog) => setFilters(prev => ({ ...prev, program: prev.program === prog ? "" : prog, specialization: "" }));
   const locationLevel = !expandedCollege ? "college" : "program";
 
-  const base = {
+  const panelStyle = {
+    position: "absolute", top: "48px", right: 0, width: "266px",
     background: surface, border: `1px solid ${line}`, borderRadius: radius.card,
-    boxShadow: shadow.panel, zIndex: 100, fontFamily: font.ui,
+    boxShadow: shadow.panel, zIndex: 100, overflow: "hidden",
+    fontFamily: font.ui,
   };
-  const panelStyle = (isMobile || isTablet)
-    ? { ...base, position: "fixed", top: "84px", left: "12px", right: "12px", maxHeight: "70vh", overflowY: "auto" }
-    : { ...base, position: "absolute", top: "48px", right: 0, width: "266px", overflow: "hidden" };
 
   const groupLabel = { fontFamily: font.ui, ...type.label, color: ink };
   const emptyNote  = { fontFamily: font.ui, ...type.helper, color: inkFaint };
@@ -1057,7 +1056,7 @@ const FilterPanel = ({ filters, setFilters, filterRef, coordinatorColleges = [],
               allColleges.map(col => (
                 <div key={col} onClick={() => toggleCollege(col)}
                   style={{ padding: "7px 11px", borderRadius: "10px", fontFamily: font.ui, ...type.helper, color: inkBody, cursor: "pointer", background: color.wine800, border: `1px solid ${line}`, transition: `background 160ms ${ease}` }}
-                  onMouseEnter={e => e.currentTarget.style.background = color.wine700}
+                  onMouseEnter={e => e.currentTarget.style.background = color.hoverWashStrong}
                   onMouseLeave={e => e.currentTarget.style.background = color.wine800}
                 >{col}</div>
               ))
@@ -1083,8 +1082,8 @@ const FilterPanel = ({ filters, setFilters, filterRef, coordinatorColleges = [],
 };
 
 // ── Student avatar ────────────────────────────────────────────────────────────
-const StudentAvatar = ({ size = 34 }) => (
-  <img src={userIcon} alt="" style={{ width: size, height: size, objectFit: "contain", flexShrink: 0 }} />
+const StudentAvatar = ({ size = 34, userIcon: themedUserIcon = blackUserIcon }) => (
+  <img src={themedUserIcon} alt="" style={{ width: size, height: size, objectFit: "contain", flexShrink: 0 }} />
 );
 
 // ── Row overflow menu ─────────────────────────────────────────────────────────
@@ -1108,7 +1107,7 @@ const StudentRowMenu = ({ onView, onDelete }) => {
     <button
       onClick={onClick}
       style={{ width: "100%", border: "none", background: surface, padding: "10px 14px", textAlign: "left", cursor: "pointer", fontFamily: font.ui, ...type.helper, color: isDanger ? danger : inkBody }}
-      onMouseEnter={e => e.currentTarget.style.background = color.wine800}
+      onMouseEnter={e => e.currentTarget.style.background = color.hoverWash}
       onMouseLeave={e => e.currentTarget.style.background = surface}
     >
       {label}
@@ -1168,7 +1167,7 @@ const mapStudentDoc = (docSnap) => {
 // checkboxes stack into one vertical column, so a ticked set reads at a glance.
 // The email lives in the row's tooltip instead of the meta line: it's the one
 // field long enough to break the alignment everything else depends on.
-const StudentRow = ({ student: s, selectMode, isSelected, onToggleSelect, onView, onDelete }) => {
+const StudentRow = ({ student: s, selectMode, isSelected, onToggleSelect, onView, onDelete, userIcon: themedUserIcon = blackUserIcon }) => {
   const meta = [s.studentId, s.program, s.yearSection, s.sex].filter(Boolean).join(" · ");
 
   return (
@@ -1183,7 +1182,7 @@ const StudentRow = ({ student: s, selectMode, isSelected, onToggleSelect, onView
         </div>
       )}
 
-      <StudentAvatar size={38} />
+      <StudentAvatar size={45} userIcon={themedUserIcon} />
 
       <div className="sa-row-main">
         <h3 style={{
@@ -1254,7 +1253,7 @@ const Dialog = ({ title, body, children }) => (
 //                         parent still passing legacy short codes ("CCS")
 //                         instead of the full name — students/companies/
 //                         coordinators/posts all key on the full name now.
-const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges }) => {
+const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges, userIcon: themedUserIcon = blackUserIcon }) => {
   const { departments, departmentNames } = useDepartmentsPrograms();
 
   // coordinatorColleges may arrive as either full names (canonical) or
@@ -1565,6 +1564,7 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
                   onToggleSelect={toggleSelect}
                   onView={setViewingStudent}
                   onDelete={handleDelete}
+                  userIcon={themedUserIcon}
                 />
               ))}
             </div>
