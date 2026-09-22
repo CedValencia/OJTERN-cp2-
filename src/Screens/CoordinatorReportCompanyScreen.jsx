@@ -24,15 +24,10 @@ const surface    = "#FFFFFF";
 const page       = "#FFFFFF";
 const line       = "#E5E5E5";
 const lineSoft   = "#F4F4F4";
-// panel now points at blush100 (inkDeep) instead of blush50 (base ink) so
-// the header bar/buttons match the darker shade used on CoordinatorStudentList
-// — the two modules were pulling from different accent tokens, which is why
-// "Report List" and "Students List" showed different colors under the same
-// theme pick.
-const panel      = color.blush100;
-const panelDeep  = color.blush50;
-const onPanel    = color.onWine;
-const onPanelDim = color.onWineMuted;
+const panel      = "#000000";
+const panelDeep  = "#222222";
+const onPanel    = "#FFFFFF";
+const onPanelDim = "#F5F5F5";
 
 const red      = "#111111";
 const darkRed = "#000000";
@@ -259,7 +254,7 @@ const ResponsiveStyles = () => (
     }
 
     .rc-table tbody tr:hover .rc-td {
-      background: ${color.hoverWash} !important;
+      background: ${lineSoft} !important;
     }
 
     .rc-card-list {
@@ -353,7 +348,7 @@ const ResponsiveStyles = () => (
 const downloadBtnStyle = {
   display: "flex", alignItems: "center", gap: "6px",
   padding: "7px 18px", borderRadius: "16px",
-  border: `1.5px solid ${panel}`, background: panel, color: onPanel,
+  border: `1.5px solid ${panel}`, background: panel, color: "white",
   fontFamily: font.ui, fontSize: "0.82rem",
   cursor: "pointer", fontWeight: 600,
 };
@@ -527,7 +522,7 @@ const CompanyStatusBadge = ({ status }) => {
 };
 
 // ── Action History Modal (audit trail for a single company) ───────────────────
-const ActionHistoryModal = ({ open, onClose, loading, history }) => {
+const ActionHistoryModal = ({ open, onClose, loading, history, error }) => {
   if (!open) return null;
   return (
     <div style={{
@@ -546,7 +541,10 @@ const ActionHistoryModal = ({ open, onClose, loading, history }) => {
         </div>
         <div style={{ padding: "16px 20px", overflowY: "auto", flex: 1 }}>
           {loading && <p style={{ fontFamily: font.ui, fontSize: "0.85rem", color: inkFaint, textAlign: "center", padding: "20px" }}>Loading…</p>}
-          {!loading && history.length === 0 && (
+          {!loading && error && (
+            <p role="alert" style={{ fontFamily: font.ui, fontSize: "0.85rem", color: color.danger, textAlign: "center", padding: "20px", lineHeight: 1.5 }}>{error}</p>
+          )}
+          {!loading && !error && history.length === 0 && (
             <p style={{ fontFamily: font.ui, fontSize: "0.85rem", color: inkFaint, textAlign: "center", padding: "20px" }}>No actions recorded for this company yet.</p>
           )}
           {!loading && history.map((h) => (
@@ -559,7 +557,8 @@ const ActionHistoryModal = ({ open, onClose, loading, history }) => {
               </div>
               <p style={{ fontFamily: font.ui, fontSize: "0.78rem", color: inkBody, marginBottom: "4px" }}>{h.reason}</p>
               <p style={{ fontFamily: font.ui, fontSize: "0.72rem", color: inkMuted }}>
-                By {h.coordinatorName} • {h.previousAccountStatus} → {h.newAccountStatus}
+                By {h.coordinatorName}
+                {h.previousAccountStatus && h.newAccountStatus ? ` • ${h.previousAccountStatus} → ${h.newAccountStatus}` : ""}
               </p>
             </div>
           ))}
@@ -587,6 +586,7 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid, coordinator
   const [historyOpen, setHistoryOpen]         = useState(false);
   const [history, setHistory]                 = useState([]);
   const [historyLoading, setHistoryLoading]   = useState(false);
+  const [historyError, setHistoryError]       = useState("");
 
   // Live company account status — lets the coordinator see whether this
   // company is currently Active/Approved, Suspended, or Blocked, without
@@ -607,12 +607,19 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid, coordinator
 
   const openHistory = async () => {
     setHistoryOpen(true);
+    setHistoryError("");
     if (!report?.companyId) return;
     setHistoryLoading(true);
     try {
       setHistory(await getCompanyActionHistory(report.companyId));
     } catch (err) {
+      // Say so instead of showing an empty list, which reads as "nothing ever
+      // happened" when the real answer is "couldn't check".
       console.error("Failed to load action history:", err);
+      setHistory([]);
+      setHistoryError(err?.code === "permission-denied"
+        ? "You don't have permission to view this company's action history."
+        : "Couldn't load the action history. Check your connection and try again.");
     } finally {
       setHistoryLoading(false);
     }
@@ -708,6 +715,7 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid, coordinator
       try {
         await recordCompanyAction({
           companyId:             report.companyId,
+          reportId:              report.id,
           companyName:           report.company,
           coordinatorId:         coordinatorUid,
           coordinatorName:       coordinatorName || "Coordinator",
@@ -844,7 +852,7 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid, coordinator
                 onClick={openHistory}
                 style={{
                   padding: "4px 14px", borderRadius: "14px",
-                  border: `1.5px solid ${panel}`, background: panel, color: onPanel,
+                  border: `1.5px solid ${panel}`, background: panel, color: "white",
                   fontFamily: font.ui, fontSize: "0.74rem", fontWeight: 600,
                   cursor: "pointer",
                 }}
@@ -1031,6 +1039,7 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid, coordinator
         onClose={() => setHistoryOpen(false)}
         loading={historyLoading}
         history={history}
+        error={historyError}
       />
     </>
   );

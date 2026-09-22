@@ -38,7 +38,7 @@ const STATUS_COLORS = {
 const STATUS_PRIORITY = ["Accepted", "To Interview", "In Review", "Pending", "Declined"];
 
 // Full name, assembled the same way everywhere it appears — the list row, the
-// placement modal, and the CSV export. Kept in one place so a name can never
+// placement modal, and the PDF export. Kept in one place so a name can never
 // read differently depending on where a coordinator happens to be looking.
 const getFullName = (s) =>
   `${s.firstName} ${s.middleInitial ? s.middleInitial + " " : ""}${s.lastName}` +
@@ -66,13 +66,7 @@ const matchesStatusFilter = (apps, filterValue) => {
   return true;
 };
 
-// ── CSV export ────────────────────────────────────────────────────────────────
-
-// Wraps every field in quotes rather than only the ones that look risky.
-// Company names and programs routinely contain commas ("Bank Inc., Tarlac
-// Branch") and the occasional quote, and a half-escaped file corrupts silently
-// — the columns just shift and nobody notices until the numbers are wrong.
-const csvCell = (value) => `"${String(value ?? "").replace(/"/g, '""')}"`;
+// ── Export ────────────────────────────────────────────────────────────────────
 
 const EXPORT_HEADER = ["Student Name", "Student ID", "College", "Program", "Year & Section", "Placement", "Status"];
 
@@ -82,8 +76,6 @@ const EXPORT_HEADER = ["Student Name", "Student ID", "College", "Program", "Year
 // from the export. Students with no applications still get one row, so the
 // export and the on-screen count always agree.
 //
-// Shared by both exports so the CSV and the PDF can never disagree about what
-// the same filtered list contains.
 const buildExportRows = (students, applicationsByStudent, companies) =>
   students.flatMap(student => {
     const base = [
@@ -102,11 +94,6 @@ const buildExportRows = (students, applicationsByStudent, companies) =>
       return [...base, company?.name || "Unknown company", app.status || ""];
     });
   });
-
-const buildStudentCsv = (rows) =>
-  // Leading BOM so Excel reads this as UTF-8. Without it, Excel guesses the
-  // legacy codepage and mangles the ñ in names like Muñoz and Santa Iñez.
-  "\uFEFF" + [EXPORT_HEADER, ...rows].map(r => r.map(csvCell).join(",")).join("\r\n");
 
 // Human-readable summary of what's currently narrowing the list, printed under
 // the PDF title. Without it a printed export is unfalsifiable — a coordinator
@@ -835,20 +822,10 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
 
   const clearAllFilters = () => setFilters({ college: "", program: "", specialization: "", sex: "", section: "", status: "" });
 
-  // Both exports use `filtered`, not `students` — what downloads is exactly
+  // The export uses `filtered`, not `students` — what downloads is exactly
   // what the search box and filter chips are currently showing, so the file
   // always matches the "N of M" count in the header. Filter first, then export.
   const exportDate = () => new Date().toISOString().slice(0, 10);
-
-  const handleExportCsv = () => {
-    if (filtered.length === 0) return;
-    setShowExport(false);
-    const rows = buildExportRows(filtered, applicationsByStudent, companies);
-    downloadBlob(
-      `ojtern-students-${exportDate()}.csv`,
-      new Blob([buildStudentCsv(rows)], { type: "text/csv;charset=utf-8;" })
-    );
-  };
 
   const handleExportPdf = async () => {
     if (filtered.length === 0 || exportingPdf) return;
@@ -989,7 +966,6 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
                     {filtered.length} of {students.length} students
                   </p>
                   {[
-                    { label: "Export as CSV", hint: "Opens in Excel or Sheets", onClick: handleExportCsv },
                     { label: "Export as PDF", hint: "Formatted for printing",   onClick: handleExportPdf },
                   ].map(({ label, hint, onClick }) => (
                     <button

@@ -96,16 +96,24 @@ const EXCEL_COLUMNS = [
 
 // Columns for the bulk-IMPORT template — separate from EXCEL_COLUMNS above,
 // which is only for the 3-column credentials export. Order must match the
-// row[0..5] indices read in ImportModal.parseFile below.
+// row[0..6] indices read in ImportModal.parseFile below.
 // Only what the school's class list already has. Everything else — email,
-// program (when the department offers more than one), sex, and age — the
+// program (when the department offers more than one), and age — the
 // student fills in themselves on first login, in the Edit personal
 // information form that opens before the dashboard. The downloadable
 // template, the header check, and the "Columns, in this order" hint are all
 // derived from this list.
 const IMPORT_TEMPLATE_COLUMNS = [
-  "Student ID", "Last Name", "First Name", "Middle Name", "Section", "Department",
+  "Student ID", "Last Name", "First Name", "Middle Name", "Section", "Department", "Sex",
 ];
+
+// "m", "MALE", "Female", "f" → "Male" / "Female"; anything else → "".
+const normalizeSex = (value) => {
+  const raw = String(value || "").trim().toLowerCase();
+  if (raw === "m" || raw === "male") return "Male";
+  if (raw === "f" || raw === "female") return "Female";
+  return "";
+};
 
 // "Santos" → "S."; blank stays blank. The rest of the app (profile form,
 // fullName, exports) works with a middle initial, so it's derived here.
@@ -503,12 +511,12 @@ const downloadTemplateXLSX = () => {
     IMPORT_TEMPLATE_COLUMNS,
     [
       "e.g. 201112345", "e.g. Dela Cruz", "e.g. Juan", "e.g. Santos (or blank)",
-      "e.g. 4-A", "e.g. CCS",
+      "e.g. 4-A", "e.g. CCS", "e.g. Male",
     ],
   ];
   const ws = XLSX.utils.aoa_to_sheet(rows);
   ws["!cols"] = [
-    { wch: 15 }, { wch: 22 }, { wch: 22 }, { wch: 24 }, { wch: 12 }, { wch: 38 },
+    { wch: 15 }, { wch: 22 }, { wch: 22 }, { wch: 24 }, { wch: 12 }, { wch: 38 }, { wch: 12 },
   ];
   for (let r = 2; r < 200; r++) {
     for (let c = 0; c < IMPORT_TEMPLATE_COLUMNS.length; c++) {
@@ -631,7 +639,7 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
   const handleProgramChange = (val) => { setProgram(val); setProgramTouched(true); };
 
   const allFields = isCreate
-    ? [studentId, lastName, firstName, middleName, yearSection]
+    ? [studentId, lastName, firstName, middleName, yearSection, sex]
     : [studentId, lastName, middleInitial, firstName, suffix, sex, yearSection, age];
   const touchAll = () => { allFields.forEach(f => f.touch()); setCollegeTouched(true); if (!isCreate) setProgramTouched(true); };
 
@@ -643,6 +651,7 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
     if (!college) return false;
     if (isCreate) {
       if (validators.middleName(middleName.value)) return false;
+      if (validators.sex(sex.value)) return false;
       return true;
     }
     if (validators.middleInitial(middleInitial.value)) return false;
@@ -674,7 +683,8 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
           yearSection: yearSection.value,
           college,
           program: deptPrograms.length === 1 ? deptPrograms[0] : "",
-          specialization: "", suffix: "", sex: "", age: "",
+          sex: sex.value,
+          specialization: "", suffix: "", age: "",
         });
         return;
       }
@@ -796,8 +806,14 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
                 </div>
               </div>
 
+              <div style={{ width: "min(220px, 100%)", marginTop: "12px" }}>
+                <FieldLabel>Sex</FieldLabel>
+                <StyledSelect value={sex.value} onChange={(v) => sex.onChange(v)} options={SEX_OPTIONS} placeholder="Select sex" hasError={!!sex.error} />
+                <FieldError msg={sex.error} />
+              </div>
+
               <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, marginTop: space.sm, lineHeight: 1.6 }}>
-                The student adds their program, sex, age, and personal email on their first login.
+                The student adds their program, age, and personal email on their first login.
               </p>
             </>
           ) : (
@@ -942,6 +958,14 @@ const validateRow = (row, rowIndex, coordinatorColleges = [], departments = {}) 
     else row.yearSection = section; // normalize in place, e.g. "A" → "4-A"
   }
 
+  if (!row.sex) {
+    errs.push(`Row ${r}: Sex is required`);
+  } else {
+    const sex = normalizeSex(row.sex);
+    if (!sex) errs.push(`Row ${r}: Sex "${row.sex}" must be Male or Female`);
+    else row.sex = sex; // normalize in place, e.g. "m" → "Male"
+  }
+
   if (!row.college) {
     errs.push(`Row ${r}: Department is required`);
   } else {
@@ -1003,10 +1027,11 @@ const ImportModal = ({ onClose, onImport, coordinatorColleges = [], departments 
           middleInitial: toMiddleInitial(middleName),
           yearSection:   String(row[4]||"").trim(),
           college:       String(row[5]||"").trim(),
+          sex:           String(row[6]||"").trim(),
           // Not in the template — filled in by validateRow (single-program
           // departments) or by the student on first login.
           program: "", major: "", specialization: "",
-          sex: "", age: "",
+          age: "",
           email: "", password: "",
         };
         const errs = validateRow(student, i, coordinatorColleges, departments);
@@ -1340,6 +1365,13 @@ const StudentRow = ({ student: s, selectMode, isSelected, onToggleSelect, onView
             {s.yearSection}
           </span>
         )}
+        <span
+          className="sa-row-view"
+          onClick={(e) => { e.stopPropagation(); onView(s); }}
+          style={{ fontFamily: font.ui, ...type.helper, fontWeight: 500, color: ink, cursor: "pointer", whiteSpace: "nowrap" }}
+        >
+          View
+        </span>
         <div onClick={(e) => e.stopPropagation()}>
           <StudentRowMenu onView={() => onView(s)} onDelete={() => onDelete(s.id)} />
         </div>
