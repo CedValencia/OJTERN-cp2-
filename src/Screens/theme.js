@@ -69,8 +69,8 @@ export const color = {
 // Deeper, matte, saturated tones — not soft/pastel — while keeping each
 // theme's ink → inkDeep two-stop gradient structure and hover wash triad.
 export const ACCENT_THEMES = {
-  default: { id: "default", label: "Original", swatch: "#141414", badge: "#898989", ink: "#000000", inkDeep: "#161616", inkSoft: "#1F1F1F", hoverWash: "#F2F2F2", hoverWashStrong: "#EAEAEA", hoverBorder: "#D8D8D8", gradient: "linear-gradient(135deg, #000000 0%, #1F1F1F 100%)" },
-  red:     { id: "red",     label: "Red",       swatch: "#8B3A3A", badge: "#A85C5C", ink: "#8B3A3A", inkDeep: "#5C2626", inkSoft: "#A85C5C", hoverWash: "#F5EBEA", hoverWashStrong: "#EDD8D6", hoverBorder: "#C98F8F", gradient: "linear-gradient(135deg, #8B3A3A 0%, #5C2626 100%)" },
+  default: { id: "default", label: "Original", swatch: "#141414", badge: "#898989", ink: "#000000", inkDeep: "#161616", inkSoft: "#1F1F1F", hoverWash: "#F2F2F2", hoverWashStrong: "#EAEAEA", hoverBorder: "#000000", gradient: "linear-gradient(135deg, #000000 0%, #1F1F1F 100%)" },
+  red:     { id: "red",     label: "Red",       swatch: "#6E1621", badge: "#8E2C3A", ink: "#6E1621", inkDeep: "#3D0A11", inkSoft: "#8E2C3A", hoverWash: "#F5E4E6", hoverWashStrong: "#EBC9CD", hoverBorder: "#C97985", gradient: "linear-gradient(135deg, #6E1621 0%, #3D0A11 100%)" },
   blue:    { id: "blue",    label: "Blue",      swatch: "#2E5478", badge: "#4C7396", ink: "#2E5478", inkDeep: "#1C3550", inkSoft: "#4C7396", hoverWash: "#E9EEF3", hoverWashStrong: "#D7E0E9", hoverBorder: "#8FA8BC", gradient: "linear-gradient(135deg, #2E5478 0%, #1C3550 100%)" },
   violet:  { id: "violet",  label: "Violet",    swatch: "#5B4478", badge: "#7C6296", ink: "#5B4478", inkDeep: "#3A2C4E", inkSoft: "#7C6296", hoverWash: "#EEEAF3", hoverWashStrong: "#E0D9E9", hoverBorder: "#A997B9", gradient: "linear-gradient(135deg, #5B4478 0%, #3A2C4E 100%)" },
   pink:    { id: "pink",    label: "Pink",      swatch: "#8A3B58", badge: "#AD5E7A", ink: "#8A3B58", inkDeep: "#5C2438", inkSoft: "#AD5E7A", hoverWash: "#F3E9EE", hoverWashStrong: "#E9D6DF", hoverBorder: "#C98CA3", gradient: "linear-gradient(135deg, #8A3B58 0%, #5C2438 100%)" },

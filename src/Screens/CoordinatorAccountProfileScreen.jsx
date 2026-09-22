@@ -146,6 +146,11 @@ const ResponsiveStyles = () => (
       border-color: ${color.hoverBorder};
       box-shadow: 0 8px 22px rgba(10,10,10,0.08);
     }
+    /* Same hover-grow feel as .stat-view-btn on the dashboard's Students
+       Overview card — only grows when hovering the icon itself, not the
+       whole row. */
+    .cap-menu-view-icon { transition: transform 0.18s ${ease}, filter 0.18s ${ease}; }
+    .cap-menu-view-icon:hover { transform: scale(1.15); }
     @media (max-width: 480px) {
       .cap-menu-row { padding: 13px 16px; }
     }
@@ -258,7 +263,7 @@ const ResponsiveStyles = () => (
 
     @media (prefers-reduced-motion: reduce) {
       .cap-overlay, .cap-dialog { animation: none !important; }
-      .cap-menu-row { transition: none !important; }
+      .cap-menu-row, .cap-menu-view-icon { transition: none !important; }
     }
   `}</style>
 );
@@ -867,7 +872,7 @@ const MenuRow = ({ label, icon, onClick, viewIcon: themedViewIcon = blackViewIco
       {icon && <RowIcon>{icons[icon]}</RowIcon>}
       <span style={{ fontFamily: font.ui, fontSize: "1rem", fontWeight: 500, letterSpacing: "-0.01em", color: ink }}>{label}</span>
     </span>
-    <img src={themedViewIcon} alt="" style={{ width: "30px", height: "30px", objectFit: "contain", flexShrink: 0 }} />
+    <img src={themedViewIcon} alt="" className="cap-menu-view-icon" style={{ width: "35px", height: "35px", objectFit: "contain", flexShrink: 0 }} />
   </button>
 );
 

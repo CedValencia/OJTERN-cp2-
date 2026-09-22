@@ -3,6 +3,7 @@ import { collection, onSnapshot, query, where, getDocs } from "firebase/firestor
 import { db } from "./firebase";
 import { useDepartmentsPrograms } from "./departmentsPrograms";
 import blackUserIcon from "../icons/blackuser.png";
+import blackViewIcon from "../icons/blackview.png"; // default/fallback — the themed icon itself comes in via the viewIcon prop
 import { color, font, type, space, radius, shadow, ease } from "./theme";
 
 // ── Design tokens, aliased for this screen ────────────────────────────────────
@@ -260,6 +261,10 @@ const ResponsiveStyles = () => (
       border-color: ${color.hoverBorder};
       box-shadow: 0 8px 22px rgba(10,10,10,0.08);
     }
+    /* Same hover-grow feel as .stat-view-btn on the dashboard's Students
+       Overview card, so the view icon here reacts the same way on hover. */
+    .sp-row-action { transition: transform 0.18s ${ease}, filter 0.18s ${ease}; }
+    .sp-row-action:hover { transform: scale(1.15); }
     /* Row meta line: wraps gracefully on narrow screens */
     .sp-row-meta {
       display: flex;
@@ -703,7 +708,7 @@ const useCollegeVariants = (coordinatorColleges) => {
   }, [coordinatorColleges, departments, departmentNames]);
 };
 
-const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany, onMessageStudent, initialViewingStudentId, onClearInitialViewingStudent, userIcon: themedUserIcon = blackUserIcon }) => {
+const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany, onMessageStudent, initialViewingStudentId, onClearInitialViewingStudent, userIcon: themedUserIcon = blackUserIcon, viewIcon: themedViewIcon = blackViewIcon }) => {
   const [search, setSearch]                 = useState("");
   const [viewingStudent, setViewingStudent] = useState(null);
   const [showFilter, setShowFilter]         = useState(false);
@@ -905,9 +910,11 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
         <span
           className="sp-row-action"
           onClick={(e) => { e.stopPropagation(); setViewingStudent(student); }}
-          style={{ fontFamily: font.ui, ...type.helper, fontWeight: 500, color: ink, cursor: "pointer", flexShrink: 0 }}
+          role="button"
+          aria-label="View placement"
+          style={{ display: "inline-flex", alignItems: "center", cursor: "pointer", flexShrink: 0 }}
         >
-          View placement
+          <img src={themedViewIcon} alt="" style={{ width: "35px", height: "35px", objectFit: "contain" }} />
         </span>
       </div>
     );

@@ -570,6 +570,11 @@ const SplashScreen = () => {
     window.matchMedia("(prefers-reduced-motion: reduce)").matches
   ).current;
 
+  // ── Mobile: auto-scroll papunta sa form panel ────────────────────────────
+  const formAnchorRef = useRef(null);
+  const scrollStopRef = useRef(null); // pang-cancel ng tumatakbong scroll-follow
+  useEffect(() => () => scrollStopRef.current?.(), []);
+
   // Determine current view based on URL path
   const getViewFromPath = (path) => {
     if (path.startsWith("/accept-invite")) return "accept_invite";
@@ -839,17 +844,74 @@ const SplashScreen = () => {
     }
   };
 
+  // Sumusunod ang scroll sa form panel HABANG bumubukas ito (sabay sa collapse
+  // ng hub) — hindi na naghihintay matapos ang transition. Bawat frame ay
+  // kinukuha ulit ang kasalukuyang posisyon ng panel, kaya kahit gumagalaw pa
+  // ang layout, tama pa rin ang tinutungo. Titigil kapag ang user na mismo
+  // ang nag-scroll/nag-touch.
+  const scrollToForm = (durationMs) => {
+    if (!isMobile) return;
+    scrollStopRef.current?.();
+
+    const USER_EVENTS = ["touchstart", "wheel", "keydown"];
+    const start = performance.now();
+    let raf = 0;
+
+    const stop = () => {
+      cancelAnimationFrame(raf);
+      USER_EVENTS.forEach(ev => window.removeEventListener(ev, stop));
+      scrollStopRef.current = null;
+    };
+    USER_EVENTS.forEach(ev => window.addEventListener(ev, stop, { passive: true }));
+    scrollStopRef.current = stop;
+
+    const tick = (now) => {
+      const el = formAnchorRef.current;
+      if (!el) return stop();
+
+      const doc = document.documentElement;
+      const maxScroll = Math.max(0, doc.scrollHeight - doc.clientHeight);
+      const target = Math.min(
+        maxScroll,
+        Math.max(0, el.getBoundingClientRect().top + window.scrollY - 16)
+      );
+      const diff = target - window.scrollY;
+      const elapsed = now - start;
+
+      if (Math.abs(diff) < 1) {
+        // Nandoon na — pero kung gumagalaw pa ang layout, bantayan hanggang matapos
+        if (elapsed >= durationMs) { window.scrollTo(0, target); return stop(); }
+      } else {
+        const step = prefersReducedMotion
+          ? diff
+          : Math.sign(diff) * Math.min(Math.abs(diff), Math.max(Math.abs(diff) * 0.2, 1.5));
+        window.scrollTo(0, window.scrollY + step);
+      }
+
+      if (elapsed > durationMs + 600) return stop(); // safety cap
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+  };
+
+  const OPEN_MS   = Math.max(timing.slide, timing.rise); // bubukas pa lang ang form
+  const SWITCH_MS = 250; // bukas na ang form, nagpalit lang ng role/mode
+
   const handleRoleSelect = (nextRole) => {
+    const wasOpen = stage === "form";
     setRole(nextRole);
     setStage("form");
     goToRoute(mode, nextRole);
+    scrollToForm(wasOpen ? SWITCH_MS : OPEN_MS);
   };
 
   const handleModeChange = (nextMode) => {
     setMode(nextMode);
     if (role) {
+      const wasOpen = stage === "form";
       setStage("form");
       goToRoute(nextMode, role);
+      scrollToForm(wasOpen ? SWITCH_MS : OPEN_MS);
     }
   };
 
@@ -1127,13 +1189,16 @@ const SplashScreen = () => {
               transition: `grid-template-rows ${timing.slide}ms ${ease}`,
             }}>
               <div style={{ overflow: "hidden", minHeight: 0 }}>
-                <div style={{
-                  marginTop: "28px",
-                  display: "flex", flexDirection: "column",
-                  transform: formOpen ? "translateY(0)" : "translateY(24px)",
-                  transition: `transform ${timing.slide}ms ${ease}`,
-                  pointerEvents: formOpen ? "auto" : "none",
-                }}>
+                <div
+                  ref={formAnchorRef}
+                  style={{
+                    marginTop: "28px",
+                    display: "flex", flexDirection: "column",
+                    transform: formOpen ? "translateY(0)" : "translateY(24px)",
+                    transition: `transform ${timing.slide}ms ${ease}`,
+                    pointerEvents: formOpen ? "auto" : "none",
+                  }}
+                >
                   <BackButton />
                   <div style={formPanelStyle}>{formContent}</div>
                 </div>

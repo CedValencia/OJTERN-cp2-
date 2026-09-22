@@ -1340,13 +1340,6 @@ const StudentRow = ({ student: s, selectMode, isSelected, onToggleSelect, onView
             {s.yearSection}
           </span>
         )}
-        <span
-          className="sa-row-view"
-          onClick={(e) => { e.stopPropagation(); onView(s); }}
-          style={{ fontFamily: font.ui, ...type.helper, fontWeight: 500, color: ink, cursor: "pointer", whiteSpace: "nowrap" }}
-        >
-          View
-        </span>
         <div onClick={(e) => e.stopPropagation()}>
           <StudentRowMenu onView={() => onView(s)} onDelete={() => onDelete(s.id)} />
         </div>

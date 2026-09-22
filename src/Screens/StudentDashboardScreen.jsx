@@ -402,6 +402,8 @@ const FontImport = () => (
 
     .stat-view-btn { transition: transform 0.18s ${ease}; }
     .stat-view-btn:hover { transform: scale(1.08); }
+    .company-row-view-btn { transition: transform 0.18s ${ease}; }
+    .company-row-view-btn:hover { transform: scale(1.15); }
 
     .pill-btn { transition: filter 0.18s ${ease}, transform 0.12s ${ease}, box-shadow 0.18s ${ease}; }
     .pill-btn:hover { filter: brightness(1.25); }
@@ -530,13 +532,13 @@ const CompanyAvatar = ({ size = 38, companyProfileIcon: themedCompanyIcon = blac
 );
 
 const ViewBtn = ({ viewIcon: themedViewIcon = blackViewIcon }) => (
-  <div style={{ width: "44px", height: "44px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0, WebkitTapHighlightColor: "transparent" }}>
-    <img src={themedViewIcon} alt="view" style={{ width: "33px", height: "33px", objectFit: "contain" }} />
+  <div className="company-row-view-btn" style={{ width: "44px", height: "44px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0, WebkitTapHighlightColor: "transparent" }}>
+    <img src={themedViewIcon} alt="view" style={{ width: "35px", height: "35px", objectFit: "contain" }} />
   </div>
 );
 
 const ArrowBtn = ({ viewIcon: themedViewIcon = blackViewIcon }) => (
-  <div style={{ width: "44px", height: "44px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0, WebkitTapHighlightColor: "transparent" }}>
+  <div className="company-row-view-btn" style={{ width: "44px", height: "44px", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0, WebkitTapHighlightColor: "transparent" }}>
     <img src={themedViewIcon} alt="view" style={{ width: "33px", height: "33px", objectFit: "contain" }} />
   </div>
 );
@@ -1538,7 +1540,7 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
                       padding: "16px",
                     }}>
                     <p style={{ fontFamily: uiFont, fontWeight: 600, fontSize: "0.85rem", color: inkText, margin: "0 0 3px" }}>
-                      Dashboard Theme
+                      Theme Color Customization
                     </p>
                     <p style={{ fontFamily: uiFont, fontSize: "0.72rem", color: inkMuted, margin: "0 0 14px", lineHeight: 1.4 }}>
                       Applies to every module. Saved on this device — stays after you log out.

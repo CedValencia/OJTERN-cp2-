@@ -275,6 +275,8 @@ const FontImport = () => (
 
     .stat-view-btn { transition: transform 0.18s ${ease}, filter 0.18s ${ease}; }
     .stat-view-btn:hover { transform: scale(1.08); }
+    .company-row-view-btn { transition: transform 0.18s ${ease}, filter 0.18s ${ease}; }
+    .company-row-view-btn:hover { transform: scale(1.15); }
 
     .topbar-icon-btn { transition: background 0.18s ${ease}, transform 0.12s ${ease}; border-radius: 999px; }
     .topbar-icon-btn:hover { background: rgba(255,255,255,0.14); }
@@ -605,6 +607,7 @@ const CompanyRow = ({ company, onView, mr = "0", showTime = false, viewIcon: the
       </div>
     </div>
     <div
+      className="company-row-view-btn"
       onClick={(e) => { e.stopPropagation(); onView(company.id); }}
       style={{
         width: "44px", height: "44px", borderRadius: "50%", flexShrink: 0,
@@ -1283,6 +1286,7 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
         onClearInitialViewingStudent={() => setPlacementTargetStudentId(null)}
         onMessageStudent={handleMessageStudent}
         userIcon={themedUserIcon}
+        viewIcon={themedViewIcon}
       />
     );
 
@@ -1494,7 +1498,7 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
                       padding: "16px",
                     }}>
                     <p style={{ fontFamily: uiFont, fontWeight: 600, fontSize: "0.85rem", color: inkText, margin: "0 0 3px" }}>
-                      Dashboard Theme
+                      Theme Color Customization
                     </p>
                     <p style={{ fontFamily: uiFont, fontSize: "0.72rem", color: inkMuted, margin: "0 0 14px", lineHeight: 1.4 }}>
                       Applies to every module. Saved on this device — stays after you log out.
