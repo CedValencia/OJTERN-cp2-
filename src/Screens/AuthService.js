@@ -844,6 +844,9 @@ export const checkAndReactivateCompany = async (companyId) => {
 export const recordCompanyAction = (entry) =>
   addDoc(collection(db, "companyActions"), {
     companyId:             entry.companyId,
+    // Links the entry to the report it resolved, so getCompanyActionHistory can
+    // tell it apart from the same action rebuilt from that report.
+    reportId:              entry.reportId || null,
     companyName:           entry.companyName || "",
     coordinatorId:         entry.coordinatorId,
     coordinatorName:       entry.coordinatorName || "Coordinator",
@@ -862,13 +865,50 @@ export const recordCompanyAction = (entry) =>
  */
 export const getCompanyActionHistory = async (companyId) => {
   if (!companyId) return [];
-  const q = query(
-    collection(db, "companyActions"),
-    where("companyId", "==", companyId),
-    orderBy("createdAt", "desc"),
+
+  // Sorted here instead of with orderBy("createdAt"): where + orderBy on two
+  // different fields needs a composite index, and without one the query
+  // fails outright — which showed up as an empty history.
+  const toMillis = (t) => (t && typeof t.toMillis === "function" ? t.toMillis() : 0);
+
+  const [actionsSnap, reportsSnap] = await Promise.all([
+    getDocs(query(collection(db, "companyActions"), where("companyId", "==", companyId))),
+    // Resolved reports carry the action, notes, coordinator and date too.
+    // Actions taken while companyActions writes were being blocked by the
+    // Firestore rules only exist here, so they're rebuilt from the report.
+    getDocs(query(collection(db, "reports"), where("companyId", "==", companyId))),
+  ]);
+
+  const recorded = actionsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  const recordedReportIds = new Set(recorded.map((a) => a.reportId).filter(Boolean));
+
+  const fromReports = reportsSnap.docs
+    .map((d) => ({ id: d.id, ...d.data() }))
+    .filter((r) => r.status === "resolved" && r.resolutionAction && !recordedReportIds.has(r.id))
+    .map((r) => ({
+      id: `report-${r.id}`,
+      reportId: r.id,
+      companyId,
+      companyName: r.company || "",
+      coordinatorId: r.resolvedBy || "",
+      coordinatorName: r.resolvedByName || "Coordinator",
+      actionType: r.resolutionAction,
+      reason: r.resolutionNotes || "",
+      // Not stored on the report, so not shown for rebuilt entries.
+      previousAccountStatus: null,
+      newAccountStatus: null,
+      createdAt: r.resolvedAt || null,
+      fromReport: true,
+    }));
+
+  // One line that explains an empty history: shows whether the company's
+  // reports were found at all and how many count as actions.
+  console.debug(
+    `[ActionHistory] companyId=${companyId} | companyActions=${recorded.length}` +
+    ` | reports=${reportsSnap.size} (resolved with an action: ${fromReports.length + recordedReportIds.size})`
   );
-  const snap = await getDocs(q);
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+
+  return [...recorded, ...fromReports].sort((x, y) => toMillis(y.createdAt) - toMillis(x.createdAt));
 };
 
 /**
