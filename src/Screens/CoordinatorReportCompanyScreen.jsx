@@ -1296,6 +1296,7 @@ const CoordinatorReportCompanyScreen = ({ reports = [], onViewReport }) => (
 
         <div
           className="rc-total-badge"
+          id="rc-total-badge"
           aria-label={`Total reports: ${reports.length}`}
         >
           <div style={{
@@ -1319,91 +1320,93 @@ const CoordinatorReportCompanyScreen = ({ reports = [], onViewReport }) => (
         </div>
       </div>
 
-      {/* ── Desktop: table ── */}
-      <div className="rc-table-wrap">
-        <table className="rc-table">
-          <thead>
-            <tr>
-              {["Reported Company", "Concern", "Date", "Status", "Action"].map(h => (
-                <th key={h} className="rc-th">{h}</th>
-              ))}
-            </tr>
-          </thead>
-
-          <tbody>
-            {reports.map((r, i) => (
-              <tr key={r.id || i}>
-                <td className="rc-td">{r.company}</td>
-                <td className="rc-td">{r.concern}</td>
-                <td className="rc-td">{r.date}</td>
-                <td className="rc-td">
-                  <StatusBadge status={r.status || "pending"} />
-                </td>
-                <td className="rc-td">
-                  <ViewButton onClick={() => onViewReport && onViewReport(r)} />
-                </td>
-              </tr>
-            ))}
-
-            {reports.length === 0 && (
+      <div id="rc-report-list">
+        {/* ── Desktop: table ── */}
+        <div className="rc-table-wrap">
+          <table className="rc-table">
+            <thead>
               <tr>
-                <td colSpan={5} style={{
-                  padding: "60px 20px",
-                  background: surface,
-                }}>
-                  <EmptyState />
-                </td>
+                {["Reported Company", "Concern", "Date", "Status", "Action"].map(h => (
+                  <th key={h} className="rc-th">{h}</th>
+                ))}
               </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+            </thead>
 
-      {/* ── Mobile: cards ── */}
-      <div className="rc-card-list">
-        {reports.map((r, i) => (
-          <div key={r.id || i} className="rc-card">
-            <div className="rc-card-top">
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <p className="rc-card-label">Reported Company</p>
-                <p
-                  className="rc-card-value"
-                  style={{
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  {r.company}
-                </p>
+            <tbody>
+              {reports.map((r, i) => (
+                <tr key={r.id || i}>
+                  <td className="rc-td">{r.company}</td>
+                  <td className="rc-td">{r.concern}</td>
+                  <td className="rc-td">{r.date}</td>
+                  <td className="rc-td">
+                    <StatusBadge status={r.status || "pending"} />
+                  </td>
+                  <td className="rc-td">
+                    <ViewButton onClick={() => onViewReport && onViewReport(r)} />
+                  </td>
+                </tr>
+              ))}
+
+              {reports.length === 0 && (
+                <tr>
+                  <td colSpan={5} style={{
+                    padding: "60px 20px",
+                    background: surface,
+                  }}>
+                    <EmptyState />
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* ── Mobile: cards ── */}
+        <div className="rc-card-list">
+          {reports.map((r, i) => (
+            <div key={r.id || i} className="rc-card">
+              <div className="rc-card-top">
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p className="rc-card-label">Reported Company</p>
+                  <p
+                    className="rc-card-value"
+                    style={{
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {r.company}
+                  </p>
+                </div>
+
+                <ViewButton onClick={() => onViewReport && onViewReport(r)} />
               </div>
 
-              <ViewButton onClick={() => onViewReport && onViewReport(r)} />
-            </div>
+              <div className="rc-card-bottom">
+                <div style={{ minWidth: 0 }}>
+                  <p className="rc-card-label">Concern</p>
+                  <p className="rc-card-value">{r.concern}</p>
+                </div>
 
-            <div className="rc-card-bottom">
-              <div style={{ minWidth: 0 }}>
-                <p className="rc-card-label">Concern</p>
-                <p className="rc-card-value">{r.concern}</p>
+                <div style={{ textAlign: "right", flexShrink: 0 }}>
+                  <p className="rc-card-label">Date</p>
+                  <p className="rc-card-value">{r.date}</p>
+                </div>
               </div>
 
-              <div style={{ textAlign: "right", flexShrink: 0 }}>
-                <p className="rc-card-label">Date</p>
-                <p className="rc-card-value">{r.date}</p>
+              <div style={{ marginTop: "2px" }}>
+                <StatusBadge status={r.status || "pending"} />
               </div>
             </div>
+          ))}
 
-            <div style={{ marginTop: "2px" }}>
-              <StatusBadge status={r.status || "pending"} />
+          {reports.length === 0 && (
+            <div style={{ paddingTop: "60px" }}>
+              <EmptyState />
             </div>
-          </div>
-        ))}
-
-        {reports.length === 0 && (
-          <div style={{ paddingTop: "60px" }}>
-            <EmptyState />
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
     </div>

@@ -6,6 +6,8 @@ import { db } from "./firebase";
 import { PersonalInfoScreen, ResponsiveStyles } from "./CoordinatorAccountProfileScreen";
 import { useUnreadCount } from "./useChat";
 import { color, font, ease, ACCENT_THEMES, ACCENT_THEME_ORDER, getSavedAccentThemeId, saveAccentThemeId, getAccentThemeVars, getThemedAsset } from "./theme";
+import { driver } from "driver.js";
+import "driver.js/dist/driver.css";
 
 import CoordinatorStudentsAcccountScreen      from "./CoordinatorStudentsAcccountScreen";
 import CoordinatorStudentListScreen from "./CoordinatorStudentListScreen";
@@ -207,6 +209,31 @@ const FontImport = () => (
     ::-webkit-scrollbar-thumb { background: ${steel}; border-radius: 4px; transition: background 0.2s ${ease}; }
     ::-webkit-scrollbar-thumb:hover { background: ${ink}; }
     ::-webkit-scrollbar-track { background: ${paperCard}; }
+
+    /* Floating "?" help button — idle pulse ring to catch the eye, lifts and
+       deepens its shadow on hover/press so it reads as clearly tappable.
+       The ring is mixed from the CURRENT accent theme's ink color (via
+       color-mix against the --ojt-ink custom property, which the
+       Coordinator's theme picker repaints live), not a fixed black — so it
+       re-colors itself the instant the user picks a new theme, same as the
+       icon below. color-mix() has full support in all current browsers. */
+    @keyframes help-btn-pulse {
+      0%   { box-shadow: 0 6px 20px color-mix(in srgb, ${ink} 25%, transparent), 0 0 0 0 color-mix(in srgb, ${ink} 16%, transparent); }
+      70%  { box-shadow: 0 6px 20px color-mix(in srgb, ${ink} 25%, transparent), 0 0 0 10px color-mix(in srgb, ${ink} 0%, transparent); }
+      100% { box-shadow: 0 6px 20px color-mix(in srgb, ${ink} 25%, transparent), 0 0 0 0 color-mix(in srgb, ${ink} 0%, transparent); }
+    }
+    .help-fab {
+      animation: help-btn-pulse 2.6s ease-out infinite;
+      transition: transform 0.18s ${ease}, background 0.18s ${ease};
+    }
+    .help-fab:hover {
+      transform: translateY(-3px) scale(1.06);
+      background: ${ink} !important;
+      animation-play-state: paused;
+    }
+    .help-fab:hover .help-fab-icon { stroke: ${paper} !important; }
+    .help-fab:hover .help-fab-icon-dot { fill: ${paper} !important; }
+    .help-fab:active { transform: translateY(-1px) scale(0.98); }
 
     /* Pill-shaped, sits off the edges with real depth on hover/press so it
        reads as a button rather than a static row. Icons stay full opacity
@@ -761,7 +788,7 @@ const DashboardContent = ({ onNavigate, onViewCompany, onViewRegistered, coordin
       <div className="dash-top-grid">
 
         {/* Students Stats */}
-        <div className="dash-card" style={{ background: paperCard, borderRadius: "14px", overflow: "visible", display: "flex", flexDirection: "column" }}>
+        <div id="dash-students-overview" className="dash-card" style={{ background: paperCard, borderRadius: "14px", overflow: "visible", display: "flex", flexDirection: "column" }}>
           <div className="card-header"><span>Students Overview</span></div>
           <div className="stats-inner">
             <StatCard
@@ -782,7 +809,7 @@ const DashboardContent = ({ onNavigate, onViewCompany, onViewRegistered, coordin
         </div>
 
         {/* Recent Registered Company */}
-        <div className="dash-card" style={{ background: paperCard, borderRadius: "14px", overflow: "hidden", display: "flex", flexDirection: "column" }}>
+        <div id="dash-recent-registered" className="dash-card" style={{ background: paperCard, borderRadius: "14px", overflow: "hidden", display: "flex", flexDirection: "column" }}>
           <div className="card-header"><span>Recent Registered Company</span></div>
           <div style={{ padding: "10px 0 10px 12px", display: "flex", flexDirection: "column", gap: "6px", maxHeight: "240px", overflowY: "auto" }}>
             {recentRegistered.length > 0 ? (
@@ -797,7 +824,7 @@ const DashboardContent = ({ onNavigate, onViewCompany, onViewRegistered, coordin
       </div>
 
       {/* Recent Visited Company */}
-      <div className="dash-card" style={{ background: paperCard, borderRadius: "14px", overflow: "hidden" }}>
+      <div id="dash-recent-visited" className="dash-card" style={{ background: paperCard, borderRadius: "14px", overflow: "hidden" }}>
         <div className="card-header"><span>Recent Visited Company Post</span></div>
         <div style={{ padding: "10px 12px", display: "flex", flexDirection: "column", gap: "6px", maxHeight: "260px", overflowY: "auto" }}>
           {recentVisited.length > 0 ? (
@@ -810,6 +837,319 @@ const DashboardContent = ({ onNavigate, onViewCompany, onViewRegistered, coordin
         </div>
       </div>
     </div>
+  );
+};
+
+// ── Contextual "?" help tour steps, keyed by sidebar nav key ───────────────────
+// Add an entry here (and matching `id`s on the target elements) to give any
+// other screen its own guided tour. Screens with no entry get a generic
+// one-line popover instead of a broken tour.
+const HELP_STEPS_BY_NAV = {
+  dashboard: [
+    {
+      element: "#dash-students-overview",
+      popover: {
+        title: "Students Overview",
+        description: "Total students in your department, and how many have been accepted by a company. Tap the round arrow to open the full Student List.",
+      },
+    },
+    {
+      element: "#dash-recent-registered",
+      popover: {
+        title: "Recent Registered Company",
+        description: "The latest companies approved for your assigned industries. Tap one to view its profile.",
+      },
+    },
+    {
+      element: "#dash-recent-visited",
+      popover: {
+        title: "Recent Visited Company Post",
+        description: "Companies you've recently opened, with how long ago you visited each one.",
+      },
+    },
+    {
+      element: "#topbar-activity-log",
+      popover: {
+        title: "Activity Log",
+        description: "See what coordinators in your department have been doing lately, newest first.",
+      },
+    },
+    {
+      element: "#topbar-notifications",
+      popover: {
+        title: "Notifications",
+        description: "New company registrations and other alerts land here. Tap one to jump straight to it.",
+      },
+    },
+    {
+      element: "#topbar-about",
+      popover: {
+        title: "About",
+        description: "Learn more about OJTern and the team behind it.",
+      },
+    },
+    {
+      element: "#topbar-theme-picker",
+      popover: {
+        title: "Theme Customization",
+        description: "Change the dashboard's accent color. Your choice is saved on this device and applies across every module.",
+      },
+    },
+  ],
+  findcompany: [
+    {
+      element: "#findcompany-search-bar",
+      popover: {
+        title: "Search Company Posts",
+        description: "Search by company name, industry, or location. The count above updates to match your current search and filters.",
+      },
+    },
+    {
+      element: "#findcompany-filter",
+      popover: {
+        title: "Filters",
+        description: "Narrow the list down by industry or city. Active filters show as removable chips below the search bar.",
+      },
+    },
+    {
+      element: "#findcompany-grid",
+      popover: {
+        title: "Company Posts",
+        description: "Open postings for your assigned programs. Tap a card to view the full company profile and message them.",
+      },
+    },
+  ],
+  companylist: [
+    {
+      element: "#clist-search-pill",
+      popover: {
+        title: "Search Companies",
+        description: "Search by company name, industry, or location. The count above updates to match your current search and filters.",
+      },
+    },
+    {
+      element: "#clist-filter-btn",
+      popover: {
+        title: "Filters",
+        description: "Narrow the list down by industry or location. Active filters show as removable chips below the search bar.",
+      },
+    },
+    {
+      element: "#clist-registered-section",
+      popover: {
+        title: "Registered Companies",
+        description: "Companies already approved and active for your assigned industries. Tap a card to view its full profile.",
+      },
+    },
+    {
+      element: "#clist-review-section",
+      popover: {
+        title: "Companies in Review",
+        description: "Companies still pending approval. Tap a card to check its details while it's under review.",
+      },
+    },
+  ],
+  reportcompany: [
+    {
+      element: "#rc-total-badge",
+      popover: {
+        title: "Total Reports",
+        description: "The total number of company reports filed so far.",
+      },
+    },
+    {
+      element: "#rc-report-list",
+      popover: {
+        title: "Report List",
+        description: "Every reported company, its concern, date filed, and status. Tap the view button to see the full report.",
+      },
+    },
+  ],
+  studentsaccount: [
+    {
+      element: "#sa-search-bar",
+      popover: {
+        title: "Search",
+        description: "Search students by name, ID, or email. The count above updates to match your current search and filters.",
+      },
+    },
+    {
+      element: "#sa-filter-btn",
+      popover: {
+        title: "Filters",
+        description: "Narrow the list down by college, program, sex, or section. Active filters show as removable chips below.",
+      },
+    },
+    {
+      element: "#sa-toolbar-select",
+      popover: {
+        title: "Select & Delete",
+        description: "Tap Select to check multiple students, then delete them in bulk — or select all at once.",
+      },
+    },
+    {
+      element: "#sa-toolbar-actions",
+      popover: {
+        title: "Export, Import, New Student",
+        description: "Export selected students' credentials, bulk-import a whole section from a spreadsheet, or add one student account at a time.",
+      },
+    },
+    {
+      element: "#sa-student-list",
+      popover: {
+        title: "Student List",
+        description: "Every student account in your department(s). Tap a row to view or edit that student's details.",
+      },
+    },
+  ],
+  messages: [
+    {
+      element: "#messages-search-bar",
+      popover: {
+        title: "Search Conversations",
+        description: "Search your chats by company name. The list below updates to match what you type.",
+      },
+    },
+    {
+      element: "#messages-chat-list",
+      popover: {
+        title: "Conversations",
+        description: "All your active chats, newest activity first. Tap one to open the full conversation.",
+      },
+    },
+  ],
+  accountprofile: [
+    {
+      element: "#accprofile-personal-info",
+      popover: {
+        title: "Personal Information",
+        description: "View and edit your name, contact details, and other personal info on file.",
+      },
+    },
+    {
+      element: "#accprofile-security",
+      popover: {
+        title: "Reset Password",
+        description: "Change your account password. You'll be asked for your current password first.",
+      },
+    },
+    {
+      element: "#accprofile-account",
+      popover: {
+        title: "Add / Transfer Account",
+        description: "Add a new coordinator account, or transfer this one to another coordinator in your department.",
+      },
+    },
+    {
+      element: "#accprofile-legal",
+      popover: {
+        title: "Terms & Privacy",
+        description: "Review OJTern's Terms & Conditions and Privacy Policy at any time.",
+      },
+    },
+  ],
+  studentlist: [
+    {
+      element: "#sl-search-bar",
+      popover: {
+        title: "Search",
+        description: "Search students by name, ID, or program. The count above updates to match your current search and filters.",
+      },
+    },
+    {
+      element: "#sl-export-btn",
+      popover: {
+        title: "Export",
+        description: "Export the currently filtered list as a CSV (for Excel/Sheets) or a formatted PDF for printing.",
+      },
+    },
+    {
+      element: "#sl-filter-btn",
+      popover: {
+        title: "Filters",
+        description: "Narrow the list down by college, program, specialization, sex, or section. Active filters show as removable chips below.",
+      },
+    },
+    {
+      element: "#sl-status-chips",
+      popover: {
+        title: "Placement Status",
+        description: "Quickly filter by placement progress — Accepted, In Progress, All Declined, or No Applications yet.",
+      },
+    },
+    {
+      element: "#sl-student-list",
+      popover: {
+        title: "Student List",
+        description: "Tap a student to view their full placement details and application history.",
+      },
+    },
+  ],
+};
+
+// ── Floating "?" help button ────────────────────────────────────────────────────
+// Fixed to the bottom-right corner and rendered once at the top level of the
+// screen (outside renderContent), so it stays on-screen no matter which nav
+// item is active. Runs a driver.js spotlight tour scoped to HELP_STEPS_BY_NAV
+// for the current screen; falls back to a plain centered message for any
+// screen that doesn't have steps configured yet.
+const FloatingHelpButton = ({ activeNav }) => {
+  const handleClick = () => {
+    const steps = HELP_STEPS_BY_NAV[activeNav];
+
+    const tourDriver = driver({
+      showProgress: (steps?.length ?? 0) > 1,
+      allowClose: true,
+      steps: steps && steps.length > 0
+        ? steps
+        : [{
+            popover: {
+              title: "Help",
+              description: "There's no guided tour for this page yet.",
+            },
+          }],
+    });
+
+    tourDriver.drive();
+  };
+
+  return (
+    <button
+      onClick={handleClick}
+      aria-label="Help"
+      title="Help"
+      className="help-fab"
+      style={{
+        position: "fixed",
+        bottom: "24px",
+        right: "24px",
+        width: "56px",
+        height: "56px",
+        borderRadius: "50%",
+        background: paper,
+        border: `1px solid ${hairline}`,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        cursor: "pointer",
+        zIndex: 500,
+      }}
+    >
+      <svg
+        className="help-fab-icon"
+        width="26" height="26" viewBox="0 0 24 24"
+        fill="none" stroke={ink} strokeWidth="2"
+        strokeLinecap="round" strokeLinejoin="round"
+        style={{ transition: `stroke 0.18s ${ease}` }}
+      >
+        <circle cx="12" cy="12" r="10" />
+        <path d="M9.1 9a2.9 2.9 0 0 1 5.66.9c0 1.9-2.66 2.4-2.66 4.1" />
+        {/* r was 0.1 — effectively sub-pixel at this icon size, so the dot of
+            the "?" all but disappeared (the "putol" look). 1.05 renders as a
+            proper solid dot while still sitting inside the circle comfortably. */}
+        <circle className="help-fab-icon-dot" cx="12" cy="17.15" r="1.05" fill={ink} stroke="none" />
+      </svg>
+    </button>
   );
 };
 
@@ -1360,7 +1700,7 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
           <div style={{ display: "flex", alignItems: "center", gap: "4px", flexShrink: 0 }}>
             {/* Activity Log */}
             <div style={{ position: "relative" }}>
-              <div className="topbar-icon-btn" style={{ cursor: "pointer", padding: "8px" }} onClick={() => setShowActivityDropdown(prev => !prev)} title="Activity Log">
+              <div id="topbar-activity-log" className="topbar-icon-btn" style={{ cursor: "pointer", padding: "8px" }} onClick={() => setShowActivityDropdown(prev => !prev)} title="Activity Log">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <circle cx="12" cy="12" r="9"/>
                   <path d="M12 7v5l3 3"/>
@@ -1414,7 +1754,7 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
 
             {/* Notifications */}
             <div style={{ position: "relative" }}>
-              <div className="topbar-icon-btn" style={{ cursor: "pointer", padding: "8px", position: "relative" }} onClick={handleToggleNotifDropdown}>
+              <div id="topbar-notifications" className="topbar-icon-btn" style={{ cursor: "pointer", padding: "8px", position: "relative" }} onClick={handleToggleNotifDropdown}>
                 <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
                   <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
@@ -1470,7 +1810,7 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
             </div>
 
             {/* About */}
-            <div className="topbar-icon-btn" style={{ cursor: "pointer", padding: "8px" }} onClick={() => navigate("about")} title="About">
+            <div id="topbar-about" className="topbar-icon-btn" style={{ cursor: "pointer", padding: "8px" }} onClick={() => navigate("about")} title="About">
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="12" cy="12" r="9"/>
                 <path d="M12 8h.01"/>
@@ -1480,7 +1820,7 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
 
             {/* Theme color picker */}
             <div style={{ position: "relative" }}>
-              <div className="topbar-icon-btn" style={{ cursor: "pointer", padding: "8px" }} onClick={() => setShowThemeDropdown(p => !p)} title="Dashboard theme color">
+              <div id="topbar-theme-picker" className="topbar-icon-btn" style={{ cursor: "pointer", padding: "8px" }} onClick={() => setShowThemeDropdown(p => !p)} title="Dashboard theme color">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M12 2a10 10 0 1 0 0 20c1.1 0 1.8-.85 1.8-1.85 0-.5-.2-.95-.5-1.28-.32-.33-.5-.75-.5-1.27a1.9 1.9 0 0 1 1.9-1.9h2.24C19.6 15.7 22 13.35 22 10.4 22 5.76 17.5 2 12 2z"/>
                   <circle cx="7.5" cy="10.5" r="1" fill="white" stroke="none"/>
@@ -1577,6 +1917,8 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
             {renderContent()}
           </div>
         </div>
+
+      <FloatingHelpButton activeNav={activeNav} />
 
       {viewingReport && (
         <ReportDetailModal report={viewingReport} onClose={() => setViewingReport(null)} coordinatorUid={user?.uid} coordinatorName={user?.name} />

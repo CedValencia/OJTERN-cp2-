@@ -1084,7 +1084,7 @@ const CoordinatorFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onM
             )}
           </div>
           <div style={{ position: "relative", display: "flex", alignItems: "center", flexShrink: 0 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: space.sm, background: color.white, borderRadius: radius.pill, padding: "9px 16px" }}>
+            <div id="findcompany-search-bar" style={{ display: "flex", alignItems: "center", gap: space.sm, background: color.white, borderRadius: radius.pill, padding: "9px 16px" }}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={inkMuted} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
               <input
                 value={search}
@@ -1097,6 +1097,7 @@ const CoordinatorFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onM
             </div>
             <div ref={filterRef} style={{ position: "relative", marginLeft: "10px" }}>
               <div
+                id="findcompany-filter"
                 onClick={() => setShowFilter(v => !v)}
                 title="Filters"
                 style={{ width: "40px", height: "40px", background: hasFilter ? color.goldTint : color.white, borderRadius: radius.pill, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", border: hasFilter ? `1px solid ${color.onWineFaint}` : "none", position: "relative" }}
@@ -1138,7 +1139,7 @@ const CoordinatorFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onM
           </div>
         ) : filtered.length > 0 ? (
           /* CSS grid: 2-col on ≥768px, 1-col below — controlled entirely by .coord-company-grid */
-          <div className="coord-company-grid">
+          <div id="findcompany-grid" className="coord-company-grid">
             {filtered.map(c => (
               <CompanyCard
                 key={c.id}

@@ -3529,6 +3529,7 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
 
             <div style={{ position: "relative", display: "flex", alignItems: "center", flexShrink: 0 }}>
               <div
+                id="clist-search-pill"
                 style={{
                   display: "flex",
                   alignItems: "center",
@@ -3577,6 +3578,7 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
 
               <div ref={filterRef} style={{ position: "relative", marginLeft: "10px" }}>
                 <div
+                  id="clist-filter-btn"
                   onClick={() => setShowFilter(v => !v)}
                   title="Filters"
                   style={{
@@ -3629,7 +3631,7 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
 
           <div className="clist-content">
             {/* Registered Companies */}
-            <div style={{ marginBottom: "36px" }}>
+            <div id="clist-registered-section" style={{ marginBottom: "36px" }}>
               <SectionHeader title="Registered Companies" count={filteredRegistered.length} />
               {filteredRegistered.length > 0 ? (
                 <div className="clist-company-grid">
@@ -3645,7 +3647,7 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
             <hr style={{ border: "none", borderTop: "1.5px solid #ddd", marginBottom: "32px" }} />
 
             {/* Companies in Review */}
-            <div>
+            <div id="clist-review-section">
               <SectionHeader title="Companies in Review" count={filteredReview.length} />
               {filteredReview.length > 0 ? (
                 <div className="clist-company-grid">

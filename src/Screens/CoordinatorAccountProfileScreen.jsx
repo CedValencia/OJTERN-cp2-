@@ -876,8 +876,8 @@ const MenuRow = ({ label, icon, onClick, viewIcon: themedViewIcon = blackViewIco
   </button>
 );
 
-const MenuGroup = ({ title, children }) => (
-  <div className="cap-menu-group">
+const MenuGroup = ({ title, id, children }) => (
+  <div className="cap-menu-group" id={id}>
     <p style={{ fontFamily: font.ui, fontSize: "1rem", fontWeight: 600, letterSpacing: "-0.01em", color: ink, margin: `0 0 10px 6px` }}>{title}</p>
     {children}
   </div>
@@ -1847,20 +1847,20 @@ const CoordinatorAccountProfileScreen = ({ user, onLogout, viewIcon: themedViewI
       {/* Scrollable body — grouped list */}
       <div className="cap-body">
         <div className="cap-menu-stack">
-          <MenuGroup title="Personal Information:">
+          <MenuGroup title="Personal Information:" id="accprofile-personal-info">
             <MenuRow icon="person" label="Personal Information" onClick={() => setView("personalInfo")} viewIcon={themedViewIcon} />
           </MenuGroup>
 
-          <MenuGroup title="Security:">
+          <MenuGroup title="Security:" id="accprofile-security">
             <MenuRow icon="key" label="Reset Password" onClick={() => setShowReset(true)} viewIcon={themedViewIcon} />
           </MenuGroup>
 
-          <MenuGroup title="Account:">
+          <MenuGroup title="Account:" id="accprofile-account">
             <MenuRow icon="addUser"  label="Add Account"      onClick={() => setShowAddAccount(true)} viewIcon={themedViewIcon} />
             <MenuRow icon="transfer" label="Transfer Account" onClick={() => setShowTransfer(true)} viewIcon={themedViewIcon} />
           </MenuGroup>
 
-          <MenuGroup title="Legal:">
+          <MenuGroup title="Legal:" id="accprofile-legal">
             <MenuRow icon="document" label="Terms & Condition" onClick={() => setView("terms")} viewIcon={themedViewIcon} />
             <MenuRow icon="shield"   label="Privacy Policy"    onClick={() => setView("privacy")} viewIcon={themedViewIcon} />
           </MenuGroup>

@@ -1603,7 +1603,7 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
           </div>
 
           <div style={{ position: "relative", display: "flex", alignItems: "center", flexShrink: 0 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: space.sm, background: color.white, borderRadius: radius.pill, padding: "9px 16px" }}>
+            <div id="sa-search-bar" style={{ display: "flex", alignItems: "center", gap: space.sm, background: color.white, borderRadius: radius.pill, padding: "9px 16px" }}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={inkMuted} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
               <input
                 value={search} onChange={e => setSearch(e.target.value)} placeholder="Search"
@@ -1612,7 +1612,7 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
               />
               {search && <button onClick={() => setSearch("")} aria-label="Clear search" style={{ background: "none", border: "none", color: inkMuted, cursor: "pointer", fontSize: "0.9rem", padding: 0, lineHeight: 1 }}>✕</button>}
             </div>
-            <div style={{ position: "relative", marginLeft: "10px" }}>
+            <div id="sa-filter-btn" style={{ position: "relative", marginLeft: "10px" }}>
               <div
                 onClick={() => setShowFilterDrawer(v => !v)}
                 title="Filters"
@@ -1627,7 +1627,7 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
 
         {/* Toolbar */}
         <div className="sa-toolbar">
-          <div className="sa-toolbar-group">
+          <div id="sa-toolbar-select" className="sa-toolbar-group">
             {!selectMode ? (
               <button onClick={enterSelectMode} style={ghostBtn}>Select</button>
             ) : (
@@ -1647,7 +1647,7 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
               </>
             )}
           </div>
-          <div className="sa-toolbar-group">
+          <div id="sa-toolbar-actions" className="sa-toolbar-group">
             <button onClick={handleExport} style={ghostBtn}>Export</button>
             <button onClick={() => setShowImportModal(true)} style={ghostBtn}>Import</button>
             <button onClick={() => setShowNewModal(true)} style={primaryBtn}>New student</button>
@@ -1673,7 +1673,7 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
         {/* Student list */}
         {filtered.length > 0 ? (
           <>
-            <div className="sa-student-list">
+            <div id="sa-student-list" className="sa-student-list">
               {filtered.map(s => (
                 <StudentRow
                   key={s.id}

@@ -937,7 +937,7 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
           </div>
 
           <div style={{ position: "relative", display: "flex", alignItems: "center", flexShrink: 0 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: space.sm, background: color.white, borderRadius: radius.pill, padding: "9px 16px" }}>
+            <div id="sl-search-bar" style={{ display: "flex", alignItems: "center", gap: space.sm, background: color.white, borderRadius: radius.pill, padding: "9px 16px" }}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={inkMuted} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
               </svg>
@@ -953,7 +953,7 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
               )}
             </div>
 
-            <div ref={exportRef} style={{ position: "relative", marginLeft: "10px" }}>
+            <div id="sl-export-btn" ref={exportRef} style={{ position: "relative", marginLeft: "10px" }}>
               <button
                 onClick={() => setShowExport(v => !v)}
                 disabled={filtered.length === 0 || exportingPdf}
@@ -1009,7 +1009,7 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
               )}
             </div>
 
-            <div style={{ position: "relative", marginLeft: "10px" }}>
+            <div id="sl-filter-btn" style={{ position: "relative", marginLeft: "10px" }}>
               <div
                 onClick={() => setShowFilter(v => !v)}
                 title="Filters"
@@ -1025,7 +1025,7 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
         </div>
 
         {/* Status chips */}
-        <div style={{ display: "flex", gap: space.sm, alignItems: "center", flexWrap: "wrap", marginBottom: space.md }}>
+        <div id="sl-status-chips" style={{ display: "flex", gap: space.sm, alignItems: "center", flexWrap: "wrap", marginBottom: space.md }}>
           {["All", "Accepted", "In Progress", "All Declined", "No Applications yet"].map((statusOption) => {
             const isActive = statusOption === "All" ? filters.status === "" : filters.status === statusOption;
             // Each option keeps the colour of the status it represents, so the
@@ -1070,7 +1070,7 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
             <p style={{ fontFamily: font.ui, ...type.body, color: inkFaint }}>Loading students…</p>
           </div>
         ) : filtered.length > 0 ? (
-          <div className="sp-rows">
+          <div id="sl-student-list" className="sp-rows">
             {filtered.map(renderStudentRow)}
           </div>
         ) : (
