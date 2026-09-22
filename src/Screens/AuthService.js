@@ -156,6 +156,17 @@ export const registerCompany = async (step1Data, verificationDocs) => {
  * @returns {Promise<{ user: FirebaseUser, userData: object }>}
  * @throws descriptive Error messages safe to show in the UI
  */
+// True when a company's timed suspension has run out. Read-only — the actual
+// status flip (checkAndReactivateCompany) needs the company to be signed in,
+// because the Firestore rules only let a company update its own document.
+const isSuspensionExpired = (data) => {
+  if (!data || data.status !== "suspended" || !data.suspendedUntil) return false;
+  const expiry = typeof data.suspendedUntil.toMillis === "function"
+    ? data.suspendedUntil.toMillis()
+    : new Date(data.suspendedUntil).getTime();
+  return Number.isFinite(expiry) && Date.now() >= expiry;
+};
+
 export const signIn = async (role, emailOrStudentId, password) => {
   const collectionMap = {
     coordinator: "coordinators",
@@ -180,13 +191,15 @@ export const signIn = async (role, emailOrStudentId, password) => {
     const snap = await getDocs(q);
     if (!snap.empty) {
       const companyDoc = snap.docs[0];
+      const companyData = companyDoc.data();
 
-      // A timed suspension may have already expired — flip it back to
-      // "approved" before evaluating the status below, so the company isn't
-      // wrongly blocked from a suspension that's technically already over.
-      await checkAndReactivateCompany(companyDoc.id);
-      const freshSnap = await getDoc(doc(db, "companies", companyDoc.id));
-      const status = freshSnap.exists() ? freshSnap.data().status : companyDoc.data().status;
+      // A timed suspension may already be over. It used to be flipped back to
+      // "approved" right here — but this runs BEFORE Firebase Auth sign-in, and
+      // the rules only let a company write its own doc once signed in, so the
+      // write failed with "Missing or insufficient permissions" and blocked the
+      // login entirely. Now an expired suspension is simply let through here,
+      // and the actual reactivation happens after sign-in below.
+      const status = isSuspensionExpired(companyData) ? "approved" : companyData.status;
 
       if (status === "pending") {
         throw new Error("Your account is pending coordinator approval. Please wait before signing in.");
@@ -261,6 +274,23 @@ export const signIn = async (role, emailOrStudentId, password) => {
     await signOut(auth);
     const label = role === "coordinator" ? "OJT Coordinator" : role.charAt(0).toUpperCase() + role.slice(1);
     throw new Error(`This account is not registered as a ${label}.`);  }
+
+  // Expired suspension → reactivate now that the company is signed in (the
+  // rules allow exactly this one status change from the company itself).
+  if (role === "company" && isSuspensionExpired(userData)) {
+    try {
+      const result = await checkAndReactivateCompany(user.uid);
+      if (result?.reactivated) {
+        userData.status = "approved";
+        userData.suspendedUntil = null;
+        userData.statusReason = "Suspension period ended — auto-reactivated.";
+      }
+    } catch (err) {
+      console.error("Auto-reactivation after an expired suspension failed:", err);
+      await signOut(auth);
+      throw new Error("Your suspension has ended, but we couldn't reactivate your account. Please try again in a moment or contact the system administrator.");
+    }
+  }
 
   // Approval / account-standing status check — enforced here (server-checked,
   // post-Auth) regardless of role, as a second line of defense behind the
@@ -871,13 +901,29 @@ export const getCompanyActionHistory = async (companyId) => {
   // fails outright — which showed up as an empty history.
   const toMillis = (t) => (t && typeof t.toMillis === "function" ? t.toMillis() : 0);
 
-  const [actionsSnap, reportsSnap] = await Promise.all([
+  // Each source is read independently: if one is unavailable (for example
+  // companyActions before its Firestore rule is published), the other still
+  // shows. Only when BOTH fail is it reported as an error.
+  const [actionsResult, reportsResult] = await Promise.allSettled([
     getDocs(query(collection(db, "companyActions"), where("companyId", "==", companyId))),
     // Resolved reports carry the action, notes, coordinator and date too.
     // Actions taken while companyActions writes were being blocked by the
     // Firestore rules only exist here, so they're rebuilt from the report.
     getDocs(query(collection(db, "reports"), where("companyId", "==", companyId))),
   ]);
+
+  if (actionsResult.status === "rejected" && reportsResult.status === "rejected") {
+    throw reportsResult.reason;
+  }
+  if (actionsResult.status === "rejected") {
+    console.warn("[ActionHistory] companyActions unavailable — showing actions from resolved reports only:", actionsResult.reason);
+  }
+  if (reportsResult.status === "rejected") {
+    console.warn("[ActionHistory] reports unavailable — showing recorded actions only:", reportsResult.reason);
+  }
+
+  const actionsSnap = actionsResult.status === "fulfilled" ? actionsResult.value : { docs: [], size: 0 };
+  const reportsSnap = reportsResult.status === "fulfilled" ? reportsResult.value : { docs: [], size: 0 };
 
   const recorded = actionsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
   const recordedReportIds = new Set(recorded.map((a) => a.reportId).filter(Boolean));
