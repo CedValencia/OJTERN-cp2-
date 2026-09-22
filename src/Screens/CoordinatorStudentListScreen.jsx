@@ -388,9 +388,9 @@ const chip = (on) => ({
   ...type.helper,
   cursor: "pointer",
   userSelect: "none",
-  background: on ? ink : color.wine800,
-  color: on ? color.white : inkBody,
-  border: `1px solid ${on ? ink : line}`,
+  background: on ? panel : color.wine800,
+  color: on ? onPanel : inkBody,
+  border: `1px solid ${on ? panel : line}`,
   transition: `all 160ms ${ease}`,
 });
 
@@ -1010,8 +1010,8 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
               statusOption === "Accepted"            ? "#358D5E" :
               statusOption === "In Progress"         ? "#CCC929" :
               statusOption === "All Declined"        ? "#FF0000" :
-              statusOption === "No Applications yet" ? "#A9A9A9" : "#000000";
-            const activeText = color.white;
+              statusOption === "No Applications yet" ? "#A9A9A9" : panel;
+            const activeText = statusOption === "All" ? onPanel : color.white;
 
             return (
               <button

@@ -24,13 +24,19 @@ const surface    = "#FFFFFF";
 const page       = "#FFFFFF";
 const line       = "#E5E5E5";
 const lineSoft   = "#F4F4F4";
-const panel      = "#000000";
-const panelDeep  = "#222222";
-const onPanel    = "#FFFFFF";
-const onPanelDim = "#F5F5F5";
+// These now resolve through theme.js's CSS custom properties (--ojt-ink,
+// --ojt-ink-deep, --ojt-badge, ...) instead of fixed hex, so this screen
+// repaints along with the coordinator's theme-color picker just like
+// CoordinatorDashboardScreen does. Relies on this screen being rendered as
+// a descendant of the dashboard's top-level wrapper, which is where
+// getAccentThemeVars(accentThemeId) is spread.
+const panel      = color.blush50;   // var(--ojt-ink, #000000)
+const panelDeep  = color.blush100;  // var(--ojt-ink-deep, #161616)
+const onPanel    = color.onWine;
+const onPanelDim = color.onWineMuted;
 
-const red      = "#111111";
-const darkRed = "#000000";
+const red      = color.blush50;   // was fixed "#111111" — now tracks --ojt-ink
+const darkRed  = color.blush100;  // was fixed "#000000" — now tracks --ojt-ink-deep
 
 // ── Responsive styles ─────────────────────────────────────────────────────────
 const ResponsiveStyles = () => (
@@ -78,8 +84,8 @@ const ResponsiveStyles = () => (
       flex: 1 !important;
       min-width: 0 !important;
       padding: 18px 28px !important;
-      background: ${panel} !important;
-      border: 1px solid ${panel} !important;
+      background: ${panelDeep} !important;
+      border: 1px solid ${panelDeep} !important;
       border-radius: 18px !important;
       box-shadow: none !important;
     }

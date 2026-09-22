@@ -398,9 +398,9 @@ const chip = (on) => ({
   ...type.helper,
   cursor: "pointer",
   userSelect: "none",
-  background: on ? ink : color.wine800,
-  color: on ? color.white : inkBody,
-  border: `1px solid ${on ? ink : line}`,
+  background: on ? panel : color.wine800,
+  color: on ? onPanel : inkBody,
+  border: `1px solid ${on ? panel : line}`,
   transition: `all 160ms ${ease}`,
 });
 
@@ -1283,7 +1283,7 @@ const StudentRowMenu = ({ onView, onDelete }) => {
 const Checkbox = ({ checked, onClick }) => (
   <div
     onClick={onClick}
-    style={{ width: "18px", height: "18px", border: `1.5px solid ${checked ? ink : color.wine400}`, borderRadius: "5px", background: checked ? ink : color.white, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 }}
+    style={{ width: "18px", height: "18px", border: `1.5px solid ${checked ? panel : color.wine400}`, borderRadius: "5px", background: checked ? panel : color.white, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 }}
   >
     {checked && <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={color.white} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>}
   </div>
@@ -1325,7 +1325,7 @@ const StudentRow = ({ student: s, selectMode, isSelected, onToggleSelect, onView
     <div
       className="sa-row"
       onClick={() => onView(s)}
-      style={{ borderColor: isSelected ? ink : undefined }}
+      style={{ borderColor: isSelected ? panel : undefined }}
     >
       {selectMode && (
         <div onClick={(e) => { e.stopPropagation(); onToggleSelect(s.id); }}>
@@ -1356,22 +1356,6 @@ const StudentRow = ({ student: s, selectMode, isSelected, onToggleSelect, onView
       </div>
 
       <div className="sa-row-actions">
-        {s.yearSection && (
-          <span className="sa-row-badge" style={{
-            background: color.wine800, border: `1px solid ${line}`, color: inkMuted,
-            borderRadius: radius.pill, padding: "3px 11px",
-            fontFamily: font.ui, fontSize: "0.75rem", whiteSpace: "nowrap",
-          }}>
-            {s.yearSection}
-          </span>
-        )}
-        <span
-          className="sa-row-view"
-          onClick={(e) => { e.stopPropagation(); onView(s); }}
-          style={{ fontFamily: font.ui, ...type.helper, fontWeight: 500, color: ink, cursor: "pointer", whiteSpace: "nowrap" }}
-        >
-          View
-        </span>
         <div onClick={(e) => e.stopPropagation()}>
           <StudentRowMenu onView={() => onView(s)} onDelete={() => onDelete(s.id)} />
         </div>
@@ -1671,7 +1655,7 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
                 <button
                   onClick={handleDeleteSelected}
                   disabled={selected.size === 0}
-                  style={{ ...ghostBtn, color: danger, borderColor: selected.size === 0 ? line : danger, opacity: selected.size === 0 ? 0.5 : 1, cursor: selected.size === 0 ? "default" : "pointer" }}
+                  style={{ ...ghostBtn, color: panel, borderColor: selected.size === 0 ? line : panel, opacity: selected.size === 0 ? 0.5 : 1, cursor: selected.size === 0 ? "default" : "pointer" }}
                 >
                   {allSelected && selected.size > 0 ? "Delete all" : `Delete${selected.size > 0 ? ` (${selected.size})` : ""}`}
                 </button>
