@@ -2542,21 +2542,21 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
   );
 
   // ── Filter Panel ──────────────────────────────────────────────────────────────
+  // Same interaction as Find Company's panel: Industry is a type-to-search
+  // field whose picks become removable chips, and Location is one free-text
+  // box matched against the company's whole address. The old cascading
+  // Region › Province › City › Barangay dropdowns are gone — they only matched
+  // companies whose address happened to use the exact same spelling as the
+  // dropdown, and a coordinator looking for one city had to walk three menus
+  // to get there.
   const FilterPanel = ({
     industries,
     selectedIndustries, setSelectedIndustries,
-    selectedRegion, setSelectedRegion,
-    selectedProvince, setSelectedProvince,
-    selectedCity, setSelectedCity,
-    selectedBarangay, setSelectedBarangay,
+    locationSearch, setLocationSearch,
   }) => {
-    const regionData   = UNIQUE_REGIONS.find(r => r.name === selectedRegion);
-    const provinceData = regionData?.provinces.find(p => p.name === selectedProvince);
-    const cityData     = provinceData?.cities.find(c => c.name === selectedCity);
+    const [industryQuery, setIndustryQuery] = useState("");
+    const [showSuggestions, setShowSuggestions] = useState(false);
 
-    // `industries` prop is passed from the main screen, derived from the
-    // companies currently in view (Industry is company info only — it no
-    // longer drives which companies a coordinator sees; Department/Program does)
     const toggleIndustry = (ind) =>
       setSelectedIndustries(prev =>
         prev.includes(ind) ? prev.filter(i => i !== ind) : [...prev, ind]
@@ -2564,131 +2564,81 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
 
     const clearAll = () => {
       setSelectedIndustries([]);
-      setSelectedRegion(""); setSelectedProvince("");
-      setSelectedCity(""); setSelectedBarangay("");
+      setLocationSearch("");
+      setIndustryQuery("");
     };
 
-    const locationLevel = !selectedRegion ? "region"
-      : !selectedProvince ? "province"
-      : !selectedCity ? "city"
-      : "barangay";
+    const q = industryQuery.trim().toLowerCase();
+    const options = industries || [];
+    const matches = options.filter(ind => !selectedIndustries.includes(ind) && (q === "" || ind.toLowerCase().includes(q)));
+
+    const fieldStyle = { width: "100%", padding: "9px 14px", borderRadius: radius.pill, border: `1px solid ${color.wine700}`, background: color.wine800, ...type.helper, fontFamily: font.ui, outline: "none", boxSizing: "border-box", color: color.ink };
 
     return (
-      <div style={{
-        position: "absolute", top: "48px", right: 0, width: "240px",
-        background: "white", border: `1.5px solid ${red}`, borderRadius: "10px",
-        boxShadow: "0 6px 24px rgba(0,0,0,0.18)", zIndex: 100,
-        overflow: "hidden", fontFamily: "'Kufam', sans-serif"
-      }}>
+      <div style={{ position: "absolute", top: "48px", right: 0, width: "250px", background: color.white, border: `1px solid ${color.wine700}`, borderRadius: radius.card, boxShadow: shadow.panel, zIndex: 100, overflow: "hidden", fontFamily: font.ui }}>
+        <div style={{ padding: "12px 14px 6px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: space.sm }}>
+            <p style={{ ...type.label, color: color.ink }}>Industry</p>
+            <button onClick={clearAll} style={{ background: "none", border: "none", ...type.helper, color: color.inkMuted, cursor: "pointer", fontFamily: font.ui, padding: 0, textDecoration: "underline" }}>Clear all</button>
+          </div>
 
-        {/* ── Industry + Clear All ── */}
-        <div style={{ padding: "10px 12px 4px" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
-            <p style={{ fontSize: "0.78rem", fontWeight: "bold", color: darkRed, margin: 0 }}>Industry:</p>
-            <button onClick={clearAll} style={{ background: "none", border: "none", fontSize: "0.7rem", color: red, cursor: "pointer", fontFamily: "'Kufam', sans-serif", padding: 0, textDecoration: "underline" }}>Clear all</button>
-          </div>
-          <div style={{ maxHeight: "110px", overflowY: "auto", display: "flex", flexWrap: "wrap", gap: "5px" }}>
-            {industries && industries.length > 0 ? (
-              industries.map(ind => (
-                <span key={ind} onClick={() => toggleIndustry(ind)} style={{
-                  padding: "3px 9px", borderRadius: "20px", fontSize: "0.72rem",
-                  cursor: "pointer", userSelect: "none",
-                  background: selectedIndustries.includes(ind) ? red : "#f0e0e0",
-                  color: selectedIndustries.includes(ind) ? "white" : darkRed,
-                  border: `1px solid ${red}`, transition: "all 0.15s"
-                }}>{ind}</span>
-              ))
-            ) : (
-              <span style={{ fontSize: "0.72rem", color: "#bbb", fontStyle: "italic" }}>No industries available</span>
-            )}
-          </div>
+          <input
+            type="text"
+            value={industryQuery}
+            onChange={e => { setIndustryQuery(e.target.value); setShowSuggestions(true); }}
+            onFocus={() => setShowSuggestions(true)}
+            placeholder="Type an industry"
+            autoComplete="off"
+            style={fieldStyle}
+          />
+
+          {showSuggestions && (
+            <div style={{ marginTop: "8px", maxHeight: "130px", overflowY: "auto", border: `1px solid ${color.wine700}`, borderRadius: radius.card }}>
+              {matches.length === 0 ? (
+                <p style={{ ...type.helper, color: color.inkMuted, fontFamily: font.ui, padding: "8px 12px", margin: 0 }}>
+                  {options.length === 0 ? "No industries registered yet." : "No industry matches that."}
+                </p>
+              ) : matches.map(ind => (
+                <div
+                  key={ind}
+                  onClick={() => { toggleIndustry(ind); setIndustryQuery(""); setShowSuggestions(false); }}
+                  style={{ padding: "7px 12px", cursor: "pointer", fontFamily: font.ui, ...type.helper, color: color.inkBody }}
+                  onMouseEnter={e => (e.currentTarget.style.background = color.hoverWash)}
+                  onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+                >
+                  {ind}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {selectedIndustries.length > 0 && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "8px" }}>
+              {selectedIndustries.map(ind => (
+                <span
+                  key={ind}
+                  onClick={() => toggleIndustry(ind)}
+                  title="Remove"
+                  style={{ display: "inline-flex", alignItems: "center", gap: "6px", padding: "4px 11px", borderRadius: radius.pill, ...type.helper, fontFamily: font.ui, cursor: "pointer", userSelect: "none", background: color.ink, color: color.white, border: `1px solid ${color.ink}`, transition: `all 160ms ${ease}` }}
+                >
+                  {ind}<span style={{ opacity: 0.7 }}>✕</span>
+                </span>
+              ))}
+            </div>
+          )}
         </div>
 
-        <hr style={{ border: "none", borderTop: "1px solid #eee", margin: "6px 0" }} />
+        <hr style={{ border: "none", borderTop: `1px solid ${color.wine700}`, margin: `10px 0` }} />
 
-        {/* ── Location ── */}
-        <div style={{ padding: "4px 12px 10px" }}>
-          <p style={{ fontSize: "0.78rem", fontWeight: "bold", color: darkRed, marginBottom: "6px" }}>
-            Location:
-            {locationLevel !== "region" && (
-              <span style={{ fontWeight: "normal", color: "#888", marginLeft: "6px", fontSize: "0.68rem" }}>
-                {[selectedRegion, selectedProvince, selectedCity].filter(Boolean).join(" › ")}
-              </span>
-            )}
-          </p>
-
-          {locationLevel === "region" && (
-            <div style={{ maxHeight: "160px", overflowY: "auto", display: "flex", flexDirection: "column", gap: "3px" }}>
-              {UNIQUE_REGIONS.length > 0 ? (
-                UNIQUE_REGIONS.map(r => (
-                  <div key={r.name}
-                    onClick={() => { setSelectedRegion(r.name); setSelectedProvince(""); setSelectedCity(""); setSelectedBarangay(""); }}
-                    style={{ padding: "4px 8px", borderRadius: "6px", fontSize: "0.72rem", cursor: "pointer", background: "#f7f0f0", color: darkRed, border: "1px solid #e0c0c0" }}
-                    onMouseEnter={e => e.currentTarget.style.background = color.hoverWashStrong}
-                    onMouseLeave={e => e.currentTarget.style.background = "#f7f0f0"}
-                  >{r.name}</div>
-                ))
-              ) : (
-                <span style={{ fontSize: "0.72rem", color: "#bbb", fontStyle: "italic" }}>No regions available</span>
-              )}
-            </div>
-          )}
-
-          {locationLevel === "province" && (
-            <div>
-              <div onClick={() => { setSelectedRegion(""); setSelectedProvince(""); setSelectedCity(""); setSelectedBarangay(""); }}
-                style={{ display: "flex", alignItems: "center", gap: "4px", cursor: "pointer", marginBottom: "6px", color: red, fontSize: "0.72rem" }}>
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={red} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
-                {selectedRegion}
-              </div>
-              <div style={{ maxHeight: "150px", overflowY: "auto", display: "flex", flexDirection: "column", gap: "3px" }}>
-                {regionData?.provinces.map(p => (
-                  <div key={p.name}
-                    onClick={() => { setSelectedProvince(p.name); setSelectedCity(""); setSelectedBarangay(""); }}
-                    style={{ padding: "4px 8px", borderRadius: "6px", fontSize: "0.72rem", cursor: "pointer", background: "#f7f0f0", color: darkRed, border: "1px solid #e0c0c0" }}
-                    onMouseEnter={e => e.currentTarget.style.background = color.hoverWashStrong}
-                    onMouseLeave={e => e.currentTarget.style.background = "#f7f0f0"}
-                  >{p.name}</div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {locationLevel === "city" && (
-            <div>
-              <div onClick={() => { setSelectedProvince(""); setSelectedCity(""); setSelectedBarangay(""); }}
-                style={{ display: "flex", alignItems: "center", gap: "4px", cursor: "pointer", marginBottom: "6px", color: red, fontSize: "0.72rem" }}>
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={red} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
-                {selectedProvince}
-              </div>
-              <div style={{ maxHeight: "150px", overflowY: "auto", display: "flex", flexWrap: "wrap", gap: "5px" }}>
-                {provinceData?.cities.map(c => (
-                  <span key={c.name}
-                    onClick={() => { setSelectedCity(c.name); setSelectedBarangay(""); }}
-                    style={{ padding: "3px 9px", borderRadius: "20px", fontSize: "0.71rem", cursor: "pointer", userSelect: "none", background: "#f0e0e0", color: darkRed, border: `1px solid ${red}`, transition: "all 0.15s" }}
-                  >{c.name}</span>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {locationLevel === "barangay" && (
-            <div>
-              <div onClick={() => { setSelectedCity(""); setSelectedBarangay(""); }}
-                style={{ display: "flex", alignItems: "center", gap: "4px", cursor: "pointer", marginBottom: "6px", color: red, fontSize: "0.72rem" }}>
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={red} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
-                {selectedCity}
-              </div>
-              <div style={{ maxHeight: "150px", overflowY: "auto", display: "flex", flexWrap: "wrap", gap: "5px" }}>
-                {cityData?.barangays.map(b => (
-                  <span key={b}
-                    onClick={() => setSelectedBarangay(prev => prev === b ? "" : b)}
-                    style={{ padding: "3px 9px", borderRadius: "20px", fontSize: "0.71rem", cursor: "pointer", userSelect: "none", background: selectedBarangay === b ? red : "#f0e0e0", color: selectedBarangay === b ? "white" : darkRed, border: `1px solid ${red}`, transition: "all 0.15s" }}
-                  >{b}</span>
-                ))}
-              </div>
-            </div>
-          )}
+        <div style={{ padding: `0 14px 14px` }}>
+          <p style={{ ...type.label, color: color.ink, marginBottom: space.sm }}>Location</p>
+          <input
+            type="text"
+            value={locationSearch}
+            onChange={e => setLocationSearch(e.target.value)}
+            placeholder="City, province, or region"
+            style={fieldStyle}
+          />
         </div>
       </div>
     );
@@ -3287,10 +3237,8 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
     const [search, setSearch]                         = useState("");
     const [showFilter, setShowFilter]                 = useState(false);
     const [selectedIndustries, setSelectedIndustries] = useState([]);
-    const [selectedRegion,   setSelectedRegion]       = useState("");
-    const [selectedProvince, setSelectedProvince]     = useState("");
-    const [selectedCity,     setSelectedCity]         = useState("");
-    const [selectedBarangay, setSelectedBarangay]     = useState("");
+    // One free-text location box (was: four cascading dropdowns).
+    const [locationSearch,   setLocationSearch]       = useState("");
     const [loadError,        setLoadError]            = useState(false);
     const [retryCount,       setRetryCount]           = useState(0);
     const filterRef = useRef(null);
@@ -3397,15 +3345,21 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
       return () => document.removeEventListener("mousedown", handler);
     }, []);
 
-    const hasFilter = selectedIndustries.length > 0 || selectedRegion || selectedProvince || selectedCity || selectedBarangay;
+    const hasFilter = selectedIndustries.length > 0 || locationSearch.trim();
+
+    const selectedIndustriesLower = selectedIndustries.map(i => String(i).toLowerCase());
 
     const applyFilter = (list) => list.filter(c => {
       const matchSearch   = !search || c.name.toLowerCase().includes(search.toLowerCase()) || c.industry.toLowerCase().includes(search.toLowerCase()) || c.location.toLowerCase().includes(search.toLowerCase());
-      const matchIndustry = selectedIndustries.length === 0 || selectedIndustries.some(ind => c.industries.includes(ind));
-      const matchRegion   = !selectedRegion   || c.region   === selectedRegion;
-      const matchProvince = !selectedProvince || c.province === selectedProvince;
-      const matchCity     = !selectedCity     || c.city     === selectedCity || c.location.toLowerCase().includes(selectedCity.toLowerCase());
-      return matchSearch && matchIndustry && matchRegion && matchProvince && matchCity;
+      // Industry is free-typed at sign-up, so casing drifts between companies.
+      const matchIndustry = selectedIndustries.length === 0
+        || c.industries.some(ind => selectedIndustriesLower.includes(String(ind).toLowerCase()));
+      // Matched against the full address (street, barangay, city, province,
+      // region), so any part the coordinator types finds the company.
+      const locQuery = locationSearch.trim().toLowerCase();
+      const matchLocation = !locQuery || [c.location, c.city, c.province, c.region]
+        .filter(Boolean).join(", ").toLowerCase().includes(locQuery);
+      return matchSearch && matchIndustry && matchLocation;
     });
 
     const filteredRegistered = applyFilter(registeredList);
@@ -3458,12 +3412,9 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
       }
     };
 
-    const clearAll = () => { setSelectedIndustries([]); setSelectedRegion(""); setSelectedProvince(""); setSelectedCity(""); setSelectedBarangay(""); };
+    const clearAll = () => { setSelectedIndustries([]); setLocationSearch(""); };
 
-    const activeBadgeLabel = () => {
-      const parts = [selectedRegion, selectedProvince, selectedCity, selectedBarangay].filter(Boolean);
-      return parts.length ? parts.join(" › ") : null;
-    };
+    const activeBadgeLabel = () => locationSearch.trim() || null;
 
     // ── Loading / empty states ───────────────────────────────────────────────
     if (loadingProfile) {
@@ -3650,10 +3601,7 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
                   <FilterPanel
                     industries={availableIndustries}
                     selectedIndustries={selectedIndustries} setSelectedIndustries={setSelectedIndustries}
-                    selectedRegion={selectedRegion}     setSelectedRegion={setSelectedRegion}
-                    selectedProvince={selectedProvince} setSelectedProvince={setSelectedProvince}
-                    selectedCity={selectedCity}         setSelectedCity={setSelectedCity}
-                    selectedBarangay={selectedBarangay} setSelectedBarangay={setSelectedBarangay}
+                    locationSearch={locationSearch} setLocationSearch={setLocationSearch}
                   />
                 )}
               </div>
@@ -3672,7 +3620,7 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
               {activeBadgeLabel() && (
                 <span style={{ background: color.wine600, color: color.inkBody, border: `1px solid ${color.wine700}`, borderRadius: radius.pill, padding: "4px 12px", fontFamily: font.ui, ...type.helper, display: "flex", alignItems: "center", gap: "6px" }}>
                   {activeBadgeLabel()}
-                  <span onClick={() => { setSelectedRegion(""); setSelectedProvince(""); setSelectedCity(""); setSelectedBarangay(""); }} style={{ cursor: "pointer", fontWeight: "bold" }}>×</span>
+                  <span onClick={() => setLocationSearch("")} style={{ cursor: "pointer", fontWeight: "bold" }}>×</span>
                 </span>
               )}
               <span onClick={clearAll} style={{ fontSize: "0.74rem", color: red, cursor: "pointer", fontFamily: "'Kufam', sans-serif", textDecoration: "underline" }}>Clear all</span>

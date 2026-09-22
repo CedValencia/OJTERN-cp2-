@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { collection, onSnapshot } from "firebase/firestore";
+import { collection, doc, onSnapshot } from "firebase/firestore";
 import { db } from "./firebase";
 import userIcon from "../icons/user.png";
 import { color, font, type, space, radius, shadow, ease } from "./theme";
@@ -211,6 +211,23 @@ const FilterPanel = ({ filterRef, filterCollege, filterProgram, setFilterCollege
 };
 
 
+// Pulls department names out of a company doc, whichever shape it uses.
+// Entries may be plain strings or objects ({ department } / { college }).
+const departmentNamesOf = (data) => {
+  if (!data) return [];
+  const pick = (entry) => {
+    if (typeof entry === "string") return entry;
+    return entry?.department || entry?.college || entry?.name || "";
+  };
+  const fields = [data.departments, data.deptSelections, data.collegePrograms];
+  const names = fields
+    .filter(Array.isArray)
+    .flatMap(list => list.map(pick))
+    .map(name => String(name || "").trim())
+    .filter(Boolean);
+  return [...new Set(names)];
+};
+
 // ── Main CompanyCoordinatorsScreen ────────────────────────────────────────────
 const CompanyCoordinatorsScreen = ({ embedded, user, onNavigateToMessages }) => {
   const isMobile = useIsMobile();
@@ -219,6 +236,11 @@ const CompanyCoordinatorsScreen = ({ embedded, user, onNavigateToMessages }) => 
   const [search, setSearch] = useState("");
   const [coordinators, setCoordinators] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  // Departments this company picked at Sign-Up Step 1 (companies/{uid}.departments,
+  // with deptSelections[].department as the fallback shape). null = still loading,
+  // [] = the company picked none, so nothing can be matched against.
+  const [companyDepartments, setCompanyDepartments] = useState(null);
 
   const [showFilter, setShowFilter] = useState(false);
   const [filterCollege, setFilterCollege] = useState("");
@@ -234,7 +256,38 @@ const CompanyCoordinatorsScreen = ({ embedded, user, onNavigateToMessages }) => 
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  // All coordinators, no filtering by industry — full directory.
+  // Read the company's own departments live, so a change made in their profile
+  // updates this list without a reload.
+  //
+  // Company docs carry their Department/Program picks under more than one
+  // shape depending on when and how they registered — `departments` (plain
+  // names), `deptSelections` ([{ department, program }], written by
+  // registerCompany) and `collegePrograms` ([{ college, program }], the shape
+  // CoordinatorCompanyListScreen reads). All three are collected, so a company
+  // is never matched against an empty list just because of which one it uses.
+  useEffect(() => {
+    if (!user?.uid) {
+      console.warn("[Coordinators] No company uid on `user` — cannot scope the list by department.");
+      setCompanyDepartments([]);
+      return;
+    }
+    const unsub = onSnapshot(
+      doc(db, "companies", user.uid),
+      (snap) => {
+        const data = snap.exists() ? (snap.data() || {}) : {};
+        setCompanyDepartments(departmentNamesOf(data));
+      },
+      (err) => {
+        // Don't strand the company with an empty screen on a read failure —
+        // fall back to whatever their session profile already carries.
+        console.error("Failed to load company departments:", err);
+        setCompanyDepartments(departmentNamesOf(user));
+      }
+    );
+    return () => unsub();
+  }, [user?.uid]);
+
+  // Coordinators of the departments this company selected at sign-up.
   useEffect(() => {
     const unsub = onSnapshot(
       collection(db, "coordinators"),
@@ -250,6 +303,10 @@ const CompanyCoordinatorsScreen = ({ embedded, user, onNavigateToMessages }) => 
           return {
             id: d.id,
             name: data.name || "Coordinator",
+            // The address the coordinator gave during first-login setup and can
+            // update from their Account Profile (requestUserEmailChange keeps
+            // this field and their Auth login email in step).
+            email: String(data.email || "").trim(),
             department: Array.isArray(data.deptSelections) ? data.deptSelections : [],
             colleges,
             programs,
@@ -274,8 +331,29 @@ const CompanyCoordinatorsScreen = ({ embedded, user, onNavigateToMessages }) => 
 
   const activeFilterCount = (filterCollege ? 1 : 0) + (filterProgram ? 1 : 0);
 
-  const filtered = coordinators.filter((c) => {
-    const matchesName = c.name.toLowerCase().includes(search.toLowerCase());
+  // Only coordinators who handle at least one of the company's departments.
+  // While the departments are still loading, show nothing rather than briefly
+  // flashing the full directory.
+  const companyDeptsLower = (companyDepartments || []).map(d => String(d).trim().toLowerCase());
+  const scoped = companyDepartments === null
+    ? []
+    : coordinators.filter(c => (c.colleges || []).some(col => companyDeptsLower.includes(String(col).trim().toLowerCase())));
+
+  // One line in the console makes a naming mismatch obvious: if the company's
+  // departments and the coordinators' departments are spelled differently,
+  // nothing matches and this says so in the data's own words.
+  useEffect(() => {
+    if (companyDepartments === null || coordinators.length === 0) return;
+    console.debug(
+      "[Coordinators] company departments:", companyDepartments,
+      "| coordinator departments:", [...new Set(coordinators.flatMap(c => c.colleges || []))],
+      "| matched:", scoped.length, "of", coordinators.length
+    );
+  }, [companyDepartments, coordinators, scoped.length]);
+
+  const filtered = scoped.filter((c) => {
+    const term = search.toLowerCase();
+    const matchesName = c.name.toLowerCase().includes(term) || (c.email || "").toLowerCase().includes(term);
     const matchesCollege = !filterCollege || (c.colleges || []).includes(filterCollege);
     const filterProgramCode = PROGRAM_CODE_MAP[filterProgram] || filterProgram;
     const matchesProgram = !filterProgram || (c.programs || []).includes(filterProgramCode);
@@ -336,7 +414,7 @@ const CompanyCoordinatorsScreen = ({ embedded, user, onNavigateToMessages }) => 
             </h2>
           </div>
           <p style={{ ...type.helper, color: color.inkMuted, margin: "6px 0 0 14px" }}>
-            Connect with your assigned college coordinators.
+            Connect with the coordinators of the departments you selected.
           </p>
         </div>
 
@@ -355,7 +433,7 @@ const CompanyCoordinatorsScreen = ({ embedded, user, onNavigateToMessages }) => 
             <input
               value={search}
               onChange={e => setSearch(e.target.value)}
-              placeholder="Search coordinators"
+              placeholder="Search name or email"
               aria-label="Search coordinators"
               style={{
                 width: isMobile ? "100%" : "205px", border: "none", background: "transparent",
@@ -418,7 +496,7 @@ const CompanyCoordinatorsScreen = ({ embedded, user, onNavigateToMessages }) => 
       </header>
 
       <main style={{ flex: 1, minHeight: 0, overflowY: "auto", overflowX: "hidden", padding: isMobile ? "18px 16px 28px" : "24px 32px 36px" }}>
-        {!loading && coordinators.length > 0 && (
+        {!loading && scoped.length > 0 && (
           <div style={{
             display: "flex", alignItems: "center", justifyContent: "space-between",
             marginBottom: "18px", gap: "12px",
@@ -464,15 +542,17 @@ const CompanyCoordinatorsScreen = ({ embedded, user, onNavigateToMessages }) => 
               display: "flex", alignItems: "center", justifyContent: "center",
               fontSize: "1.35rem", fontWeight: 700,
             }}>
-              {coordinators.length === 0 ? "C" : "⌕"}
+              {scoped.length === 0 ? "C" : "⌕"}
             </div>
             <p style={{ ...type.label, color: color.ink, margin: 0 }}>
-              {coordinators.length === 0 ? "No coordinators yet" : "No matching coordinators"}
+              {scoped.length === 0 ? "No coordinators yet" : "No matching coordinators"}
             </p>
             <p style={{ ...type.helper, color: color.inkMuted, margin: "6px 0 0" }}>
-              {coordinators.length === 0
-                ? "Coordinator profiles will appear here when they are available."
-                : "Try a different name or clear your filters."}
+              {scoped.length > 0
+                ? "Try a different name or clear your filters."
+                : (companyDepartments && companyDepartments.length === 0
+                    ? "Your account has no department selected yet. Contact a coordinator to have one assigned."
+                    : "No coordinator handles your selected departments yet. They'll appear here once assigned.")}
             </p>
           </div>
         )}
@@ -548,6 +628,21 @@ const CompanyCoordinatorsScreen = ({ embedded, user, onNavigateToMessages }) => 
                     }}>
                       {coord.programs?.length > 0 ? coord.programs.join(", ") : "Coordinator"}
                     </p>
+                    {coord.email && (
+                      <a
+                        href={`mailto:${coord.email}`}
+                        title={coord.email}
+                        style={{
+                          ...type.helper, color: color.inkMuted, margin: "3px 0 0",
+                          display: "block", textDecoration: "none",
+                          whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+                        }}
+                        onMouseEnter={e => { e.currentTarget.style.color = color.ink; e.currentTarget.style.textDecoration = "underline"; }}
+                        onMouseLeave={e => { e.currentTarget.style.color = color.inkMuted; e.currentTarget.style.textDecoration = "none"; }}
+                      >
+                        {coord.email}
+                      </a>
+                    )}
                   </div>
 
                   <button

@@ -988,7 +988,7 @@ export const generateStudentPassword = (firstName, lastName, studentId, collegeA
  */
 export const createStudentAccount = async (studentData, createdByUid) => {
   const {
-    studentId, lastName, middleInitial, firstName,
+    studentId, lastName, middleInitial, firstName, middleName,
     college, program, specialization, yearSection,
     sex, age, email, collegeAbbr,
   } = studentData;
@@ -1034,15 +1034,19 @@ export const createStudentAccount = async (studentData, createdByUid) => {
       uid:            newUid,
       studentId:      studentId.trim(),
       lastName:       lastName.trim(),
-      middleInitial:  middleInitial.trim(),
+      middleInitial:  (middleInitial || "").trim(),
+      // Full middle name when the bulk-import sheet provided one.
+      ...(middleName && String(middleName).trim() ? { middleName: String(middleName).trim() } : {}),
       firstName:      firstName.trim(),
-      fullName: `${firstName.trim()} ${middleInitial.trim() ? middleInitial.trim().replace(/\.$/, "") + ". " : ""}${lastName.trim()}`,
+      fullName: `${firstName.trim()} ${(middleInitial || "").trim() ? (middleInitial || "").trim().replace(/\.$/, "") + ". " : ""}${lastName.trim()}`,
       college:        college.trim(),
-      program:        program.trim(),
-      specialization: specialization.trim(),
+      program:        (program || "").trim(),
+      specialization: (specialization || "").trim(),
       yearSection:    yearSection.trim(),
-      sex,
-      age:            Number(age),
+      sex:            sex || "",
+      // Bulk-imported students have no age yet (they enter it on first
+      // login). Store null rather than Number("") === 0.
+      age:            age === "" || age == null ? null : Number(age),
       email:          authEmail,
       // Lets the UI (and a future "add your email" first-login prompt)
       // distinguish a real address from the placeholder, without having to

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
-import { collection, addDoc, serverTimestamp, onSnapshot, query, where, doc, updateDoc, deleteDoc, getDocs } from "firebase/firestore";
+import { collection, addDoc, serverTimestamp, onSnapshot, query, where, doc, getDoc, updateDoc, deleteDoc, getDocs } from "firebase/firestore";
 import { db } from "./firebase";
 import { uploadFilesToFolder } from "./CloudinaryService";
 import blackCompanyProfileIcon from "../icons/blackcompanyprofile.png";
@@ -3159,6 +3159,40 @@ const FormFields = ({ f, locked = false }) => {
 
 
 // ─── APPLY MODAL ──────────────────────────────────────────────────────────────
+// ── Company availability ─────────────────────────────────────────────────────
+// A company that a coordinator suspended or blocked (see applyCompanyEnforcement
+// in AuthService.js) must not receive new applications. Suspensions expire on
+// their own date, and the company's own status field is only flipped back when
+// they next sign in (checkAndReactivateCompany), so an expired suspension is
+// treated as available here rather than locking students out longer than the
+// coordinator intended.
+const companyAvailability = (data) => {
+  if (!data) return { ok: false, message: "This company is no longer available. Try another company." };
+
+  const status = String(data.status || "").toLowerCase();
+
+  if (status === "blocked") {
+    return { ok: false, title: "Applications Closed", message: "This company is currently blocked and isn't accepting applications." };
+  }
+  if (status === "suspended") {
+    const untilMs = typeof data.suspendedUntil?.toMillis === "function" ? data.suspendedUntil.toMillis() : null;
+    if (!untilMs || Date.now() < untilMs) {
+      return {
+        ok: false,
+        title: "Applications Closed",
+        message: untilMs
+          ? `This company is suspended until ${new Date(untilMs).toLocaleDateString()} and isn't accepting applications.`
+          : "This company is currently suspended and isn't accepting applications.",
+      };
+    }
+    return { ok: true }; // suspension already expired
+  }
+  if (status !== "approved") {
+    return { ok: false, title: "Applications Closed", message: "This company isn't accepting applications right now." };
+  }
+  return { ok: true };
+};
+
 export const ApplyModal = ({ company, onClose, onSuccessClose, onSubmit, user }) => {
   const companyDisplayName = company?.name || company?.companyName || ""; 
   const COLLEGE_ABBR_MAP = {
@@ -3203,6 +3237,9 @@ export const ApplyModal = ({ company, onClose, onSuccessClose, onSubmit, user })
   const [submitting, setSubmitting]   = useState(false);
   const [alreadyApplied, setAlreadyApplied] = useState(false);
   const [checkingApplied, setCheckingApplied] = useState(true);
+  // null while unknown; set to a { title, message } object when the company
+  // can't accept applications (suspended / blocked / not approved).
+  const [unavailable, setUnavailable] = useState(null);
 
   // The specific OJT post being applied to — a student may apply to more
   // than one post at the same company, so the duplicate check below scopes
@@ -3235,7 +3272,33 @@ export const ApplyModal = ({ company, onClose, onSuccessClose, onSubmit, user })
     return () => { cancelled = true; };
   }, [user?.uid, targetPostId]);
 
+  const targetCompanyId = company?.companyId || company?.id || "";
+
+  // Reads the company's CURRENT status, never a copy denormalized onto the post.
+  const loadAvailability = async () => {
+    if (!targetCompanyId) return { ok: true };
+    const snap = await getDoc(doc(db, "companies", targetCompanyId));
+    return companyAvailability(snap.exists() ? snap.data() : null);
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const result = await loadAvailability();
+        if (!cancelled && !result.ok) setUnavailable({ title: result.title, message: result.message });
+      } catch (err) {
+        // A failed read shouldn't block a legitimate application; the re-check
+        // on submit (and the Firestore rule) still stands in the way.
+        console.error("Failed to check company availability:", err);
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [targetCompanyId]);
+
   const handleSubmit = async () => {
+    if (unavailable) return;
     if (alreadyApplied) {
       setSubmitError("You've already applied to this post.");
       return;
@@ -3259,6 +3322,15 @@ export const ApplyModal = ({ company, onClose, onSuccessClose, onSubmit, user })
       if (!dupSnap.empty) {
         setAlreadyApplied(true);
         setSubmitError("You've already applied to this post.");
+        setSubmitting(false);
+        return;
+      }
+
+      // Re-check the company right before writing: it may have been suspended
+      // or blocked while this form was open.
+      const availability = await loadAvailability();
+      if (!availability.ok) {
+        setUnavailable({ title: availability.title, message: availability.message });
         setSubmitting(false);
         return;
       }
@@ -3306,13 +3378,23 @@ export const ApplyModal = ({ company, onClose, onSuccessClose, onSubmit, user })
         <div
           className="sa-modal-body"
           onKeyDown={(e) => {
-            if (e.key === "Enter" && e.target.tagName === "INPUT" && !alreadyApplied) {
+            if (e.key === "Enter" && e.target.tagName === "INPUT" && !alreadyApplied && !unavailable) {
               e.preventDefault();
               handleSubmit();
             }
           }}
         >
-          {alreadyApplied ? (
+          {unavailable ? (
+            <div style={{ textAlign: "center", padding: "32px 12px" }}>
+              <p style={{ fontFamily: font.ui, fontSize: "1.05rem", fontWeight: 600, color: ink, marginBottom: "8px" }}>
+                {unavailable.title || "Applications Closed"}
+              </p>
+              <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, lineHeight: 1.6 }}>
+                {unavailable.message}<br />
+                Browse other companies and apply to their open posts instead.
+              </p>
+            </div>
+          ) : alreadyApplied ? (
             <div style={{ textAlign: "center", padding: "32px 12px" }}>
               <p style={{ fontFamily: font.ui, fontSize: "1.05rem", fontWeight: 600, color: ink, marginBottom: "8px" }}>
                 You've Already Applied
@@ -3333,8 +3415,8 @@ export const ApplyModal = ({ company, onClose, onSuccessClose, onSubmit, user })
           {submitError && (
             <p style={{ width: "100%", textAlign: "right", fontFamily: font.ui, ...type.helper, color: color.danger, margin: "0 0 4px" }}>{submitError}</p>
           )}
-          <button onClick={onClose} className="sa-btn sa-btn-ghost">{alreadyApplied ? "Close" : "Cancel"}</button>
-          {!alreadyApplied && (
+          <button onClick={onClose} className="sa-btn sa-btn-ghost">{alreadyApplied || unavailable ? "Close" : "Cancel"}</button>
+          {!alreadyApplied && !unavailable && (
             <button onClick={handleSubmit} disabled={submitting || checkingApplied} className="sa-btn sa-btn-primary">{submitting ? "Submitting…" : "Submit"}</button>
           )}
         </div>

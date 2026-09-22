@@ -473,6 +473,191 @@ This is an automated message from OJTern.
 );
 
 
+// ─────────────────────────────────────────────────────────────────────────────
+// APPLICATION SUBMITTED EMAIL — confirms to the student that their application
+// actually reached the company. Fires once, when ApplyModal
+// (StudentApplicationScreen.jsx) creates the applications/{applicationId} doc;
+// sendApplicationStatusEmail above only fires on LATER status changes, and its
+// `oldData.status === newData.status` guard means the initial "Pending" write
+// never produces an email there.
+//
+// Sent to the student's personalEmail (the recovery address they registered at
+// first login), falling back to the address typed on the application form. The
+// system-generated login address is never used — it bounces, and a bounce puts
+// the recipient on Resend's suppression list.
+const APPLICATION_EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+exports.sendApplicationSubmittedEmail = onDocumentCreated(
+  { document: "applications/{applicationId}", region: "asia-southeast1", secrets: [resendApiKey] },
+  async (event) => {
+    const application = event.data && event.data.data();
+    if (!application) return;
+
+    const applicationId = event.params.applicationId;
+    const studentId = application.studentId;
+    const db = getFirestore();
+
+    let studentEmail = "";
+    let studentName  = application.firstName || "Student";
+
+    if (studentId) {
+      try {
+        const studentSnap = await db.collection("students").doc(studentId).get();
+        if (studentSnap.exists) {
+          const student = studentSnap.data();
+          studentEmail = String(student.personalEmail || "").trim();
+          studentName  = student.firstName
+            || student.fullName
+            || [student.firstName, student.lastName].filter(Boolean).join(" ")
+            || studentName;
+        }
+      } catch (error) {
+        console.error(`Failed to look up student ${studentId} for submission email:`, error);
+      }
+    }
+
+    // Fall back to the address typed on the form itself (ApplyModal pre-fills it
+    // with the student's personal email, but they can edit it before sending).
+    if (!studentEmail) studentEmail = String(application.email || "").trim();
+
+    if (!studentEmail || !APPLICATION_EMAIL_REGEX.test(studentEmail)) {
+      console.warn(`Application ${applicationId} has no usable student email — skipping submission email.`);
+      return;
+    }
+
+    const companyName = application.companyName || "the company";
+
+    // Position title lives on the post, not on the application; a missing or
+    // unreadable post just means the email omits the role line.
+    let positionTitle = "";
+    if (application.postId) {
+      try {
+        const postSnap = await db.collection("ojt_posts").doc(application.postId).get();
+        if (postSnap.exists) {
+          const post = postSnap.data();
+          positionTitle = String(post.title || post.position || post.jobTitle || post.role || "").trim();
+        }
+      } catch (error) {
+        console.error(`Failed to look up post ${application.postId} for submission email:`, error);
+      }
+    }
+
+    const currentYear = new Date().getFullYear();
+    const loginUrl = "https://ojtern.com/signin";
+    const logoUrl = "https://res.cloudinary.com/doalndt5l/image/upload/v1787477580/ojtern_512_hdruhv.png";
+    const positionLineHtml = positionTitle
+      ? `<p style="margin:0 0 20px; font-size:15px; color:#333; line-height:1.6;">Position: <strong>${positionTitle}</strong></p>`
+      : "";
+    const positionLineText = positionTitle ? `Position: ${positionTitle}\n\n` : "";
+
+    const html = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Application Submitted — OJTern</title>
+      </head>
+      <body style="margin:0; padding:0; background:#f0f0f0; font-family:Arial, Helvetica, sans-serif;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f0f0f0; padding:24px 12px;">
+          <tr>
+            <td align="center">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px; background:#ffffff; border-radius:16px; overflow:hidden; box-shadow:0 4px 18px rgba(0,0,0,0.08);">
+
+                <!-- Header -->
+                <tr>
+                  <td style="background:linear-gradient(180deg, #A32424 0%, #590101 100%); background-color:#590101; padding:28px 24px; text-align:center;">
+                    <img src="${logoUrl}" alt="OJTern" width="56" height="56" style="display:block; margin:0 auto 8px; border-radius:12px;" />
+                    <span style="font-family:Arial, Helvetica, sans-serif; font-size:22px; font-weight:bold; color:#ffffff; letter-spacing:0.03em;">OJTern</span>
+                  </td>
+                </tr>
+
+                <!-- Body -->
+                <tr>
+                  <td style="padding:32px 28px 8px;">
+                    <h1 style="margin:0 0 18px; font-size:20px; color:#1a1a1a;">Application Submitted</h1>
+                    <p style="margin:0 0 16px; font-size:15px; color:#333; line-height:1.6;">
+                      Hello, <strong>${studentName}</strong>,
+                    </p>
+                    <p style="margin:0 0 16px; font-size:15px; color:#333; line-height:1.6;">
+                      Your application to <strong>${companyName}</strong> was submitted successfully and is now waiting for the company to review it.
+                    </p>
+                    ${positionLineHtml}
+
+                    <!-- Status badge -->
+                    <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 20px;">
+                      <tr>
+                        <td style="background:#C8B800; border-radius:20px; padding:8px 20px;">
+                          <span style="font-size:13px; font-weight:bold; color:#ffffff; letter-spacing:0.04em; text-transform:uppercase;">Pending</span>
+                        </td>
+                      </tr>
+                    </table>
+
+                    <p style="margin:0 0 26px; font-size:15px; color:#333; line-height:1.6;">
+                      We'll email you again as soon as the company updates your application status. No action is needed from you in the meantime.
+                    </p>
+
+                    <!-- CTA -->
+                    <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 28px;">
+                      <tr>
+                        <td style="background:#8B0000; border-radius:24px;">
+                          <a href="${loginUrl}" style="display:inline-block; padding:13px 30px; font-size:15px; font-weight:bold; color:#ffffff; text-decoration:none;">
+                            View My Application
+                          </a>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+
+                <!-- Footer -->
+                <tr>
+                  <td style="padding:20px 28px 28px; border-top:1px solid #eee;">
+                    <p style="margin:0 0 4px; font-size:13px; color:#888;">Thank you,<br/>OJTern Team</p>
+                    <p style="margin:16px 0 4px; font-size:12px; color:#aaa;">OJTern — Online Job Training and Employment Referral Network</p>
+                    <p style="margin:0 0 4px; font-size:11px; color:#bbb;">This is an automated message from OJTern.</p>
+                    <p style="margin:0; font-size:11px; color:#bbb;">&copy; ${currentYear} OJTern. All rights reserved.</p>
+                  </td>
+                </tr>
+
+              </table>
+            </td>
+          </tr>
+        </table>
+      </body>
+      </html>
+    `;
+
+    const text = `Application Submitted — OJTern
+
+Hello, ${studentName},
+
+Your application to ${companyName} was submitted successfully and is now waiting for the company to review it.
+
+${positionLineText}Status: Pending
+
+We'll email you again as soon as the company updates your application status. No action is needed from you in the meantime.
+
+Log in to view your application: ${loginUrl}
+
+Thank you,
+OJTern Team
+
+OJTern — Online Job Training and Employment Referral Network
+This is an automated message from OJTern.
+© ${currentYear} OJTern. All rights reserved.`;
+
+    try {
+      await sendMail({ to: studentEmail, subject: "Application Submitted — OJTern", html, text });
+      console.log(`Application submitted email sent to ${studentEmail} for application ${applicationId}`);
+    } catch (error) {
+      // Never let a failed email affect the application itself — it's already saved.
+      console.error(`Failed to send application submitted email for application ${applicationId}:`, error);
+    }
+  }
+);
+
+
 exports.deleteStudentAuthOnDocDelete = onDocumentDeleted(
   { document: "students/{studentId}", region: "us-central1" },
   async (event) => {

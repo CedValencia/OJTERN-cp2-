@@ -96,16 +96,38 @@ const EXCEL_COLUMNS = [
 
 // Columns for the bulk-IMPORT template — separate from EXCEL_COLUMNS above,
 // which is only for the 3-column credentials export. Order must match the
-// row[0..10] indices read in ImportModal.parseFile below.
-// No Email column: students fill their own email in on first login, from their
-// personal information page. Everything downstream — the downloadable template,
-// the header check, and the "Columns, in this order" hint — is derived from
-// this list, so removing it here removes it everywhere.
+// row[0..5] indices read in ImportModal.parseFile below.
+// Only what the school's class list already has. Everything else — email,
+// program (when the department offers more than one), sex, and age — the
+// student fills in themselves on first login, in the Edit personal
+// information form that opens before the dashboard. The downloadable
+// template, the header check, and the "Columns, in this order" hint are all
+// derived from this list.
 const IMPORT_TEMPLATE_COLUMNS = [
-  "Student ID", "Last Name", "Middle Initial", "First Name",
-  "College Code", "Program Code", "Major/Specialization (or N/A)",
-  "Year & Section", "Sex", "Age",
+  "Student ID", "Last Name", "First Name", "Middle Name", "Section", "Department",
 ];
+
+// "Santos" → "S."; blank stays blank. The rest of the app (profile form,
+// fullName, exports) works with a middle initial, so it's derived here.
+const toMiddleInitial = (middleName) => {
+  const first = String(middleName || "").trim().charAt(0);
+  return first ? `${first.toUpperCase()}.` : "";
+};
+
+// Accepts "4-A", "4A", "4 - A", or a bare "A" (the only year is 4th year) and
+// returns the canonical "4-A" form used everywhere else, or "" if it doesn't
+// match a known section.
+const normalizeSection = (value) => {
+  const raw = String(value || "").trim().toUpperCase().replace(/\s+/g, "");
+  if (!raw) return "";
+  const direct = raw.includes("-") ? raw : (/^\d[A-Z]$/.test(raw) ? `${raw[0]}-${raw[1]}` : raw);
+  if (YEAR_SECTIONS.includes(direct)) return direct;
+  if (/^[A-Z]$/.test(raw)) {
+    const match = YEAR_SECTIONS.find(sec => sec.split("-")[1] === raw);
+    if (match) return match;
+  }
+  return "";
+};
 
 const NAME_REGEX = /^[A-Za-zÑñ][A-Za-zÑñ\s\-]*$/;
 const MIDDLE_INITIAL_REGEX = /^[A-Z]\.$/;
@@ -395,6 +417,11 @@ const validators = {
     if (!NAME_REGEX.test(v)) return "Letters, Ñ/ñ and hyphens only";
     return "";
   },
+  middleName: (v) => {
+    if (!v) return "";
+    if (!NAME_REGEX.test(v)) return "Letters, Ñ/ñ and hyphens only";
+    return "";
+  },
   middleInitial: (v) => {
     if (!v) return "";
     if (!/^[A-Z]$/.test(v) && !MIDDLE_INITIAL_REGEX.test(v)) return "Format: M.";
@@ -475,17 +502,14 @@ const downloadTemplateXLSX = () => {
   const rows = [
     IMPORT_TEMPLATE_COLUMNS,
     [
-      "e.g. 201112345", "e.g. Dela Cruz", "e.g. M.", "e.g. Juan",
-      "e.g. CED", "e.g. BSED (Major in English)",
-      "e.g. Major in English or N/A", "e.g. 4-A", "e.g. Male", "e.g. 21",
+      "e.g. 201112345", "e.g. Dela Cruz", "e.g. Juan", "e.g. Santos (or blank)",
+      "e.g. 4-A", "e.g. CCS",
     ],
   ];
   const ws = XLSX.utils.aoa_to_sheet(rows);
   ws["!cols"] = [
-    { wch: 15 }, { wch: 20 }, { wch: 15 }, { wch: 20 }, { wch: 35 },
-    { wch: 40 }, { wch: 25 }, { wch: 18 }, { wch: 10 }, { wch: 8 },
+    { wch: 15 }, { wch: 22 }, { wch: 22 }, { wch: 24 }, { wch: 12 }, { wch: 38 },
   ];
-  // Note: 10 columns (Major added, Email removed), ref updated below
   for (let r = 2; r < 200; r++) {
     for (let c = 0; c < IMPORT_TEMPLATE_COLUMNS.length; c++) {
       const cell = XLSX.utils.encode_cell({ r, c });
@@ -518,7 +542,7 @@ const downloadTemplateXLSX = () => {
       },
     };
   }
-  ws["!ref"] = `A1:J200`;
+  ws["!ref"] = `A1:${XLSX.utils.encode_col(IMPORT_TEMPLATE_COLUMNS.length - 1)}200`;
   ws["!freeze"] = { xSplit: 0, ySplit: 1 };
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Student Template");
@@ -570,6 +594,12 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
   const studentId     = useField(initial.studentId || "", "studentId");
   const lastName      = useField(initial.lastName || "", "lastName");
   const middleInitial = useField(initial.middleInitial || "", "middleInitial");
+  // New accounts ask for exactly what the import template asks for (Student ID,
+  // Last Name, First Name, Middle Name, Section, Department); the student fills
+  // in the rest on first login. Viewing/editing an existing student still shows
+  // every field.
+  const isCreate      = !readOnly;
+  const middleName    = useField(initial.middleName || "", "middleName");
   const firstName     = useField(initial.firstName || "", "firstName");
   const suffix        = useField(initial.suffix || "", "suffix");
   const sex           = useField(initial.sex || "", "sex");
@@ -600,19 +630,25 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
   const handleCollegeChange = (val) => { setCollege(val); setProgram(""); setCollegeTouched(true); };
   const handleProgramChange = (val) => { setProgram(val); setProgramTouched(true); };
 
-  const allFields = [studentId, lastName, middleInitial, firstName, suffix, sex, yearSection, age];
-  const touchAll = () => { allFields.forEach(f => f.touch()); setCollegeTouched(true); setProgramTouched(true); };
+  const allFields = isCreate
+    ? [studentId, lastName, firstName, middleName, yearSection]
+    : [studentId, lastName, middleInitial, firstName, suffix, sex, yearSection, age];
+  const touchAll = () => { allFields.forEach(f => f.touch()); setCollegeTouched(true); if (!isCreate) setProgramTouched(true); };
 
   const isValid = () => {
     if (validators.studentId(studentId.value)) return false;
     if (validators.lastName(lastName.value)) return false;
-    if (validators.middleInitial(middleInitial.value)) return false;
     if (validators.firstName(firstName.value)) return false;
+    if (validators.yearSection(yearSection.value)) return false;
+    if (!college) return false;
+    if (isCreate) {
+      if (validators.middleName(middleName.value)) return false;
+      return true;
+    }
+    if (validators.middleInitial(middleInitial.value)) return false;
     if (validators.suffix(suffix.value)) return false;
     if (validators.sex(sex.value)) return false;
-    if (validators.yearSection(yearSection.value)) return false;
     if (validators.age(age.value)) return false;
-    if (!college) return false;
     if (!program) return false;
     return true;
   };
@@ -624,6 +660,24 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
     setSaving(true);
     setSubmitError("");
     try {
+      if (isCreate) {
+        // Same shape a bulk-imported row produces (see ImportModal.parseFile):
+        // program is filled in only when the department offers exactly one;
+        // sex, age, suffix, and email come from the student on first login.
+        const deptPrograms = (departments[college]?.programs || []).map(p => p.name).filter(Boolean);
+        await onSubmit({
+          studentId: studentId.value.trim(),
+          lastName: lastName.value.trim(),
+          firstName: firstName.value.trim(),
+          middleName: middleName.value.trim(),
+          middleInitial: toMiddleInitial(middleName.value),
+          yearSection: yearSection.value,
+          college,
+          program: deptPrograms.length === 1 ? deptPrograms[0] : "",
+          specialization: "", suffix: "", sex: "", age: "",
+        });
+        return;
+      }
       await onSubmit({
         studentId: studentId.value, lastName: lastName.value,
         middleInitial: middleInitial.value, firstName: firstName.value,
@@ -690,6 +744,64 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
             </div>
           </div>
 
+          {isCreate ? (
+            <>
+              {/* Same fields, in the same order, as the import template. */}
+              <div className="sa-name-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))" }}>
+                <div>
+                  <FieldLabel>Last name</FieldLabel>
+                  <StyledInput value={lastName.value} onChange={onLastNameChange} placeholder="Dela Cruz" hasError={!!lastName.error} />
+                  <FieldError msg={lastName.error} />
+                </div>
+                <div>
+                  <FieldLabel>First name</FieldLabel>
+                  <StyledInput value={firstName.value} onChange={onFirstNameChange} placeholder="Juan" hasError={!!firstName.error} />
+                  <FieldError msg={firstName.error} />
+                </div>
+                <div>
+                  <FieldLabel>Middle name</FieldLabel>
+                  <StyledInput value={middleName.value} onChange={(v) => middleName.onChange(v.replace(/[^A-Za-zÑñ\s\-]/g, ""))} placeholder="Santos (optional)" hasError={!!middleName.error} />
+                  <FieldError msg={middleName.error} />
+                </div>
+              </div>
+
+              <div className="sa-college-grid">
+                <div>
+                  <FieldLabel>Section</FieldLabel>
+                  <StyledSelect value={yearSection.value} onChange={(v) => yearSection.onChange(v)} options={YEAR_SECTIONS} placeholder="Select section" hasError={!!yearSection.error} />
+                  <FieldError msg={yearSection.error} />
+                </div>
+                <div>
+                  <FieldLabel>Department</FieldLabel>
+                  {coordinatorColleges.length > 1 ? (
+                    <>
+                      <StyledSelect
+                        value={college}
+                        onChange={handleCollegeChange}
+                        options={coordinatorColleges.map(name => ({ value: name, label: name }))}
+                        placeholder="Select your department"
+                        hasError={!!collegeError}
+                      />
+                      <FieldError msg={collegeError} />
+                    </>
+                  ) : (
+                    <div style={{
+                      width: "100%", padding: "9px 14px", borderRadius: radius.pill,
+                      background: color.wine800, color: inkBody, fontFamily: font.ui,
+                      ...type.helper, border: `1px solid ${line}`,
+                    }}>
+                      {college || "—"}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, marginTop: space.sm, lineHeight: 1.6 }}>
+                The student adds their program, sex, age, and personal email on their first login.
+              </p>
+            </>
+          ) : (
+          <>
           <div className="sa-name-grid">
             <div>
               <FieldLabel>Last name</FieldLabel>
@@ -766,6 +878,9 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
             </div>
           </div>
 
+          </>
+          )}
+
           {/* Password preview — shown on create, and when coordinator views an existing student */}
           {lastName.value && college && (
             <div style={{ background: color.wine800, border: `1px solid ${line}`, borderRadius: radius.card, padding: "12px 16px", marginTop: space.md }}>
@@ -800,51 +915,48 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
 const validateRow = (row, rowIndex, coordinatorColleges = [], departments = {}) => {
   const errs = []; const r = rowIndex + 3;
   const departmentNames = Object.keys(departments);
-  // Reverse-lookup: short College Code (e.g. "CCS") → canonical full name,
+  // Reverse-lookup: short Department code (e.g. "CCS") → canonical full name,
   // derived from each department's `abbr` in the live Firestore data — so
   // the spreadsheet can stay compact while what's saved is always the same
-  // full name companies/coordinators/posts use.
+  // full name companies/coordinators/posts use. Matching ignores case.
   const abbrToFullName = {};
-  departmentNames.forEach(name => { if (departments[name]?.abbr) abbrToFullName[departments[name].abbr] = name; });
+  departmentNames.forEach(name => {
+    if (departments[name]?.abbr) abbrToFullName[String(departments[name].abbr).toUpperCase()] = name;
+  });
+  const fullNameByLower = {};
+  departmentNames.forEach(name => { fullNameByLower[name.toLowerCase()] = name; });
 
   if (!row.studentId) errs.push(`Row ${r}: Student ID is required`);
   else if (!/^\d{9}$/.test(row.studentId)) errs.push(`Row ${r}: Student ID must be exactly 9 digits`);
   if (!row.lastName) errs.push(`Row ${r}: Last Name is required`);
+  else if (!NAME_REGEX.test(row.lastName)) errs.push(`Row ${r}: Last Name can only contain letters, spaces, and hyphens`);
   if (!row.firstName) errs.push(`Row ${r}: First Name is required`);
-  if (row.middleInitial && !/^[A-Z]\.$/.test(row.middleInitial.trim())) errs.push(`Row ${r}: Middle Initial must be format "X."`);
+  else if (!NAME_REGEX.test(row.firstName)) errs.push(`Row ${r}: First Name can only contain letters, spaces, and hyphens`);
+  if (row.middleName && !NAME_REGEX.test(row.middleName)) errs.push(`Row ${r}: Middle Name can only contain letters, spaces, and hyphens`);
+
+  if (!row.yearSection) {
+    errs.push(`Row ${r}: Section is required`);
+  } else {
+    const section = normalizeSection(row.yearSection);
+    if (!section) errs.push(`Row ${r}: Section "${row.yearSection}" must be one of: ${YEAR_SECTIONS.join(", ")}`);
+    else row.yearSection = section; // normalize in place, e.g. "A" → "4-A"
+  }
 
   if (!row.college) {
-    errs.push(`Row ${r}: College is required`);
+    errs.push(`Row ${r}: Department is required`);
   } else {
-    // Accept either the short Code ("CCS") or the full name directly.
-    const resolvedCollege = abbrToFullName[row.college] || (departmentNames.includes(row.college) ? row.college : null);
-    if (!resolvedCollege) errs.push(`Row ${r}: College "${row.college}" is not valid`);
-    else if (coordinatorColleges.length > 0 && !coordinatorColleges.includes(resolvedCollege)) errs.push(`Row ${r}: College "${row.college}" is not one of your assigned departments — you can only import your own department's students`);
-    else row.college = resolvedCollege; // normalize in place to the canonical full name before this row gets saved
+    // Accept either the short code ("CCS") or the full name, in any case.
+    const resolvedCollege = abbrToFullName[row.college.toUpperCase()] || fullNameByLower[row.college.toLowerCase()] || null;
+    if (!resolvedCollege) errs.push(`Row ${r}: Department "${row.college}" is not valid`);
+    else if (coordinatorColleges.length > 0 && !coordinatorColleges.includes(resolvedCollege)) errs.push(`Row ${r}: Department "${row.college}" is not one of your assigned departments — you can only import your own department's students`);
+    else {
+      row.college = resolvedCollege; // normalize in place to the canonical full name before this row gets saved
+      // No Program column: a department with exactly one program gets it
+      // filled in automatically; otherwise the student picks it on first login.
+      const programs = (departments[resolvedCollege]?.programs || []).map(p => p.name).filter(Boolean);
+      row.program = programs.length === 1 ? programs[0] : "";
+    }
   }
-
-  if (!row.program) {
-    errs.push(`Row ${r}: Program is required`);
-  } else if (row.college && departmentNames.includes(row.college)) {
-    const collegePrograms = (departments[row.college]?.programs || []).map(p => p.name);
-    // Accept either the exact full Program name, or one of the old short
-    // forms via LEGACY_PROGRAM_CODE_MAP — same bridge used in
-    // StudentAccountProfileScreen.jsx.
-    const resolvedProgram = collegePrograms.includes(row.program)
-      ? row.program
-      : (LEGACY_PROGRAM_CODE_MAP[row.program] && collegePrograms.includes(LEGACY_PROGRAM_CODE_MAP[row.program]))
-        ? LEGACY_PROGRAM_CODE_MAP[row.program]
-        : null;
-    if (!resolvedProgram) errs.push(`Row ${r}: Program "${row.program}" is not valid for College "${row.college}"`);
-    else row.program = resolvedProgram; // normalize in place
-  }
-
-  if (!row.yearSection) errs.push(`Row ${r}: Year & Section is required`);
-  else if (YEAR_SECTIONS.length > 0 && !YEAR_SECTIONS.includes(row.yearSection)) errs.push(`Row ${r}: Year & Section must be one of: ${YEAR_SECTIONS.join(", ")}`);
-  if (!row.sex) errs.push(`Row ${r}: Sex is required`);
-  else if (SEX_OPTIONS.length > 0 && !SEX_OPTIONS.includes(row.sex)) errs.push(`Row ${r}: Sex must be "Male" or "Female"`);
-  if (!row.age) errs.push(`Row ${r}: Age is required`);
-  else { const n = Number(row.age); if (!Number.isInteger(n) || n < 1 || n > 100) errs.push(`Row ${r}: Age must be 1–100`); }
   return errs;
 };
 
@@ -882,7 +994,21 @@ const ImportModal = ({ onClose, onImport, coordinatorColleges = [], departments 
         // Extra safety net: skip any row that still looks like the
         // template's own "e.g. ..." example row.
         if (String(row[0] ?? "").trim().toLowerCase().startsWith("e.g.")) return;
-        const student = { studentId: String(row[0]||"").trim(), lastName: String(row[1]||"").trim(), middleInitial: String(row[2]||"").trim(), firstName: String(row[3]||"").trim(), college: String(row[4]||"").trim(), program: String(row[5]||"").trim(), major: String(row[6]||"").trim(), specialization: String(row[6]||"").trim(), yearSection: String(row[7]||"").trim(), sex: String(row[8]||"").trim(), age: String(row[9]||"").trim(), email: "", password: "" };
+        const middleName = String(row[3]||"").trim();
+        const student = {
+          studentId:     String(row[0]||"").trim(),
+          lastName:      String(row[1]||"").trim(),
+          firstName:     String(row[2]||"").trim(),
+          middleName,
+          middleInitial: toMiddleInitial(middleName),
+          yearSection:   String(row[4]||"").trim(),
+          college:       String(row[5]||"").trim(),
+          // Not in the template — filled in by validateRow (single-program
+          // departments) or by the student on first login.
+          program: "", major: "", specialization: "",
+          sex: "", age: "",
+          email: "", password: "",
+        };
         const errs = validateRow(student, i, coordinatorColleges, departments);
         if (errs.length > 0) rowErrors.push(...errs); else valid.push(student);
       });
@@ -1368,7 +1494,7 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
     // actually gets saved to the student's Firestore doc, matching the
     // full-name convention used everywhere else in the app.
     const { password } = await createStudentAccount({ ...form, collegeAbbr: departments[form.college]?.abbr || form.college }, coordinatorUid);
-    const fullName = `${form.firstName} ${form.middleInitial ? form.middleInitial + ". " : ""}${form.lastName}`;
+    const fullName = `${form.firstName} ${form.middleInitial ? form.middleInitial.replace(/\.$/, "") + ". " : ""}${form.lastName}`;
     logActivity(coordinatorUid, "student_created", `Created student account for ${fullName}`, { targetId: form.studentId, targetName: fullName }).catch(err => console.error("Failed to log activity:", err));
     setShowNewModal(false);
     setSuccessInfo({
@@ -1381,7 +1507,7 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
 
   // ── Save (edit) — updates Firestore doc ───────────────────────────────────
   const handleSave = async (form) => {
-    const fullName = `${form.firstName} ${form.middleInitial ? form.middleInitial + ". " : ""}${form.lastName}${isRealSuffix(form.suffix) ? " " + form.suffix : ""}`;
+    const fullName = `${form.firstName} ${form.middleInitial ? form.middleInitial.replace(/\.$/, "") + ". " : ""}${form.lastName}${isRealSuffix(form.suffix) ? " " + form.suffix : ""}`;
     await updateDoc(doc(db, "students", viewingStudent.id), {
       ...form,
       fullName,

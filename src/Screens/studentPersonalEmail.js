@@ -7,7 +7,7 @@
 // studentPersonalEmails/{normalizedEmail} → { uid } guarantees one personal email
 // belongs to one student. Always change personalEmail through claimPersonalEmail()
 // inside a runTransaction so the index and the student document stay in sync.
-import { doc, serverTimestamp } from "firebase/firestore";
+import { doc, serverTimestamp, collection, query, where, limit, getDocs } from "firebase/firestore";
 import { db } from "./firebase";
 
 export const PERSONAL_EMAIL_INDEX = "studentPersonalEmails";
@@ -24,9 +24,10 @@ export const isValidEmail = (value) => {
 // Domains used for the system-generated login addresses of bulk-created student
 // accounts, e.g. "2023-12345@fake-email.com" → "fake-email.com". Nobody can receive
 // mail there, so those addresses are refused as a personal email.
-// ⚠️ Fill this in with your real generated domain(s). Students whose login email is
-// already a real inbox (such as a Gmail) may use that same address.
-export const GENERATED_LOGIN_EMAIL_DOMAINS = [];
+// createStudentAccount (AuthService.js) gives bulk-imported students
+// "{studentId}@pending.student" until they set a real address. Students whose
+// login email is already a real inbox (such as a Gmail) may use that address.
+export const GENERATED_LOGIN_EMAIL_DOMAINS = ["pending.student"];
 
 export const isGeneratedLoginEmail = (value) => {
   const domain = normalizeEmail(value).split("@")[1] || "";
@@ -42,6 +43,38 @@ export const validatePersonalEmail = (value) => {
     return "That's a system-generated login email. Enter an email address you personally own.";
   }
   return "";
+};
+
+// Emails already used by other accounts. The studentPersonalEmails index only knows
+// emails saved as a *personal* email, so this also checks login emails and any
+// personalEmail saved before the index existed. All of these collections are
+// readable by signed-in users under the current Firestore rules.
+const ACCOUNT_EMAIL_FIELDS = [
+  ["students",     "email"],
+  ["students",     "personalEmail"],
+  ["coordinators", "email"],
+  ["companies",    "email"],
+  ["users",        "email"],
+];
+
+// true if any account other than `uid` uses `value`. A collection that can't be
+// queried is skipped (logged) rather than blocking the save; the index check
+// inside claimPersonalEmail still protects personal emails.
+export const isEmailUsedByAnotherAccount = async (value, uid) => {
+  const email = normalizeEmail(value);
+  if (!email) return false;
+  const results = await Promise.allSettled(
+    ACCOUNT_EMAIL_FIELDS.map(([name, field]) =>
+      getDocs(query(collection(db, name), where(field, "==", email), limit(2)))
+    )
+  );
+  return results.some((result, i) => {
+    if (result.status === "rejected") {
+      console.warn(`Email check skipped for ${ACCOUNT_EMAIL_FIELDS[i].join(".")}:`, result.reason);
+      return false;
+    }
+    return result.value.docs.some(d => d.id !== uid);
+  });
 };
 
 // Transaction step: reserves `email` for `uid` and releases `previousEmail`.
@@ -75,7 +108,7 @@ export const claimPersonalEmail = async (tx, { uid, email, previousEmail = "" })
 export const personalEmailErrorMessage = (err) => {
   switch (err?.code) {
     case "email-in-use":
-      return "This email is already registered to another student account. Use a different email.";
+      return "This email address is already used. Please try another email address.";
     case "permission-denied":
       return "Your account isn't allowed to save this email. Contact your coordinator for assistance.";
     case "unavailable":
