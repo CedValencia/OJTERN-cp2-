@@ -180,6 +180,12 @@ const ResponsiveStyles = () => (
 
     .sa-search-input { width: 170px; }
     .sa-search-input::placeholder { color: ${inkFaint}; }
+    .sa-search-input:focus,
+    .sa-search-input:focus-visible {
+      outline: none;
+      box-shadow: none;
+      -webkit-box-shadow: none;
+    }
     @media (max-width: 480px) {
       .sa-search-input { width: 90px; }
     }
@@ -557,19 +563,260 @@ const downloadTemplateXLSX = () => {
   XLSX.writeFile(wb, "student_import_template.xlsx");
 };
 
-const StyledSelect = ({ value, onChange, options, placeholder, disabled, hasError }) => (
-  <div style={{ position: "relative" }}>
-    <select
-      value={value} onChange={e => onChange(e.target.value)} disabled={disabled}
-      style={{ width: "100%", appearance: "none", WebkitAppearance: "none", background: disabled ? color.wine800 : color.white, border: `1px solid ${hasError ? danger : line}`, borderRadius: radius.pill, padding: "9px 36px 9px 14px", fontFamily: font.ui, ...type.helper, color: disabled ? inkFaint : (value ? ink : inkFaint), cursor: disabled ? "not-allowed" : "pointer", outline: "none" }}
-    >
-      <option value="">{placeholder || "Select…"}</option>
-      {options.map(o => typeof o === 'object' ? <option key={o.value} value={o.value}>{o.label}</option> : <option key={o} value={o}>{o}</option>)}
-    </select>
-    <div style={{ position: "absolute", right: "14px", top: "50%", transform: "translateY(-50%)", pointerEvents: "none", color: disabled ? inkFaint : inkMuted }}>
-      <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M7 10l5 5 5-5z"/></svg>
+// ── CustomSelect ──────────────────────────────────────────────────────────────
+// Drop-in replacement for a native <select> whose option list is drawn by us
+// instead of the browser/OS. The native list (the big grey box that spilled
+// past the modal) can't be styled or kept inside a container; this one:
+//   • looks like the dropdown in the student "Apply Now" modal — white card,
+//     12px corners, soft shadow, roomy rows, hover + selected tints;
+//   • stays INSIDE the container it's in (modal body, card, page): it opens
+//     downward or upward, whichever side has more room inside the nearest
+//     clipping/scrolling ancestor, and caps its height to that room, so it
+//     never overlaps past the container's edge;
+//   • keeps the trigger looking exactly like the field it replaces — pass the
+//     old <select>'s style as `triggerStyle`.
+//
+// Props:
+//   value, onChange(value)  — same as a controlled <select> (string values)
+//   options                 — strings, or { value, label } objects
+//   placeholder             — text shown when nothing is picked; also listed
+//                             as the first row so the choice can be cleared
+//   showPlaceholderOption   — set false to leave that first row out
+//   disabled, hasError      — hasError swaps the border to `errorColor`
+//   triggerStyle            — style for the closed field (the old select's)
+//   ariaLabel               — accessible name when there's no <label>
+
+const CS_MAX_LIST_HEIGHT = 240;
+const CS_MIN_LIST_HEIGHT = 96;
+const CS_EDGE_GAP        = 8;
+
+const csNormalize = (o) =>
+  o !== null && typeof o === "object"
+    ? { value: String(o.value ?? ""), label: String(o.label ?? o.value ?? "") }
+    : { value: String(o ?? ""), label: String(o ?? "") };
+
+// Nearest ancestor that clips its content (a scrolling modal body, a card
+// with overflow hidden…). The list has to fit inside it.
+const csFindClipParent = (el) => {
+  for (let p = el?.parentElement; p && p !== document.body; p = p.parentElement) {
+    const oy = getComputedStyle(p).overflowY;
+    if (oy === "auto" || oy === "scroll" || oy === "hidden" || oy === "clip") return p;
+  }
+  return null;
+};
+
+function CustomSelect({
+  value,
+  onChange,
+  options = [],
+  placeholder = "Select…",
+  showPlaceholderOption = true,
+  disabled = false,
+  hasError = false,
+  errorColor = color.danger,
+  triggerStyle = {},
+  ariaLabel,
+}) {
+  const [open, setOpen]         = useState(false);
+  const [openUp, setOpenUp]     = useState(false);
+  const [maxHeight, setMaxH]    = useState(CS_MAX_LIST_HEIGHT);
+  const [active, setActive]     = useState(-1);
+  const wrapRef = useRef(null);
+  const listRef = useRef(null);
+
+  const items = [
+    ...(showPlaceholderOption ? [{ value: "", label: placeholder, isPlaceholder: true }] : []),
+    ...options.map(csNormalize),
+  ];
+  const current  = String(value ?? "");
+  const selected = items.find(i => !i.isPlaceholder && i.value === current);
+
+  // Close on any press outside the field + list.
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("touchstart", onDown, { passive: true });
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("touchstart", onDown);
+    };
+  }, [open]);
+
+  // When it opens: pick the side with more room inside the container, cap the
+  // height to that room, and bring the current choice into view.
+  React.useLayoutEffect(() => {
+    if (!open || !wrapRef.current) return;
+    const rect   = wrapRef.current.getBoundingClientRect();
+    const clip   = csFindClipParent(wrapRef.current);
+    const bounds = clip ? clip.getBoundingClientRect() : { top: 0, bottom: window.innerHeight };
+    const top    = Math.max(bounds.top, 0);
+    const bottom = Math.min(bounds.bottom, window.innerHeight);
+    const below  = bottom - rect.bottom - CS_EDGE_GAP;
+    const above  = rect.top - top - CS_EDGE_GAP;
+    const wanted = Math.min(CS_MAX_LIST_HEIGHT, items.length * 36 + 8);
+    const up     = below < wanted && above > below;
+    setOpenUp(up);
+    setMaxH(Math.max(CS_MIN_LIST_HEIGHT, Math.min(CS_MAX_LIST_HEIGHT, up ? above : below)));
+    const idx = items.findIndex(i => i.value === current);
+    setActive(idx >= 0 ? idx : 0);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  // Keep the keyboard-highlighted row visible while arrowing through.
+  useEffect(() => {
+    if (!open || active < 0 || !listRef.current) return;
+    listRef.current.children[active]?.scrollIntoView({ block: "nearest" });
+  }, [open, active]);
+
+  const choose = (item) => {
+    onChange?.(item.value);
+    setOpen(false);
+  };
+
+  const onKeyDown = (e) => {
+    if (disabled) return;
+    if (e.key === "Escape") { if (open) { e.stopPropagation(); setOpen(false); } return; }
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      if (!open) { setOpen(true); return; }
+      setActive(a => {
+        const n = items.length;
+        return e.key === "ArrowDown" ? (a + 1) % n : (a - 1 + n) % n;
+      });
+      return;
+    }
+    if ((e.key === "Enter" || e.key === " ") && open && active >= 0) {
+      e.preventDefault();
+      choose(items[active]);
+    }
+  };
+
+  const baseTrigger = {
+    width: "100%",
+    textAlign: "left",
+    cursor: disabled ? "not-allowed" : "pointer",
+    outline: "none",
+    boxSizing: "border-box",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    // leave room for the caret on the right
+    paddingRight: "32px",
+  };
+  const merged = { ...baseTrigger, ...triggerStyle };
+  if (!merged.paddingRight || parseInt(merged.paddingRight, 10) < 28) merged.paddingRight = "32px";
+  if (hasError) merged.borderColor = errorColor;
+  if (!selected) merged.color = color.inkFaint;
+
+  return (
+    <div ref={wrapRef} style={{ position: "relative", width: "100%" }}>
+      <button
+        type="button"
+        disabled={disabled}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label={ariaLabel}
+        onClick={() => !disabled && setOpen(o => !o)}
+        onKeyDown={onKeyDown}
+        style={merged}
+      >
+        {selected ? selected.label : placeholder}
+      </button>
+
+      <span
+        aria-hidden="true"
+        style={{
+          position: "absolute", right: "12px", top: "50%",
+          transform: `translateY(-50%) rotate(${open ? 180 : 0}deg)`,
+          transition: "transform 160ms ease",
+          pointerEvents: "none", display: "flex",
+          color: disabled ? color.inkFaint : color.inkMuted,
+        }}
+      >
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M7 10l5 5 5-5z" /></svg>
+      </span>
+
+      {open && !disabled && (
+        <div
+          ref={listRef}
+          role="listbox"
+          style={{
+            position: "absolute",
+            left: 0,
+            right: 0,
+            [openUp ? "bottom" : "top"]: "calc(100% + 4px)",
+            background: color.white,
+            borderRadius: "12px",
+            boxShadow: "0 8px 24px rgba(0,0,0,0.18)",
+            maxHeight: `${maxHeight}px`,
+            overflowY: "auto",
+            zIndex: 2000,
+            padding: "4px 0",
+          }}
+        >
+          {items.map((item, i) => {
+            const isSel = !item.isPlaceholder && item.value === current;
+            const bg = i === active ? color.hoverWash : isSel ? color.wine800 : color.white;
+            return (
+              <div
+                key={`${item.value}-${i}`}
+                role="option"
+                aria-selected={isSel}
+                onMouseDown={(e) => e.preventDefault()}   // keep focus on the field
+                onClick={() => choose(item)}
+                onMouseEnter={() => setActive(i)}
+                style={{
+                  padding: "8px 14px",
+                  fontFamily: font.ui,
+                  fontSize: "0.82rem",
+                  lineHeight: 1.4,
+                  cursor: "pointer",
+                  background: bg,
+                  color: item.isPlaceholder ? color.inkFaint : color.ink,
+                  fontWeight: isSel ? 600 : 400,
+                  whiteSpace: "normal",
+                  overflowWrap: "anywhere",
+                }}
+              >
+                {item.label}
+              </div>
+            );
+          })}
+          {items.length === 0 && (
+            <div style={{ padding: "10px 14px", fontFamily: font.ui, fontSize: "0.8rem", color: color.inkFaint }}>
+              No options
+            </div>
+          )}
+        </div>
+      )}
     </div>
-  </div>
+  );
+}
+
+
+// Custom dropdown (CustomSelect above): same look as the student Apply Now
+// modal's dropdown, and its list stays inside the modal instead of the
+// browser's native option box spilling past it. The closed field keeps the
+// exact look it had as a native <select>.
+const StyledSelect = ({ value, onChange, options, placeholder, disabled, hasError }) => (
+  <CustomSelect
+    value={value}
+    onChange={onChange}
+    options={options}
+    placeholder={placeholder || "Select…"}
+    disabled={disabled}
+    hasError={hasError}
+    errorColor={danger}
+    triggerStyle={{
+      background: disabled ? color.wine800 : color.white,
+      border: `1px solid ${hasError ? danger : line}`,
+      borderRadius: radius.pill,
+      padding: "9px 36px 9px 14px",
+      fontFamily: font.ui, ...type.helper,
+      color: disabled ? inkFaint : (value ? ink : inkFaint),
+    }}
+  />
 );
 
 const StyledInput = ({ value, onChange, placeholder, type: inputType = "text", disabled, hasError }) => (
@@ -746,7 +993,7 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
         </div>
 
         <div className="sa-modal-body">
-          <div style={{ marginBottom: "12px" }}>
+          <div id="sa-modal-studentid" style={{ marginBottom: "12px" }}>
             <FieldLabel>Student ID</FieldLabel>
             <div style={{ width: "min(220px, 100%)" }}>
               <StyledInput value={studentId.value} onChange={onStudentIdChange} placeholder="9-digit number" disabled={locked} hasError={!!studentId.error} />
@@ -841,7 +1088,7 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
             </div>
           </div>
 
-          <div className="sa-college-grid">
+          <div id="sa-modal-department" className="sa-college-grid">
             <div>
               <FieldLabel>Department</FieldLabel>
               {/* Locked to the coordinator's own department(s) — never the
@@ -876,7 +1123,7 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
             </div>
           </div>
 
-          <div className="sa-info-grid">
+          <div id="sa-modal-info" className="sa-info-grid">
             <div>
               <FieldLabel>Year & section</FieldLabel>
               <StyledSelect value={yearSection.value} onChange={(v) => yearSection.onChange(v)} options={YEAR_SECTIONS} placeholder="Select section" disabled={locked} hasError={!!yearSection.error} />
@@ -899,7 +1146,7 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
 
           {/* Password preview — shown on create, and when coordinator views an existing student */}
           {lastName.value && college && (
-            <div style={{ background: color.wine800, border: `1px solid ${line}`, borderRadius: radius.card, padding: "12px 16px", marginTop: space.md }}>
+            <div id="sa-modal-password" style={{ background: color.wine800, border: `1px solid ${line}`, borderRadius: radius.card, padding: "12px 16px", marginTop: space.md }}>
               <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, marginBottom: "4px" }}>Default password</p>
               <p style={{ fontFamily: font.ui, ...type.label, color: ink, margin: 0 }}>
                 {(firstName.value && lastName.value && studentId.value && college) ? generateStudentPassword(firstName.value, lastName.value, studentId.value, departments[college]?.abbr || college) : "—"}
@@ -1063,7 +1310,7 @@ const ImportModal = ({ onClose, onImport, coordinatorColleges = [], departments 
         </div>
 
         <div className="sa-import-body">
-          <div onDrop={onDrop} onDragOver={e => { e.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onClick={() => !file && fileRef.current.click()}
+          <div id="sa-import-dropzone" onDrop={onDrop} onDragOver={e => { e.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onClick={() => !file && fileRef.current.click()}
             style={{ border: `1px dashed ${dragging ? ink : color.wine400}`, borderRadius: radius.card, padding: file ? "16px 20px" : "32px 20px", textAlign: "center", background: dragging ? color.wine700 : color.wine800, cursor: file ? "default" : "pointer", transition: `all 180ms ${ease}` }}>
             <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{ display: "none" }} onChange={e => handleFile(e.target.files[0])} />
             {file ? (
@@ -1087,12 +1334,12 @@ const ImportModal = ({ onClose, onImport, coordinatorColleges = [], departments 
 
           {fileError && <p style={{ fontFamily: font.ui, ...type.helper, color: danger, marginTop: space.sm }}>{fileError}</p>}
 
-          <div style={{ background: color.wine800, border: `1px solid ${line}`, borderRadius: radius.card, padding: "12px 16px", marginTop: space.md }}>
+          <div id="sa-import-columns" style={{ background: color.wine800, border: `1px solid ${line}`, borderRadius: radius.card, padding: "12px 16px", marginTop: space.md }}>
             <p style={{ fontFamily: font.ui, ...type.label, color: ink, marginBottom: "4px" }}>Columns, in this order</p>
             <p style={{ fontFamily: font.ui, ...type.helper, color: inkBody, lineHeight: 1.7 }}>{IMPORT_TEMPLATE_COLUMNS.join(" · ")}</p>
           </div>
 
-          <div style={{ marginTop: space.sm, display: "flex", justifyContent: "flex-start" }}>
+          <div id="sa-import-template" style={{ marginTop: space.sm, display: "flex", justifyContent: "flex-start", width: "fit-content", maxWidth: "100%" }}>
             <button onClick={downloadTemplateXLSX} style={{ ...ghostBtn, padding: "8px 16px" }}>Download the template</button>
           </div>
 
@@ -1122,7 +1369,7 @@ const ImportModal = ({ onClose, onImport, coordinatorColleges = [], departments 
           )}
         </div>
 
-        <div className="sa-import-footer">
+        <div id="sa-import-footer" className="sa-import-footer">
           <button onClick={() => fileRef.current.click()} style={ghostBtn}>Choose another file</button>
           <button onClick={handleImport} disabled={!canImport} style={{ ...primaryBtn, opacity: canImport ? 1 : 0.5, cursor: canImport ? "pointer" : "not-allowed" }}>
             Import{canImport ? ` ${preview.valid.length}` : ""}
@@ -1388,7 +1635,7 @@ const Dialog = ({ title, body, children }) => (
 //                         parent still passing legacy short codes ("CCS")
 //                         instead of the full name — students/companies/
 //                         coordinators/posts all key on the full name now.
-const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges, userIcon: themedUserIcon = blackUserIcon }) => {
+const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges, userIcon: themedUserIcon = blackUserIcon, onViewingStudentChange, onImportModalChange }) => {
   const { departments, departmentNames } = useDepartmentsPrograms();
 
   // coordinatorColleges may arrive as either full names (canonical) or
@@ -1442,6 +1689,16 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
   const [showImportModal, setShowImportModal]   = useState(false);
   const [showFilterDrawer, setShowFilterDrawer] = useState(false);
   const [viewingStudent, setViewingStudent]     = useState(null);
+  // Lets the dashboard's "?" help button and auto-tour switch to
+  // HELP_STEPS_BY_NAV.studentsaccountmodal while a student's view/edit modal
+  // is open, instead of always running the list's steps (search / filter /
+  // toolbar / list) against a screen that's currently covered by the modal.
+  // Mirrors CoordinatorViewCompanyScreen's onViewChange → findCompanySubView.
+  useEffect(() => { onViewingStudentChange?.(!!viewingStudent); }, [viewingStudent, onViewingStudentChange]);
+  // Same idea for the Import modal: while it's open the "?" button runs
+  // HELP_STEPS_BY_NAV.studentsaccountimport (dropzone / columns / template /
+  // footer) instead of the list steps hidden behind its overlay.
+  useEffect(() => { onImportModalChange?.(showImportModal); }, [showImportModal, onImportModalChange]);
   const [successInfo, setSuccessInfo]           = useState(null); // { fullName, password }
   const [importResult, setImportResult]        = useState(null); // { successCount, failures[] }
   const [filters, setFilters]                   = useState({ college: "", program: "", sex: "", section: "" });
@@ -1451,10 +1708,24 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
   // Same scope as the Student List screen — every coordinator assigned to a
   // given college (e.g. all of CED) manages the same pool of student
   // accounts, regardless of which coordinator originally created them.
+  //
+  // FIX: `collegeQueryVariants` is a new array reference on every render
+  // (it's the end of a useMemo chain fed by coordinatorColleges/departments,
+  // which aren't guaranteed stable identities from the parent/hook). Using
+  // it directly as a dependency made this effect re-fire on EVERY render,
+  // and `setStudents([])` below was always a fresh [] reference — which
+  // always triggers another render — producing an infinite loop
+  // ("Maximum update depth exceeded"). Depending on a stable, content-based
+  // string key instead means the effect only re-runs when the actual list
+  // of colleges changes.
+  const collegeQueryKey = collegeQueryVariants.join("|");
+
   useEffect(() => {
     if (!coordinatorUid || collegeQueryVariants.length === 0) {
       console.warn("[StudentAccounts] No colleges assigned to this coordinator — nothing to load.", coordinatorColleges);
-      setStudents([]); setLoading(false); return;
+      setStudents(prev => (prev.length === 0 ? prev : []));
+      setLoading(false);
+      return;
     }
     const q = query(
       collection(db, "students"),
@@ -1470,7 +1741,7 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
       setLoading(false);
     });
     return () => unsub();
-  }, [coordinatorUid, collegeQueryVariants]);
+  }, [coordinatorUid, collegeQueryKey]);
 
   // ── Close filter panel on outside click ───────────────────────────────────
   useEffect(() => {
@@ -1624,7 +1895,7 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
               <input
                 value={search} onChange={e => setSearch(e.target.value)} placeholder="Search"
                 className="sa-search-input"
-                style={{ border: "none", background: "transparent", outline: "none", color: ink, fontFamily: font.ui, ...type.control }}
+                style={{ border: "none", background: "transparent", outline: "none", boxShadow: "none", WebkitAppearance: "none", appearance: "none", color: ink, fontFamily: font.ui, ...type.control }}
               />
               {search && <button onClick={() => setSearch("")} aria-label="Clear search" style={{ background: "none", border: "none", color: inkMuted, cursor: "pointer", fontSize: "0.9rem", padding: 0, lineHeight: 1 }}>✕</button>}
             </div>

@@ -232,6 +232,14 @@ const ResponsiveStyles = () => (
       .cap-modal-footer button { width: 100%; text-align: center; }
     }
 
+    /* Inner wrapper for a modal footer's buttons — gives the help tour a
+       tight target (just the buttons, not the whole footer bar). Mirrors
+       .cap-modal-footer's own layout, incl. the stacked mobile version. */
+    .cap-footer-btns { display: flex; gap: ${space.sm}; justify-content: flex-end; }
+    @media (max-width: 480px) {
+      .cap-footer-btns { flex-direction: column-reverse; align-items: stretch; width: 100%; }
+    }
+
     /* ── Divider line ── */
     .cap-divider {
       height: 1px;
@@ -280,7 +288,10 @@ const LegalStyles = () => (
     .legal-progress-track { height: 3px; flex-shrink: 0; background: ${lineSoft}; }
     .legal-progress-fill {
       height: 100%;
-      background: ${inkMuted};          /* dating ${panel} */
+      /* Theme-driven, but lightened (mixed with white) so it stands out
+         against the pale track in every theme — a straight ${panel} is too
+         dark to read as a progress bar on some accents. */
+      background: color-mix(in srgb, ${panel} 55%, #ffffff);
       transition: width 120ms linear;
     }
 
@@ -552,7 +563,7 @@ const LegalPanel = ({ title, lastUpdated, sections, onBack }) => {
       <LegalStyles />
       <SectionHeaderBar title={title} onBack={onBack} />
 
-      <div className="legal-progress-track">
+      <div id="legal-progress" className="legal-progress-track">
         <div className="legal-progress-fill" style={{ width: `${progress}%` }} />
       </div>
 
@@ -560,7 +571,7 @@ const LegalPanel = ({ title, lastUpdated, sections, onBack }) => {
         {toc.length > 0 && (
           <nav className="legal-toc" aria-label="Sections">
             <p className="legal-toc-heading">On this page</p>
-            <ol style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: "2px" }}>
+            <ol id="legal-toc" style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: "2px" }}>
               {toc.map(item => {
                 const isActive = activeId === item.id;
                 return (
@@ -585,6 +596,8 @@ const LegalPanel = ({ title, lastUpdated, sections, onBack }) => {
         )}
 
         <div className="legal-scroll" ref={scrollRef}>
+          {/* Title + "Last updated" badge, wrapped as one help-tour target. */}
+          <div id="legal-header" style={{ width: "fit-content", maxWidth: "100%" }}>
           <h1 style={{ fontFamily: font.ui, fontSize: "clamp(1.4rem, 4vw, 2rem)", fontWeight: 600, letterSpacing: "-0.02em", color: ink, margin: `0 0 ${space.md}`, lineHeight: 1.2 }}>
             {title}
           </h1>
@@ -596,12 +609,13 @@ const LegalPanel = ({ title, lastUpdated, sections, onBack }) => {
               </span>
             </div>
           )}
+          </div>
 
           {sections.map((section, idx) => {
             const id = `sec-${idx}`;
             const isFirst = idx === 0;
             return (
-              <section key={section.title}>
+              <section key={section.title} id={isFirst ? "legal-first-section" : undefined} style={isFirst ? { width: "fit-content", maxWidth: "100%" } : undefined}>
                 <h2
                   id={id}
                   data-heading={id}
@@ -644,6 +658,7 @@ const LegalPanel = ({ title, lastUpdated, sections, onBack }) => {
 
           <div style={{ display: "flex", justifyContent: "flex-end", marginTop: space.xl }}>
             <button
+              id="legal-understand-btn"
               type="button"
               onClick={onBack}
               style={{ padding: "13px 36px", borderRadius: radius.pill, border: "none", background: panel, color: onPanel, fontFamily: font.ui, ...type.control, cursor: "pointer", boxShadow: shadow.pill, transition: `background 240ms ${ease}` }}
@@ -664,6 +679,238 @@ const PrivacyScreen = ({ onBack }) => <LegalPanel title="Privacy policy"       l
 
 
 // ── Multi-Department Picker ───────────────────────────────────────────────────
+// ── CustomSelect ──────────────────────────────────────────────────────────────
+// Drop-in replacement for a native <select> whose option list is drawn by us
+// instead of the browser/OS. The native list (the big grey box that spilled
+// past the modal) can't be styled or kept inside a container; this one:
+//   • looks like the dropdown in the student "Apply Now" modal — white card,
+//     12px corners, soft shadow, roomy rows, hover + selected tints;
+//   • stays INSIDE the container it's in (modal body, card, page): it opens
+//     downward or upward, whichever side has more room inside the nearest
+//     clipping/scrolling ancestor, and caps its height to that room, so it
+//     never overlaps past the container's edge;
+//   • keeps the trigger looking exactly like the field it replaces — pass the
+//     old <select>'s style as `triggerStyle`.
+//
+// Props:
+//   value, onChange(value)  — same as a controlled <select> (string values)
+//   options                 — strings, or { value, label } objects
+//   placeholder             — text shown when nothing is picked; also listed
+//                             as the first row so the choice can be cleared
+//   showPlaceholderOption   — set false to leave that first row out
+//   disabled, hasError      — hasError swaps the border to `errorColor`
+//   triggerStyle            — style for the closed field (the old select's)
+//   ariaLabel               — accessible name when there's no <label>
+
+const CS_MAX_LIST_HEIGHT = 240;
+const CS_MIN_LIST_HEIGHT = 96;
+const CS_EDGE_GAP        = 8;
+
+const csNormalize = (o) =>
+  o !== null && typeof o === "object"
+    ? { value: String(o.value ?? ""), label: String(o.label ?? o.value ?? "") }
+    : { value: String(o ?? ""), label: String(o ?? "") };
+
+// Nearest ancestor that clips its content (a scrolling modal body, a card
+// with overflow hidden…). The list has to fit inside it.
+const csFindClipParent = (el) => {
+  for (let p = el?.parentElement; p && p !== document.body; p = p.parentElement) {
+    const oy = getComputedStyle(p).overflowY;
+    if (oy === "auto" || oy === "scroll" || oy === "hidden" || oy === "clip") return p;
+  }
+  return null;
+};
+
+function CustomSelect({
+  value,
+  onChange,
+  options = [],
+  placeholder = "Select…",
+  showPlaceholderOption = true,
+  disabled = false,
+  hasError = false,
+  errorColor = color.danger,
+  triggerStyle = {},
+  ariaLabel,
+}) {
+  const [open, setOpen]         = useState(false);
+  const [openUp, setOpenUp]     = useState(false);
+  const [maxHeight, setMaxH]    = useState(CS_MAX_LIST_HEIGHT);
+  const [active, setActive]     = useState(-1);
+  const wrapRef = useRef(null);
+  const listRef = useRef(null);
+
+  const items = [
+    ...(showPlaceholderOption ? [{ value: "", label: placeholder, isPlaceholder: true }] : []),
+    ...options.map(csNormalize),
+  ];
+  const current  = String(value ?? "");
+  const selected = items.find(i => !i.isPlaceholder && i.value === current);
+
+  // Close on any press outside the field + list.
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("touchstart", onDown, { passive: true });
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("touchstart", onDown);
+    };
+  }, [open]);
+
+  // When it opens: pick the side with more room inside the container, cap the
+  // height to that room, and bring the current choice into view.
+  React.useLayoutEffect(() => {
+    if (!open || !wrapRef.current) return;
+    const rect   = wrapRef.current.getBoundingClientRect();
+    const clip   = csFindClipParent(wrapRef.current);
+    const bounds = clip ? clip.getBoundingClientRect() : { top: 0, bottom: window.innerHeight };
+    const top    = Math.max(bounds.top, 0);
+    const bottom = Math.min(bounds.bottom, window.innerHeight);
+    const below  = bottom - rect.bottom - CS_EDGE_GAP;
+    const above  = rect.top - top - CS_EDGE_GAP;
+    const wanted = Math.min(CS_MAX_LIST_HEIGHT, items.length * 36 + 8);
+    const up     = below < wanted && above > below;
+    setOpenUp(up);
+    setMaxH(Math.max(CS_MIN_LIST_HEIGHT, Math.min(CS_MAX_LIST_HEIGHT, up ? above : below)));
+    const idx = items.findIndex(i => i.value === current);
+    setActive(idx >= 0 ? idx : 0);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  // Keep the keyboard-highlighted row visible while arrowing through.
+  useEffect(() => {
+    if (!open || active < 0 || !listRef.current) return;
+    listRef.current.children[active]?.scrollIntoView({ block: "nearest" });
+  }, [open, active]);
+
+  const choose = (item) => {
+    onChange?.(item.value);
+    setOpen(false);
+  };
+
+  const onKeyDown = (e) => {
+    if (disabled) return;
+    if (e.key === "Escape") { if (open) { e.stopPropagation(); setOpen(false); } return; }
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      if (!open) { setOpen(true); return; }
+      setActive(a => {
+        const n = items.length;
+        return e.key === "ArrowDown" ? (a + 1) % n : (a - 1 + n) % n;
+      });
+      return;
+    }
+    if ((e.key === "Enter" || e.key === " ") && open && active >= 0) {
+      e.preventDefault();
+      choose(items[active]);
+    }
+  };
+
+  const baseTrigger = {
+    width: "100%",
+    textAlign: "left",
+    cursor: disabled ? "not-allowed" : "pointer",
+    outline: "none",
+    boxSizing: "border-box",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    // leave room for the caret on the right
+    paddingRight: "32px",
+  };
+  const merged = { ...baseTrigger, ...triggerStyle };
+  if (!merged.paddingRight || parseInt(merged.paddingRight, 10) < 28) merged.paddingRight = "32px";
+  if (hasError) merged.borderColor = errorColor;
+  if (!selected) merged.color = color.inkFaint;
+
+  return (
+    <div ref={wrapRef} style={{ position: "relative", width: "100%" }}>
+      <button
+        type="button"
+        disabled={disabled}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label={ariaLabel}
+        onClick={() => !disabled && setOpen(o => !o)}
+        onKeyDown={onKeyDown}
+        style={merged}
+      >
+        {selected ? selected.label : placeholder}
+      </button>
+
+      <span
+        aria-hidden="true"
+        style={{
+          position: "absolute", right: "12px", top: "50%",
+          transform: `translateY(-50%) rotate(${open ? 180 : 0}deg)`,
+          transition: "transform 160ms ease",
+          pointerEvents: "none", display: "flex",
+          color: disabled ? color.inkFaint : color.inkMuted,
+        }}
+      >
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M7 10l5 5 5-5z" /></svg>
+      </span>
+
+      {open && !disabled && (
+        <div
+          ref={listRef}
+          role="listbox"
+          style={{
+            position: "absolute",
+            left: 0,
+            right: 0,
+            [openUp ? "bottom" : "top"]: "calc(100% + 4px)",
+            background: color.white,
+            borderRadius: "12px",
+            boxShadow: "0 8px 24px rgba(0,0,0,0.18)",
+            maxHeight: `${maxHeight}px`,
+            overflowY: "auto",
+            zIndex: 2000,
+            padding: "4px 0",
+          }}
+        >
+          {items.map((item, i) => {
+            const isSel = !item.isPlaceholder && item.value === current;
+            const bg = i === active ? color.hoverWash : isSel ? color.wine800 : color.white;
+            return (
+              <div
+                key={`${item.value}-${i}`}
+                role="option"
+                aria-selected={isSel}
+                onMouseDown={(e) => e.preventDefault()}   // keep focus on the field
+                onClick={() => choose(item)}
+                onMouseEnter={() => setActive(i)}
+                style={{
+                  padding: "8px 14px",
+                  fontFamily: font.ui,
+                  fontSize: "0.82rem",
+                  lineHeight: 1.4,
+                  cursor: "pointer",
+                  background: bg,
+                  color: item.isPlaceholder ? color.inkFaint : color.ink,
+                  fontWeight: isSel ? 600 : 400,
+                  whiteSpace: "normal",
+                  overflowWrap: "anywhere",
+                }}
+              >
+                {item.label}
+              </div>
+            );
+          })}
+          {items.length === 0 && (
+            <div style={{ padding: "10px 14px", fontFamily: font.ui, fontSize: "0.8rem", color: color.inkFaint }}>
+              No options
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 const MultiDepartmentPicker = ({ selections, onChange, readOnly, errors, departments, departmentNames }) => {
   const addEntry = () => onChange([...selections, { department: "", program: "", specialization: "" }]);
   const removeEntry = (idx) => onChange(selections.filter((_, i) => i !== idx));
@@ -710,12 +957,9 @@ const MultiDepartmentPicker = ({ selections, onChange, readOnly, errors, departm
           <div key={idx} style={{ background: lineSoft, border: `1px solid ${line}`, borderRadius: radius.card, padding: "10px 12px", marginBottom: "8px" }}>
             <div style={{ display: "flex", gap: "8px", alignItems: "center", marginBottom: entry.department ? "8px" : "0" }}>
               <div style={{ flex: 1, position: "relative" }}>
-                <select disabled={readOnly} value={entry.department} onChange={e => updateEntry(idx, "department", e.target.value)}
-                  style={{ ...pillSelect, borderColor: err.department ? danger : line }}>
-                  <option value="">Select department</option>
-                  {departmentNames.map(d => <option key={d} value={d}>{d}</option>)}
-                </select>
-                <span style={caret}>▼</span>
+                <CustomSelect disabled={readOnly} value={entry.department} onChange={v => updateEntry(idx, "department", v)}
+                  options={departmentNames} placeholder="Select department" hasError={!!err.department} errorColor={danger}
+                  triggerStyle={{ ...pillSelect, borderColor: err.department ? danger : line }} />
                 {err.department && <p style={errText}>Department is required.</p>}
               </div>
               {!readOnly && selections.length > 1 && (
@@ -725,23 +969,17 @@ const MultiDepartmentPicker = ({ selections, onChange, readOnly, errors, departm
             </div>
             {entry.department && (
               <div style={{ marginBottom: specializations.length > 0 && entry.program ? "8px" : "0", position: "relative" }}>
-                <select disabled={readOnly} value={entry.program} onChange={e => updateEntry(idx, "program", e.target.value)}
-                  style={{ ...pillSelect, borderColor: err.program ? danger : line }}>
-                  <option value="">Select program</option>
-                  {programs.map(p => <option key={p} value={p}>{p}</option>)}
-                </select>
-                <span style={caret}>▼</span>
+                <CustomSelect disabled={readOnly} value={entry.program} onChange={v => updateEntry(idx, "program", v)}
+                  options={programs} placeholder="Select program" hasError={!!err.program} errorColor={danger}
+                  triggerStyle={{ ...pillSelect, borderColor: err.program ? danger : line }} />
                 {err.program && <p style={errText}>Program is required.</p>}
               </div>
             )}
             {entry.program && specializations.length > 0 && (
               <div style={{ position: "relative" }}>
-                <select disabled={readOnly} value={entry.specialization} onChange={e => updateEntry(idx, "specialization", e.target.value)}
-                  style={{ ...pillSelect, borderColor: err.specialization ? danger : line }}>
-                  <option value="">Select specialization</option>
-                  {specializations.map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
-                <span style={caret}>▼</span>
+                <CustomSelect disabled={readOnly} value={entry.specialization} onChange={v => updateEntry(idx, "specialization", v)}
+                  options={specializations} placeholder="Select specialization" hasError={!!err.specialization} errorColor={danger}
+                  triggerStyle={{ ...pillSelect, borderColor: err.specialization ? danger : line }} />
                 {err.specialization && <p style={errText}>Specialization is required.</p>}
               </div>
             )}
@@ -899,6 +1137,22 @@ const ModalTitle = ({ children, sub }) => (
   </div>
 );
 
+// ── Backdrop click-to-close ───────────────────────────────────────────────────
+// Spread onto a modal's full-screen overlay: clicking anywhere OUTSIDE the
+// dialog closes it. Only counts when the press both started and ended on the
+// overlay itself, so dragging a text selection out of an input doesn't close
+// the modal by accident. `disabled` keeps it open mid-submit.
+const useBackdropClose = (onClose, disabled = false) => {
+  const downOnBackdrop = useRef(false);
+  return {
+    onMouseDown: (e) => { downOnBackdrop.current = e.target === e.currentTarget; },
+    onClick: (e) => {
+      if (downOnBackdrop.current && e.target === e.currentTarget && !disabled) onClose?.();
+      downOnBackdrop.current = false;
+    },
+  };
+};
+
 // ── Add Account Modal ─────────────────────────────────────────────────────────
 const AddAccountModal = ({ onClose, currentUid, currentEmail, coordinatorDeptSelections = [] }) => {
   const { departments, departmentNames } = useDepartmentsPrograms();
@@ -939,8 +1193,10 @@ const AddAccountModal = ({ onClose, currentUid, currentEmail, coordinatorDeptSel
     }
   };
 
+  const backdropClose = useBackdropClose(onClose, submitting);
+
   return (
-    <div className="cap-modal cap-overlay" style={{ position: "fixed", inset: 0, background: "rgba(10,10,10,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: space.md }}>
+    <div {...backdropClose} className="cap-modal cap-overlay" style={{ position: "fixed", inset: 0, background: "rgba(10,10,10,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: space.md }}>
       <div className="cap-modal-inner cap-dialog">
         <div className="cap-modal-body">
           {sent ? (
@@ -955,17 +1211,20 @@ const AddAccountModal = ({ onClose, currentUid, currentEmail, coordinatorDeptSel
             </>
           ) : (
             <>
-              <WarningBanner text="Invite an additional OJT Coordinator. They'll receive an email with an Accept link and set up their own login — your own account and access won't change." />
+              <div id="accadd-banner"><WarningBanner text="Invite an additional OJT Coordinator. They'll receive an email with an Accept link and set up their own login — your own account and access won't change." /></div>
 
+              <div id="accadd-identity">
               <ModalTitle>Confirm your identity</ModalTitle>
               <label style={labelStyle}>Your current password</label>
               <PasswordInput value={currentPass} onChange={e => setCurrentPass(e.target.value)} onKeyDown={handleKeyDown} invalid={!!errors.currentPass} />
               {errors.currentPass && <p style={errorTextStyle}>{errors.currentPass}</p>}
+              </div>
 
               <hr style={{ border: "none", borderTop: `1px solid ${line}`, margin: `${space.lg} 0 ${space.md}` }} />
 
               <ModalTitle>New coordinator</ModalTitle>
 
+              <div id="accadd-dept">
               <label style={labelStyle}>Department and program</label>
               <MultiDepartmentPicker
                 selections={coordinatorDeptSelections.length ? coordinatorDeptSelections : [{ department: "", program: "", specialization: "" }]}
@@ -979,22 +1238,28 @@ const AddAccountModal = ({ onClose, currentUid, currentEmail, coordinatorDeptSel
                 New accounts are added under your own department automatically.
               </p>
 
+              </div>
+
+              <div id="accadd-email">
               <label style={labelStyle}>Email address</label>
               <input type="email" value={email} onChange={e => setEmail(e.target.value)} onKeyDown={handleKeyDown} placeholder="example@gmail.com"
                 style={{ ...fieldStyle, borderColor: errors.email ? danger : line, marginBottom: "6px" }} />
               {errors.email && <p style={errorTextStyle}>{errors.email}</p>}
+              </div>
 
               {submitError && <p style={{ ...errorTextStyle, textAlign: "center", marginTop: space.md }}>{submitError}</p>}
             </>
           )}
         </div>
         <div className="cap-modal-footer">
+          <div id="accadd-footer" className="cap-footer-btns">
           <FooterGhostButton onClick={onClose}>{sent ? "Close" : "Cancel"}</FooterGhostButton>
           {!sent && (
             <FooterSolidButton onClick={handleSubmit} disabled={submitting}>
               {submitting ? "Sending…" : "Send invitation"}
             </FooterSolidButton>
           )}
+          </div>
         </div>
       </div>
     </div>
@@ -1041,8 +1306,10 @@ const TransferAccountModal = ({ onClose, currentUid, currentEmail, coordinatorDe
     }
   };
 
+  const backdropClose = useBackdropClose(onClose, submitting);
+
   return (
-    <div className="cap-modal cap-overlay" style={{ position: "fixed", inset: 0, background: "rgba(10,10,10,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: space.md }}>
+    <div {...backdropClose} className="cap-modal cap-overlay" style={{ position: "fixed", inset: 0, background: "rgba(10,10,10,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: space.md }}>
       <div className="cap-modal-inner cap-dialog">
         <div className="cap-modal-body">
           {sent ? (
@@ -1054,17 +1321,20 @@ const TransferAccountModal = ({ onClose, currentUid, currentEmail, coordinatorDe
             </>
           ) : (
             <>
-              <WarningBanner text="Invite another OJT Coordinator to take over this account. They'll receive an email with an Accept link and set up their own login — your access won't change until they accept." />
+              <div id="acctransfer-banner"><WarningBanner text="Invite another OJT Coordinator to take over this account. They'll receive an email with an Accept link and set up their own login — your access won't change until they accept." /></div>
 
+              <div id="acctransfer-identity">
               <ModalTitle>Confirm your identity</ModalTitle>
               <label style={labelStyle}>Your current password</label>
               <PasswordInput value={currentPass} onChange={e => setCurrentPass(e.target.value)} onKeyDown={handleKeyDown} invalid={!!errors.currentPass} />
               {errors.currentPass && <p style={errorTextStyle}>{errors.currentPass}</p>}
+              </div>
 
               <hr style={{ border: "none", borderTop: `1px solid ${line}`, margin: `${space.lg} 0 ${space.md}` }} />
 
               <ModalTitle>New coordinator</ModalTitle>
 
+              <div id="acctransfer-dept">
               <label style={labelStyle}>Department and program</label>
               <MultiDepartmentPicker
                 selections={coordinatorDeptSelections.length ? coordinatorDeptSelections : [{ department: "", program: "", specialization: "" }]}
@@ -1078,22 +1348,28 @@ const TransferAccountModal = ({ onClose, currentUid, currentEmail, coordinatorDe
                 The new coordinator inherits your department automatically.
               </p>
 
+              </div>
+
+              <div id="acctransfer-email">
               <label style={labelStyle}>Email address</label>
               <input type="email" value={email} onChange={e => setEmail(e.target.value)} onKeyDown={handleKeyDown} placeholder="example@gmail.com"
                 style={{ ...fieldStyle, borderColor: errors.email ? danger : line, marginBottom: "6px" }} />
               {errors.email && <p style={errorTextStyle}>{errors.email}</p>}
+              </div>
 
               {submitError && <p style={{ ...errorTextStyle, textAlign: "center", marginTop: space.md }}>{submitError}</p>}
             </>
           )}
         </div>
         <div className="cap-modal-footer">
+          <div id="acctransfer-footer" className="cap-footer-btns">
           <FooterGhostButton onClick={onClose}>{sent ? "Close" : "Cancel"}</FooterGhostButton>
           {!sent && (
             <FooterSolidButton onClick={handleSubmit} disabled={submitting}>
               {submitting ? "Sending…" : "Send invitation"}
             </FooterSolidButton>
           )}
+          </div>
         </div>
       </div>
     </div>
@@ -1221,9 +1497,13 @@ const CoordinatorEmailChangeConfirmModal = ({ newEmail, uid, onCancel, onDone })
 };
 
 // ── Personal Info Screen ──────────────────────────────────────────────────────
-const PersonalInfoScreen = ({ user, onBack, onSaved, mandatory = false }) => {
+const PersonalInfoScreen = ({ user, onBack, onSaved, mandatory = false, onEditingChange }) => {
   const { departments, departmentNames } = useDepartmentsPrograms();
   const [editing, setEditing]           = useState(!!mandatory);
+  // Lets the Account Profile screen (→ Dashboard's "?" tour) know whether
+  // the details are being viewed or filled in, so each gets its own steps.
+  useEffect(() => { onEditingChange?.(editing); }, [editing]);
+  useEffect(() => () => onEditingChange?.(false), []);
   const [name, setName]                 = useState(user?.name || "");
   const [deptSelections, setDeptSelections] = useState(
     user?.deptSelections?.length ? user.deptSelections : [{ department: "", program: "", specialization: "" }]
@@ -1428,7 +1708,7 @@ const PersonalInfoScreen = ({ user, onBack, onSaved, mandatory = false }) => {
           {/* Edit button */}
           {!editing && (
             <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: space.sm }}>
-              <button onClick={() => setEditing(true)}
+              <button id="pinfo-edit-btn" onClick={() => setEditing(true)}
                 style={{ display: "inline-flex", alignItems: "center", gap: "7px", padding: "8px 16px", borderRadius: radius.pill, border: `1px solid ${line}`, background: surface, color: ink, fontFamily: font.ui, ...type.control, cursor: "pointer", boxShadow: shadow.input }}>
                 <EditIcon size={14} />
                 Edit
@@ -1437,7 +1717,7 @@ const PersonalInfoScreen = ({ user, onBack, onSaved, mandatory = false }) => {
           )}
 
           {/* Name */}
-          <div className="cap-info-row">
+          <div id="pinfo-name" className="cap-info-row">
             <span style={rowLabel}>Name</span>
             {editing ? (
               <>
@@ -1450,7 +1730,7 @@ const PersonalInfoScreen = ({ user, onBack, onSaved, mandatory = false }) => {
           </div>
 
           {/* Department */}
-          <div className="cap-info-row">
+          <div id="pinfo-dept" className="cap-info-row">
             <span style={rowLabel}>Department</span>
             {editing ? (
               <MultiDepartmentPicker selections={deptSelections} onChange={v => { setDeptSelections(v); setDeptErrors([]); }} readOnly={false} errors={deptErrors} departments={departments} departmentNames={departmentNames} />
@@ -1468,16 +1748,13 @@ const PersonalInfoScreen = ({ user, onBack, onSaved, mandatory = false }) => {
           </div>
 
           {/* Sex */}
-          <div className="cap-info-row">
+          <div id="pinfo-sex" className="cap-info-row">
             <span style={rowLabel}>Sex</span>
             {editing ? (
               <>
-                <select value={sex} onChange={e => { setSex(e.target.value); setErrors(p => ({ ...p, sex: "" })); }}
-                  style={{ ...(errors.sex ? inlineInputErrorStyle : inlineInputStyle), cursor: "pointer" }}>
-                  <option value="">Select</option>
-                  <option>Male</option>
-                  <option>Female</option>
-                </select>
+                <CustomSelect value={sex} onChange={v => { setSex(v); setErrors(p => ({ ...p, sex: "" })); }}
+                  options={["Male", "Female"]} placeholder="Select" ariaLabel="Sex"
+                  triggerStyle={{ ...(errors.sex ? inlineInputErrorStyle : inlineInputStyle), paddingRight: "28px" }} />
                 {errors.sex && <p style={inlineErrText}>{errors.sex}</p>}
               </>
             ) : (
@@ -1486,7 +1763,7 @@ const PersonalInfoScreen = ({ user, onBack, onSaved, mandatory = false }) => {
           </div>
 
           {/* Contact */}
-          <div className="cap-info-row">
+          <div id="pinfo-contact" className="cap-info-row">
             <span style={rowLabel}>Contact number</span>
             {editing ? (
               <>
@@ -1499,7 +1776,7 @@ const PersonalInfoScreen = ({ user, onBack, onSaved, mandatory = false }) => {
           </div>
 
           {/* Email */}
-          <div className="cap-info-row">
+          <div id="pinfo-email" className="cap-info-row">
             <span style={rowLabel}>Email address</span>
             {editing ? (
               <>
@@ -1520,7 +1797,7 @@ const PersonalInfoScreen = ({ user, onBack, onSaved, mandatory = false }) => {
           </div>
 
           {/* Address */}
-          <div className="cap-info-row">
+          <div id="pinfo-address" className="cap-info-row">
             <span style={rowLabel}>Address</span>
             {editing ? (
               <>
@@ -1548,6 +1825,7 @@ const PersonalInfoScreen = ({ user, onBack, onSaved, mandatory = false }) => {
           {/* Cancel / Save */}
           {editing && (
             <div className="cap-save-row">
+              <div id="pinfo-save" style={{ display: "flex", gap: space.sm, flexWrap: "wrap" }}>
               {!mandatory && (
                 <button onClick={() => { setEditing(false); setErrors({}); setDeptErrors([]); }}
                   style={{ padding: "9px 20px", borderRadius: radius.pill, background: "transparent", color: inkMuted, border: `1px solid ${line}`, fontFamily: font.ui, ...type.control, cursor: "pointer" }}>Cancel</button>
@@ -1556,6 +1834,7 @@ const PersonalInfoScreen = ({ user, onBack, onSaved, mandatory = false }) => {
                 style={{ padding: "9px 22px", borderRadius: radius.pill, background: panel, color: onPanel, border: "none", fontFamily: font.ui, ...type.control, cursor: saving ? "not-allowed" : "pointer", opacity: saving ? 0.7 : 1, boxShadow: shadow.pill }}>
                 {saving ? "Saving…" : "Save changes"}
               </button>
+              </div>
             </div>
           )}
         </div>
@@ -1640,6 +1919,9 @@ const ResetPasswordModal = ({ onClose, user, onLogout }) => {
     else onClose(); // fallback, shouldn't normally happen
   };
 
+  // Declared before the early return below so hook order never changes.
+  const backdropClose = useBackdropClose(onClose, loading);
+
   if (success) {
     return (
       <StatusDialog
@@ -1653,32 +1935,40 @@ const ResetPasswordModal = ({ onClose, user, onLogout }) => {
   }
 
   return (
-    <div className="cap-modal cap-overlay" style={{ position: "fixed", inset: 0, background: "rgba(10,10,10,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: space.md }}>
+    <div {...backdropClose} className="cap-modal cap-overlay" style={{ position: "fixed", inset: 0, background: "rgba(10,10,10,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: space.md }}>
       <div className="cap-modal-inner cap-dialog">
         <div className="cap-modal-body">
           <ModalTitle sub="Choose a password you don't use anywhere else.">Reset password</ModalTitle>
 
+          <div id="accreset-current">
           <label style={labelStyle}>Current password</label>
           <PasswordInput value={currentPass} onChange={e => { setCurrentPass(e.target.value); setErrors(p => ({ ...p, currentPass: "" })); }} onKeyDown={handleKeyDown} invalid={!!errors.currentPass} />
           {errors.currentPass && <p style={errorTextStyle}>{errors.currentPass}</p>}
+          </div>
 
           <hr style={{ border: "none", borderTop: `1px solid ${line}`, margin: `${space.lg} 0 ${space.md}` }} />
 
+          <div id="accreset-new">
           <label style={labelStyle}>New password</label>
           <PasswordInput value={newPass} onChange={e => { setNewPass(e.target.value); setErrors(p => ({ ...p, newPass: "" })); }} onKeyDown={handleKeyDown} invalid={!!errors.newPass} />
           {errors.newPass && <p style={errorTextStyle}>{errors.newPass}</p>}
 
           <PasswordChecklist password={newPass} />
+          </div>
 
+          <div id="accreset-confirm">
           <label style={labelStyle}>Confirm new password</label>
           <PasswordInput value={confirm} onChange={e => { setConfirm(e.target.value); setErrors(p => ({ ...p, confirm: "" })); }} onKeyDown={handleKeyDown} invalid={!!errors.confirm} />
           {errors.confirm && <p style={errorTextStyle}>{errors.confirm}</p>}
+          </div>
 
           {errors.general && <p style={{ ...errorTextStyle, textAlign: "center", marginTop: space.md }}>{errors.general}</p>}
         </div>
         <div className="cap-modal-footer">
+          <div id="accreset-footer" className="cap-footer-btns">
           <FooterGhostButton onClick={onClose}>Cancel</FooterGhostButton>
           <FooterSolidButton onClick={handleSave} disabled={loading}>{loading ? "Saving…" : "Save password"}</FooterSolidButton>
+          </div>
         </div>
       </div>
     </div>
@@ -1790,11 +2080,24 @@ const CoordinatorSaveSuccessModal = ({ onClose }) => (
 );
 
 // ── Main Screen ───────────────────────────────────────────────────────────────
-const CoordinatorAccountProfileScreen = ({ user, onLogout, viewIcon: themedViewIcon = blackViewIcon }) => {
+const CoordinatorAccountProfileScreen = ({ user, onLogout, viewIcon: themedViewIcon = blackViewIcon, onViewChange }) => {
   const [view, setView]                     = useState("main");
   const [showReset, setShowReset]           = useState(false);
   const [showTransfer, setShowTransfer]     = useState(false);
   const [showAddAccount, setShowAddAccount] = useState(false);
+  const [editingInfo, setEditingInfo]       = useState(false);
+  // Tells the Dashboard which part of Account Profile is showing, so its "?"
+  // help button (and first-visit auto-tour) runs the matching steps:
+  // "main" | "personalInfo" | "personalInfoEdit" | "terms" | "privacy" |
+  // "reset" | "add" | "transfer". Modals only open from the main menu.
+  const profileSubView =
+      showReset      ? "reset"
+    : showAddAccount ? "add"
+    : showTransfer   ? "transfer"
+    : view === "personalInfo" ? (editingInfo ? "personalInfoEdit" : "personalInfo")
+    : view;
+  useEffect(() => { onViewChange?.(profileSubView); }, [profileSubView]);
+  useEffect(() => () => onViewChange?.("main"), []);
   const [profileName, setProfileName]       = useState("");
   // The signed-in coordinator's own department(s) — used to auto-assign the
   // department when adding or transferring an account, instead of letting
@@ -1814,7 +2117,7 @@ const CoordinatorAccountProfileScreen = ({ user, onLogout, viewIcon: themedViewI
     return () => unsub();
   }, [user?.uid]);
 
-  if (view === "personalInfo") return <><ResponsiveStyles /><PersonalInfoScreen user={user} onBack={() => setView("main")} /></>;
+  if (view === "personalInfo") return <><ResponsiveStyles /><PersonalInfoScreen user={user} onBack={() => { setView("main"); setEditingInfo(false); }} onEditingChange={setEditingInfo} /></>;
   if (view === "terms")        return <><ResponsiveStyles /><TermsScreen onBack={() => setView("main")} /></>;
   if (view === "privacy")      return <><ResponsiveStyles /><PrivacyScreen onBack={() => setView("main")} /></>;
 

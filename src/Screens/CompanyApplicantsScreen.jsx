@@ -695,7 +695,7 @@ const ReportApplicantModal = ({ applicant, reporter, onClose, onSubmitted }) => 
         </div>
 
         {/* Progress hairline — three segments, one per step */}
-        <div style={{ display: "flex", gap: "3px", padding: "0 24px", marginTop: "10px" }}>
+        <div id="creport-progress" style={{ display: "flex", gap: "3px", padding: "0 24px", marginTop: "10px" }}>
           {[1, 2, 3].map(n => (
             <div key={n} style={{ flex: 1, height: "3px", borderRadius: radius.pill, background: n <= step ? ink : line, transition: `background 260ms ${ease}` }} />
           ))}
@@ -703,7 +703,7 @@ const ReportApplicantModal = ({ applicant, reporter, onClose, onSubmitted }) => 
 
         <div style={{ flex: 1, overflowY: "auto", padding: "16px 24px 24px" }}>
           {step === 1 && (
-            <>
+            <div id="creport-concerns">
               <p style={{ fontFamily: font.ui, ...type.label, color: ink, marginBottom: "12px" }}>What is the concern?</p>
               {reportCategories.map((c) => {
                 const isOn = selected?.label === c.label;
@@ -716,10 +716,10 @@ const ReportApplicantModal = ({ applicant, reporter, onClose, onSubmitted }) => 
                   </div>
                 );
               })}
-            </>
+            </div>
           )}
           {step === 2 && cat && (
-            <>
+            <div id="creport-details">
               <p style={{ fontFamily: font.ui, fontSize: "1rem", fontWeight: 600, color: ink, marginBottom: "10px" }}>{cat.label}</p>
               <p style={{ fontFamily: font.ui, ...type.body, color: inkBody, marginBottom: "16px", maxWidth: "62ch" }}>{cat.description}</p>
               {cat.details.length > 0 && (
@@ -730,10 +730,11 @@ const ReportApplicantModal = ({ applicant, reporter, onClose, onSubmitted }) => 
                   </ul>
                 </>
               )}
-            </>
+            </div>
           )}
           {step === 3 && (
             <>
+              <div id="creport-describe">
               <p style={{ fontFamily: font.ui, ...type.label, color: ink, marginBottom: "10px" }}>Describe what happened</p>
               <textarea
                 value={description}
@@ -741,6 +742,8 @@ const ReportApplicantModal = ({ applicant, reporter, onClose, onSubmitted }) => 
                 placeholder="Include dates, names, and anything the review team should see."
                 style={{ width: "100%", minHeight: "112px", border: `1px solid ${line}`, borderRadius: radius.card, padding: "12px 14px", outline: "none", fontFamily: font.ui, ...type.body, resize: "vertical", background: color.wine800, color: ink, marginBottom: "20px", boxSizing: "border-box" }}
               />
+              </div>
+              <div id="creport-evidence">
               <p style={{ fontFamily: font.ui, ...type.label, color: ink, marginBottom: "4px" }}>Attach evidence</p>
               <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, marginBottom: "10px" }}>PNG or PDF, up to 10MB.</p>
               <input ref={fileRef} type="file" accept=".png,.pdf" style={{ display: "none" }} onChange={handleFile} />
@@ -765,6 +768,7 @@ const ReportApplicantModal = ({ applicant, reporter, onClose, onSubmitted }) => 
                   <button onClick={() => setAttachedFile(null)} aria-label="Remove file" style={{ marginLeft: "auto", background: "none", border: "none", cursor: "pointer", color: inkMuted, fontSize: "0.95rem" }}>✕</button>
                 </div>
               )}
+              </div>
             </>
           )}
         </div>
@@ -775,7 +779,7 @@ const ReportApplicantModal = ({ applicant, reporter, onClose, onSubmitted }) => 
               ? <p style={{ fontFamily: font.ui, ...type.helper, color: "#E8A5A2", margin: 0 }}>{submitError}</p>
               : <p style={{ fontFamily: font.ui, ...type.helper, color: onPanelDim, margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{buildFullName(applicant)}</p>}
           </div>
-          <div style={{ display: "flex", gap: "10px", flexShrink: 0 }}>
+          <div id="creport-actions" style={{ display: "flex", gap: "10px", flexShrink: 0 }}>
             {step > 1 && (
               <button
                 onClick={() => setStep(step - 1)}
@@ -817,13 +821,13 @@ const StatusDescriptionPopup = ({ status, onClose, onSend }) => {
     <div style={{ position: "fixed", inset: 0, background: "rgba(10,10,10,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2000, padding: "16px" }}>
       <div className="ca-popup-inner">
         <div style={{ padding: "20px 28px 0 28px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px" }}>
-          <span style={{ display: "inline-block", background: sc.bg, color: sc.color, borderRadius: radius.pill, padding: "5px 18px", fontFamily: font.ui, fontSize: "0.85rem", fontWeight: 500 }}>
+          <span id="cstatus-badge" style={{ display: "inline-block", background: sc.bg, color: sc.color, borderRadius: radius.pill, padding: "5px 18px", fontFamily: font.ui, fontSize: "0.85rem", fontWeight: 500 }}>
             {status}
           </span>
           <button onClick={onClose} aria-label="Close" style={{ background: color.wine800, border: `1px solid ${line}`, borderRadius: "50%", width: "28px", height: "28px", color: ink, fontSize: "1rem", fontWeight: "bold", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>✕</button>
         </div>
         <div style={{ margin: "16px 28px 0", borderTop: `1px solid ${line}` }} />
-        <div className="ca-popup-body">
+        <div id="cstatus-message" className="ca-popup-body">
           <p style={{ fontFamily: font.ui, ...type.label, color: ink, marginBottom: "10px" }}>Write a message:</p>
           <textarea value={description} onChange={e => setDescription(e.target.value)} placeholder="Write your message to the applicant..."
             onKeyDown={e => {
@@ -836,6 +840,7 @@ const StatusDescriptionPopup = ({ status, onClose, onSend }) => {
             style={{ width: "100%", minHeight: "90px", border: "none", outline: "none", background: "transparent", fontFamily: font.ui, ...type.body, color: inkBody, resize: "none", lineHeight: 1.6 }} />
         </div>
         <div className="ca-popup-footer">
+          <div id="cstatus-footer" style={{ display: "flex", gap: "10px" }}>
           <button onClick={onClose}
             style={{ background: "transparent", border: `1px solid ${onPanel}`, borderRadius: radius.pill, padding: "9px 26px", color: onPanel, fontFamily: font.ui, ...type.control, cursor: "pointer" }}>
             Close
@@ -844,6 +849,7 @@ const StatusDescriptionPopup = ({ status, onClose, onSend }) => {
             style={{ background: color.goldTint, border: "none", borderRadius: radius.pill, padding: "9px 26px", color: onPanel, fontFamily: font.ui, ...type.control, cursor: "pointer" }}>
             Send
           </button>
+          </div>
         </div>
       </div>
     </div>
@@ -851,7 +857,7 @@ const StatusDescriptionPopup = ({ status, onClose, onSend }) => {
 };
 
 // ── Personal Details Modal ─────────────────────────────────────────────────────
-const PersonalDetailsModal = ({ applicant, onClose, onStatusChange, onMessage, user }) => {
+const PersonalDetailsModal = ({ applicant, onClose, onStatusChange, onMessage, user, onSubViewChange }) => {
   const locationChips = [applicant.region, applicant.province, applicant.city, applicant.barangay].filter(Boolean);
   const collegeChips  = [applicant.college, applicant.program, applicant.major].filter(Boolean);
   const [pendingStatus, setPendingStatus] = useState(null);
@@ -866,6 +872,10 @@ const PersonalDetailsModal = ({ applicant, onClose, onStatusChange, onMessage, u
   // Companies report students only — never coordinators.
   const canReport  = isReportableApplicant(applicant);
 
+  // "detail" | "status" | "report" → Applicants screen → Dashboard's "?" tour.
+  const modalSub = pendingStatus ? "status" : (showReport && canReport) ? "report" : "detail";
+  useEffect(() => { onSubViewChange?.(modalSub); }, [modalSub]);
+
   return (
     <>
       <div style={{ position: "fixed", inset: 0, background: "rgba(10,10,10,0.50)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: "16px" }}>
@@ -873,30 +883,30 @@ const PersonalDetailsModal = ({ applicant, onClose, onStatusChange, onMessage, u
 
           {/* Header */}
           <div className="ca-modal-header">
-            <h2 title="Student Information" style={{ fontFamily: font.ui, fontSize: "clamp(1.05rem, 4vw, 1.3rem)", fontWeight: 600, letterSpacing: "-0.01em", margin: 0, color: ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>Student Information</h2>
+            <h2 id="cappd-header" title="Student Information" style={{ fontFamily: font.ui, fontSize: "clamp(1.05rem, 4vw, 1.3rem)", fontWeight: 600, letterSpacing: "-0.01em", margin: 0, color: ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>Student Information</h2>
             <button onClick={onClose} aria-label="Close" style={{ background: color.wine800, border: `1px solid ${line}`, borderRadius: "50%", width: "28px", height: "28px", color: ink, fontSize: "1rem", fontWeight: "bold", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>✕</button>
           </div>
 
           {/* Body */}
           <div className="ca-modal-body">
             {/* Name row */}
-            <div className="ca-name-row">
+            <div id="cappd-name" className="ca-name-row">
               <div><FieldLabel>First Name</FieldLabel><Chip label={applicant.firstName} /></div>
               <div><FieldLabel>Middle Initial</FieldLabel><Chip label={applicant.middleInitial || "—"} /></div>
               <div><FieldLabel>Last Name</FieldLabel><Chip label={applicant.lastName} /></div>
               {applicant.suffix && <div><FieldLabel>Suffix</FieldLabel><Chip label={applicant.suffix} /></div>}
             </div>
 
-            <div style={{ marginBottom: "14px" }}><FieldLabel>Sex</FieldLabel><Chip label={applicant.sex} /></div>
+            <div id="cappd-sex" style={{ marginBottom: "14px" }}><FieldLabel>Sex</FieldLabel><Chip label={applicant.sex} /></div>
 
-            <div style={{ marginBottom: "14px" }}>
+            <div id="cappd-location" style={{ marginBottom: "14px" }}>
               <FieldLabel>Location</FieldLabel>
               <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
                 {locationChips.map((c, i) => <Chip key={i} label={c} />)}
               </div>
             </div>
 
-            <div style={{ marginBottom: "14px" }}>
+            <div id="cappd-college" style={{ marginBottom: "14px" }}>
               <FieldLabel>College / Program / Major</FieldLabel>
               <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
                 {collegeChips.map((c, i) => <Chip key={i} label={c} />)}
@@ -906,13 +916,13 @@ const PersonalDetailsModal = ({ applicant, onClose, onStatusChange, onMessage, u
             <hr style={{ border: "none", borderTop: `1px solid ${line}`, margin: "16px 0" }} />
 
             {/* Contact row */}
-            <div className="ca-contact-row">
+            <div id="cappd-contact" className="ca-contact-row">
               <div><FieldLabel>Contact Information</FieldLabel><Chip label={applicant.contact} /></div>
               <div><FieldLabel>Email address</FieldLabel><Chip label={applicant.email} /></div>
             </div>
 
             {/* Application message */}
-            <div style={{ marginBottom: "16px" }}>
+            <div id="cappd-message" style={{ marginBottom: "16px" }}>
               <FieldLabel>Application message</FieldLabel>
               <div className="app-msg-scroll" style={{ background: color.wine800, border: `1px solid ${line}`, borderRadius: radius.card, padding: "13px 18px", maxHeight: "110px", overflowY: "auto", position: "relative" }}>
                 <p style={{ fontFamily: font.ui, ...type.body, color: inkBody, margin: 0, wordBreak: "break-word" }}>
@@ -925,7 +935,7 @@ const PersonalDetailsModal = ({ applicant, onClose, onStatusChange, onMessage, u
 
             {/* File + Status */}
             <div className="ca-file-status-row">
-              <div>
+              <div id="cappd-files">
                 <FieldLabel>Attached File</FieldLabel>
                 {applicant.attachedFiles && applicant.attachedFiles.length > 0
                   ? <div style={{ display: "flex", flexWrap: "wrap", gap: "10px" }}>
@@ -936,7 +946,7 @@ const PersonalDetailsModal = ({ applicant, onClose, onStatusChange, onMessage, u
               </div>
 
               <div className="ca-status-block">
-                <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                <div id="cappd-status" style={{ display: "flex", alignItems: "center", gap: "10px", width: "fit-content", maxWidth: "100%" }}>
                   <FieldLabel style={{ margin: 0 }}>Status:</FieldLabel>
                   <StatusDropdown
                     status={applicant.status}
@@ -957,7 +967,7 @@ const PersonalDetailsModal = ({ applicant, onClose, onStatusChange, onMessage, u
                   <div style={{ height: DROPDOWN_HEIGHT, flexShrink: 0 }} aria-hidden="true" />
                 )}
 
-                <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+                <div id="cappd-actions" style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap", width: "fit-content", maxWidth: "100%" }}>
                 <button
                   onClick={() => { if (canMessage) onMessage(applicant); }}
                   disabled={!canMessage}
@@ -1168,7 +1178,7 @@ const FilterPanel = ({
 };
 
 // ── Main Screen ────────────────────────────────────────────────────────────────
-const CompanyApplicantsScreen = ({ embedded = false, onNavigateToMessages, user, openApplicantId, onApplicantOpened, initialStatusFilter, onStatusFilterApplied }) => {
+const CompanyApplicantsScreen = ({ embedded = false, onNavigateToMessages, user, openApplicantId, onApplicantOpened, initialStatusFilter, onStatusFilterApplied , onViewChange }) => {
   const [applicants, setApplicants] = useState([]);
 
   // Fetch applications for this company from Firestore
@@ -1187,6 +1197,13 @@ const CompanyApplicantsScreen = ({ embedded = false, onNavigateToMessages, user,
   }, [user?.uid]);
   const [search, setSearch]                     = useState("");
   const [viewingApplicant, setViewingApplicant] = useState(null);
+  const [detailSub, setDetailSub]               = useState("detail");
+  // "list" | "detail" | "status" | "report" → Dashboard's "?" help button
+  // and first-visit auto-tour.
+  const subView = viewingApplicant ? detailSub : "list";
+  useEffect(() => { onViewChange?.(subView); }, [subView]);
+  useEffect(() => () => onViewChange?.("list"), []);
+  useEffect(() => { if (!viewingApplicant) setDetailSub("detail"); }, [viewingApplicant]);
   const [showFilter, setShowFilter]             = useState(false);
   const [filters, setFilters]                   = useState({ sex: "", college: "", program: "", specialization: "", status: "" });
   const [activeNav, setActiveNav]               = useState("Applicants");
@@ -1344,7 +1361,7 @@ const CompanyApplicantsScreen = ({ embedded = false, onNavigateToMessages, user,
 
         <div style={{ position: "relative", display: "flex", alignItems: "center", flexShrink: 0, gap: "10px" }}>
           {/* Search */}
-          <div style={{ display: "flex", alignItems: "center", gap: space.sm, background: color.white, borderRadius: radius.pill, padding: "9px 16px" }}>
+          <div id="capp-search-bar" style={{ display: "flex", alignItems: "center", gap: space.sm, background: color.white, borderRadius: radius.pill, padding: "9px 16px" }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={inkMuted} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
               <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
             </svg>
@@ -1382,7 +1399,7 @@ const CompanyApplicantsScreen = ({ embedded = false, onNavigateToMessages, user,
       </div>
 
       {/* Status chips */}
-      <div style={{ display: "flex", gap: space.sm, alignItems: "center", flexWrap: "wrap", marginBottom: space.md }}>
+      <div id="capp-status-chips" style={{ display: "flex", gap: space.sm, alignItems: "center", flexWrap: "wrap", marginBottom: space.md }}>
         {["All", "Accepted", "Declined", "Pending", "In Review", "To Interview"].map((statusOption) => {
           const isActive = statusOption === "All" ? filters.status === "" : filters.status === statusOption;
           // Each option keeps the colour of the status it represents, so the
@@ -1419,7 +1436,7 @@ const CompanyApplicantsScreen = ({ embedded = false, onNavigateToMessages, user,
 
       {/* Applicant list */}
       {filtered.length > 0 ? (
-        <div className="ca-rows">
+        <div id="capp-rows" className="ca-rows">
           {filtered.map(applicant => {
             const fullName = buildFullName(applicant) !== "User" ? buildFullName(applicant) : "this applicant";
             const sc = STATUS_COLORS[applicant.status] || { bg: color.wine400, color: ink };
@@ -1474,6 +1491,7 @@ const CompanyApplicantsScreen = ({ embedded = false, onNavigateToMessages, user,
           onStatusChange={handleStatusChange}
           onMessage={handleMessage}
           user={user}
+          onSubViewChange={setDetailSub}
         />
       )}
     </>

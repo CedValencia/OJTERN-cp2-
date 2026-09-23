@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo } from "react";
+import React, { useState, useRef, useEffect, useMemo, useLayoutEffect } from "react";
 import { doc, onSnapshot, updateDoc, collection, getDocs, query, where, setDoc, serverTimestamp } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 import { db } from "./firebase";
@@ -227,6 +227,14 @@ const ResponsiveStyles = () => (
     @media (max-width: 400px) {
       .cap-modal-footer { padding: 10px 14px; flex-direction: column-reverse; align-items: stretch; }
       .cap-modal-footer button { width: 100%; text-align: center; }
+    }
+
+    /* Inner wrapper for a modal footer's buttons — tight help-tour target
+       (just the buttons, not the whole footer bar); mirrors .cap-modal-footer
+       incl. the stacked mobile layout. */
+    .cap-footer-btns { display: flex; gap: ${space.sm}; justify-content: flex-end; }
+    @media (max-width: 480px) {
+      .cap-footer-btns { flex-direction: column-reverse; align-items: stretch; width: 100%; }
     }
 
     /* ── Divider line ── */
@@ -2690,12 +2698,243 @@ const ChevronDown = () => (
   </span>
 );
 
-// Relative wrapper for a pill <select>, carrying both the gap below it and
-// the chevron overlay (native select arrows can't be themed consistently).
+// ── CustomSelect ──────────────────────────────────────────────────────────────
+// Drop-in replacement for a native <select> whose option list is drawn by us
+// instead of the browser/OS. The native list (the big grey box that spilled
+// past the modal) can't be styled or kept inside a container; this one:
+//   • looks like the dropdown in the student "Apply Now" modal — white card,
+//     12px corners, soft shadow, roomy rows, hover + selected tints;
+//   • stays INSIDE the container it's in (modal body, card, page): it opens
+//     downward or upward, whichever side has more room inside the nearest
+//     clipping/scrolling ancestor, and caps its height to that room, so it
+//     never overlaps past the container's edge;
+//   • keeps the trigger looking exactly like the field it replaces — pass the
+//     old <select>'s style as `triggerStyle`.
+//
+// Props:
+//   value, onChange(value)  — same as a controlled <select> (string values)
+//   options                 — strings, or { value, label } objects
+//   placeholder             — text shown when nothing is picked; also listed
+//                             as the first row so the choice can be cleared
+//   showPlaceholderOption   — set false to leave that first row out
+//   disabled, hasError      — hasError swaps the border to `errorColor`
+//   triggerStyle            — style for the closed field (the old select's)
+//   ariaLabel               — accessible name when there's no <label>
+
+const CS_MAX_LIST_HEIGHT = 240;
+const CS_MIN_LIST_HEIGHT = 96;
+const CS_EDGE_GAP        = 8;
+
+const csNormalize = (o) =>
+  o !== null && typeof o === "object"
+    ? { value: String(o.value ?? ""), label: String(o.label ?? o.value ?? "") }
+    : { value: String(o ?? ""), label: String(o ?? "") };
+
+// Nearest ancestor that clips its content (a scrolling modal body, a card
+// with overflow hidden…). The list has to fit inside it.
+const csFindClipParent = (el) => {
+  for (let p = el?.parentElement; p && p !== document.body; p = p.parentElement) {
+    const oy = getComputedStyle(p).overflowY;
+    if (oy === "auto" || oy === "scroll" || oy === "hidden" || oy === "clip") return p;
+  }
+  return null;
+};
+
+function CustomSelect({
+  value,
+  onChange,
+  options = [],
+  placeholder = "Select…",
+  showPlaceholderOption = true,
+  disabled = false,
+  hasError = false,
+  errorColor = color.danger,
+  triggerStyle = {},
+  ariaLabel,
+}) {
+  const [open, setOpen]         = useState(false);
+  const [openUp, setOpenUp]     = useState(false);
+  const [maxHeight, setMaxH]    = useState(CS_MAX_LIST_HEIGHT);
+  const [active, setActive]     = useState(-1);
+  const wrapRef = useRef(null);
+  const listRef = useRef(null);
+
+  const items = [
+    ...(showPlaceholderOption ? [{ value: "", label: placeholder, isPlaceholder: true }] : []),
+    ...options.map(csNormalize),
+  ];
+  const current  = String(value ?? "");
+  const selected = items.find(i => !i.isPlaceholder && i.value === current);
+
+  // Close on any press outside the field + list.
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("touchstart", onDown, { passive: true });
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("touchstart", onDown);
+    };
+  }, [open]);
+
+  // When it opens: pick the side with more room inside the container, cap the
+  // height to that room, and bring the current choice into view.
+  React.useLayoutEffect(() => {
+    if (!open || !wrapRef.current) return;
+    const rect   = wrapRef.current.getBoundingClientRect();
+    const clip   = csFindClipParent(wrapRef.current);
+    const bounds = clip ? clip.getBoundingClientRect() : { top: 0, bottom: window.innerHeight };
+    const top    = Math.max(bounds.top, 0);
+    const bottom = Math.min(bounds.bottom, window.innerHeight);
+    const below  = bottom - rect.bottom - CS_EDGE_GAP;
+    const above  = rect.top - top - CS_EDGE_GAP;
+    const wanted = Math.min(CS_MAX_LIST_HEIGHT, items.length * 36 + 8);
+    const up     = below < wanted && above > below;
+    setOpenUp(up);
+    setMaxH(Math.max(CS_MIN_LIST_HEIGHT, Math.min(CS_MAX_LIST_HEIGHT, up ? above : below)));
+    const idx = items.findIndex(i => i.value === current);
+    setActive(idx >= 0 ? idx : 0);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  // Keep the keyboard-highlighted row visible while arrowing through.
+  useEffect(() => {
+    if (!open || active < 0 || !listRef.current) return;
+    listRef.current.children[active]?.scrollIntoView({ block: "nearest" });
+  }, [open, active]);
+
+  const choose = (item) => {
+    onChange?.(item.value);
+    setOpen(false);
+  };
+
+  const onKeyDown = (e) => {
+    if (disabled) return;
+    if (e.key === "Escape") { if (open) { e.stopPropagation(); setOpen(false); } return; }
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      if (!open) { setOpen(true); return; }
+      setActive(a => {
+        const n = items.length;
+        return e.key === "ArrowDown" ? (a + 1) % n : (a - 1 + n) % n;
+      });
+      return;
+    }
+    if ((e.key === "Enter" || e.key === " ") && open && active >= 0) {
+      e.preventDefault();
+      choose(items[active]);
+    }
+  };
+
+  const baseTrigger = {
+    width: "100%",
+    textAlign: "left",
+    cursor: disabled ? "not-allowed" : "pointer",
+    outline: "none",
+    boxSizing: "border-box",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    // leave room for the caret on the right
+    paddingRight: "32px",
+  };
+  const merged = { ...baseTrigger, ...triggerStyle };
+  if (!merged.paddingRight || parseInt(merged.paddingRight, 10) < 28) merged.paddingRight = "32px";
+  if (hasError) merged.borderColor = errorColor;
+  if (!selected) merged.color = color.inkFaint;
+
+  return (
+    <div ref={wrapRef} style={{ position: "relative", width: "100%" }}>
+      <button
+        type="button"
+        disabled={disabled}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label={ariaLabel}
+        onClick={() => !disabled && setOpen(o => !o)}
+        onKeyDown={onKeyDown}
+        style={merged}
+      >
+        {selected ? selected.label : placeholder}
+      </button>
+
+      <span
+        aria-hidden="true"
+        style={{
+          position: "absolute", right: "12px", top: "50%",
+          transform: `translateY(-50%) rotate(${open ? 180 : 0}deg)`,
+          transition: "transform 160ms ease",
+          pointerEvents: "none", display: "flex",
+          color: disabled ? color.inkFaint : color.inkMuted,
+        }}
+      >
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M7 10l5 5 5-5z" /></svg>
+      </span>
+
+      {open && !disabled && (
+        <div
+          ref={listRef}
+          role="listbox"
+          style={{
+            position: "absolute",
+            left: 0,
+            right: 0,
+            [openUp ? "bottom" : "top"]: "calc(100% + 4px)",
+            background: color.white,
+            borderRadius: "12px",
+            boxShadow: "0 8px 24px rgba(0,0,0,0.18)",
+            maxHeight: `${maxHeight}px`,
+            overflowY: "auto",
+            zIndex: 2000,
+            padding: "4px 0",
+          }}
+        >
+          {items.map((item, i) => {
+            const isSel = !item.isPlaceholder && item.value === current;
+            const bg = i === active ? color.hoverWash : isSel ? color.wine800 : color.white;
+            return (
+              <div
+                key={`${item.value}-${i}`}
+                role="option"
+                aria-selected={isSel}
+                onMouseDown={(e) => e.preventDefault()}   // keep focus on the field
+                onClick={() => choose(item)}
+                onMouseEnter={() => setActive(i)}
+                style={{
+                  padding: "8px 14px",
+                  fontFamily: font.ui,
+                  fontSize: "0.82rem",
+                  lineHeight: 1.4,
+                  cursor: "pointer",
+                  background: bg,
+                  color: item.isPlaceholder ? color.inkFaint : color.ink,
+                  fontWeight: isSel ? 600 : 400,
+                  whiteSpace: "normal",
+                  overflowWrap: "anywhere",
+                }}
+              >
+                {item.label}
+              </div>
+            );
+          })}
+          {items.length === 0 && (
+            <div style={{ padding: "10px 14px", fontFamily: font.ui, fontSize: "0.8rem", color: color.inkFaint }}>
+              No options
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+// Relative wrapper for a picker dropdown, carrying the gap below it. The
+// dropdown is CustomSelect now (draws its own caret), so no chevron overlay.
 const PickerField = ({ children, last = false }) => (
   <div style={{ position: "relative", marginBottom: last ? 0 : "8px" }}>
     {children}
-    <ChevronDown />
   </div>
 );
 
@@ -2799,8 +3038,8 @@ const MenuRow = ({ label, icon, onClick }) => (
   </button>
 );
 
-const MenuGroup = ({ title, children }) => (
-  <div className="cap-menu-group">
+const MenuGroup = ({ title, children, id }) => (
+  <div id={id} className="cap-menu-group">
     <p style={{ fontFamily: font.ui, fontSize: "1rem", fontWeight: 600, letterSpacing: "-0.01em", color: ink, margin: `0 0 10px 6px` }}>{title}</p>
     {children}
   </div>
@@ -3015,27 +3254,24 @@ const MultiCollegeProgramPicker = ({ selections, onChange, editable = true }) =>
             )}
 
             <PickerField last={!entry.college}>
-              <select disabled={!editable} value={entry.college} onChange={e => updateEntry(idx, "college", e.target.value)} style={pickerSelectStyle}>
-                <option value="">Select college</option>
-                {colleges.map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
+              <CustomSelect disabled={!editable} value={entry.college} onChange={v => updateEntry(idx, "college", v)}
+                options={colleges.map(c => c)} placeholder="Select college"
+                triggerStyle={pickerSelectStyle} />
             </PickerField>
 
             {entry.college && (
               <PickerField last={!hasSpecs}>
-                <select disabled={!editable} value={entry.program} onChange={e => updateEntry(idx, "program", e.target.value)} style={pickerSelectStyle}>
-                  <option value="">Select program</option>
-                  {programs.map(p => <option key={p} value={p}>{p}</option>)}
-                </select>
+                <CustomSelect disabled={!editable} value={entry.program} onChange={v => updateEntry(idx, "program", v)}
+                  options={programs.map(p => p)} placeholder="Select program"
+                  triggerStyle={pickerSelectStyle} />
               </PickerField>
             )}
 
             {hasSpecs && (
               <PickerField last>
-                <select disabled={!editable} value={entry.specialization} onChange={e => updateEntry(idx, "specialization", e.target.value)} style={pickerSelectStyle}>
-                  <option value="">Select major / specialization</option>
-                  {specializations.map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
+                <CustomSelect disabled={!editable} value={entry.specialization} onChange={v => updateEntry(idx, "specialization", v)}
+                  options={specializations.map(s => s)} placeholder="Select major / specialization"
+                  triggerStyle={pickerSelectStyle} />
               </PickerField>
             )}
           </div>
@@ -3320,36 +3556,32 @@ const LocationPicker = ({ location, onChange, editable = true }) => {
   return (
     <div>
       <PickerField last={!region}>
-        <select disabled={!editable} value={region} onChange={e => handleRegion(e.target.value)} style={pickerSelectStyle}>
-          <option value="">Select region</option>
-          {REGIONS.map(r => <option key={r.name} value={r.name}>{r.name}</option>)}
-        </select>
+        <CustomSelect disabled={!editable} value={region} onChange={v => handleRegion(v)}
+          options={REGIONS.map(r => r.name)} placeholder="Select region"
+          triggerStyle={pickerSelectStyle} />
       </PickerField>
 
       {region && (
         <PickerField last={!province}>
-          <select disabled={!editable} value={province} onChange={e => handleProvince(e.target.value)} style={pickerSelectStyle}>
-            <option value="">Select province</option>
-            {regionData?.provinces.map(p => <option key={p.name} value={p.name}>{p.name}</option>)}
-          </select>
+          <CustomSelect disabled={!editable} value={province} onChange={v => handleProvince(v)}
+            options={(regionData?.provinces || []).map(p => p.name)} placeholder="Select province"
+            triggerStyle={pickerSelectStyle} />
         </PickerField>
       )}
 
       {province && (
         <PickerField last={!city}>
-          <select disabled={!editable} value={city} onChange={e => handleCity(e.target.value)} style={pickerSelectStyle}>
-            <option value="">Select city / municipality</option>
-            {provinceData?.cities.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
-          </select>
+          <CustomSelect disabled={!editable} value={city} onChange={v => handleCity(v)}
+            options={(provinceData?.cities || []).map(c => c.name)} placeholder="Select city / municipality"
+            triggerStyle={pickerSelectStyle} />
         </PickerField>
       )}
 
       {city && (
         <PickerField>
-          <select disabled={!editable} value={barangay} onChange={e => handleBarangay(e.target.value)} style={pickerSelectStyle}>
-            <option value="">Select barangay</option>
-            {cityData?.barangays.map(b => <option key={b} value={b}>{b}</option>)}
-          </select>
+          <CustomSelect disabled={!editable} value={barangay} onChange={v => handleBarangay(v)}
+            options={(cityData?.barangays || []).map(b => b)} placeholder="Select barangay"
+            triggerStyle={pickerSelectStyle} />
         </PickerField>
       )}
 
@@ -3359,6 +3591,21 @@ const LocationPicker = ({ location, onChange, editable = true }) => {
       )}
     </div>
   );
+};
+
+// ── Backdrop click-to-close ───────────────────────────────────────────────────
+// Spread onto a modal's overlay: clicking anywhere OUTSIDE the dialog closes
+// it. Only counts when the press started AND ended on the overlay. `disabled`
+// keeps it open mid-submit.
+const useBackdropClose = (onClose, disabled = false) => {
+  const downOnBackdrop = useRef(false);
+  return {
+    onMouseDown: (e) => { downOnBackdrop.current = e.target === e.currentTarget; },
+    onClick: (e) => {
+      if (downOnBackdrop.current && e.target === e.currentTarget && !disabled) onClose?.();
+      downOnBackdrop.current = false;
+    },
+  };
 };
 
 // ─── Reset Password Modal ─────────────────────────────────────────────────────
@@ -3419,6 +3666,9 @@ const ResetPasswordModal = ({ onClose, user, onLogout }) => {
     else onClose(); // fallback, shouldn't normally happen
   };
 
+  // Declared before the early return below so hook order never changes.
+  const backdropClose = useBackdropClose(onClose, loading);
+
   if (success) {
     return (
       <StatusDialog
@@ -3432,32 +3682,40 @@ const ResetPasswordModal = ({ onClose, user, onLogout }) => {
   }
 
   return (
-    <div className="cap-modal cap-overlay" style={{ position: "fixed", inset: 0, background: "rgba(10,10,10,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: space.md }}>
+    <div {...backdropClose} className="cap-modal cap-overlay" style={{ position: "fixed", inset: 0, background: "rgba(10,10,10,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: space.md }}>
       <div className="cap-modal-inner cap-dialog">
         <div className="cap-modal-body">
           <ModalTitle sub="Choose a password you don't use anywhere else.">Reset password</ModalTitle>
 
+          <div id="creset-current">
           <label style={labelStyle}>Current password</label>
           <PasswordInput value={currentPass} onChange={e => { setCurrentPass(e.target.value); setErrors(p => ({ ...p, currentPass: "" })); }} onKeyDown={handleKeyDown} invalid={!!errors.currentPass} />
           {errors.currentPass && <p style={errorTextStyle}>{errors.currentPass}</p>}
+          </div>
 
           <hr style={{ border: "none", borderTop: `1px solid ${line}`, margin: `${space.lg} 0 ${space.md}` }} />
 
+          <div id="creset-new">
           <label style={labelStyle}>New password</label>
           <PasswordInput value={newPass} onChange={e => { setNewPass(e.target.value); setErrors(p => ({ ...p, newPass: "" })); }} onKeyDown={handleKeyDown} invalid={!!errors.newPass} />
           {errors.newPass && <p style={errorTextStyle}>{errors.newPass}</p>}
 
           <PasswordChecklist password={newPass} />
+          </div>
 
+          <div id="creset-confirm">
           <label style={labelStyle}>Confirm new password</label>
           <PasswordInput value={confirm} onChange={e => { setConfirm(e.target.value); setErrors(p => ({ ...p, confirm: "" })); }} onKeyDown={handleKeyDown} invalid={!!errors.confirm} />
           {errors.confirm && <p style={errorTextStyle}>{errors.confirm}</p>}
+          </div>
 
           {errors.general && <p style={{ ...errorTextStyle, textAlign: "center", marginTop: space.md }}>{errors.general}</p>}
         </div>
         <div className="cap-modal-footer">
+          <div id="creset-footer" className="cap-footer-btns">
           <FooterGhostButton onClick={onClose}>Cancel</FooterGhostButton>
           <FooterSolidButton onClick={handleSave} disabled={loading}>{loading ? "Saving…" : "Save password"}</FooterSolidButton>
+          </div>
         </div>
       </div>
     </div>
@@ -3688,7 +3946,7 @@ const LegalPanel = ({ title, lastUpdated, sections, onBack }) => {
       <LegalStyles />
       <SectionHeaderBar title={title} onBack={onBack} />
 
-      <div className="legal-progress-track">
+      <div id="clegal-progress" className="legal-progress-track">
         <div className="legal-progress-fill" style={{ width: `${progress}%` }} />
       </div>
 
@@ -3696,7 +3954,7 @@ const LegalPanel = ({ title, lastUpdated, sections, onBack }) => {
         {toc.length > 0 && (
           <nav className="legal-toc" aria-label="Sections">
             <p className="legal-toc-heading">On this page</p>
-            <ol style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: "2px" }}>
+            <ol id="clegal-toc" style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: "2px" }}>
               {toc.map(item => {
                 const isActive = activeId === item.id;
                 return (
@@ -3721,6 +3979,8 @@ const LegalPanel = ({ title, lastUpdated, sections, onBack }) => {
         )}
 
         <div className="legal-scroll" ref={scrollRef}>
+          {/* Title + "Last updated" badge, wrapped as one help-tour target. */}
+          <div id="clegal-header" style={{ width: "fit-content", maxWidth: "100%" }}>
           <h1 style={{ fontFamily: font.ui, fontSize: "clamp(1.4rem, 4vw, 2rem)", fontWeight: 600, letterSpacing: "-0.02em", color: ink, margin: `0 0 ${space.md}`, lineHeight: 1.2 }}>
             {title}
           </h1>
@@ -3732,12 +3992,13 @@ const LegalPanel = ({ title, lastUpdated, sections, onBack }) => {
               </span>
             </div>
           )}
+          </div>
 
           {sections.map((section, idx) => {
             const id = `sec-${idx}`;
             const isFirst = idx === 0;
             return (
-              <section key={section.title}>
+              <section key={section.title} id={isFirst ? "clegal-first-section" : undefined} style={isFirst ? { width: "fit-content", maxWidth: "100%" } : undefined}>
                 <h2
                   id={id}
                   data-heading={id}
@@ -3780,6 +4041,7 @@ const LegalPanel = ({ title, lastUpdated, sections, onBack }) => {
 
           <div style={{ display: "flex", justifyContent: "flex-end", marginTop: space.xl }}>
             <button
+              id="clegal-understand-btn"
               type="button"
               onClick={onBack}
               style={{ padding: "13px 36px", borderRadius: radius.pill, border: "none", background: panel, color: onPanel, fontFamily: font.ui, ...type.control, cursor: "pointer", boxShadow: shadow.pill, transition: `background 240ms ${ease}` }}
@@ -3879,8 +4141,11 @@ const EmailChangeConfirmModal = ({ newEmail, uid, onCancel, onDone }) => {
 };
 
 // ─── PersonalInfoScreen ───────────────────────────────────────────────────────
-const PersonalInfoScreen = ({ onBack, user }) => {
+const PersonalInfoScreen = ({ onBack, user, onEditingChange }) => {
   const [editing, setEditing] = useState(false);
+  // Viewing vs. filling in → Account Profile → Dashboard's "?" tour.
+  useEffect(() => { onEditingChange?.(editing); }, [editing]);
+  useEffect(() => () => onEditingChange?.(false), []);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving]   = useState(false);
 
@@ -4206,7 +4471,7 @@ const PersonalInfoScreen = ({ onBack, user }) => {
           {/* Edit button */}
           {!editing && (
             <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: space.sm }}>
-              <button onClick={startEditing}
+              <button id="cpinfo-edit-btn" onClick={startEditing}
                 style={{ display: "inline-flex", alignItems: "center", gap: "7px", padding: "8px 16px", borderRadius: radius.pill, border: `1px solid ${line}`, background: surface, color: ink, fontFamily: font.ui, ...type.control, cursor: "pointer", boxShadow: shadow.input }}>
                 <EditIcon size={14} />
                 Edit
@@ -4215,7 +4480,7 @@ const PersonalInfoScreen = ({ onBack, user }) => {
           )}
 
           {/* Company name */}
-          <div className="cap-info-row">
+          <div id="cpinfo-name" className="cap-info-row">
             {fieldLabel("Company name")}
             {editing ? (
               <>
@@ -4233,7 +4498,7 @@ const PersonalInfoScreen = ({ onBack, user }) => {
           </div>
 
           {/* Industry */}
-          <div className="cap-info-row">
+          <div id="cpinfo-industry" className="cap-info-row">
             {fieldLabel("Industry")}
             {editing ? (
               <>
@@ -4252,7 +4517,7 @@ const PersonalInfoScreen = ({ onBack, user }) => {
           </div>
 
           {/* Courses / programs accepted */}
-          <div className="cap-info-row">
+          <div id="cpinfo-courses" className="cap-info-row">
             {fieldLabel("Courses / programs accepted")}
             {editing ? (
               <div style={{ marginTop: "6px" }}>
@@ -4272,7 +4537,7 @@ const PersonalInfoScreen = ({ onBack, user }) => {
           </div>
 
           {/* Location */}
-          <div className="cap-info-row">
+          <div id="cpinfo-location" className="cap-info-row">
             {fieldLabel("Location")}
             {editing ? (
               <div style={{ marginTop: "6px" }}>
@@ -4296,7 +4561,7 @@ const PersonalInfoScreen = ({ onBack, user }) => {
           </div>
 
           {/* Email address */}
-          <div className="cap-info-row">
+          <div id="cpinfo-email" className="cap-info-row">
             {fieldLabel("Email address")}
             {editing ? (
               <>
@@ -4325,6 +4590,7 @@ const PersonalInfoScreen = ({ onBack, user }) => {
           {/* Cancel / Save */}
           {editing && (
             <div className="cap-save-row">
+              <div id="cpinfo-save" style={{ display: "flex", gap: space.sm, flexWrap: "wrap" }}>
               <button onClick={requestCancel}
                 style={{ padding: "9px 20px", borderRadius: radius.pill, background: "transparent", color: inkMuted, border: `1px solid ${line}`, fontFamily: font.ui, ...type.control, cursor: "pointer" }}>
                 Cancel
@@ -4333,6 +4599,7 @@ const PersonalInfoScreen = ({ onBack, user }) => {
                 style={{ padding: "9px 22px", borderRadius: radius.pill, background: panel, color: onPanel, border: "none", fontFamily: font.ui, ...type.control, cursor: saving ? "not-allowed" : "pointer", opacity: saving ? 0.7 : 1, boxShadow: shadow.pill }}>
                 {saving ? "Saving…" : "Save changes"}
               </button>
+              </div>
             </div>
           )}
         </div>
@@ -4342,9 +4609,19 @@ const PersonalInfoScreen = ({ onBack, user }) => {
 };
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
-const CompanyAccountProfileScreen = ({ user, onLogout }) => {
+const CompanyAccountProfileScreen = ({ user, onLogout, onViewChange }) => {
   const [view, setView]               = useState("main");
   const [showReset, setShowReset]     = useState(false);
+  const [editingInfo, setEditingInfo] = useState(false);
+  // Which part of Account Profile is showing → Dashboard's "?" help button and
+  // first-visit auto-tour: "main" | "personalInfo" | "personalInfoEdit" |
+  // "terms" | "privacy" | "reset".
+  const profileSubView =
+      showReset ? "reset"
+    : view === "personalInfo" ? (editingInfo ? "personalInfoEdit" : "personalInfo")
+    : view;
+  useEffect(() => { onViewChange?.(profileSubView); }, [profileSubView]);
+  useEffect(() => () => onViewChange?.("main"), []);
   const [profileName, setProfileName] = useState("");
 
   useEffect(() => {
@@ -4359,7 +4636,7 @@ const CompanyAccountProfileScreen = ({ user, onLogout }) => {
     return () => unsub();
   }, [user?.uid]);
 
-  if (view === "personalInfo") return <><ResponsiveStyles /><GlobalStyles /><PersonalInfoScreen onBack={() => setView("main")} user={user} /></>;
+  if (view === "personalInfo") return <><ResponsiveStyles /><GlobalStyles /><PersonalInfoScreen onBack={() => { setView("main"); setEditingInfo(false); }} user={user} onEditingChange={setEditingInfo} /></>;
   if (view === "terms")        return <><ResponsiveStyles /><GlobalStyles /><TermsScreen        onBack={() => setView("main")} /></>;
   if (view === "privacy")      return <><ResponsiveStyles /><GlobalStyles /><PrivacyScreen       onBack={() => setView("main")} /></>;
 
@@ -4386,15 +4663,15 @@ const CompanyAccountProfileScreen = ({ user, onLogout }) => {
       {/* Scrollable body — grouped list */}
       <div className="cap-body">
         <div className="cap-menu-stack">
-          <MenuGroup title="Personal Information:">
+          <MenuGroup id="cacc-personal-info" title="Personal Information:">
             <MenuRow icon="person" label="Personal Information" onClick={() => setView("personalInfo")} />
           </MenuGroup>
 
-          <MenuGroup title="Security:">
+          <MenuGroup id="cacc-security" title="Security:">
             <MenuRow icon="key" label="Reset Password" onClick={() => setShowReset(true)} />
           </MenuGroup>
 
-          <MenuGroup title="Legal:">
+          <MenuGroup id="cacc-legal" title="Legal:">
             <MenuRow icon="document" label="Terms & Condition" onClick={() => setView("terms")} />
             <MenuRow icon="shield" label="Privacy Policy" onClick={() => setView("privacy")} />
           </MenuGroup>

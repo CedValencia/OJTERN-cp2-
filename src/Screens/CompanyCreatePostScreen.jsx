@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef, useLayoutEffect } from "react";
 import { collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, query, where, serverTimestamp } from "firebase/firestore";
 import { db } from "./firebase";
-import { color } from "./theme";
+import { color, font } from "./theme";
 
 const MAPBOX_TOKEN = "pk.eyJ1IjoibWFraWlpaS0iLCJhIjoiY21wbTgybHVmMmc1ZzJycTFuZXRlb3NoNCJ9.FIpjF2lKTHkbU1e6qrL_Pw";
 // Itim na ang brand color ng screen na ito, galing sa theme (blush100 =
@@ -272,26 +272,256 @@ const FieldError = ({ msg }) => msg
   : null;
 
 // ── Pill Select with arrow ────────────────────────────────────────────────────
-const PillSelect = ({ value, onChange, options, placeholder, disabled, hasError }) => (
-  <div style={{ position: "relative" }}>
-    <select
-      className="ojt-field"
-      disabled={disabled}
-      value={value}
-      onChange={e => onChange(e.target.value)}
-      style={{
-        ...(disabled ? pillSelectReadonly : pillSelectStyle),
-        border: hasError ? "1.5px solid #c00" : "none",
-        color: value ? "#1a1a1a" : "#aaa",
-      }}
-    >
-      <option value="">{placeholder || "Select..."}</option>
-      {options.map(o => <option key={o} value={o}>{o}</option>)}
-    </select>
-    <div style={{ position: "absolute", right: "12px", top: "50%", transform: "translateY(-50%)", pointerEvents: "none", color: disabled ? "#bbb" : inkDeep }}>
-      <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M7 10l5 5 5-5z"/></svg>
+// ── CustomSelect ──────────────────────────────────────────────────────────────
+// Drop-in replacement for a native <select> whose option list is drawn by us
+// instead of the browser/OS. The native list (the big grey box that spilled
+// past the modal) can't be styled or kept inside a container; this one:
+//   • looks like the dropdown in the student "Apply Now" modal — white card,
+//     12px corners, soft shadow, roomy rows, hover + selected tints;
+//   • stays INSIDE the container it's in (modal body, card, page): it opens
+//     downward or upward, whichever side has more room inside the nearest
+//     clipping/scrolling ancestor, and caps its height to that room, so it
+//     never overlaps past the container's edge;
+//   • keeps the trigger looking exactly like the field it replaces — pass the
+//     old <select>'s style as `triggerStyle`.
+//
+// Props:
+//   value, onChange(value)  — same as a controlled <select> (string values)
+//   options                 — strings, or { value, label } objects
+//   placeholder             — text shown when nothing is picked; also listed
+//                             as the first row so the choice can be cleared
+//   showPlaceholderOption   — set false to leave that first row out
+//   disabled, hasError      — hasError swaps the border to `errorColor`
+//   triggerStyle            — style for the closed field (the old select's)
+//   ariaLabel               — accessible name when there's no <label>
+
+const CS_MAX_LIST_HEIGHT = 240;
+const CS_MIN_LIST_HEIGHT = 96;
+const CS_EDGE_GAP        = 8;
+
+const csNormalize = (o) =>
+  o !== null && typeof o === "object"
+    ? { value: String(o.value ?? ""), label: String(o.label ?? o.value ?? "") }
+    : { value: String(o ?? ""), label: String(o ?? "") };
+
+// Nearest ancestor that clips its content (a scrolling modal body, a card
+// with overflow hidden…). The list has to fit inside it.
+const csFindClipParent = (el) => {
+  for (let p = el?.parentElement; p && p !== document.body; p = p.parentElement) {
+    const oy = getComputedStyle(p).overflowY;
+    if (oy === "auto" || oy === "scroll" || oy === "hidden" || oy === "clip") return p;
+  }
+  return null;
+};
+
+function CustomSelect({
+  value,
+  onChange,
+  options = [],
+  placeholder = "Select…",
+  showPlaceholderOption = true,
+  disabled = false,
+  hasError = false,
+  errorColor = color.danger,
+  triggerStyle = {},
+  ariaLabel,
+}) {
+  const [open, setOpen]         = useState(false);
+  const [openUp, setOpenUp]     = useState(false);
+  const [maxHeight, setMaxH]    = useState(CS_MAX_LIST_HEIGHT);
+  const [active, setActive]     = useState(-1);
+  const wrapRef = useRef(null);
+  const listRef = useRef(null);
+
+  const items = [
+    ...(showPlaceholderOption ? [{ value: "", label: placeholder, isPlaceholder: true }] : []),
+    ...options.map(csNormalize),
+  ];
+  const current  = String(value ?? "");
+  const selected = items.find(i => !i.isPlaceholder && i.value === current);
+
+  // Close on any press outside the field + list.
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("touchstart", onDown, { passive: true });
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("touchstart", onDown);
+    };
+  }, [open]);
+
+  // When it opens: pick the side with more room inside the container, cap the
+  // height to that room, and bring the current choice into view.
+  React.useLayoutEffect(() => {
+    if (!open || !wrapRef.current) return;
+    const rect   = wrapRef.current.getBoundingClientRect();
+    const clip   = csFindClipParent(wrapRef.current);
+    const bounds = clip ? clip.getBoundingClientRect() : { top: 0, bottom: window.innerHeight };
+    const top    = Math.max(bounds.top, 0);
+    const bottom = Math.min(bounds.bottom, window.innerHeight);
+    const below  = bottom - rect.bottom - CS_EDGE_GAP;
+    const above  = rect.top - top - CS_EDGE_GAP;
+    const wanted = Math.min(CS_MAX_LIST_HEIGHT, items.length * 36 + 8);
+    const up     = below < wanted && above > below;
+    setOpenUp(up);
+    setMaxH(Math.max(CS_MIN_LIST_HEIGHT, Math.min(CS_MAX_LIST_HEIGHT, up ? above : below)));
+    const idx = items.findIndex(i => i.value === current);
+    setActive(idx >= 0 ? idx : 0);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  // Keep the keyboard-highlighted row visible while arrowing through.
+  useEffect(() => {
+    if (!open || active < 0 || !listRef.current) return;
+    listRef.current.children[active]?.scrollIntoView({ block: "nearest" });
+  }, [open, active]);
+
+  const choose = (item) => {
+    onChange?.(item.value);
+    setOpen(false);
+  };
+
+  const onKeyDown = (e) => {
+    if (disabled) return;
+    if (e.key === "Escape") { if (open) { e.stopPropagation(); setOpen(false); } return; }
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      if (!open) { setOpen(true); return; }
+      setActive(a => {
+        const n = items.length;
+        return e.key === "ArrowDown" ? (a + 1) % n : (a - 1 + n) % n;
+      });
+      return;
+    }
+    if ((e.key === "Enter" || e.key === " ") && open && active >= 0) {
+      e.preventDefault();
+      choose(items[active]);
+    }
+  };
+
+  const baseTrigger = {
+    width: "100%",
+    textAlign: "left",
+    cursor: disabled ? "not-allowed" : "pointer",
+    outline: "none",
+    boxSizing: "border-box",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    // leave room for the caret on the right
+    paddingRight: "32px",
+  };
+  const merged = { ...baseTrigger, ...triggerStyle };
+  if (!merged.paddingRight || parseInt(merged.paddingRight, 10) < 28) merged.paddingRight = "32px";
+  if (hasError) merged.borderColor = errorColor;
+  if (!selected) merged.color = color.inkFaint;
+
+  return (
+    <div ref={wrapRef} style={{ position: "relative", width: "100%" }}>
+      <button
+        type="button"
+        disabled={disabled}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label={ariaLabel}
+        onClick={() => !disabled && setOpen(o => !o)}
+        onKeyDown={onKeyDown}
+        style={merged}
+      >
+        {selected ? selected.label : placeholder}
+      </button>
+
+      <span
+        aria-hidden="true"
+        style={{
+          position: "absolute", right: "12px", top: "50%",
+          transform: `translateY(-50%) rotate(${open ? 180 : 0}deg)`,
+          transition: "transform 160ms ease",
+          pointerEvents: "none", display: "flex",
+          color: disabled ? color.inkFaint : color.inkMuted,
+        }}
+      >
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M7 10l5 5 5-5z" /></svg>
+      </span>
+
+      {open && !disabled && (
+        <div
+          ref={listRef}
+          role="listbox"
+          style={{
+            position: "absolute",
+            left: 0,
+            right: 0,
+            [openUp ? "bottom" : "top"]: "calc(100% + 4px)",
+            background: color.white,
+            borderRadius: "12px",
+            boxShadow: "0 8px 24px rgba(0,0,0,0.18)",
+            maxHeight: `${maxHeight}px`,
+            overflowY: "auto",
+            zIndex: 2000,
+            padding: "4px 0",
+          }}
+        >
+          {items.map((item, i) => {
+            const isSel = !item.isPlaceholder && item.value === current;
+            const bg = i === active ? color.hoverWash : isSel ? color.wine800 : color.white;
+            return (
+              <div
+                key={`${item.value}-${i}`}
+                role="option"
+                aria-selected={isSel}
+                onMouseDown={(e) => e.preventDefault()}   // keep focus on the field
+                onClick={() => choose(item)}
+                onMouseEnter={() => setActive(i)}
+                style={{
+                  padding: "8px 14px",
+                  fontFamily: font.ui,
+                  fontSize: "0.82rem",
+                  lineHeight: 1.4,
+                  cursor: "pointer",
+                  background: bg,
+                  color: item.isPlaceholder ? color.inkFaint : color.ink,
+                  fontWeight: isSel ? 600 : 400,
+                  whiteSpace: "normal",
+                  overflowWrap: "anywhere",
+                }}
+              >
+                {item.label}
+              </div>
+            );
+          })}
+          {items.length === 0 && (
+            <div style={{ padding: "10px 14px", fontFamily: font.ui, fontSize: "0.8rem", color: color.inkFaint }}>
+              No options
+            </div>
+          )}
+        </div>
+      )}
     </div>
-  </div>
+  );
+}
+
+
+// Custom dropdown (CustomSelect above) — same look as the student Apply Now
+// dropdown, and its list stays inside the form instead of the native option
+// box spilling past the modal. The closed field keeps its old pill look.
+const PillSelect = ({ value, onChange, options, placeholder, disabled, hasError }) => (
+  <CustomSelect
+    value={value}
+    onChange={onChange}
+    options={options}
+    placeholder={placeholder || "Select..."}
+    disabled={disabled}
+    hasError={hasError}
+    errorColor="#c00"
+    triggerStyle={{
+      ...(disabled ? pillSelectReadonly : pillSelectStyle),
+      border: hasError ? "1.5px solid #c00" : "none",
+      color: value ? "#1a1a1a" : "#aaa",
+    }}
+  />
 );
 
 // ── Approved Department Picker ────────────────────────────────────────────────
@@ -746,8 +976,10 @@ const ConfirmActionModal = ({ title, message, confirmLabel, danger = false, onCa
   </div>
 );
 
-const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile }) => {
+const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile, onModeChange }) => {
   const [isEditing, setIsEditing] = useState(mode === "create" || mode === "edit");
+  // "create" | "view" | "edit" → PostOJTContent → Dashboard's "?" tour.
+  useEffect(() => { onModeChange?.(mode === "create" ? "create" : isEditing ? "edit" : "view"); }, [mode, isEditing]);
 
   // The post's location is fixed to whatever the company has set in their
   // Account Profile — it is never typed/edited from this form. Build the
@@ -868,7 +1100,7 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile }) =>
 
         {/* Header */}
         <div className="post-modal-header" style={{ background: "#d8d8d8", flexShrink: 0 }}>
-          <h2 style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(1.2rem, 4vw, 1.8rem)", fontWeight: "400", margin: 0, color: inkDeep }}>
+          <h2 id="cpostf-header" style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(1.2rem, 4vw, 1.8rem)", fontWeight: "400", margin: 0, color: inkDeep, width: "fit-content", maxWidth: "100%" }}>
             {post?.companyName || post?.company || user?.companyName || "New Post"}
           </h2>
         </div>
@@ -879,23 +1111,27 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile }) =>
           {/* Description + Requirements */}
           <div className="post-desc-row">
             <div style={{ width: "100%" }}>
+              <div id="cpostf-description">
               <FieldLabel>Description:</FieldLabel>
               <textarea className="ojt-field ojt-textarea" disabled={readOnly} value={form.description}
                 onChange={e => { set("description", e.target.value); setErrors(p => ({ ...p, description: "" })); }}
                 placeholder="Enter description..." rows={3}
                 style={{ ...(readOnly ? pillTextareaReadonly : pillTextareaStyle), border: errors.description ? "1.5px solid #c00" : "none" }} />
               <FieldError msg={errors.description} />
+              </div>
 
+              <div id="cpostf-requirements">
               <FieldLabel>Requirements:</FieldLabel>
               <textarea className="ojt-field ojt-textarea" disabled={readOnly} value={form.requirements}
                 onChange={e => { set("requirements", e.target.value); setErrors(p => ({ ...p, requirements: "" })); }}
                 placeholder="Enter requirements..." rows={2}
                 style={{ ...(readOnly ? pillTextareaReadonly : pillTextareaStyle), border: errors.requirements ? "1.5px solid #c00" : "none" }} />
               <FieldError msg={errors.requirements} />
+              </div>
             </div>
 
             {/* Location + Mapbox Map (fixed to Account Profile location — not editable here) */}
-            <div style={{ width: "100%" }}>
+            <div id="cpostf-location" style={{ width: "100%" }}>
               <FieldLabel>Location:</FieldLabel>
               {fixedAddress ? (
                 <>
@@ -929,7 +1165,7 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile }) =>
 
           {/* Working Hours */}
           <div className="post-hours-slot-row">
-            <div style={{ flex: 1, minWidth: 0 }}>
+            <div id="cpostf-hours" style={{ flex: 1, minWidth: 0 }}>
               <FieldLabel>Working Hours:</FieldLabel>
               {(form.workingHoursList || [""]).map((hours, idx) => (
                 <div key={idx} style={{ marginBottom: "4px" }}>
@@ -974,6 +1210,7 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile }) =>
               students can no longer apply to this post (enforced on the
               student-facing apply screen; this modal only lets the company
               set/edit the date and warns them once it's already passed). */}
+          <div id="cpostf-expiration">
           <FieldLabel>Post Expiration Date:</FieldLabel>
           <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
             <div style={{ maxWidth: "220px", flex: "1 1 180px" }}>
@@ -1001,8 +1238,10 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile }) =>
             Optional. Leave blank if this post should stay open indefinitely. Once this date has passed, students can no longer apply.
           </p>
           <FieldError msg={errors.expirationDate} />
+          </div>
 
           {/* Contact Information */}
+          <div id="cpostf-contact">
           <FieldLabel>Contact Information:</FieldLabel>
           <div style={{ display: "flex", flexDirection: "column", gap: "8px", paddingLeft: "2px" }}>
             <div className="post-contact-row">
@@ -1023,24 +1262,31 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile }) =>
             </div>
           </div>
 
+          </div>
+
           {/* Benefits */}
+          <div id="cpostf-benefits">
           <FieldLabel>Benefits:</FieldLabel>
           <textarea className="ojt-field ojt-textarea" disabled={readOnly} value={form.benefits}
             onChange={e => { set("benefits", e.target.value); setErrors(p => ({ ...p, benefits: "" })); }}
             placeholder="Enter benefits..." rows={2}
             style={{ ...(readOnly ? pillTextareaReadonly : pillTextareaStyle), border: errors.benefits ? "1.5px solid #c00" : "none" }} />
           <FieldError msg={errors.benefits} />
+          </div>
 
           {/* Industry — fixed to Account Profile's industry, not editable here */}
+          <div id="cpostf-industry">
           <FieldLabel>Industry:</FieldLabel>
           <div style={{ ...pillInputReadonly, marginBottom: "8px", boxSizing: "border-box" }}>
             {Array.isArray(companyProfile?.industry)
               ? (companyProfile.industry.join(", ") || "—")
               : (companyProfile?.industry || user?.industry || "—")}
           </div>
+          </div>
 
           {/* College / Program required — restricted to approved departments,
               each with its own slot count */}
+          <div id="cpostf-programs">
           <FieldLabel>College / Program required (set slots per department):</FieldLabel>
           <ApprovedDepartmentPicker
             approvedDeptSelections={approvedDeptSelections}
@@ -1049,18 +1295,22 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile }) =>
             readOnly={readOnly}
           />
           {courseErrors && <FieldError msg={courseErrors} />}
+          </div>
 
           {/* Skills */}
+          <div id="cpostf-skills">
           <FieldLabel>Skills Required:</FieldLabel>
           <textarea className="ojt-field ojt-textarea" disabled={readOnly} value={form.skillsRequired}
             onChange={e => { set("skillsRequired", e.target.value); setErrors(p => ({ ...p, skillsRequired: "" })); }}
             placeholder="Enter required skills..." rows={2}
             style={{ ...(readOnly ? pillTextareaReadonly : pillTextareaStyle), border: errors.skillsRequired ? "1.5px solid #c00" : "none" }} />
           <FieldError msg={errors.skillsRequired} />
+          </div>
         </div>
 
         {/* Footer */}
         <div className="post-modal-footer" style={{ background: "#b0b0b0", display: "flex", justifyContent: "flex-end", gap: "10px", borderBottomLeftRadius: "20px", borderBottomRightRadius: "20px", flexShrink: 0 }}>
+          <div id="cpostf-footer" style={{ display: "flex", gap: "10px", flexWrap: "wrap", justifyContent: "flex-end" }}>
           <button onClick={handleCloseClick} style={{ padding: "10px 28px", borderRadius: "24px", background: "#555", color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(0.9rem, 2.5vw, 1.1rem)", cursor: "pointer" }}>Close</button>
           {mode === "view" && !isEditing && (
             <button onClick={() => setIsEditing(true)} style={{ padding: "10px 28px", borderRadius: "24px", background: inkDeep, color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(0.9rem, 2.5vw, 1.1rem)", cursor: "pointer" }}>Edit</button>
@@ -1083,6 +1333,7 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile }) =>
               Post
             </button>
           )}
+          </div>
         </div>
       </div>
 
@@ -1129,7 +1380,7 @@ const ThreeDotMenu = ({ isDisabled, onView, onToggleDisable, onDelete }) => {
 };
 
 // ── Post OJT Content ──────────────────────────────────────────────────────────
-const PostOJTContent = ({ user, openPostId, onPostOpened }) => {
+const PostOJTContent = ({ user, openPostId, onPostOpened, onViewChange }) => {
   const [posts, setPosts]     = useState([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal]     = useState(null);
@@ -1141,6 +1392,14 @@ const PostOJTContent = ({ user, openPostId, onPostOpened }) => {
   const openCreate = () => setModal({ mode: "create", post: null });
   const openView   = (post) => setModal({ mode: "view", post });
   const closeModal = () => setModal(null);
+
+  // "list" | "create" | "view" | "edit" → Dashboard's "?" help button and
+  // first-visit auto-tour. The modal reports its own mode (view ↔ edit).
+  const [modalMode, setModalMode] = useState(null);
+  const subView = modal ? (modalMode || (modal.mode === "create" ? "create" : "view")) : "list";
+  useEffect(() => { onViewChange?.(subView); }, [subView]);
+  useEffect(() => () => onViewChange?.("list"), []);
+  useEffect(() => { if (!modal) setModalMode(null); }, [modal]);
 
   // Auto-open a specific post's details when navigated here with a target id
   // (e.g. clicking a "Recent Post" on the dashboard).
@@ -1238,6 +1497,7 @@ const PostOJTContent = ({ user, openPostId, onPostOpened }) => {
             Recent Post
           </h2>
           <button
+            id="cpost-create-btn"
             className="post-btn"
             onClick={openCreate}
             style={{ background: inkDeep, color: "white", border: "none", borderRadius: "24px", fontFamily: "'Jersey 25', sans-serif", cursor: "pointer", display: "flex", alignItems: "center", gap: "6px" }}
@@ -1249,7 +1509,7 @@ const PostOJTContent = ({ user, openPostId, onPostOpened }) => {
         <hr style={{ border: "none", borderTop: "2px solid #aaa", marginBottom: "16px" }} />
 
         {posts.length > 0 ? (
-          <div className="post-grid">
+          <div id="cpost-list" className="post-grid">
             {posts.map(post => {
               const expired = isPostExpired(post);
               return (
@@ -1300,7 +1560,7 @@ const PostOJTContent = ({ user, openPostId, onPostOpened }) => {
             })}
           </div>
         ) : (
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "80px" }}>
+          <div id="cpost-list" style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "80px" }}>
             <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "1rem", color: "#aaa" }}>No posts yet.</p>
           </div>
         )}
@@ -1314,6 +1574,7 @@ const PostOJTContent = ({ user, openPostId, onPostOpened }) => {
           onSave={handleSave}
           user={user}
           companyProfile={companyProfile}
+          onModeChange={setModalMode}
         />
       )}
 
@@ -1346,15 +1607,15 @@ const PostOJTContent = ({ user, openPostId, onPostOpened }) => {
 };
 
 // ── Main Screen ───────────────────────────────────────────────────────────────
-const CompanyCreatePostScreen = ({ embedded = false, user, openPostId, onPostOpened }) => (
+const CompanyCreatePostScreen = ({ embedded = false, user, openPostId, onPostOpened, onViewChange }) => (
   <>
     <GlobalFonts />
     <ResponsiveStyles />
     {embedded
-      ? <PostOJTContent user={user} openPostId={openPostId} onPostOpened={onPostOpened} />
+      ? <PostOJTContent user={user} openPostId={openPostId} onPostOpened={onPostOpened} onViewChange={onViewChange} />
       : (
         <div style={{ display: "flex", flexDirection: "column", height: "100vh", background: "#f0f0f0" }}>
-          <PostOJTContent user={user} openPostId={openPostId} onPostOpened={onPostOpened} />
+          <PostOJTContent user={user} openPostId={openPostId} onPostOpened={onPostOpened} onViewChange={onViewChange} />
         </div>
       )
     }

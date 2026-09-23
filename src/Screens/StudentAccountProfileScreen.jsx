@@ -230,6 +230,14 @@ const ResponsiveStyles = () => (
       .sap-modal-footer button { width: 100%; text-align: center; }
     }
 
+    /* Inner wrapper for a modal footer's buttons — tight help-tour target
+       (just the buttons, not the whole footer bar). Mirrors .sap-modal-footer,
+       incl. the stacked mobile layout. */
+    .sap-footer-btns { display: flex; gap: ${space.sm}; justify-content: flex-end; }
+    @media (max-width: 480px) {
+      .sap-footer-btns { flex-direction: column-reverse; align-items: stretch; width: 100%; }
+    }
+
     /* ── Divider line ── */
     .sap-divider {
       height: 1px;
@@ -277,7 +285,9 @@ const LegalStyles = () => (
     .legal-progress-track { height: 3px; flex-shrink: 0; background: ${lineSoft}; }
     .legal-progress-fill {
       height: 100%;
-      background: ${inkMuted};
+      /* Theme-driven, lightened (mixed with white) so it stays visible on
+         the pale track in every accent theme. */
+      background: color-mix(in srgb, ${panel} 55%, #ffffff);
       transition: width 120ms linear;
     }
 
@@ -449,8 +459,8 @@ const MenuRow = ({ label, icon, onClick, viewIcon: themedViewIcon = blackViewIco
   </button>
 );
 
-const MenuGroup = ({ title, children }) => (
-  <div className="sap-menu-group">
+const MenuGroup = ({ title, children, id }) => (
+  <div id={id} className="sap-menu-group">
     <p style={{ fontFamily: font.ui, fontSize: "1rem", fontWeight: 600, letterSpacing: "-0.01em", color: ink, margin: `0 0 10px 6px` }}>{title}</p>
     {children}
   </div>
@@ -523,13 +533,16 @@ const YEAR_SECTIONS = [
 // setupMode: used by StudentDashboardScreen on a student's first login. The form
 // opens already in edit mode with no Back/Edit/Cancel, and after a successful
 // save calls onSetupComplete(personalEmail) instead of showing the success sheet.
-const PersonalInfoScreen = ({ onBack, user, setupMode = false, onSetupComplete, onLogout, logoutBusy = false }) => {
+const PersonalInfoScreen = ({ onBack, user, setupMode = false, onSetupComplete, onLogout, logoutBusy = false, onEditingChange }) => {
   const [editing, setEditing] = useState(setupMode);
   const [showSaveSuccess, setShowSaveSuccess] = useState(false);
   const editingRef = useRef(setupMode);
   // Always fill the form from the first snapshot, even when it opens in edit mode.
   const hasLoadedRef = useRef(false);
   useEffect(() => { editingRef.current = editing; }, [editing]);
+  // Viewing vs. filling in → Account Profile → Dashboard's "?" tour.
+  useEffect(() => { onEditingChange?.(editing); }, [editing]);
+  useEffect(() => () => onEditingChange?.(false), []);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving]   = useState(false);
   const [saveError, setSaveError] = useState("");
@@ -799,7 +812,7 @@ const PersonalInfoScreen = ({ onBack, user, setupMode = false, onSetupComplete, 
           {/* Edit button */}
           {!editing && !setupMode && (
             <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: space.sm }}>
-              <button onClick={() => setEditing(true)}
+              <button id="spinfo-edit-btn" onClick={() => setEditing(true)}
                 style={{ display: "inline-flex", alignItems: "center", gap: "7px", padding: "8px 16px", borderRadius: radius.pill, border: `1px solid ${line}`, background: surface, color: ink, fontFamily: font.ui, ...type.control, cursor: "pointer", boxShadow: shadow.input }}>
                 <EditIcon size={14} />
                 Edit
@@ -812,13 +825,13 @@ const PersonalInfoScreen = ({ onBack, user, setupMode = false, onSetupComplete, 
               so changing it here would be able to break sign-in / mismatch
               the account's own identifier. Always shown as plain text, even
               while the rest of the form is in edit mode. */}
-          <div className="sap-info-row">
+          <div id="spinfo-studentid" className="sap-info-row">
             {fieldLabel("Student ID")}
             <span style={rowValue}>{form.studentId || "—"}</span>
           </div>
 
           {/* First name */}
-          <div className="sap-info-row">
+          <div id="spinfo-first" className="sap-info-row">
             {fieldLabel("First name")}
             {editing ? (
               <>
@@ -836,7 +849,7 @@ const PersonalInfoScreen = ({ onBack, user, setupMode = false, onSetupComplete, 
           </div>
 
           {/* Middle initial */}
-          <div className="sap-info-row">
+          <div id="spinfo-middle" className="sap-info-row">
             {fieldLabel("Middle initial")}
             {editing ? (
               <>
@@ -855,7 +868,7 @@ const PersonalInfoScreen = ({ onBack, user, setupMode = false, onSetupComplete, 
           </div>
 
           {/* Last name */}
-          <div className="sap-info-row">
+          <div id="spinfo-last" className="sap-info-row">
             {fieldLabel("Last name")}
             {editing ? (
               <>
@@ -873,7 +886,7 @@ const PersonalInfoScreen = ({ onBack, user, setupMode = false, onSetupComplete, 
           </div>
 
           {/* Suffix */}
-          <div className="sap-info-row">
+          <div id="spinfo-suffix" className="sap-info-row">
             {fieldLabel("Suffix")}
             {editing ? (
               <>
@@ -899,7 +912,7 @@ const PersonalInfoScreen = ({ onBack, user, setupMode = false, onSetupComplete, 
           </div>
 
           {/* College */}
-          <div className="sap-info-row">
+          <div id="spinfo-college" className="sap-info-row">
             {fieldLabel("College")}
             {editing ? (
               <>
@@ -921,7 +934,7 @@ const PersonalInfoScreen = ({ onBack, user, setupMode = false, onSetupComplete, 
           </div>
 
           {/* Program */}
-          <div className="sap-info-row">
+          <div id="spinfo-program" className="sap-info-row">
             {fieldLabel("Program")}
             {editing ? (
               <>
@@ -943,7 +956,7 @@ const PersonalInfoScreen = ({ onBack, user, setupMode = false, onSetupComplete, 
           </div>
 
           {/* Year and section */}
-          <div className="sap-info-row">
+          <div id="spinfo-section" className="sap-info-row">
             {fieldLabel("Year and section")}
             {editing ? (
               <>
@@ -965,7 +978,7 @@ const PersonalInfoScreen = ({ onBack, user, setupMode = false, onSetupComplete, 
           </div>
 
           {/* Sex */}
-          <div className="sap-info-row">
+          <div id="spinfo-sex" className="sap-info-row">
             {fieldLabel("Sex")}
             {editing ? (
               <>
@@ -986,7 +999,7 @@ const PersonalInfoScreen = ({ onBack, user, setupMode = false, onSetupComplete, 
           </div>
 
           {/* Age */}
-          <div className="sap-info-row">
+          <div id="spinfo-age" className="sap-info-row">
             {fieldLabel("Age")}
             {editing ? (
               <>
@@ -1005,7 +1018,7 @@ const PersonalInfoScreen = ({ onBack, user, setupMode = false, onSetupComplete, 
 
           {/* Personal email — the student's own address, used for Forgot Password.
               The login address (students/{uid}.email) is intentionally not shown. */}
-          <div className="sap-info-row">
+          <div id="spinfo-email" className="sap-info-row">
             {fieldLabel("Email address")}
             {editing ? (
               <>
@@ -1038,6 +1051,7 @@ const PersonalInfoScreen = ({ onBack, user, setupMode = false, onSetupComplete, 
           {/* Cancel / Save (setup mode: Log out / Save and Continue) */}
           {editing && (
             <div className="sap-save-row">
+              <div id="spinfo-save" style={{ display: "flex", gap: space.sm, flexWrap: "wrap" }}>
               {setupMode ? (
                 onLogout && (
                   <button onClick={onLogout} disabled={saving || logoutBusy}
@@ -1055,6 +1069,7 @@ const PersonalInfoScreen = ({ onBack, user, setupMode = false, onSetupComplete, 
                 style={{ padding: "9px 22px", borderRadius: radius.pill, background: panel, color: onPanel, border: "none", fontFamily: font.ui, ...type.control, cursor: saving ? "not-allowed" : "pointer", opacity: saving ? 0.7 : 1, boxShadow: shadow.pill }}>
                 {saving ? "Saving…" : (setupMode ? "Save and Continue" : "Save changes")}
               </button>
+              </div>
             </div>
           )}
         </div>
@@ -1063,6 +1078,21 @@ const PersonalInfoScreen = ({ onBack, user, setupMode = false, onSetupComplete, 
       {showSaveSuccess && <StudentSaveSuccessModal onClose={() => setShowSaveSuccess(false)} />}
     </div>
   );
+};
+
+// ── Backdrop click-to-close ───────────────────────────────────────────────────
+// Spread onto a modal's overlay: clicking anywhere OUTSIDE the dialog closes
+// it. Only counts when the press started AND ended on the overlay, so dragging
+// a text selection out of an input won't close it. `disabled` = mid-submit.
+const useBackdropClose = (onClose, disabled = false) => {
+  const downOnBackdrop = useRef(false);
+  return {
+    onMouseDown: (e) => { downOnBackdrop.current = e.target === e.currentTarget; },
+    onClick: (e) => {
+      if (downOnBackdrop.current && e.target === e.currentTarget && !disabled) onClose?.();
+      downOnBackdrop.current = false;
+    },
+  };
 };
 
 // ─── Reset Password Modal ─────────────────────────────────────────────────────
@@ -1122,6 +1152,9 @@ const ResetPasswordModal = ({ onClose, user, onLogout }) => {
     else onClose(); // fallback, shouldn't normally happen
   };
 
+  // Declared before the early return below so hook order never changes.
+  const backdropClose = useBackdropClose(onClose, loading);
+
   if (success) {
     return (
       <StatusDialog
@@ -1135,32 +1168,40 @@ const ResetPasswordModal = ({ onClose, user, onLogout }) => {
   }
 
   return (
-    <div className="sap-modal sap-overlay" style={{ position: "fixed", inset: 0, background: "rgba(10,10,10,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: space.md }}>
+    <div {...backdropClose} className="sap-modal sap-overlay" style={{ position: "fixed", inset: 0, background: "rgba(10,10,10,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: space.md }}>
       <div className="sap-modal-inner sap-dialog">
         <div className="sap-modal-body">
           <ModalTitle sub="Choose a password you don't use anywhere else.">Reset password</ModalTitle>
 
+          <div id="sreset-current">
           <label style={labelStyle}>Current password</label>
           <PasswordInput value={currentPass} onChange={e => { setCurrentPass(e.target.value); setErrors(p => ({ ...p, currentPass: "" })); }} onKeyDown={handleKeyDown} invalid={!!errors.currentPass} />
           {errors.currentPass && <p style={errorTextStyle}>{errors.currentPass}</p>}
+          </div>
 
           <hr style={{ border: "none", borderTop: `1px solid ${line}`, margin: `${space.lg} 0 ${space.md}` }} />
 
+          <div id="sreset-new">
           <label style={labelStyle}>New password</label>
           <PasswordInput value={newPass} onChange={e => { setNewPass(e.target.value); setErrors(p => ({ ...p, newPass: "" })); }} onKeyDown={handleKeyDown} invalid={!!errors.newPass} />
           {errors.newPass && <p style={errorTextStyle}>{errors.newPass}</p>}
 
           <PasswordChecklist password={newPass} />
+          </div>
 
+          <div id="sreset-confirm">
           <label style={labelStyle}>Confirm new password</label>
           <PasswordInput value={confirm} onChange={e => { setConfirm(e.target.value); setErrors(p => ({ ...p, confirm: "" })); }} onKeyDown={handleKeyDown} invalid={!!errors.confirm} />
           {errors.confirm && <p style={errorTextStyle}>{errors.confirm}</p>}
+          </div>
 
           {errors.general && <p style={{ ...errorTextStyle, textAlign: "center", marginTop: space.md }}>{errors.general}</p>}
         </div>
         <div className="sap-modal-footer">
+          <div id="sreset-footer" className="sap-footer-btns">
           <FooterGhostButton onClick={onClose}>Cancel</FooterGhostButton>
           <FooterSolidButton onClick={handleSave} disabled={loading}>{loading ? "Saving…" : "Save password"}</FooterSolidButton>
+          </div>
         </div>
       </div>
     </div>
@@ -1381,7 +1422,7 @@ const LegalPanel = ({ title, lastUpdated, sections, onBack }) => {
       <LegalStyles />
       <SectionHeaderBar title={title} onBack={onBack} />
 
-      <div className="legal-progress-track">
+      <div id="slegal-progress" className="legal-progress-track">
         <div className="legal-progress-fill" style={{ width: `${progress}%` }} />
       </div>
 
@@ -1389,7 +1430,7 @@ const LegalPanel = ({ title, lastUpdated, sections, onBack }) => {
         {toc.length > 0 && (
           <nav className="legal-toc" aria-label="Sections">
             <p className="legal-toc-heading">On this page</p>
-            <ol style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: "2px" }}>
+            <ol id="slegal-toc" style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: "2px" }}>
               {toc.map(item => {
                 const isActive = activeId === item.id;
                 return (
@@ -1414,6 +1455,8 @@ const LegalPanel = ({ title, lastUpdated, sections, onBack }) => {
         )}
 
         <div className="legal-scroll" ref={scrollRef}>
+          {/* Title + "Last updated" badge, wrapped as one help-tour target. */}
+          <div id="slegal-header" style={{ width: "fit-content", maxWidth: "100%" }}>
           <h1 style={{ fontFamily: font.ui, fontSize: "clamp(1.4rem, 4vw, 2rem)", fontWeight: 600, letterSpacing: "-0.02em", color: ink, margin: `0 0 ${space.md}`, lineHeight: 1.2 }}>
             {title}
           </h1>
@@ -1425,12 +1468,13 @@ const LegalPanel = ({ title, lastUpdated, sections, onBack }) => {
               </span>
             </div>
           )}
+          </div>
 
           {sections.map((section, idx) => {
             const id = `sec-${idx}`;
             const isFirst = idx === 0;
             return (
-              <section key={section.title}>
+              <section key={section.title} id={isFirst ? "slegal-first-section" : undefined} style={isFirst ? { width: "fit-content", maxWidth: "100%" } : undefined}>
                 <h2
                   id={id}
                   data-heading={id}
@@ -1473,6 +1517,7 @@ const LegalPanel = ({ title, lastUpdated, sections, onBack }) => {
 
           <div style={{ display: "flex", justifyContent: "flex-end", marginTop: space.xl }}>
             <button
+              id="slegal-understand-btn"
               type="button"
               onClick={onBack}
               style={{ padding: "13px 36px", borderRadius: radius.pill, border: "none", background: panel, color: onPanel, fontFamily: font.ui, ...type.control, cursor: "pointer", boxShadow: shadow.pill, transition: `background 240ms ${ease}` }}
@@ -1497,9 +1542,19 @@ const PrivacyScreen = ({ onBack }) => (
 );
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
-const StudentAccountProfileScreen = ({ user, onLogout, viewIcon: themedViewIcon = blackViewIcon }) => {
+const StudentAccountProfileScreen = ({ user, onLogout, viewIcon: themedViewIcon = blackViewIcon, onViewChange }) => {
   const [view, setView] = useState("main");
   const [showReset, setShowReset] = useState(false);
+  const [editingInfo, setEditingInfo] = useState(false);
+  // Which part of Account Profile is showing → Dashboard's "?" help button and
+  // first-visit auto-tour: "main" | "personalInfo" | "personalInfoEdit" |
+  // "terms" | "privacy" | "reset".
+  const profileSubView =
+      showReset ? "reset"
+    : view === "personalInfo" ? (editingInfo ? "personalInfoEdit" : "personalInfo")
+    : view;
+  useEffect(() => { onViewChange?.(profileSubView); }, [profileSubView]);
+  useEffect(() => () => onViewChange?.("main"), []);
   const [profileName, setProfileName] = useState("");
 
   React.useEffect(() => {
@@ -1513,7 +1568,7 @@ const StudentAccountProfileScreen = ({ user, onLogout, viewIcon: themedViewIcon 
     return () => unsub();
   }, [user?.uid]);
 
-  if (view === "personalInfo") return <><ResponsiveStyles /><GlobalStyles /><PersonalInfoScreen onBack={() => setView("main")} user={user} /></>;
+  if (view === "personalInfo") return <><ResponsiveStyles /><GlobalStyles /><PersonalInfoScreen onBack={() => { setView("main"); setEditingInfo(false); }} user={user} onEditingChange={setEditingInfo} /></>;
   if (view === "terms")        return <><ResponsiveStyles /><GlobalStyles /><TermsScreen        onBack={() => setView("main")} /></>;
   if (view === "privacy")      return <><ResponsiveStyles /><GlobalStyles /><PrivacyScreen       onBack={() => setView("main")} /></>;
 
@@ -1540,15 +1595,15 @@ const StudentAccountProfileScreen = ({ user, onLogout, viewIcon: themedViewIcon 
       {/* Scrollable body — grouped list */}
       <div className="sap-body">
         <div className="sap-menu-stack">
-          <MenuGroup title="Personal Information:">
+          <MenuGroup id="sacc-personal-info" title="Personal Information:">
             <MenuRow icon="person" label="Personal Information" onClick={() => setView("personalInfo")} viewIcon={themedViewIcon} />
           </MenuGroup>
 
-          <MenuGroup title="Security:">
+          <MenuGroup id="sacc-security" title="Security:">
             <MenuRow icon="key" label="Reset Password" onClick={() => setShowReset(true)} viewIcon={themedViewIcon} />
           </MenuGroup>
 
-          <MenuGroup title="Legal:">
+          <MenuGroup id="sacc-legal" title="Legal:">
             <MenuRow icon="document" label="Terms & Condition" onClick={() => setView("terms")} viewIcon={themedViewIcon} />
             <MenuRow icon="shield" label="Privacy Policy" onClick={() => setView("privacy")} viewIcon={themedViewIcon} />
           </MenuGroup>

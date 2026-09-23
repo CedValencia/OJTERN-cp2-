@@ -26,6 +26,12 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
 
       .clist-search-input { width: 170px; }
       .clist-search-input::placeholder { color: ${color.inkFaint}; }
+      .clist-search-input:focus,
+      .clist-search-input:focus-visible {
+        outline: none;
+        box-shadow: none;
+        -webkit-box-shadow: none;
+      }
 
       @media (max-width: 480px) {
         .clist-search-input { width: 90px; }
@@ -2619,7 +2625,7 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
                   key={ind}
                   onClick={() => toggleIndustry(ind)}
                   title="Remove"
-                  style={{ display: "inline-flex", alignItems: "center", gap: "6px", padding: "4px 11px", borderRadius: radius.pill, ...type.helper, fontFamily: font.ui, cursor: "pointer", userSelect: "none", background: color.ink, color: color.white, border: `1px solid ${color.ink}`, transition: `all 160ms ${ease}` }}
+                  style={{ display: "inline-flex", alignItems: "center", gap: "6px", padding: "4px 11px", borderRadius: radius.pill, ...type.helper, fontFamily: font.ui, cursor: "pointer", userSelect: "none", background: color.blush100, color: color.onWine, border: `1px solid ${color.blush100}`, transition: `all 160ms ${ease}` }}
                 >
                   {ind}<span style={{ opacity: 0.7 }}>✕</span>
                 </span>
@@ -2809,8 +2815,8 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
               onMouseLeave={() => setCancelHover(false)}
               style={{
                 padding: "10px 22px", borderRadius: radius.pill,
-                background: cancelHover ? "#f2f2f2" : color.white,
-                color: "#000000", border: "1.5px solid #000000", fontFamily: font.ui, ...type.control, fontWeight: 600,
+                background: cancelHover ? color.hoverWash : color.white,
+                color: color.blush100, border: `1.5px solid ${color.blush100}`, fontFamily: font.ui, ...type.control, fontWeight: 600,
                 cursor: working ? "not-allowed" : "pointer", transition: `background 180ms ${ease}`,
               }}
             >Cancel</button>
@@ -2820,8 +2826,8 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
               onMouseEnter={() => setConfirmHover(true)}
               onMouseLeave={() => setConfirmHover(false)}
               style={{
-                padding: "10px 24px", borderRadius: radius.pill, background: confirmHover ? hoverAccent : "#000000",
-                color: color.white, border: "none", fontFamily: font.ui, ...type.control, fontWeight: 600,
+                padding: "10px 24px", borderRadius: radius.pill, background: confirmHover ? hoverAccent : color.blush100,
+                color: color.onWine, border: "none", fontFamily: font.ui, ...type.control, fontWeight: 600,
                 cursor: working ? "not-allowed" : "pointer", opacity: working ? 0.7 : 1,
                 boxShadow: confirmHover && !working ? shadow.pill : "none",
                 transform: confirmHover && !working ? "translateY(-1px)" : "none",
@@ -2869,12 +2875,14 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
           {/* Top: info + map */}
           <div className="clist-profile-top">
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div className="clist-profile-header">
+              {/* width: fit-content — the help tour's first step hugs Back + the
+                  company name, so the highlight grows/shrinks with the name's length. */}
+              <div id="clprofile-header" className="clist-profile-header" style={{ width: "fit-content", maxWidth: "100%" }}>
                 <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "'Kufam', sans-serif", fontSize: "1rem", color: "#777", lineHeight: 1.2, padding: 0, display: "inline-flex", alignItems: "center", gap: "6px", flexShrink: 0 }}>‹ <span>Back</span></button>
                 <h1 style={{ fontFamily: "'Kufam', sans-serif", fontSize: "clamp(1.4rem, 4vw, 2.2rem)", fontWeight: 700, color: "#111", margin: 0 }}>{company.name}</h1>
               </div>
             </div>
-            <div className="clist-map-box" style={{ borderRadius: radius.card, overflow: "hidden" }}>
+            <div id="clprofile-map" className="clist-map-box" style={{ borderRadius: radius.card, overflow: "hidden" }}>
               <MapboxStaticView
                 lat={company.lat}
                 lng={company.lng}
@@ -2886,7 +2894,19 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
           <hr style={{ borderColor: "#eee", marginBottom: "20px" }} />
 
           {/* Info fields */}
-          <div style={{ display: "flex", flexDirection: "column", gap: "14px", marginBottom: "24px" }}>
+          {/* Company Name → Date lives in its own bounded scroll box so the
+              whole block always fits on screen — the help tour's "Company
+              Details" step highlights exactly this box, ending right at the
+              thin line below it (no bottom margin to pad the highlight). */}
+          <div
+            id="clprofile-info"
+            className="clist-info-scroll"
+            style={{
+              display: "flex", flexDirection: "column", gap: "14px",
+              maxHeight: "clamp(220px, 38vh, 380px)", overflowY: "auto",
+              paddingRight: "8px", marginBottom: 0,
+            }}
+          >
             <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "clamp(0.82rem, 2vw, 0.95rem)", color: "#222" }}>
               <span style={{ fontWeight: 700 }}>Company Name: </span>{company.name}
             </p>
@@ -2935,10 +2955,12 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
             </p>
           </div>
 
-          <hr style={{ borderColor: "#eee", marginBottom: "24px" }} />
+          <hr style={{ borderColor: "#eee", margin: "14px 0 24px" }} />
 
           {/* Attached Verification Documents — Cloudinary URLs */}
-          <div style={{ marginBottom: "16px" }}>
+          {/* width: fit-content — the help tour's "Verification Documents" step
+              hugs just the heading + thumbnails instead of the full page width. */}
+          <div id="clprofile-docs" style={{ marginBottom: "16px", width: "fit-content", maxWidth: "100%" }}>
             <p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "clamp(0.95rem, 2.5vw, 1.1rem)", color: "#111", marginBottom: "14px" }}>Verification Documents:</p>
             {company.verificationDocs && company.verificationDocs.length > 0 ? (
               <div style={{ display: "flex", flexWrap: "wrap", gap: "16px" }}>
@@ -2954,14 +2976,18 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
           {/* Accept / Decline buttons (review only) */}
           {company.deptSelections?.some(d => d.status === "pending") && (
             <div className="clist-action-row" style={{ borderTop: `1px solid ${color.wine700}` }}>
+              {/* Inner wrapper carries the tour id so the "Accept or Decline"
+                  highlight hugs just the two buttons, not the full-width row. */}
+              <div id="clprofile-actions" style={{ display: "flex", gap: space.md }}>
               <button
                 onClick={() => setConfirmingAction("decline")}
                 onMouseEnter={() => setDeclineHover(true)}
                 onMouseLeave={() => setDeclineHover(false)}
                 style={{
                   padding: "12px 30px", borderRadius: radius.pill,
-                  background: declineHover ? "#f2f2f2" : color.white,
-                  color: "#000000", border: "1.5px solid #000000",
+                  // Theme-driven: outline + text follow the active theme color.
+                  background: declineHover ? color.hoverWash : color.white,
+                  color: color.blush100, border: `1.5px solid ${color.blush100}`,
                   fontFamily: font.ui, ...type.control, fontWeight: 600,
                   cursor: "pointer", transition: `background 180ms ${ease}`,
                 }}
@@ -2974,7 +3000,8 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
                 onMouseLeave={() => setAcceptHover(false)}
                 style={{
                   padding: "12px 30px", borderRadius: radius.pill,
-                  background: acceptHover ? "#2b2b2b" : "#000000", color: color.white, border: "none",
+                  // Theme-driven: same filled style as the header / primary pills.
+                  background: acceptHover ? color.blush50 : color.blush100, color: color.onWine, border: "none",
                   fontFamily: font.ui, ...type.control, fontWeight: 600,
                   cursor: "pointer",
                   boxShadow: acceptHover ? shadow.pill : "none",
@@ -2984,6 +3011,7 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
               >
                 Accept
               </button>
+              </div>
             </div>
           )}
         </div>
@@ -3219,7 +3247,7 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
   // ── Main Screen ───────────────────────────────────────────────────────────────
   // Props:
   //   coordinatorUid  — the logged-in coordinator's Firebase UID
-  const CoordinatorCompanyListScreen = ({ coordinatorUid, initialCompanyId, onClearInitialCompany, onBackToOrigin }) => {
+  const CoordinatorCompanyListScreen = ({ coordinatorUid, initialCompanyId, onClearInitialCompany, onBackToOrigin, onViewChange }) => {
     const [view, setView]                             = useState("list");
     const [selectedCompany, setSelectedCompany]       = useState(null);
     const [cameFromDashboard, setCameFromDashboard]   = useState(false);
@@ -3338,6 +3366,17 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
       }
     }, [initialCompanyId, registeredList, reviewList, onClearInitialCompany]);
 
+    // Lets the Dashboard's "?" help button (and first-visit auto-tour) switch
+    // to the open profile's own steps instead of the list's — "registered"
+    // or "review" depending on which section the company belongs to (review
+    // gets the extra Accept/Decline step). Same pattern as Find Company's
+    // onViewChange. Covers both card clicks and the dashboard deep link.
+    const isReviewCompany = !!selectedCompany && reviewList.some(c => c.id === selectedCompany.id);
+    const subView = view === "profile" && selectedCompany ? (isReviewCompany ? "review" : "registered") : "list";
+    useEffect(() => { onViewChange?.(subView); }, [subView]);
+    // Reset to "list" if this screen unmounts while a profile was open.
+    useEffect(() => () => onViewChange?.("list"), []);
+
     // Close filter panel on outside click
     useEffect(() => {
       const handler = (e) => { if (filterRef.current && !filterRef.current.contains(e.target)) setShowFilter(false); };
@@ -3346,6 +3385,8 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
     }, []);
 
     const hasFilter = selectedIndustries.length > 0 || locationSearch.trim();
+    // Mirrors Find Company's chipStyle so both screens' active-filter chips match.
+    const filterChipStyle = { background: color.wine600, color: color.inkBody, border: `1px solid ${color.wine700}`, borderRadius: radius.pill, padding: "4px 12px", fontFamily: font.ui, ...type.helper, display: "flex", alignItems: "center", gap: "6px" };
 
     const selectedIndustriesLower = selectedIndustries.map(i => String(i).toLowerCase());
 
@@ -3552,6 +3593,9 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
                     border: "none",
                     background: "transparent",
                     outline: "none",
+                    boxShadow: "none",
+                    WebkitAppearance: "none",
+                    appearance: "none",
                     color: color.ink,
                     fontFamily: font.ui,
                     ...type.control,
@@ -3610,22 +3654,23 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
             </div>
           </div>
 
-          {/* Active filter badges */}
+          {/* Active filter chips — same look as Find Company: no "Filters:"
+              label, no extra side indent, muted ✕ on each chip, and a muted
+              (not red) underlined "Clear all". */}
           {hasFilter && (
-            <div className="clist-filter-badges">
-              <span style={{ fontFamily: font.ui, ...type.helper, color: color.inkMuted }}>Filters:</span>
+            <div style={{ display: "flex", alignItems: "center", gap: space.sm, marginBottom: space.md, flexWrap: "wrap" }}>
               {selectedIndustries.map(ind => (
-                <span key={ind} style={{ background: color.wine600, color: color.inkBody, border: `1px solid ${color.wine700}`, borderRadius: radius.pill, padding: "4px 12px", fontFamily: font.ui, ...type.helper, display: "flex", alignItems: "center", gap: "6px" }}>
-                  {ind}<span onClick={() => setSelectedIndustries(p => p.filter(i => i !== ind))} style={{ cursor: "pointer", fontWeight: "bold" }}>×</span>
+                <span key={ind} style={filterChipStyle}>
+                  {ind}<span onClick={() => setSelectedIndustries(p => p.filter(i => i !== ind))} style={{ cursor: "pointer", color: color.inkMuted }}>✕</span>
                 </span>
               ))}
               {activeBadgeLabel() && (
-                <span style={{ background: color.wine600, color: color.inkBody, border: `1px solid ${color.wine700}`, borderRadius: radius.pill, padding: "4px 12px", fontFamily: font.ui, ...type.helper, display: "flex", alignItems: "center", gap: "6px" }}>
+                <span style={filterChipStyle}>
                   {activeBadgeLabel()}
-                  <span onClick={() => setLocationSearch("")} style={{ cursor: "pointer", fontWeight: "bold" }}>×</span>
+                  <span onClick={() => setLocationSearch("")} style={{ cursor: "pointer", color: color.inkMuted }}>✕</span>
                 </span>
               )}
-              <span onClick={clearAll} style={{ fontSize: "0.74rem", color: red, cursor: "pointer", fontFamily: "'Kufam', sans-serif", textDecoration: "underline" }}>Clear all</span>
+              <span onClick={clearAll} style={{ fontFamily: font.ui, ...type.helper, color: color.inkMuted, cursor: "pointer", textDecoration: "underline" }}>Clear all</span>
             </div>
           )}
 

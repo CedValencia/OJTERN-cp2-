@@ -219,6 +219,12 @@ const ResponsiveStyles = () => (
 
     .sp-search-input { width: 170px; }
     .sp-search-input::placeholder { color: ${inkFaint}; }
+    .sp-search-input:focus,
+    .sp-search-input:focus-visible {
+      outline: none;
+      box-shadow: none;
+      -webkit-box-shadow: none;
+    }
     @media (max-width: 480px) {
       .sp-search-input { width: 90px; }
     }
@@ -227,27 +233,32 @@ const ResponsiveStyles = () => (
     }
 
     /* Full-width student rows */
+    /* Same card rows as Students Account (.sa-row there): rounded card,
+       roomier padding, bold name over a single "·"-joined meta line. */
     .sp-rows {
       display: flex;
       flex-direction: column;
-      gap: ${space.sm};
+      gap: 10px;
     }
     .sp-row {
-      background: ${surface};
-      border: 1px solid ${line};
-      border-radius: ${radius.pill};
-      box-shadow: ${shadow.input};
-      padding: 10px 20px 10px 18px;
       display: flex;
       align-items: center;
       gap: 14px;
+      background: ${surface};
+      border: 1px solid ${line};
+      border-radius: ${radius.card};
+      padding: 14px 20px;
       cursor: pointer;
+      min-width: 0;
+      box-shadow: ${shadow.input};
       transition: border-color 200ms ${ease}, box-shadow 200ms ${ease};
     }
     .sp-row:hover {
       border-color: ${color.hoverBorder};
-      box-shadow: 0 8px 22px rgba(10,10,10,0.08);
+      box-shadow: 0 6px 20px rgba(10,10,10,0.08);
     }
+    .sp-row-main    { flex: 1; min-width: 0; }
+    .sp-row-actions { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
     /* Same hover-grow feel as .stat-view-btn on the dashboard's Students
        Overview card, so the view icon here reacts the same way on hover. */
     .sp-row-action { transition: transform 0.18s ${ease}, filter 0.18s ${ease}; }
@@ -264,7 +275,7 @@ const ResponsiveStyles = () => (
     /* The "View placement" link is redundant on small screens — the whole
        row is tappable, and the space is better spent on the name. */
     @media (max-width: 560px) {
-      .sp-row { padding: 10px 14px 10px 14px; gap: 10px; }
+      .sp-row { padding: 12px 14px; gap: 10px; }
       .sp-row-action { display: none; }
     }
 
@@ -436,11 +447,12 @@ const PlacementModal = ({ student, onClose, onNavigateToCompany, companies, onMe
 
         <div className="sp-modal-body">
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px" }}>
-            <div className="sp-name-pill" style={{ flex: 1, minWidth: 0 }}>
+            <div id="sl-modal-name" className="sp-name-pill" style={{ flex: 1, minWidth: 0 }}>
               <StudentAvatar size={45} userIcon={themedUserIcon} />
               <span style={{ fontFamily: font.ui, fontSize: "clamp(0.95rem, 4vw, 1.0625rem)", fontWeight: 600, letterSpacing: "-0.01em", color: ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fullName}</span>
             </div>
             <button
+              id="sl-modal-message-btn"
               onClick={handleMessage}
               title={`Message ${fullName}`}
               style={{
@@ -461,12 +473,12 @@ const PlacementModal = ({ student, onClose, onNavigateToCompany, companies, onMe
           </div>
 
           {applications.length === 0 ? (
-            <div style={{ padding: `${space.lg} ${space.md}`, textAlign: "center", background: color.wine800, border: `1px dashed ${color.wine400}`, borderRadius: radius.card }}>
+            <div id="sl-modal-applications" style={{ padding: `${space.lg} ${space.md}`, textAlign: "center", background: color.wine800, border: `1px dashed ${color.wine400}`, borderRadius: radius.card }}>
               <p style={{ fontFamily: font.ui, ...type.body, color: inkBody }}>No applications yet</p>
               <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, marginTop: "2px" }}>Applications appear here once this student applies to a company.</p>
             </div>
           ) : (
-            <div>
+            <div id="sl-modal-applications">
               <p style={{ fontFamily: font.ui, ...type.label, color: ink, marginBottom: space.sm }}>Applications</p>
               <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
                 {applications.map(app => {
@@ -497,7 +509,7 @@ const PlacementModal = ({ student, onClose, onNavigateToCompany, companies, onMe
             </div>
           )}
 
-          <div style={{ marginTop: space.lg, padding: "14px 16px", background: color.wine800, borderRadius: radius.card, border: `1px solid ${line}` }}>
+          <div id="sl-modal-details" style={{ marginTop: space.lg, padding: "14px 16px", background: color.wine800, borderRadius: radius.card, border: `1px solid ${line}` }}>
             <div className="sp-detail-grid">
               {[
                 { label: "Student ID",     value: student.studentId },
@@ -695,9 +707,13 @@ const useCollegeVariants = (coordinatorColleges) => {
   }, [coordinatorColleges, departments, departmentNames]);
 };
 
-const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany, onMessageStudent, initialViewingStudentId, onClearInitialViewingStudent, userIcon: themedUserIcon = blackUserIcon, viewIcon: themedViewIcon = blackViewIcon }) => {
+const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany, onMessageStudent, initialViewingStudentId, onClearInitialViewingStudent, userIcon: themedUserIcon = blackUserIcon, viewIcon: themedViewIcon = blackViewIcon, onViewingStudentChange }) => {
   const [search, setSearch]                 = useState("");
   const [viewingStudent, setViewingStudent] = useState(null);
+  // Lets the dashboard's "?" help button and auto-tour switch to
+  // HELP_STEPS_BY_NAV.studentlistmodal while a student's Placement modal is
+  // open — same pattern as Students Account's onViewingStudentChange.
+  useEffect(() => { onViewingStudentChange?.(!!viewingStudent); }, [viewingStudent, onViewingStudentChange]);
   const [showFilter, setShowFilter]         = useState(false);
   const [showExport, setShowExport]         = useState(false);
   const [exportingPdf, setExportingPdf]     = useState(false);
@@ -711,6 +727,17 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
   const [applicationsByStudent, setApplicationsByStudent] = useState({});
 
   const collegeVariants = useCollegeVariants(coordinatorColleges);
+  // FIX: `collegeVariants` can be a fresh array reference on every render
+  // even when its contents are unchanged (it comes from a useMemo chain fed
+  // by useDepartmentsPrograms(), whose own return values aren't guaranteed
+  // stable across renders). Using the array itself as a useEffect dependency
+  // below made that effect re-fire on every render — and setStudents([])
+  // inside it is always a brand-new [] reference, which always triggers
+  // another render — producing an infinite loop ("Maximum update depth
+  // exceeded"), the same bug fixed on the Student Accounts screen. Deriving
+  // a stable, content-based string key instead means the effect only
+  // re-runs when the actual list of colleges changes.
+  const collegeVariantsKey = collegeVariants.join("|");
 
   // If we got here because the coordinator pressed "back" on a company
   // profile they reached via a student's Placement modal, reopen that
@@ -731,7 +758,9 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
   useEffect(() => {
     if (collegeVariants.length === 0) {
       console.warn("[StudentList] No colleges assigned to this coordinator — nothing to load.", coordinatorColleges);
-      setStudents([]); setLoadingStudents(false); return;
+      setStudents(prev => (prev.length === 0 ? prev : []));
+      setLoadingStudents(false);
+      return;
     }
     const q = query(
       collection(db, "students"),
@@ -765,7 +794,7 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
       setLoadingStudents(false);
     });
     return () => unsub();
-  }, [collegeVariants]);
+  }, [collegeVariantsKey]);
 
   // ── Load companies ─────────────────────────────────────────────────────────
   useEffect(() => {
@@ -857,24 +886,29 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
     // so a coordinator can scan placement progress without opening anyone.
     const best = getBestApplication(applicationsByStudent[student.id]);
     const sc   = best ? (STATUS_COLORS[best.status] || { bg: color.wine400, color: ink }) : null;
-    const meta = { fontFamily: font.ui, ...type.helper, color: inkMuted, whiteSpace: "nowrap", flexShrink: 0 };
-    const dot  = <span style={{ color: color.wine400, flexShrink: 0 }}>·</span>;
+    // Same single meta line as a Students Account row. College isn't in the
+    // line (same as there) but stays in the row's tooltip.
+    const metaText = [student.studentId, student.program, student.yearSection, student.sex].filter(Boolean).join(" · ");
 
     return (
-      <div key={student.id} className="sp-row" onClick={() => setViewingStudent(student)}>
+      <div key={student.id} className="sp-row" onClick={() => setViewingStudent(student)} title={student.college || undefined}>
         <StudentAvatar size={45} userIcon={themedUserIcon} />
-        <div style={{ width: "1px", height: "30px", background: line, flexShrink: 0 }} />
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <p style={{ fontFamily: font.ui, ...type.label, color: ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{fullName}</p>
-          {/* Meta line — Student ID, College, Program, Year & Section, Sex */}
-          <div className="sp-row-meta">
-            <span style={meta}>{student.studentId}</span>
-            {student.college && <>{dot}<span style={meta}>{student.college}</span></>}
-            {student.program && <>{dot}<span style={{ ...meta, overflow: "hidden", textOverflow: "ellipsis", minWidth: 0, maxWidth: "220px" }}>{student.program}</span></>}
-            {dot}<span style={meta}>{student.yearSection}</span>
-            {dot}<span style={meta}>{student.sex}</span>
-          </div>
+        <div className="sp-row-main">
+          <h3 style={{
+            fontFamily: font.ui, fontSize: "1rem", fontWeight: 600,
+            letterSpacing: "-0.01em", color: ink, lineHeight: 1.35,
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+          }}>
+            {fullName}
+          </h3>
+          <p style={{
+            fontFamily: font.ui, ...type.helper, color: inkMuted, marginTop: "2px",
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+          }}>
+            {metaText || "—"}
+          </p>
         </div>
+        <div className="sp-row-actions">
         {sc ? (
           <span style={{ background: sc.bg, color: sc.color, borderRadius: radius.pill, padding: "3px 11px", fontFamily: font.ui, fontSize: "0.75rem", fontWeight: 500, flexShrink: 0 }}>
             {best.status}
@@ -893,6 +927,7 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
         >
           <img src={themedViewIcon} alt="" style={{ width: "35px", height: "35px", objectFit: "contain" }} />
         </span>
+        </div>
       </div>
     );
   };
@@ -923,7 +958,7 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
                 onChange={e => setSearch(e.target.value)}
                 placeholder="Search"
                 className="sp-search-input"
-                style={{ border: "none", background: "transparent", outline: "none", color: ink, fontFamily: font.ui, ...type.control }}
+                style={{ border: "none", background: "transparent", outline: "none", boxShadow: "none", WebkitAppearance: "none", appearance: "none", color: ink, fontFamily: font.ui, ...type.control }}
               />
               {search && (
                 <button onClick={() => setSearch("")} aria-label="Clear search" style={{ background: "none", border: "none", color: inkMuted, cursor: "pointer", fontSize: "0.9rem", padding: 0, lineHeight: 1 }}>✕</button>
@@ -1001,7 +1036,7 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
         </div>
 
         {/* Status chips */}
-        <div id="sl-status-chips" style={{ display: "flex", gap: space.sm, alignItems: "center", flexWrap: "wrap", marginBottom: space.md }}>
+        <div id="sl-status-chips" style={{ display: "flex", gap: space.sm, alignItems: "center", flexWrap: "wrap", marginBottom: space.md, width: "fit-content", maxWidth: "100%" }}>
           {["All", "Accepted", "In Progress", "All Declined", "No Applications yet"].map((statusOption) => {
             const isActive = statusOption === "All" ? filters.status === "" : filters.status === statusOption;
             // Each option keeps the colour of the status it represents, so the

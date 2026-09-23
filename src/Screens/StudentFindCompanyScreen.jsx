@@ -322,12 +322,30 @@ const ResponsiveStyles = () => (
       }
     }
 
-    /* Company profile content padding */
+    /* Company profile content.
+       Column layout: header/map row + hairline stay their natural height and
+       the Post Details box takes ALL the space between that hairline and the
+       action bar. The action bar is a sibling below (no longer an overlay),
+       so the Post Details box — and the help-tour highlight around it —
+       stops exactly at the bar's top border and never covers Apply / Message
+       / Report. */
     .stud-profile-content {
-      padding: 28px 32px 108px;
+      display: flex;
+      flex-direction: column;
+      padding: 28px 32px 20px;
     }
     @media (max-width: 640px) {
-      .stud-profile-content { padding: 16px 16px 132px; }
+      .stud-profile-content { padding: 16px 16px 16px; }
+    }
+    .stud-profile-content > .stud-profile-top,
+    .stud-profile-content > .stud-profile-rule { flex: 0 0 auto; }
+
+    .stud-profile-details {
+      flex: 1 1 0;
+      min-height: 220px;   /* if the screen is very short, the page scrolls instead */
+      overflow-y: auto;
+      padding-right: 4px;
+      -webkit-overflow-scrolling: touch;
     }
 
     /* Profile top row: side-by-side on desktop, stacked on mobile */
@@ -350,19 +368,50 @@ const ResponsiveStyles = () => (
       .stud-map-box { width: 100%; height: 240px; }
     }
 
-    /* Profile bottom bar */
-    .stud-profile-bar { padding: 14px 32px; }
+    /* Profile bottom bar — a normal flex sibling under the scroll area */
+    .stud-profile-bar { padding: 14px 32px; flex-shrink: 0; }
     @media (max-width: 640px) {
       .stud-profile-bar { padding: 12px 16px; }
     }
+
+    .stud-btn-apply   { padding: 12px 28px; }
+    .stud-btn-message { padding: 12px 24px; }
 
     .stud-action-buttons {
       display: flex;
       gap: ${space.sm};
       min-width: 0;
     }
-    @media (max-width: 400px) {
-      .stud-action-buttons { flex-direction: column; }
+    /* Mobile: Apply Now on top, Message Now underneath (same width), and the
+       Report button stays on the side. Less cramped than three in a row. */
+    @media (max-width: 640px) {
+      .stud-action-buttons { flex-direction: column; align-items: stretch; }
+      .stud-action-buttons button { text-align: center; }
+      .stud-btn-apply, .stud-btn-message { padding: 10px 22px; }
+    }
+
+    /* Apply Now modal (ApplyModal, imported from StudentApplicationScreen).
+       Styled from here too, so Find Company always shows:
+       1. the same slim mobile width as the Report modal, and
+       2. the selected dropdown row in the active theme's tint — the modal
+          hardcodes a pink (#f0e5e5) inline, which is what turned red on
+          every theme. */
+    @media (max-width: 560px) {
+      .sa-modal-inner { width: calc(100vw - 72px) !important; }
+    }
+    .sa-modal-inner [style*="rgb(240, 229, 229)"],
+    .sa-modal-inner [style*="#f0e5e5"] {
+      background: ${color.hoverWashStrong} !important;
+    }
+
+    /* Report modal card: slimmer on mobile so it doesn't hug the screen edges —
+       same width as the "Open full map" modal (.stud-map-zoom-inner). */
+    .stud-report-card {
+      width: 100%;
+      max-width: 540px;
+    }
+    @media (max-width: 560px) {
+      .stud-report-card { width: calc(100vw - 72px); }
     }
 
     /* Search+filter bar layout */
@@ -480,7 +529,7 @@ const ReportModal = ({ company, onClose, onSubmit, reporter }) => {
 
   return (
     <div className="stud-modal" style={{ position: "fixed", inset: 0, background: "rgba(10,10,10,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: space.md }}>
-      <div style={{ background: surface, borderRadius: radius.panel, width: "100%", maxWidth: "540px", maxHeight: "86vh", overflow: "hidden", display: "flex", flexDirection: "column", border: `1px solid ${line}`, boxShadow: shadow.panel }}>
+      <div className="stud-report-card" style={{ background: surface, borderRadius: radius.panel, maxHeight: "86vh", overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: shadow.panel }}>
         <div style={{ padding: `${space.md} ${space.lg}`, display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: `1px solid ${line}` }}>
           <div>
             <span style={{ fontFamily: font.ui, fontSize: "1.125rem", fontWeight: 600, letterSpacing: "-0.01em", color: ink }}>Report this company</span>
@@ -490,7 +539,7 @@ const ReportModal = ({ company, onClose, onSubmit, reporter }) => {
         </div>
 
         {/* Progress hairline — three segments, one per step */}
-        <div style={{ display: "flex", gap: "3px", padding: `0 ${space.lg}`, marginTop: "10px" }}>
+        <div id="sreport-progress" style={{ display: "flex", gap: "3px", padding: `0 ${space.lg}`, marginTop: "10px" }}>
           {[1, 2, 3].map(n => (
             <div key={n} style={{ flex: 1, height: "3px", borderRadius: radius.pill, background: n <= step ? ink : line, transition: `background 260ms ${ease}` }} />
           ))}
@@ -498,7 +547,7 @@ const ReportModal = ({ company, onClose, onSubmit, reporter }) => {
 
         <div style={{ flex: 1, overflowY: "auto", padding: `${space.md} ${space.lg} ${space.lg}` }}>
           {step === 1 && (
-            <>
+            <div id="sreport-concerns">
               <p style={{ fontFamily: font.ui, ...type.label, color: ink, marginBottom: "12px" }}>What is the concern?</p>
               {reportCategories.map((c) => {
                 const isOn = selected?.label === c.label;
@@ -511,10 +560,10 @@ const ReportModal = ({ company, onClose, onSubmit, reporter }) => {
                   </div>
                 );
               })}
-            </>
+            </div>
           )}
           {step === 2 && cat && (
-            <>
+            <div id="sreport-details">
               <p style={{ fontFamily: font.ui, fontSize: "1rem", fontWeight: 600, color: ink, marginBottom: space.sm }}>{cat.label}</p>
               <p style={{ fontFamily: font.ui, ...type.body, color: inkBody, marginBottom: space.md, maxWidth: "62ch" }}>{cat.description}</p>
               {cat.details.length > 0 && (
@@ -525,10 +574,11 @@ const ReportModal = ({ company, onClose, onSubmit, reporter }) => {
                   </ul>
                 </>
               )}
-            </>
+            </div>
           )}
           {step === 3 && (
             <>
+              <div id="sreport-describe">
               <p style={{ fontFamily: font.ui, ...type.label, color: ink, marginBottom: space.sm }}>Describe what happened</p>
               <textarea
                 value={description}
@@ -536,6 +586,8 @@ const ReportModal = ({ company, onClose, onSubmit, reporter }) => {
                 placeholder="Include dates, names, and anything the review team should see."
                 style={{ width: "100%", minHeight: "112px", border: `1px solid ${line}`, borderRadius: radius.card, padding: "12px 14px", outline: "none", fontFamily: font.ui, ...type.body, resize: "vertical", background: color.wine800, color: ink, marginBottom: space.lg, boxSizing: "border-box" }}
               />
+              </div>
+              <div id="sreport-evidence">
               <p style={{ fontFamily: font.ui, ...type.label, color: ink, marginBottom: space.xs }}>Attach evidence</p>
               <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, marginBottom: space.sm }}>PNG or PDF, up to 10MB.</p>
               <input ref={fileRef} type="file" accept=".png,.pdf" style={{ display: "none" }} onChange={handleFile} />
@@ -560,6 +612,7 @@ const ReportModal = ({ company, onClose, onSubmit, reporter }) => {
                   <button onClick={() => setAttachedFile(null)} aria-label="Remove file" style={{ marginLeft: "auto", background: "none", border: "none", cursor: "pointer", color: inkMuted, fontSize: "0.95rem" }}>✕</button>
                 </div>
               )}
+              </div>
             </>
           )}
         </div>
@@ -570,7 +623,7 @@ const ReportModal = ({ company, onClose, onSubmit, reporter }) => {
               ? <p style={{ fontFamily: font.ui, ...type.helper, color: "#E8A5A2", margin: 0 }}>{submitError}</p>
               : <p style={{ fontFamily: font.ui, ...type.helper, color: onPanelDim, margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{company.companyName || company.name}</p>}
           </div>
-          <div style={{ display: "flex", gap: space.sm, flexShrink: 0 }}>
+          <div id="sreport-actions" style={{ display: "flex", gap: space.sm, flexShrink: 0 }}>
             {step > 1 && (
               <button
                 onClick={() => setStep(step - 1)}
@@ -637,6 +690,9 @@ const CompanyProfile = ({ company, onBack, onReport, onMessageNow, onApplyNow })
         {/* Top row: description + map */}
         <div className="stud-profile-top">
           <div style={{ flex: 1, minWidth: 0 }}>
+          {/* Inner wrapper = help-tour target, width: fit-content so the
+              highlight hugs Back + name + description (grows with them). */}
+          <div id="sprofile-details" style={{ width: "fit-content", maxWidth: "100%" }}>
             <button
               onClick={onBack}
               style={{ display: "inline-flex", alignItems: "center", gap: "6px", background: "none", border: "none", cursor: "pointer", fontFamily: font.ui, ...type.helper, color: inkMuted, padding: 0, marginBottom: "10px" }}
@@ -647,7 +703,8 @@ const CompanyProfile = ({ company, onBack, onReport, onMessageNow, onApplyNow })
             <h1 style={{ fontFamily: font.ui, fontSize: "clamp(1.5rem, 4vw, 2rem)", fontWeight: 600, lineHeight: 1.15, letterSpacing: "-0.02em", color: ink, marginBottom: "10px" }}>{company.companyName || company.name}</h1>
             <p style={bodyStyle}>{company.description}</p>
           </div>
-          <div className="stud-map-box" style={{ borderRadius: radius.card, overflow: "hidden" }}>
+          </div>
+          <div id="sprofile-map" className="stud-map-box" style={{ borderRadius: radius.card, overflow: "hidden" }}>
             <MapboxStaticView
               lat={company.postLocation?.lat || company.location?.lat}
               lng={company.postLocation?.lng || company.location?.lng}
@@ -656,8 +713,14 @@ const CompanyProfile = ({ company, onBack, onReport, onMessageNow, onApplyNow })
           </div>
         </div>
 
-        <hr style={{ border: "none", borderTop: `1px solid ${line}`, margin: `0 0 ${space.lg}` }} />
+        <hr className="stud-profile-rule" style={{ border: "none", borderTop: `1px solid ${line}`, margin: `0 0 ${space.lg}` }} />
 
+        {/* Requirements → Skills required as one scroll box that fills the space
+            between the hairline above and the action bar below (see
+            .stud-profile-details). The help tour's "Post Details" highlight
+            therefore covers only this stretch — not the Apply / Message /
+            Report bar. */}
+        <div id="sprofile-details-full" className="stud-profile-details">
         <SectionTitle>Requirements:</SectionTitle>
         <p style={{ ...bodyStyle, whiteSpace: "pre-line", marginBottom: space.lg }}>{Array.isArray(company.requirements) ? company.requirements.join("\n") : (company.requirements || "Not listed")}</p>
 
@@ -717,22 +780,27 @@ const CompanyProfile = ({ company, onBack, onReport, onMessageNow, onApplyNow })
 
         <SectionTitle>Skills required:</SectionTitle>
         <p style={{ ...bodyStyle, whiteSpace: "pre-line" }}>{Array.isArray(company.skillsRequired) ? company.skillsRequired.join("\n") : (company.skillsRequired || company.skills?.join(", ") || "Not listed")}</p>
+        </div>
       </div>
 
       {/* Bottom action bar */}
-      <div className="stud-profile-bar" style={{ position: "absolute", bottom: 0, left: 0, right: 0, background: surface, borderTop: `1px solid ${line}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: space.md }}>
+      <div className="stud-profile-bar" style={{ background: surface, borderTop: `1px solid ${line}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: space.md }}>
         <div className="stud-action-buttons">
           <button
+            id="sprofile-apply-btn"
+            className="stud-btn-apply"
             onClick={onApplyNow}
-            style={{ background: panel, color: onPanel, border: "none", borderRadius: radius.pill, padding: "12px 28px", fontFamily: font.ui, ...type.control, cursor: "pointer", boxShadow: shadow.pill, transition: `background 240ms ${ease}`, whiteSpace: "nowrap" }}
+            style={{ background: panel, color: onPanel, border: "none", borderRadius: radius.pill, fontFamily: font.ui, ...type.control, cursor: "pointer", boxShadow: shadow.pill, transition: `background 240ms ${ease}`, whiteSpace: "nowrap" }}
             onMouseEnter={e => (e.currentTarget.style.background = panelDeep)}
             onMouseLeave={e => (e.currentTarget.style.background = panel)}
           >
             Apply Now!
           </button>
           <button
+            id="sprofile-message-btn"
+            className="stud-btn-message"
             onClick={onMessageNow}
-            style={{ background: surface, color: ink, border: `1px solid ${color.wine400}`, borderRadius: radius.pill, padding: "12px 24px", fontFamily: font.ui, ...type.control, cursor: "pointer", transition: `background 240ms ${ease}`, whiteSpace: "nowrap" }}
+            style={{ background: surface, color: ink, border: `1px solid ${color.wine400}`, borderRadius: radius.pill, fontFamily: font.ui, ...type.control, cursor: "pointer", transition: `background 240ms ${ease}`, whiteSpace: "nowrap" }}
             onMouseEnter={e => (e.currentTarget.style.background = color.hoverWash)}
             onMouseLeave={e => (e.currentTarget.style.background = surface)}
           >
@@ -740,6 +808,7 @@ const CompanyProfile = ({ company, onBack, onReport, onMessageNow, onApplyNow })
           </button>
         </div>
         <button
+          id="sprofile-report-btn"
           onClick={onReport}
           title="Report this company"
           style={{ display: "inline-flex", alignItems: "center", gap: space.sm, background: "transparent", border: `1px solid ${line}`, borderRadius: radius.pill, padding: "9px 16px", cursor: "pointer", fontFamily: font.ui, ...type.helper, color: inkMuted, flexShrink: 0, whiteSpace: "nowrap" }}
@@ -910,7 +979,7 @@ const CompanyCard = ({ company, onViewProfile }) => {
 };
 
 // ─── MAIN FIND COMPANY SCREEN ─────────────────────────────────────────────────
-const StudentFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onNavigateToApplications, onMessageNow, onApplyNow, initialCompanyId, onClearInitialCompany, user, onVisitCompany }) => {
+const StudentFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onNavigateToApplications, onMessageNow, onApplyNow, initialCompanyId, onClearInitialCompany, user, onVisitCompany, onViewChange }) => {
   const { posts: companies, loading } = useOjtPosts();
   const [view, setView] = useState("list");
   const [selectedCompany, setSelectedCompany] = useState(null);
@@ -922,6 +991,15 @@ const StudentFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onNavig
   const [citySearch, setCitySearch] = useState("");
   const [showApplyModal, setShowApplyModal] = useState(false);
   const filterRef = useRef(null);
+
+  // Tells the Dashboard which part of Find Company is showing, so its "?"
+  // help button (and first-visit auto-tour) runs the matching steps:
+  // "list" | "profile" | "report" | "apply". Reset to "list" on unmount.
+  const subView = view === "profile" && selectedCompany
+    ? (showApplyModal ? "apply" : showReportModal ? "report" : "profile")
+    : "list";
+  useEffect(() => { onViewChange?.(subView); }, [subView]);
+  useEffect(() => () => onViewChange?.("list"), []);
 
   useEffect(() => {
     const handler = (e) => { if (filterRef.current && !filterRef.current.contains(e.target)) setShowFilter(false); };
@@ -1085,7 +1163,7 @@ const StudentFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onNavig
             )}
           </div>
           <div style={{ position: "relative", display: "flex", alignItems: "center", flexShrink: 0 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: space.sm, background: color.white, borderRadius: radius.pill, padding: "9px 16px" }}>
+            <div id="sfind-search-bar" style={{ display: "flex", alignItems: "center", gap: space.sm, background: color.white, borderRadius: radius.pill, padding: "9px 16px" }}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={inkMuted} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
               <input
                 value={search}
@@ -1096,7 +1174,7 @@ const StudentFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onNavig
               />
               {search && <button onClick={() => setSearch("")} aria-label="Clear search" style={{ background: "none", border: "none", color: inkMuted, cursor: "pointer", fontSize: "0.9rem", padding: 0, lineHeight: 1 }}>✕</button>}
             </div>
-            <div ref={filterRef} style={{ position: "relative", marginLeft: "10px" }}>
+            <div id="sfind-filter-btn" ref={filterRef} style={{ position: "relative", marginLeft: "10px" }}>
               <div
                 onClick={() => setShowFilter(v => !v)}
                 title="Filters"
@@ -1139,7 +1217,7 @@ const StudentFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onNavig
           </div>
         ) : filtered.length > 0 ? (
           /* CSS grid: 2-col on ≥768px, 1-col below — controlled entirely by .stud-company-grid */
-          <div className="stud-company-grid">
+          <div id="sfind-grid" className="stud-company-grid">
             {filtered.map(c => (
               <CompanyCard
                 key={c.id}

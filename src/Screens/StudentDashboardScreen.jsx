@@ -7,6 +7,8 @@ import { changePassword, logOut } from "./AuthService";
 import { normalizeEmail, isValidEmail } from "./studentPersonalEmail";
 import { useUnreadCount } from "./useChat";
 import { color, font, ease, ACCENT_THEMES, ACCENT_THEME_ORDER, getSavedAccentThemeId, saveAccentThemeId, getAccentThemeVars, getThemedAsset } from "./theme";
+import { driver } from "driver.js";
+import "driver.js/dist/driver.css";
 
 import StudentFindCompanyScreen, { useOjtPosts } from "./StudentFindCompanyScreen";
 import StudentApplicationScreen from "./StudentApplicationScreen";
@@ -244,8 +246,8 @@ const setupInputStyle = (hasError, withToggle) => ({
   boxSizing: "border-box",
 });
 
-const SetupPasswordInput = ({ value, onChange, placeholder, visible, onToggle, hasError, disabled, onEnter, autoComplete, marginBottom = "10px" }) => (
-  <div style={{ position: "relative", marginBottom }}>
+const SetupPasswordInput = ({ value, onChange, placeholder, visible, onToggle, hasError, disabled, onEnter, autoComplete, marginBottom = "10px", id }) => (
+  <div id={id} style={{ position: "relative", marginBottom }}>
     <input
       type={visible ? "text" : "password"}
       placeholder={placeholder}
@@ -272,11 +274,12 @@ const SetupError = ({ msg }) => msg ? (
   <p role="alert" style={{ fontFamily: uiFont, fontSize: "0.78rem", color: color.danger, margin: "4px 0 8px 4px", lineHeight: 1.5 }}>⚠️ {msg}</p>
 ) : null;
 
-const SetupActions = ({ label, loadingLabel, loading, onClick, onLogout, logoutBusy }) => (
+const SetupActions = ({ label, loadingLabel, loading, onClick, onLogout, logoutBusy, buttonId }) => (
   <>
     <hr style={{ border: "none", borderTop: `1.5px solid ${hairline}`, margin: "16px 0" }} />
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "10px" }}>
       <button
+        id={buttonId}
         type="button"
         onClick={onClick}
         disabled={loading}
@@ -293,7 +296,7 @@ const SetupActions = ({ label, loadingLabel, loading, onClick, onLogout, logoutB
           disabled={loading || logoutBusy}
           style={{ background: "none", border: "none", fontFamily: uiFont, fontSize: "0.8rem", color: inkMuted, textDecoration: "underline", cursor: loading || logoutBusy ? "not-allowed" : "pointer", padding: "4px" }}
         >
-          {logoutBusy ? "Logging out…" : "Log out"}
+          {logoutBusy ? "Logging out…" : "Log Out"}
         </button>
       )}
     </div>
@@ -335,6 +338,68 @@ const FontImport = () => (
     ::-webkit-scrollbar-thumb { background: ${steel}; border-radius: 4px; transition: background 0.2s ${ease}; }
     ::-webkit-scrollbar-thumb:hover { background: ${ink}; }
     ::-webkit-scrollbar-track { background: ${paperCard}; }
+
+    /* Floating "?" help button — idle pulse ring to catch the eye, lifts and
+       deepens its shadow on hover/press so it reads as clearly tappable.
+       The ring is mixed from the CURRENT accent theme's ink color (via
+       color-mix against the --ojt-ink custom property, which the
+       Coordinator's theme picker repaints live), not a fixed black — so it
+       re-colors itself the instant the user picks a new theme, same as the
+       icon below. color-mix() has full support in all current browsers. */
+    @keyframes help-btn-pulse {
+      0%   { box-shadow: 0 6px 20px color-mix(in srgb, ${ink} 25%, transparent), 0 0 0 0 color-mix(in srgb, ${ink} 16%, transparent); }
+      70%  { box-shadow: 0 6px 20px color-mix(in srgb, ${ink} 25%, transparent), 0 0 0 10px color-mix(in srgb, ${ink} 0%, transparent); }
+      100% { box-shadow: 0 6px 20px color-mix(in srgb, ${ink} 25%, transparent), 0 0 0 0 color-mix(in srgb, ${ink} 0%, transparent); }
+    }
+    .help-fab {
+      animation: help-btn-pulse 2.6s ease-out infinite;
+      transition: transform 0.18s ${ease}, background 0.18s ${ease}, opacity 0.45s ${ease};
+    }
+    /* After a drag is released it glides to the nearest side instead of
+       jumping there. Only on while snapping, so dragging itself stays 1:1. */
+    .help-fab.help-fab-snapping {
+      transition: left 0.32s cubic-bezier(0.22, 1, 0.36, 1), top 0.32s cubic-bezier(0.22, 1, 0.36, 1),
+                  transform 0.18s ${ease}, background 0.18s ${ease}, opacity 0.45s ${ease};
+    }
+    /* Idle (untouched for 10s): faded, and the pulse ring stops so it
+       doesn't keep pulling attention. Back to full on hover/press/focus. */
+    .help-fab.help-fab-idle { opacity: 0.4; animation: none; }
+    .help-fab:hover {
+      transform: translateY(-3px) scale(1.06);
+      background: ${ink} !important;
+      animation-play-state: paused;
+    }
+    .help-fab:hover .help-fab-icon { stroke: ${paper} !important; }
+    .help-fab:hover .help-fab-icon-dot { fill: ${paper} !important; }
+    .help-fab:active { transform: translateY(-1px) scale(0.98); }
+    /* Hide the "?" button while a tour is running (driver.js adds
+       .driver-active to <body>) — otherwise it floats on top of whatever is
+       highlighted in the bottom-right corner, e.g. Company List's Accept button. */
+    body.driver-active .help-fab { visibility: hidden; animation: none; }
+    /* Being dragged (after a long press): lift it, drop the pulse/hover
+       effects, and show a grabbing cursor so it's obvious it's moving. */
+    .help-fab.help-fab-dragging,
+    .help-fab.help-fab-dragging:hover {
+      animation: none !important;
+      transform: scale(1.1) !important;
+      box-shadow: 0 10px 28px rgba(0,0,0,0.28) !important;
+      cursor: grabbing !important;
+      background: ${paper} !important;
+    }
+    .help-fab.help-fab-dragging .help-fab-icon { stroke: ${ink} !important; }
+    .help-fab.help-fab-dragging .help-fab-icon-dot { fill: ${ink} !important; }
+    /* Mouse hovering, counting down to "follow the cursor": a ring fades in
+       around the button over that 1 second so it's clear it's about to move. */
+    .help-fab.help-fab-arming::after {
+      content: ""; position: absolute; inset: -6px; border-radius: 50%;
+      border: 2px solid ${ink}; opacity: 0; pointer-events: none;
+      animation: help-fab-arm 1s linear forwards;
+    }
+    @keyframes help-fab-arm {
+      0%   { opacity: 0;    transform: scale(0.8); }
+      100% { opacity: 0.55; transform: scale(1); }
+    }
+
 
     @keyframes welcomeIn {
       0%   { opacity: 0; transform: translateY(14px); }
@@ -588,9 +653,1011 @@ const EmptyListPlaceholder = ({ label = "No data available" }) => (
 const STUDENT_BASE_PATH = "/student";
 const getStudentNavKeyFromPath = (pathname) => {
   const rest = pathname.startsWith(STUDENT_BASE_PATH) ? pathname.slice(STUDENT_BASE_PATH.length) : "";
-  const key = rest.replace(/^\/+|\/+$/g, "");
+  const key = rest.replace(/^\/+|\/+$/g, ""); // strip leading/trailing slashes
   return key || "dashboard";
 };
+
+// ── Cached student uid (theme flash fix, same pattern as Coordinator) ──────
+const LAST_STUDENT_UID_KEY = "ojtern-last-student-uid";
+const getCachedStudentUid = () => {
+  try { return localStorage.getItem(LAST_STUDENT_UID_KEY); } catch { return null; }
+};
+const setCachedStudentUid = (uid) => {
+  try {
+    if (uid) localStorage.setItem(LAST_STUDENT_UID_KEY, uid);
+    else localStorage.removeItem(LAST_STUDENT_UID_KEY);
+  } catch { /* localStorage unavailable */ }
+};
+
+// ── Auto-tour helpers — Dashboard, Find Company, Application, Messages, and
+// Account Profile each have their own entry below and their own element ids
+// in their respective screen files. AUTO_TOUR_NAV_KEYS (further down) is
+// just Object.keys(HELP_STEPS_BY_STUDENT_NAV), so adding a new nav key here
+// with a matching HELP_STEPS_BY_STUDENT_NAV entry is enough to give any
+// other screen this same one-time auto-tour behavior. ─────────────────────
+const AUTO_TOUR_DELAY_MS = 450;
+// Cards whose step must never scroll/recenter the page when highlighted.
+const STEADY_TOUR_ELEMENT_IDS = [];
+// Step targets that are their own scroll box on purpose — kept scrollable
+// during a tour (every other scrollable container is locked).
+const SCROLLABLE_TOUR_TARGET_IDS = ["sprofile-details-full"];
+
+// For list steps: highlight just ONE item (the first visible row/card)
+// instead of the whole list. Falls back to the list itself (e.g. its empty
+// state) when there are no items yet.
+const firstListItem = (selectors, fallback) => () => {
+  for (const sel of selectors) {
+    const el = [...document.querySelectorAll(sel)].find(n => n.getClientRects().length > 0);
+    if (el) return el;
+  }
+  return fallback ? document.querySelector(fallback) : null;
+};
+// Same, but the LAST visible match — used for chat messages, where the
+// newest one (at the bottom, already in view) is the natural one to show.
+const lastListItem = (selectors, fallback) => () => {
+  for (const sel of selectors) {
+    const el = [...document.querySelectorAll(sel)].reverse().find(n => n.getClientRects().length > 0);
+    if (el) return el;
+  }
+  return fallback ? document.querySelector(fallback) : null;
+};
+
+const runTour = (steps) => {
+  // driver.js only locks the page/body's own scroll while a tour runs, but
+  // every Student screen scrolls inside its own container (.smain-content,
+  // .stud-list-wrapper, .stud-profile-content, modal bodies, the chat thread,
+  // legal pages…). Rather than keep a hand-written list of those, lock EVERY
+  // element that's currently scrollable, then restore them all on close.
+  // Step targets that are their own scroll box on purpose (e.g. a company
+  // post's "Post Details") are left scrollable — see SCROLLABLE_TOUR_TARGET_IDS.
+  const scrollLockTargets = [...document.querySelectorAll("body *")].filter(el => {
+    if (SCROLLABLE_TOUR_TARGET_IDS.includes(el.id)) return false;
+    if (el.scrollHeight <= el.clientHeight + 1) return false;
+    const oy = getComputedStyle(el).overflowY;
+    return oy === "auto" || oy === "scroll" || oy === "overlay";
+  });
+  const initialScrollTop = scrollLockTargets.map(el => el.scrollTop);
+  const prevOverflowY = scrollLockTargets.map(el => el.style.overflowY || "");
+  // Remember exactly where each container was sitting when the tour opened,
+  // so if anything still manages to scroll it (e.g. iOS momentum scroll,
+  // which can keep coasting for a moment even after overflow is hidden),
+  // it snaps straight back instead of leaving the highlight stranded.
+  const lockedScrollTop = scrollLockTargets.map(el => el.scrollTop);
+  // driver.js's own scrollIntoView (moving to the next step) must still be
+  // allowed through — otherwise snapBack undoes it and any step below the
+  // fold (e.g. Company List's "Company Details") gets highlighted off-screen.
+  // Only user/momentum scrolling is snapped back.
+  let allowTourScroll = false;
+  const snapBack = () => {
+    if (allowTourScroll) return;
+    scrollLockTargets.forEach((el, i) => { el.scrollTop = lockedScrollTop[i]; });
+  };
+  scrollLockTargets.forEach(el => {
+    el.style.overflowY = "hidden";
+    el.addEventListener("scroll", snapBack);
+  });
+  const restoreScroll = () => {
+    scrollLockTargets.forEach((el, i) => {
+      el.removeEventListener("scroll", snapBack);
+      el.style.overflowY = prevOverflowY[i];
+      if (el.isConnected) el.scrollTop = initialScrollTop[i];
+    });
+  };
+
+  // Drop any step whose target isn't on screen right now (e.g. Accept/Decline
+  // only renders while a department is still pending, and the Department /
+  // Program block only when the company has one) — otherwise driver.js
+  // shows that step as a floating popover pointing at nothing.
+  steps = (steps || [])
+    .map(s => (typeof s.element === "function" ? { ...s, element: s.element() || undefined, _resolved: true } : s))
+    .filter(s => s._resolved ? !!s.element : (!s.element || document.querySelector(s.element)))
+    .map(({ _resolved, ...s }) => s);
+
+  // Scrolls each scrollable ancestor of `el` (modal bodies, .clist-list-
+  // wrapper, etc. — including ones locked to overflow: hidden above, which
+  // still scroll programmatically) just enough that `el` is fully visible
+  // inside it, with a little breathing room. If `el` is taller than the box,
+  // its top is aligned instead. Returns true if anything moved.
+  const scrollIntoScrollParents = (el) => {
+    const PAD = 12;
+    let moved = false;
+    for (let p = el.parentElement; p && p !== document.body; p = p.parentElement) {
+      if (p.scrollHeight <= p.clientHeight + 1) continue;
+      const oy = getComputedStyle(p).overflowY;
+      if (!/(auto|scroll|hidden|overlay)/.test(oy)) continue;
+      const pr = p.getBoundingClientRect();
+      const er = el.getBoundingClientRect();
+      let delta = 0;
+      if (er.height > pr.height - PAD * 2 || er.top < pr.top + PAD) {
+        delta = er.top - (pr.top + PAD);          // align top
+      } else if (er.bottom > pr.bottom - PAD) {
+        delta = er.bottom - (pr.bottom - PAD);    // bring bottom into view
+      }
+      if (Math.abs(delta) > 1) {
+        const before = p.scrollTop;
+        p.scrollTop = before + delta;
+        if (p.scrollTop !== before) moved = true;
+      }
+    }
+    return moved;
+  };
+
+  let activeResizeObserver = null;
+
+  // Lock everything while a tour is running: the highlighted element can't
+  // be clicked/tapped (so e.g. "Message Now!", Accept/Decline, Back, or a
+  // document thumbnail won't fire mid-tour) — only the tour popover's own
+  // Previous / Next / Done buttons respond. Done in the capture phase on
+  // window so it runs before React's handlers. Deliberately NOT using
+  // driver.js's `disableActiveInteraction`, since that sets pointer-events:
+  // none on the target and would also kill wheel/touch scrolling inside the
+  // steps that are their own scroll boxes (#cprofile-details-full,
+  // #clprofile-info) — here only clicks are blocked, scrolling still works.
+  const blockOutsidePopover = (e) => {
+    if (e.target?.closest?.(".driver-popover")) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+  };
+  const BLOCKED_EVENTS = ["click", "dblclick", "auxclick", "contextmenu"];
+  BLOCKED_EVENTS.forEach(ev => window.addEventListener(ev, blockOutsidePopover, true));
+  // driver.js closes on Escape when allowClose is on — swallow it here (in
+  // the capture phase, before driver's own key listener) so only the ✕
+  // button or "Done" ends the tour.
+  const blockEscape = (e) => {
+    if (e.key === "Escape" || e.key === "Esc") { e.preventDefault(); e.stopImmediatePropagation(); }
+  };
+  ["keydown", "keyup"].forEach(ev => window.addEventListener(ev, blockEscape, true));
+  const unblockClicks = () => {
+    BLOCKED_EVENTS.forEach(ev => window.removeEventListener(ev, blockOutsidePopover, true));
+    ["keydown", "keyup"].forEach(ev => window.removeEventListener(ev, blockEscape, true));
+  };
+
+  const tourDriver = driver({
+    showProgress: (steps?.length ?? 0) > 1,
+    // The tour can be exited two ways only: the ✕ button on the popover, or
+    // "Done" on the last step. Clicking the dark overlay still does nothing
+    // (that click is swallowed by blockOutsidePopover above, since the
+    // overlay isn't inside .driver-popover) and Esc is swallowed by
+    // blockEscape — so it can't be dismissed by accident.
+    allowClose: true,
+    showButtons: ["next", "previous", "close"],
+    onDestroyed: () => { restoreScroll(); unblockClicks(); activeResizeObserver?.disconnect(); },
+    // driver.js calls element.scrollIntoView() every time it highlights a
+    // step's target, which can shift the whole page even when the card is
+    // already fully on screen. For the two cards that must stay put, swap
+    // scrollIntoView for a no-op just long enough for that one call to fire,
+    // then put the real one back — every other step's scrolling is untouched.
+    onHighlighted: (element) => {
+      // Keep the highlight glued to the target if its size changes while
+      // it's showing — e.g. "Loading…" turning into a status badge, a map
+      // or image finishing loading, or a list filling in from Firestore.
+      activeResizeObserver?.disconnect();
+      if (element && typeof ResizeObserver !== "undefined") {
+        activeResizeObserver = new ResizeObserver(() => tourDriver?.refresh?.());
+        activeResizeObserver.observe(element);
+      }
+      // Driver has finished scrolling to this step — make that the new
+      // locked position, then resume snapping back any other scroll.
+      setTimeout(() => {
+        scrollLockTargets.forEach((el, i) => { lockedScrollTop[i] = el.scrollTop; });
+        allowTourScroll = false;
+      }, 60);
+    },
+    onHighlightStarted: (element) => {
+      allowTourScroll = true;
+      activeResizeObserver?.disconnect();
+      activeResizeObserver = null;
+      if (element?.id && STEADY_TOUR_ELEMENT_IDS.includes(element.id)) {
+        const original = Element.prototype.scrollIntoView;
+        Element.prototype.scrollIntoView = function () {};
+        setTimeout(() => { Element.prototype.scrollIntoView = original; }, 0);
+        return;
+      }
+      // driver.js only scrolls when the target is outside the WINDOW's
+      // viewport — it doesn't know about scroll boxes inside modals (e.g. the
+      // Resolve Report body), so a target sitting below that box's visible
+      // area (like "How was this resolved?") got highlighted half-hidden,
+      // with the spotlight spilling over the footer. Scroll every scrollable
+      // ancestor ourselves so the target is fully in view, then have driver
+      // re-measure so the highlight lands exactly on it.
+      if (element && scrollIntoScrollParents(element)) {
+        requestAnimationFrame(() => tourDriver?.refresh?.());
+      }
+    },
+    steps: steps && steps.length > 0
+      ? steps
+      : [{
+          popover: {
+            title: "Help",
+            description: "There's no guided tour for this page yet.",
+          },
+        }],
+  });
+  tourDriver.drive();
+};
+
+// Shared by Terms and Privacy (separate keys so each auto-plays once).
+const LEGAL_STEPS = [
+    {
+      element: "#slegal-header",
+      popover: {
+        title: "Title & Last Updated",
+        description: "The document you're reading and the date it was last updated. If it changes, the date here changes too.",
+      },
+    },
+    {
+      element: "#slegal-toc",
+      popover: {
+        title: "On This Page",
+        description: "Every section of this document. Tap one to jump straight to it — the section you're reading is marked.",
+      },
+    },
+    {
+      element: "#slegal-first-section",
+      popover: {
+        title: "Sections",
+        description: "Each section explains one part of the document. Scroll down to read them all.",
+      },
+    },
+    {
+      element: "#slegal-progress",
+      popover: {
+        title: "Reading Progress",
+        description: "This thin bar fills up as you scroll, showing how far through the document you are.",
+      },
+    },
+    {
+      element: "#slegal-understand-btn",
+      popover: {
+        title: "I Understand",
+        description: "When you're done reading, tap this to return to your Account Profile.",
+      },
+    },
+  ];
+
+// Screen sub-view (from each screen's onViewChange) → HELP_STEPS key.
+const STUDENT_SUBVIEW_TOUR_KEYS = {
+  findcompany:    { profile: "findcompanyprofile", report: "findcompanyreport", apply: "applyform" },
+  application:    { apply: "applyform", view: "applicationview", edit: "applicationedit" },
+  messages:       { chat: "messageschat", report: "messagesreport" },
+  accountprofile: { personalInfo: "accprofilepersonal", personalInfoEdit: "accprofilepersonaledit", terms: "accprofileterms", privacy: "accprofileprivacy", reset: "accprofilereset" },
+};
+
+const HELP_STEPS_BY_STUDENT_NAV = {
+  dashboard: [
+    {
+      element: "#sdash-recommended",
+      popover: {
+        title: "Recommended OJT Companies",
+        description: "Companies open to your program. Tap one to view its full post.",
+      },
+    },
+    {
+      element: "#sdash-recent-visited",
+      popover: {
+        title: "Recent Visited Company Post",
+        description: "Companies you've recently opened, with how long ago you visited each one.",
+      },
+    },
+    {
+      element: "#sdash-recent-application",
+      popover: {
+        title: "Recent Application",
+        description: "Your latest applications and their current status. Tap one to see the full details.",
+      },
+    },
+    {
+      element: "#stopbar-notifications",
+      popover: {
+        title: "Notifications",
+        description: "Updates on your applications land here. Tap one to jump straight to it.",
+      },
+    },
+    {
+      element: "#stopbar-about",
+      popover: {
+        title: "About",
+        description: "Learn more about OJTern and the team behind it.",
+      },
+    },
+    {
+      element: "#stopbar-theme-picker",
+      popover: {
+        title: "Theme Customization",
+        description: "Change the dashboard's accent color. Your choice is saved on this device and applies across every module.",
+      },
+    },
+  ],
+  findcompany: [
+    {
+      element: "#sfind-search-bar",
+      popover: {
+        title: "Search Company Posts",
+        description: "Search by company name, industry, or location. The count above updates to match your current search and filters.",
+      },
+    },
+    {
+      element: "#sfind-filter-btn",
+      popover: {
+        title: "Filters",
+        description: "Narrow the list down by industry or city. Active filters show as removable chips below the search bar.",
+      },
+    },
+    {
+      element: firstListItem(["#sfind-grid > *"], "#sfind-grid"),
+      popover: {
+        title: "Company Posts",
+        description: "Each card is one open post for your program. Tap any card to view the full company profile, apply, or message them.",
+      },
+    },
+  ],
+  application: [
+    {
+      element: "#sapp-search-bar",
+      popover: {
+        title: "Search Applications",
+        description: "Search your applications by company name. The count above updates to match what you type.",
+      },
+    },
+    {
+      element: "#sapp-status-chips",
+      popover: {
+        title: "Filter by Status",
+        description: "Quickly filter your applications — Accepted, Declined, Pending, In Review, or To Interview.",
+      },
+    },
+    {
+      element: firstListItem(["#sapp-list .sa-app-row"], "#sapp-list"),
+      popover: {
+        title: "Your Applications",
+        description: "Each row is one application you've submitted. Tap any row to see its full details and current status, or use ⋮ for more options.",
+      },
+    },
+  ],
+  messages: [
+    {
+      element: "#smsg-search-bar",
+      popover: {
+        title: "Search Conversations",
+        description: "Search your chats by company name. The list below updates to match what you type.",
+      },
+    },
+    {
+      element: firstListItem(["#smsg-chat-list .msg-row"], "#smsg-chat-list"),
+      popover: {
+        title: "Conversations",
+        description: "Each row is one chat, newest activity first. Tap any row to open the full conversation.",
+      },
+    },
+  ],
+  accountprofile: [
+    {
+      element: "#sacc-personal-info",
+      popover: {
+        title: "Personal Information",
+        description: "View and edit your name, contact details, and other personal info on file.",
+      },
+    },
+    {
+      element: "#sacc-security",
+      popover: {
+        title: "Reset Password",
+        description: "Change your account password. You'll be asked for your current password first.",
+      },
+    },
+    {
+      element: "#sacc-legal",
+      popover: {
+        title: "Terms & Privacy",
+        description: "Review OJTern's Terms & Conditions and Privacy Policy at any time.",
+      },
+    },
+  ],
+  // ── Sub-views & modals (set via each screen's onViewChange; see tourKey) ──
+  findcompanyprofile: [
+    {
+      element: "#sprofile-details",
+      popover: {
+        title: "Company Name & Description",
+        description: "Who the company is and what this post is about. Tap Back to return to the list.",
+      },
+    },
+    {
+      element: "#sprofile-map",
+      popover: {
+        title: "Location Map",
+        description: "Where the company is. Use Open full map for a bigger, interactive view.",
+      },
+    },
+    {
+      element: "#sprofile-details-full",
+      popover: {
+        title: "Post Details",
+        description: "Requirements, working hours, contact, location, benefits, open programs and their slots, industry, and skills required. Scroll inside to read everything.",
+      },
+    },
+    {
+      element: "#sprofile-apply-btn",
+      popover: {
+        title: "Apply Now!",
+        description: "Opens the application form for this post.",
+      },
+    },
+    {
+      element: "#sprofile-message-btn",
+      popover: {
+        title: "Message Now!",
+        description: "Chat with the company directly about this post.",
+      },
+    },
+    {
+      element: "#sprofile-report-btn",
+      popover: {
+        title: "Report",
+        description: "Report this company if something about it or its post seems wrong.",
+      },
+    },
+  ],
+  findcompanyreport: [
+    {
+      element: "#sreport-progress",
+      popover: {
+        title: "Report Steps",
+        description: "Reporting takes 3 short steps — this bar shows which one you're on.",
+      },
+    },
+    {
+      element: "#sreport-concerns",
+      popover: {
+        title: "What Is the Concern?",
+        description: "Pick the option that best describes what happened, then tap Continue.",
+      },
+    },
+    {
+      element: "#sreport-details",
+      popover: {
+        title: "About This Concern",
+        description: "What this kind of concern covers, with common examples — check it matches before continuing.",
+      },
+    },
+    {
+      element: "#sreport-describe",
+      popover: {
+        title: "Describe What Happened",
+        description: "Include dates, names, and anything the review team should know.",
+      },
+    },
+    {
+      element: "#sreport-evidence",
+      popover: {
+        title: "Attach Evidence",
+        description: "Attach one PNG or PDF (up to 10MB) that supports your report. It's required.",
+      },
+    },
+    {
+      element: "#sreport-actions",
+      popover: {
+        title: "Continue or Send",
+        description: "Back and Continue move between steps. On the last step, Send report submits it for review.",
+      },
+    },
+  ],
+  messagesreport: [
+    {
+      element: "#sreport-progress",
+      popover: {
+        title: "Report Steps",
+        description: "Reporting takes 3 short steps — this bar shows which one you're on.",
+      },
+    },
+    {
+      element: "#sreport-concerns",
+      popover: {
+        title: "What Is the Concern?",
+        description: "Pick the option that best describes what happened, then tap Continue.",
+      },
+    },
+    {
+      element: "#sreport-details",
+      popover: {
+        title: "About This Concern",
+        description: "What this kind of concern covers, with common examples — check it matches before continuing.",
+      },
+    },
+    {
+      element: "#sreport-describe",
+      popover: {
+        title: "Describe What Happened",
+        description: "Include dates, names, and anything the review team should know.",
+      },
+    },
+    {
+      element: "#sreport-evidence",
+      popover: {
+        title: "Attach Evidence",
+        description: "Attach one PNG or PDF (up to 10MB) that supports your report. It's required.",
+      },
+    },
+    {
+      element: "#sreport-actions",
+      popover: {
+        title: "Continue or Send",
+        description: "Back and Continue move between steps. On the last step, Send report submits it for review.",
+      },
+    },
+  ],
+  applyform: [
+    {
+      element: "#sapply-header",
+      popover: {
+        title: "Apply Now",
+        description: "The company you're applying to. If you've already applied to this post, or it isn't accepting applications, you'll see that here instead.",
+      },
+    },
+    {
+      element: "#sform-name",
+      popover: {
+        title: "Name",
+        description: "Your first name, middle initial, last name, and suffix.",
+      },
+    },
+    {
+      element: "#sform-sex",
+      popover: {
+        title: "Sex",
+        description: "Choose Male or Female.",
+      },
+    },
+    {
+      element: "#sform-location",
+      popover: {
+        title: "Location",
+        description: "Pick your region, province, city, and barangay, then add your street.",
+      },
+    },
+    {
+      element: "#sform-college",
+      popover: {
+        title: "College, Program, Major",
+        description: "Your college, then your program, then your major if it has one.",
+      },
+    },
+    {
+      element: "#sform-contact",
+      popover: {
+        title: "Contact & Email",
+        description: "Your mobile number and an email address the company can reach you at.",
+      },
+    },
+    {
+      element: "#sform-message",
+      popover: {
+        title: "Application Message",
+        description: "A short message to the company about why you're applying.",
+      },
+    },
+    {
+      element: "#sform-files",
+      popover: {
+        title: "Attach File",
+        description: "Attach your resume and other requirements — up to 10MB in total.",
+      },
+    },
+    {
+      element: "#sapply-footer",
+      popover: {
+        title: "Cancel or Submit",
+        description: "Submit sends your application to the company. Cancel closes the form without applying.",
+      },
+    },
+  ],
+  applicationview: [
+    {
+      element: "#sview-header",
+      popover: {
+        title: "Application",
+        description: "Your name and the company this application was sent to.",
+      },
+    },
+    {
+      element: "#sview-status",
+      popover: {
+        title: "Current Status",
+        description: "Where your application stands right now.",
+      },
+    },
+    {
+      element: "#sview-tracker",
+      popover: {
+        title: "Application Status",
+        description: "Progress from Pending → In Review → To Interview → Accepted. Declined applications show here too.",
+      },
+    },
+    {
+      element: "#sform-name",
+      popover: {
+        title: "Name",
+        description: "The first name, middle initial, last name, and suffix you applied with.",
+      },
+    },
+    {
+      element: "#sform-sex",
+      popover: {
+        title: "Sex",
+        description: "The sex you put on this application.",
+      },
+    },
+    {
+      element: "#sform-location",
+      popover: {
+        title: "Location",
+        description: "The region, province, city, barangay, and street you gave.",
+      },
+    },
+    {
+      element: "#sform-college",
+      popover: {
+        title: "College, Program, Major",
+        description: "The college, program, and major you applied under.",
+      },
+    },
+    {
+      element: "#sform-contact",
+      popover: {
+        title: "Contact & Email",
+        description: "The mobile number and email the company can reach you at.",
+      },
+    },
+    {
+      element: "#sform-message",
+      popover: {
+        title: "Application Message",
+        description: "The message you sent to the company.",
+      },
+    },
+    {
+      element: "#sform-files",
+      popover: {
+        title: "Attached Files",
+        description: "The files you attached. Tap one to open it.",
+      },
+    },
+    {
+      element: "#sview-footer",
+      popover: {
+        title: "Edit",
+        description: "You can edit your application while it's still Pending. Once it moves on, it's locked.",
+      },
+    },
+  ],
+  applicationedit: [
+    {
+      element: "#sform-name",
+      popover: {
+        title: "Name",
+        description: "Your first name, middle initial, last name, and suffix.",
+      },
+    },
+    {
+      element: "#sform-sex",
+      popover: {
+        title: "Sex",
+        description: "Choose Male or Female.",
+      },
+    },
+    {
+      element: "#sform-location",
+      popover: {
+        title: "Location",
+        description: "Pick your region, province, city, and barangay, then add your street.",
+      },
+    },
+    {
+      element: "#sform-college",
+      popover: {
+        title: "College, Program, Major",
+        description: "Your college, then your program, then your major if it has one.",
+      },
+    },
+    {
+      element: "#sform-contact",
+      popover: {
+        title: "Contact & Email",
+        description: "Your mobile number and an email address the company can reach you at.",
+      },
+    },
+    {
+      element: "#sform-message",
+      popover: {
+        title: "Application Message",
+        description: "A short message to the company about why you're applying.",
+      },
+    },
+    {
+      element: "#sform-files",
+      popover: {
+        title: "Attach File",
+        description: "Attach your resume and other requirements — up to 10MB in total.",
+      },
+    },
+    {
+      element: "#sview-footer",
+      popover: {
+        title: "Cancel or Save",
+        description: "Save updates your application. Cancel discards your changes.",
+      },
+    },
+  ],
+  messageschat: [
+    {
+      element: "#smsgchat-header",
+      popover: {
+        title: "Conversation",
+        description: "Who you're chatting with. Tap the back arrow to return to all your conversations.",
+      },
+    },
+    {
+      element: lastListItem([".msg-thread-body .msg-bubble-wrap"]),
+      popover: {
+        title: "Messages",
+        description: "Tap and hold a message, or tap its ⋮, to reply. Your own messages can also be edited or unsent. Seen shows once they've read your latest one.",
+      },
+    },
+    {
+      element: "#smsgchat-options",
+      popover: {
+        title: "Conversation Options",
+        description: "More options for this chat — delete the conversation (only for you) or report the company.",
+      },
+    },
+    {
+      element: "#smsgchat-attach",
+      popover: {
+        title: "Attach Files",
+        description: "Attach PNG images or PDF files to your message.",
+      },
+    },
+    {
+      element: "#smsgchat-input",
+      popover: {
+        title: "Write a Message",
+        description: "Type your message here. Press Enter to send.",
+      },
+    },
+    {
+      element: "#smsgchat-send",
+      popover: {
+        title: "Send",
+        description: "Sends your message and any attached files.",
+      },
+    },
+  ],
+  accprofilepersonal: [
+    {
+      element: "#spinfo-edit-btn",
+      popover: {
+        title: "Edit",
+        description: "Tap Edit to update your age and email address.",
+      },
+    },
+    {
+      element: "#spinfo-studentid",
+      popover: {
+        title: "Student ID",
+        description: "Your student ID number. It's how your account is identified, so it can't be changed.",
+      },
+    },
+    {
+      element: "#spinfo-first",
+      popover: {
+        title: "First Name",
+        description: "Your first name.",
+      },
+    },
+    {
+      element: "#spinfo-middle",
+      popover: {
+        title: "Middle Initial",
+        description: "Your middle initial.",
+      },
+    },
+    {
+      element: "#spinfo-last",
+      popover: {
+        title: "Last Name",
+        description: "Your last name.",
+      },
+    },
+    {
+      element: "#spinfo-suffix",
+      popover: {
+        title: "Suffix",
+        description: "Your suffix, like Jr. or III, if you have one.",
+      },
+    },
+    {
+      element: "#spinfo-college",
+      popover: {
+        title: "College",
+        description: "The college you belong to.",
+      },
+    },
+    {
+      element: "#spinfo-program",
+      popover: {
+        title: "Program & Major",
+        description: "Your program, and your major if it has one. This decides which company posts you see.",
+      },
+    },
+    {
+      element: "#spinfo-section",
+      popover: {
+        title: "Year and Section",
+        description: "Your current year and section.",
+      },
+    },
+    {
+      element: "#spinfo-sex",
+      popover: {
+        title: "Sex",
+        description: "Your sex on file.",
+      },
+    },
+    {
+      element: "#spinfo-age",
+      popover: {
+        title: "Age",
+        description: "Your age on file.",
+      },
+    },
+    {
+      element: "#spinfo-email",
+      popover: {
+        title: "Email Address",
+        description: "Your personal email — used if you ever need to reset a forgotten password.",
+      },
+    },
+  ],
+  accprofilepersonaledit: [
+    {
+      element: "#spinfo-age",
+      popover: {
+        title: "Age",
+        description: "Type your current age.",
+      },
+    },
+    {
+      element: "#spinfo-email",
+      popover: {
+        title: "Email Address",
+        description: "Your personal email, used for Forgot Password. Make sure it's one you can open.",
+      },
+    },
+    {
+      element: "#spinfo-save",
+      popover: {
+        title: "Save Changes",
+        description: "Save your updated age and email, or Cancel to discard them.",
+      },
+    },
+  ],
+  accprofileterms: LEGAL_STEPS,
+  accprofileprivacy: LEGAL_STEPS,
+  accprofilereset: [
+    {
+      element: "#sreset-current",
+      popover: {
+        title: "Current Password",
+        description: "Enter the password you use now, to confirm it's really you.",
+      },
+    },
+    {
+      element: "#sreset-new",
+      popover: {
+        title: "New Password",
+        description: "Choose a new password you don't use anywhere else. A checklist appears as you type, showing what's still missing.",
+      },
+    },
+    {
+      element: "#sreset-confirm",
+      popover: {
+        title: "Confirm New Password",
+        description: "Type the same new password again.",
+      },
+    },
+    {
+      element: "#sreset-footer",
+      popover: {
+        title: "Cancel or Save",
+        description: "Save password updates it and signs you out — log back in with the new one. Cancel keeps your current password.",
+      },
+    },
+  ],
+  about: [
+    {
+      element: "#cabout-story",
+      popover: {
+        title: "Our Story",
+        description: "Learn what OJTern is, what it does, and the mission behind it.",
+      },
+    },
+    {
+      element: "#cabout-team",
+      popover: {
+        title: "The Team",
+        description: "Meet the team behind OJTern.",
+      },
+    },
+    {
+      element: "#cabout-features",
+      popover: {
+        title: "What OJTern Offers",
+        description: "A quick look at what OJTern gives students, coordinators, and companies.",
+      },
+    },
+    {
+      element: "#cabout-contact",
+      popover: {
+        title: "Need Help?",
+        description: "Have questions or feedback? Reach out to the OJTern team any time.",
+      },
+    },
+  ],
+};
+
+// ── First-login gate tours ──────────────────────────────────────────────────────
+// The two mandatory pop-ups a brand-new student account walks through before it
+// ever reaches the dashboard: forced password reset (setupStage "password"),
+// then mandatory profile completion (setupStage "personal"). Both get their own
+// one-time driver.js walkthrough, auto-started the moment each stage becomes
+// active — see the setupStage-triggered effect further down.
+const STUDENT_CHANGE_PASSWORD_STEPS = [
+  {
+    element: "#sp-current-password",
+    popover: {
+      title: "Current Password",
+      description: "Enter the temporary password you were given when this account was created.",
+    },
+  },
+  {
+    element: "#sp-new-password",
+    popover: {
+      title: "New Password",
+      description: "Choose your own password. The checklist below shows exactly what's still missing.",
+    },
+  },
+  {
+    element: "#sp-checklist",
+    popover: {
+      title: "Password Requirements",
+      description: "Every item here needs a check mark before you can continue.",
+    },
+  },
+  {
+    element: "#sp-confirm-password",
+    popover: {
+      title: "Confirm Password",
+      description: "Re-type the same new password to confirm it.",
+    },
+  },
+  {
+    element: "#sp-save-btn",
+    popover: {
+      title: "Save Password",
+      description: "Saves your new password and signs you out. Log back in with it to finish setting up your account.",
+    },
+  },
+];
+
+const STUDENT_EDIT_INFO_STEPS = [
+  {
+    element: "#seditinfo-card",
+    popover: {
+      title: "Complete Your Profile",
+      description: "Before you can use the dashboard, add your personal information here and save it. This only appears once.",
+    },
+  },
+];
 
 // ── Sidebar nav list ───────────────────────────────────────────────────────────
 const SidebarNavList = ({ activeNav, onNavigate, onLogout, unreadMessages = 0 }) => (
@@ -660,6 +1727,298 @@ const SidebarNavList = ({ activeNav, onNavigate, onLogout, unreadMessages = 0 })
     )}
   </>
 );
+
+// ── Floating "?" help button ────────────────────────────────────────────────
+// Drag settings for the "?" button (accessibility: move it out of the way of
+// whatever it's covering — e.g. a chat's send button).
+const HELP_FAB_SIZE        = 56;
+const HELP_FAB_EDGE        = 12;   // min gap kept from every screen edge
+const HELP_FAB_HOVER_FOLLOW = 1000; // mouse: hover this long → it follows the cursor
+const HELP_FAB_DRAG_START  = 6;    // touch: px of finger movement that starts a drag
+const HELP_FAB_POS_KEY     = "ojtern.helpFabPos";
+const HELP_FAB_SNAP_GAP    = 24;   // space kept from the side it snaps to
+const HELP_FAB_TOP_MIN     = 86;   // stay below the 70px top bar (+ gap)
+const HELP_FAB_IDLE_MS     = 10000; // fade after 10s untouched
+
+// Keeps the button fully on-screen for the current window size.
+const clampHelpFabPos = ({ x, y }) => ({
+  x: Math.min(Math.max(HELP_FAB_EDGE, x), Math.max(HELP_FAB_EDGE, window.innerWidth  - HELP_FAB_SIZE - HELP_FAB_EDGE)),
+  y: Math.min(Math.max(HELP_FAB_EDGE, y), Math.max(HELP_FAB_EDGE, window.innerHeight - HELP_FAB_SIZE - HELP_FAB_EDGE)),
+});
+
+// Where it settles after being let go: the nearer LEFT or RIGHT side, with
+// HELP_FAB_SNAP_GAP of space (not flush against the edge), keeping the
+// height it was dropped at but never under the top bar or off the bottom.
+const snapHelpFabPos = ({ x, y }) => {
+  const w = window.innerWidth, h = window.innerHeight;
+  const toLeft = x + HELP_FAB_SIZE / 2 < w / 2;
+  const maxY = Math.max(HELP_FAB_TOP_MIN, h - HELP_FAB_SIZE - HELP_FAB_SNAP_GAP);
+  return {
+    x: toLeft ? HELP_FAB_SNAP_GAP : Math.max(HELP_FAB_SNAP_GAP, w - HELP_FAB_SIZE - HELP_FAB_SNAP_GAP),
+    y: Math.min(Math.max(HELP_FAB_TOP_MIN, y), maxY),
+  };
+};
+
+const FloatingHelpButton = ({ activeNav, onBeforeTour }) => {
+  // ── Draggable position ──────────────────────────────────────────────────
+  // • Touch / pen: just hold and move — it drags right away, no long press.
+  //   A plain tap (no movement) opens the tour.
+  // • Mouse: hover over it for HELP_FAB_HOVER_FOLLOW (1s) and it starts
+  //   following the cursor; click anywhere to drop it there. A normal click
+  //   before the 1s is up opens the tour.
+  // null = default bottom-right corner. The chosen spot is remembered on
+  // this device (localStorage) and re-clamped if the window is resized.
+  const [pos, setPos] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(HELP_FAB_POS_KEY) || "null");
+      if (saved && Number.isFinite(saved.x) && Number.isFinite(saved.y)) return snapHelpFabPos(saved);
+    } catch { /* storage unavailable — fall back to the default corner */ }
+    return null;
+  });
+  const [dragging, setDragging] = useState(false);
+  const [snapping, setSnapping] = useState(false);
+  const [idle, setIdle]         = useState(false);
+  const [arming, setArming]     = useState(false); // mouse hover countdown running
+  const idleTimer  = useRef(null);
+  const snapTimer  = useRef(null);
+  const hovering   = useRef(false);
+
+  // ── Idle fade ───────────────────────────────────────────────────────────
+  // Any interaction with the button wakes it to full opacity and restarts
+  // the 10s countdown; the countdown is paused while hovered or dragged.
+  const scheduleIdle = () => {
+    clearTimeout(idleTimer.current);
+    idleTimer.current = setTimeout(() => {
+      if (!hovering.current && !dragActive.current) setIdle(true);
+    }, HELP_FAB_IDLE_MS);
+  };
+  const wake = () => { setIdle(false); scheduleIdle(); };
+  const posRef        = useRef(pos);
+  const pressTimer    = useRef(null);
+  const pressStart    = useRef(null);   // { x, y } where the press began
+  const grabOffset    = useRef({ x: 0, y: 0 });
+  const dragActive    = useRef(false);
+  const suppressClick = useRef(false);  // swallow the click that ends a drag
+
+  useEffect(() => { posRef.current = pos; }, [pos]);
+
+  useEffect(() => {
+    const onResize = () => setPos(p => (p ? snapHelpFabPos(p) : p));
+    window.addEventListener("resize", onResize);
+    scheduleIdle(); // start the first 10s countdown on mount
+    return () => {
+      window.removeEventListener("resize", onResize);
+      clearTimeout(pressTimer.current);
+      clearTimeout(idleTimer.current);
+      clearTimeout(snapTimer.current);
+      clearTimeout(hoverTimer.current);
+      followCleanup.current?.();
+    };
+  }, []);
+
+  // Glide to the nearer side (with a gap), then remember that spot.
+  const settle = () => {
+    if (!posRef.current) return;
+    const snapped = snapHelpFabPos(posRef.current);
+    setSnapping(true);
+    setPos(snapped);
+    clearTimeout(snapTimer.current);
+    snapTimer.current = setTimeout(() => setSnapping(false), 360);
+    try { localStorage.setItem(HELP_FAB_POS_KEY, JSON.stringify(snapped)); } catch { /* ignore */ }
+  };
+
+  // ── Mouse: hover 1s → follow the cursor, click anywhere to drop ──────────
+  const hoverTimer    = useRef(null);
+  const following     = useRef(false);
+  const followCleanup = useRef(null);
+  const lastMouse     = useRef({ x: 0, y: 0 });
+
+  const stopFollowing = () => {
+    if (!following.current) return;
+    following.current = false;
+    dragActive.current = false;
+    followCleanup.current?.();
+    followCleanup.current = null;
+    setDragging(false);
+    settle();
+    scheduleIdle();
+  };
+
+  const startFollowing = () => {
+    following.current = true;
+    dragActive.current = true;
+    setArming(false);
+    setDragging(true);
+    const half = HELP_FAB_SIZE / 2;
+    const place = (x, y) => setPos(clampHelpFabPos({ x: x - half, y: y - half }));
+    place(lastMouse.current.x, lastMouse.current.y);
+    const onMove = (ev) => place(ev.clientX, ev.clientY);
+    // The click that drops it must not ALSO press whatever is underneath
+    // (or open the tour) — swallow exactly that one click.
+    const swallowClick = (ev) => {
+      ev.preventDefault();
+      ev.stopImmediatePropagation();
+      window.removeEventListener("click", swallowClick, true);
+    };
+    const onDown = (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      window.addEventListener("click", swallowClick, true);
+      setTimeout(() => window.removeEventListener("click", swallowClick, true), 600);
+      stopFollowing();
+    };
+    const onKey = (ev) => { if (ev.key === "Escape") stopFollowing(); };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerdown", onDown, true);
+    window.addEventListener("keydown", onKey);
+    followCleanup.current = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerdown", onDown, true);
+      window.removeEventListener("keydown", onKey);
+    };
+  };
+
+  const onPointerEnter = (e) => {
+    hovering.current = true;
+    setIdle(false);
+    clearTimeout(idleTimer.current);
+    if (e.pointerType !== "mouse" || following.current) return;
+    lastMouse.current = { x: e.clientX, y: e.clientY };
+    setArming(true);
+    clearTimeout(hoverTimer.current);
+    hoverTimer.current = setTimeout(startFollowing, HELP_FAB_HOVER_FOLLOW);
+  };
+
+  const onPointerLeave = (e) => {
+    hovering.current = false;
+    if (e.pointerType === "mouse" && !following.current) {
+      clearTimeout(hoverTimer.current);
+      setArming(false);
+    }
+    scheduleIdle();
+  };
+
+  // ── Touch / pen: hold and move to drag straight away ─────────────────────
+  const endPress = (e) => {
+    if (e?.pointerType === "mouse") return;
+    pressStart.current = null;
+    try { e?.currentTarget?.releasePointerCapture?.(e.pointerId); } catch { /* not captured */ }
+    if (dragActive.current && !following.current) {
+      dragActive.current = false;
+      suppressClick.current = true; // the lift after a drag isn't a tap
+      setDragging(false);
+      settle();
+    }
+    hovering.current = false;
+    scheduleIdle();
+  };
+
+  const onPointerDown = (e) => {
+    wake();
+    if (e.pointerType === "mouse") {
+      // A real click before the 1s hover finished — it's a click, not a move.
+      clearTimeout(hoverTimer.current);
+      setArming(false);
+      return;
+    }
+    setSnapping(false);
+    suppressClick.current = false;
+    const rect = e.currentTarget.getBoundingClientRect();
+    pressStart.current = { x: e.clientX, y: e.clientY };
+    grabOffset.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+  };
+
+  const onPointerMove = (e) => {
+    if (e.pointerType === "mouse") { lastMouse.current = { x: e.clientX, y: e.clientY }; return; }
+    if (!pressStart.current) return;
+    if (!dragActive.current) {
+      const dx = e.clientX - pressStart.current.x, dy = e.clientY - pressStart.current.y;
+      if (Math.hypot(dx, dy) < HELP_FAB_DRAG_START) return; // still just a tap
+      dragActive.current = true;
+      setDragging(true);
+      navigator.vibrate?.(10);
+    }
+    e.preventDefault();
+    setPos(clampHelpFabPos({ x: e.clientX - grabOffset.current.x, y: e.clientY - grabOffset.current.y }));
+  };
+
+  // Close any open top-bar dropdown (Activity Log / Notifications / Theme)
+  // first, then start the tour on the next frame once React has removed it —
+  // otherwise the dropdown stays floating over the page under the tour.
+  // (In-screen filter / export panels already close themselves on any
+  // outside mousedown, which pressing this button is.)
+  const handleClick = () => {
+    wake();
+    if (suppressClick.current) { suppressClick.current = false; return; } // was a drag, not a tap
+    onBeforeTour?.();
+    requestAnimationFrame(() => runTour(HELP_STEPS_BY_STUDENT_NAV[activeNav]));
+  };
+
+  return (
+    <button
+      onClick={handleClick}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={endPress}
+      onPointerCancel={endPress}
+      onPointerEnter={onPointerEnter}
+      onPointerLeave={onPointerLeave}
+      onFocus={wake}
+      // Stops the long-press context menu / callout on touch screens.
+      onContextMenu={e => e.preventDefault()}
+      aria-label="Help"
+      title="Need Help? - hover it 1 second and drag it (just drag it on mobile devices)"
+      className={`help-fab${dragging ? " help-fab-dragging" : ""}${arming && !dragging ? " help-fab-arming" : ""}${snapping ? " help-fab-snapping" : ""}${idle && !dragging ? " help-fab-idle" : ""}`}
+      style={{
+        position: "fixed",
+        ...(pos
+          ? { left: `${pos.x}px`, top: `${pos.y}px`, right: "auto", bottom: "auto" }
+          : { bottom: "24px", right: "24px" }),
+        // touch-action: none so a long press + drag on touch screens moves
+        // the button instead of scrolling the page underneath it.
+        touchAction: "none",
+        userSelect: "none",
+        WebkitUserSelect: "none",
+        WebkitTouchCallout: "none",
+        width: "56px",
+        height: "56px",
+        borderRadius: "50%",
+        background: paper,
+        border: `1px solid ${hairline}`,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        cursor: "pointer",
+        // 500 used to sit under CoordinatorStudentsAcccountScreen's own
+        // modals (StudentForm view/edit = 1000, ImportModal = 1000, its
+        // Dialog = 2100, the "Account created" card = 2000) — so opening
+        // "View" on a student, or any other in-screen modal there, buried
+        // the FAB behind the dark overlay instead of floating on top of it.
+        // 3000 clears every in-screen modal on every coordinator screen
+        // while staying below the app-wide 9999 blocking gates (forced
+        // password change, logout confirm) — those SHOULD still cover it.
+        zIndex: 3000,
+      }}
+    >
+      <svg
+        className="help-fab-icon"
+        width="26" height="26" viewBox="0 0 24 24"
+        fill="none" stroke={ink} strokeWidth="2"
+        strokeLinecap="round" strokeLinejoin="round"
+        style={{ transition: `stroke 0.18s ${ease}` }}
+      >
+        <circle cx="12" cy="12" r="10" />
+        <path d="M9.1 9a2.9 2.9 0 0 1 5.66.9c0 1.9-2.66 2.4-2.66 4.1" />
+        {/* r was 0.1 — effectively sub-pixel at this icon size, so the dot of
+            the "?" all but disappeared (the "putol" look). 1.05 renders as a
+            proper solid dot while still sitting inside the circle comfortably. */}
+        <circle className="help-fab-icon-dot" cx="12" cy="17.15" r="1.05" fill={ink} stroke="none" />
+      </svg>
+    </button>
+  );
+};
+
 
 // ── Logout Confirmation Modal ──────────────────────────────────────────────
 const LogoutConfirmModal = ({ onConfirm, onCancel }) => (
@@ -737,7 +2096,7 @@ const DashboardContent = ({ onNavigate, onViewCompany, recentVisited = [], recen
       <div className="sdash-top-grid">
 
         {/* Recommended OJT Companies */}
-        <div className="sdash-card" style={{ background: paperCard, borderRadius: "14px", overflow: "hidden", display: "flex", flexDirection: "column" }}>
+          <div id="sdash-recommended" className="sdash-card" style={{ background: paperCard, borderRadius: "14px", overflow: "hidden", display: "flex", flexDirection: "column" }}>
           <div className="scard-header"><span>Recommended OJT Companies</span></div>
           <div style={{ padding: "10px 0 10px 12px", display: "flex", flexDirection: "column", gap: "6px", maxHeight: "280px", overflowY: "auto" }}>
             {recommendedCompanies.length > 0 ? (
@@ -767,7 +2126,7 @@ const DashboardContent = ({ onNavigate, onViewCompany, recentVisited = [], recen
         </div>
 
         {/* Recent Visited Company Profiles */}
-        <div className="sdash-card" style={{ background: paperCard, borderRadius: "14px", overflow: "hidden", display: "flex", flexDirection: "column" }}>
+          <div id="sdash-recent-visited" className="sdash-card" style={{ background: paperCard, borderRadius: "14px", overflow: "hidden", display: "flex", flexDirection: "column" }}>
           <div className="scard-header"><span>Recent Visited Company Post</span></div>
           <div style={{ padding: "10px 0 10px 12px", display: "flex", flexDirection: "column", gap: "6px", maxHeight: "280px", overflowY: "auto" }}>
             {recentVisited.length > 0 ? (
@@ -801,7 +2160,7 @@ const DashboardContent = ({ onNavigate, onViewCompany, recentVisited = [], recen
       </div>
 
       {/* Recent Application */}
-      <div className="sdash-card" style={{ background: paperCard, borderRadius: "14px", overflow: "hidden" }}>
+        <div id="sdash-recent-application" className="sdash-card" style={{ background: paperCard, borderRadius: "14px", overflow: "hidden" }}>
         <div className="scard-header"><span>Recent Application</span></div>
         <div style={{ padding: "10px 12px", display: "flex", flexDirection: "column", gap: "6px", maxHeight: "260px", overflowY: "auto" }}>
           {recentApplications.length > 0 ? (
@@ -850,15 +2209,11 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
     setShowLogoutConfirm(true);
   };
 
-  const handleLogoutConfirm = async () => {
+    const handleLogoutConfirm = () => {
     setShowLogoutConfirm(false);
-    try {
-      await logOut();
-    } catch (err) {
-      console.error("Logout failed:", err);
-    } finally {
-      onLogout?.();
-    }
+    setCachedStudentUid(null);
+    onLogout?.();
+    logOut().catch((err) => console.error("Logout failed:", err));
   };
   const routerNavigate = useNavigate();
   const location = useLocation();
@@ -877,12 +2232,29 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
   const [showNotifDropdown, setShowNotifDropdown]  = useState(false);
 
   // ── Nav bar accent color picker ─────────────────────────────────────────────
-  // "student" scope: its own storage key, independent of Coordinator's — see
-  // theme.js. Lazy-init from localStorage.
-  const [accentThemeId, setAccentThemeId]           = useState(() => getSavedAccentThemeId("student"));
-  const [showThemeDropdown, setShowThemeDropdown]   = useState(false);
+  // Per-ACCOUNT scope ngayon ("student-{uid}"), hindi na bare "student" —
+  // dati, lahat ng student accounts sa parehong device ay nagsha-share ng
+  // parehong kulay (theme "leaking" sa pagitan ng accounts). Cached uid din
+  // bilang best-guess habang hinihintay ang auth resolve pag-refresh, para
+  // walang flash ng ibang/maling kulay.
+  const resolveAccentScope = (uid) => (uid ? `student-${uid}` : null);
+  const initialAccentScope = resolveAccentScope(user?.uid || getCachedStudentUid());
+
+  const accentScope = resolveAccentScope(user?.uid);
+  const [accentThemeId, setAccentThemeId] = useState(() =>
+    initialAccentScope ? getSavedAccentThemeId(initialAccentScope) : "default"
+  );
+  const [showThemeDropdown, setShowThemeDropdown] = useState(false);
+
+  useEffect(() => {
+    if (!user?.uid) return;
+    setCachedStudentUid(user.uid);
+    setAccentThemeId(getSavedAccentThemeId(`student-${user.uid}`));
+  }, [user?.uid]);
+
   const handleSelectAccent = (id) => {
-    setAccentThemeId(saveAccentThemeId("student", id));
+    if (!accentScope) return;
+    setAccentThemeId(saveAccentThemeId(accentScope, id));
     setShowThemeDropdown(false);
   };
   // View-icon PNG matching the current accent color (falls back to the
@@ -965,6 +2337,8 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
   const [setupStage, setSetupStage]             = useState("checking");
   const [setupProfile, setSetupProfile]         = useState({});
   const [setupLogoutBusy, setSetupLogoutBusy]   = useState(false);
+  const [seenTours, setSeenTours]               = useState(null);
+  const [seenToursLoaded, setSeenToursLoaded]   = useState(false);
 
   // Step 1 — Set new password
   const [currentPass, setCurrentPass]           = useState("");
@@ -984,7 +2358,26 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
       const snap = await getDoc(doc(db, "students", uid));
       const data = snap.exists() ? snap.data() : {};
       setSetupProfile({ personalEmail: isValidEmail(data.personalEmail) ? normalizeEmail(data.personalEmail) : "" });
-      setSetupStage(computeSetupStage(data, getAuth().currentUser));
+      const stage = computeSetupStage(data, getAuth().currentUser);
+      setSetupStage(stage);
+
+      // Onboarding tours ay opt-in per account, permanenteng naka-mark sa
+      // Firestore (hindi sa in-memory ref lang), para hindi ito nawawala
+      // kahit anong session/refresh pa. Isang beses lang ito ma-i-initialize:
+      // sa unang beses na makita nating hindi pa "done" ang setup ng account
+      // (ibig sabihin, tunay na bagong account). Kung wala kailanman itong
+      // stage na hindi "done" (existing/returning account), hindi kailanman
+      // magkakaroon ng `seenTours` field — kaya manual "?" button lang, walang
+      // auto-tour.
+      if (stage !== "done" && !data.seenTours) {
+        setDoc(doc(db, "students", uid), { seenTours: {} }, { merge: true }).catch((err) =>
+          console.error("Failed to initialize onboarding tour tracking:", err)
+        );
+        setSeenTours({});
+      } else {
+        setSeenTours(data.seenTours || null);
+      }
+      setSeenToursLoaded(true);
     } catch (err) {
       console.error("Failed to load account setup status:", err);
       setSetupStage("error");
@@ -1004,23 +2397,39 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.uid]);
 
+  // Auto-starts the walkthrough the moment each mandatory first-login pop-up
+  // appears — fires once per mount (guarded by the ref, not by Firestore/
+  // localStorage) because each stage only ever shows once in an account's
+  // life: "password" clears the moment the temp password is replaced, and
+  // "personal" clears the moment PersonalInfoScreen saves.
+  const passwordTourFired = useRef(false);
+  useEffect(() => {
+    if (setupStage !== "password" || passwordTourFired.current) return;
+    passwordTourFired.current = true;
+    const t = setTimeout(() => runTour(STUDENT_CHANGE_PASSWORD_STEPS), AUTO_TOUR_DELAY_MS);
+    return () => clearTimeout(t);
+  }, [setupStage]);
+
+  const editInfoTourFired = useRef(false);
+  useEffect(() => {
+    if (setupStage !== "personal" || editInfoTourFired.current) return;
+    editInfoTourFired.current = true;
+    const t = setTimeout(() => runTour(STUDENT_EDIT_INFO_STEPS), AUTO_TOUR_DELAY_MS);
+    return () => clearTimeout(t);
+  }, [setupStage]);
+
   // Child screens get the freshly saved personal email even before the parent
   // reloads the profile (e.g. to pre-fill the application form).
   const effectiveUser = useMemo(() => (
     user && setupProfile.personalEmail ? { ...user, personalEmail: setupProfile.personalEmail } : user
   ), [user, setupProfile.personalEmail]);
 
-  const handleSetupLogout = async () => {
+  const handleSetupLogout = () => {
     if (setupLogoutBusy) return;
     setSetupLogoutBusy(true);
-    try {
-      await logOut();
-    } catch (err) {
-      console.error("Logout failed:", err);
-    } finally {
-      setSetupLogoutBusy(false);
-      onLogout?.();
-    }
+    setCachedStudentUid(null);
+    onLogout?.();
+    logOut().catch((err) => console.error("Logout failed:", err));
   };
 
   // Records that the temporary password is gone. passwordChangedAt lets
@@ -1149,6 +2558,36 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
       .catch((err) => console.error("Failed to save recent visited companies:", err));
   }, [recentVisited, user?.uid, recentVisitedLoaded]);
 
+  // Which part of the current screen is showing (list, a post, a modal…),
+  // reported by each screen's onViewChange. tourKey picks that part's own
+  // steps when it has some, otherwise the nav screen's.
+  // No reset-on-nav effect here on purpose: each screen resets this itself
+  // when it unmounts, and a parent effect would run AFTER the new screen's
+  // own report (child effects fire first) and wipe out e.g. a deep-linked post.
+  const [screenSubView, setScreenSubView] = useState("list");
+  const tourKey = STUDENT_SUBVIEW_TOUR_KEYS[activeNav]?.[screenSubView] || activeNav;
+
+  const AUTO_TOUR_NAV_KEYS = Object.keys(HELP_STEPS_BY_STUDENT_NAV);
+  const tourFiringRef = useRef({});
+  useEffect(() => {
+    if (setupStage !== "done" || !seenToursLoaded || !seenTours) return;
+    if (!AUTO_TOUR_NAV_KEYS.includes(tourKey)) return;
+    if (seenTours[tourKey] || tourFiringRef.current[tourKey]) return;
+    const steps = HELP_STEPS_BY_STUDENT_NAV[tourKey];
+    if (!steps || steps.length === 0) return;
+
+    tourFiringRef.current[tourKey] = true;
+    const t = setTimeout(() => {
+      runTour(steps);
+      if (user?.uid) {
+        setDoc(doc(db, "students", user.uid), { seenTours: { [tourKey]: true } }, { merge: true })
+          .catch((err) => console.error("Failed to save seen tour state:", err));
+      }
+      setSeenTours(prev => ({ ...(prev || {}), [tourKey]: true }));
+    }, AUTO_TOUR_DELAY_MS);
+    return () => clearTimeout(t);
+  }, [tourKey, setupStage, seenToursLoaded, seenTours, user?.uid]);
+
   const navigate = (key, id = null) => {
     setDrawerOpen(false);
     if (id && key === "application") setPendingApplicationId(id);
@@ -1183,6 +2622,7 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
     }
     if (activeNav === "findcompany") return (
       <StudentFindCompanyScreen
+        onViewChange={setScreenSubView}
         initialCompanyId={initialCompanyId}
         onClearInitialCompany={() => setInitialCompanyId(null)}
         user={effectiveUser}
@@ -1212,6 +2652,7 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
 
     if (activeNav === "application") return (
       <StudentApplicationScreen
+        onViewChange={setScreenSubView}
         initialCompany={applyCompany}
         onModalClose={() => setApplyCompany(null)}
         user={effectiveUser}
@@ -1223,6 +2664,7 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
 
     if (activeNav === "messages") return (
       <StudentMessagesScreen
+        onViewChange={setScreenSubView}
         user={effectiveUser}
         openContact={pendingContact} onContactOpened={() => setPendingContact(null)}
         onReportSubmit={handleReportSubmit}
@@ -1230,171 +2672,10 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
       />
     );
 
-    if (activeNav === "accountprofile") return <StudentAccountProfileScreen user={effectiveUser} onLogout={onLogout} viewIcon={themedViewIcon} />;
+    if (activeNav === "accountprofile") return <StudentAccountProfileScreen user={effectiveUser} onLogout={onLogout} viewIcon={themedViewIcon} onViewChange={setScreenSubView} />;
     if (activeNav === "about")          return <AboutUsScreen onBack={() => navigate("dashboard")} />;
   };
 
-  // ── Setup gate: nothing of the dashboard renders until setup is "done" ──────
-  if (setupStage !== "done" && setupStage !== "checking") {
-    return (
-      <>
-        <FontImport />
-        <div style={{
-          position: "fixed", inset: 0, background: paperTint,
-          display: "flex", alignItems: "center", justifyContent: "center", padding: "16px",
-        }}>
-        </div>
-
-        {setupStage === "error" && (
-          <SetupModal title="Couldn't Load Your Account" titleId="setup-error-title">
-            <SetupIntro>
-              We couldn't check your account setup. Check your internet connection, then try again.
-            </SetupIntro>
-            <SetupActions
-              label="Try Again"
-              loadingLabel="Checking…"
-              loading={false}
-              onClick={() => user?.uid && loadSetupStatus(user.uid)}
-              onLogout={handleSetupLogout}
-              logoutBusy={setupLogoutBusy}
-            />
-          </SetupModal>
-        )}
-
-        {/* ── Step 1: Set New Password ── */}
-        {setupStage === "password" && (
-          <SetupModal title="Set New Password" titleId="setup-password-title">
-            <SetupIntro>
-              Welcome! Before you continue, replace the current password you were given with a new one that only you know.
-            </SetupIntro>
-
-            <SetupPasswordInput
-              placeholder="Current Password:"
-              autoComplete="current-password"
-              value={currentPass}
-              onChange={v => { setCurrentPass(v); setPassError(""); }}
-              visible={showCurrent}
-              onToggle={() => setShowCurrent(p => !p)}
-              hasError={!!passError && !passFlagPending}
-              disabled={passLoading || passFlagPending}
-              onEnter={handleChangePassword}
-            />
-            <SetupPasswordInput
-              placeholder="Enter New Password:"
-              autoComplete="new-password"
-              value={newPass}
-              onChange={v => { setNewPass(v); setPassError(""); }}
-              visible={showNew}
-              onToggle={() => setShowNew(p => !p)}
-              hasError={!!passError && !passFlagPending}
-              disabled={passLoading || passFlagPending}
-              onEnter={handleChangePassword}
-            />
-
-            {!passFlagPending && <PasswordChecklist password={newPass} />}
-
-            <SetupPasswordInput
-              placeholder="Confirm New Password:"
-              autoComplete="new-password"
-              value={confirmPass}
-              onChange={v => { setConfirmPass(v); setPassError(""); }}
-              visible={showConfirm}
-              onToggle={() => setShowConfirm(p => !p)}
-              hasError={!!passError && !passFlagPending}
-              disabled={passLoading || passFlagPending}
-              onEnter={handleChangePassword}
-              marginBottom="4px"
-            />
-
-            <SetupError msg={passError} />
-
-            <SetupActions
-              label={passFlagPending ? "Retry" : "Save Password"}
-              loadingLabel="Saving…"
-              loading={passLoading}
-              onClick={handleChangePassword}
-              onLogout={handleSetupLogout}
-              logoutBusy={setupLogoutBusy}
-            />
-          </SetupModal>
-        )}
-
-        {/* ── Password updated → must log in again ── */}
-        {setupStage === "relogin" && (
-          <div style={{
-            position: "fixed", inset: 0, zIndex: 9999,
-            background: "rgba(0,0,0,0.45)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            padding: "16px",
-          }}>
-            <div role="dialog" aria-modal="true" aria-labelledby="setup-relogin-title" style={{
-              background: paper, borderRadius: "20px",
-              padding: "36px clamp(20px, 6vw, 32px)", width: "clamp(280px, 85vw, 380px)",
-              display: "flex", flexDirection: "column", alignItems: "center",
-              gap: "12px", boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
-            }}>
-              <div style={{
-                width: "64px", height: "64px", borderRadius: "50%",
-                background: "#e8f5e9", display: "flex",
-                alignItems: "center", justifyContent: "center", marginBottom: "4px",
-              }}>
-                <svg width="32" height="32" viewBox="0 0 24 24" fill="none"
-                  stroke="#2d7a2d" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <polyline points="20 6 9 17 4 12"/>
-                </svg>
-              </div>
-              <p id="setup-relogin-title" style={{
-                fontFamily: uiFont, fontWeight: 700,
-                fontSize: "1.15rem", color: inkText, margin: 0, textAlign: "center",
-              }}>Password Updated</p>
-              <p style={{
-                fontFamily: uiFont, fontSize: "0.9rem",
-                color: inkMuted, margin: 0, textAlign: "center", lineHeight: 1.5,
-              }}>
-                Password updated successfully.<br />
-                Please log in again using your Student ID and new password.
-              </p>
-              <button onClick={handleSetupLogout} disabled={setupLogoutBusy} className="pill-btn" style={{
-                width: "100%", padding: "12px", borderRadius: "30px",
-                border: "none", background: ink,
-                fontFamily: uiFont, fontWeight: 700,
-                fontSize: "0.95rem", cursor: setupLogoutBusy ? "not-allowed" : "pointer", color: paper,
-                boxShadow: "0 3px 10px rgba(0,0,0,0.5)", marginTop: "8px",
-                opacity: setupLogoutBusy ? 0.7 : 1,
-              }}>{setupLogoutBusy ? "Logging out…" : "Log In Again"}</button>
-            </div>
-          </div>
-        )}
-
-        {/* ── Step 2: Personal Information (full edit form, like the coordinator's first login) ── */}
-        {setupStage === "personal" && (
-          <div style={{
-            position: "fixed", inset: 0, zIndex: 9999,
-            background: "rgba(0,0,0,0.65)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            padding: "clamp(0px, 3vw, 24px)",
-          }}>
-            <div role="dialog" aria-modal="true" aria-label="Edit personal information" style={{
-              width: "100%", maxWidth: "760px",
-              height: "100%", maxHeight: "900px",
-              display: "flex", flexDirection: "column",
-              borderRadius: "clamp(0px, 3vw, 20px)", overflow: "hidden",
-              boxShadow: "0 8px 32px rgba(0,0,0,0.3)",
-            }}>
-              <ProfileResponsiveStyles />
-              <PersonalInfoScreen
-                user={effectiveUser}
-                setupMode
-                onSetupComplete={handlePersonalInfoComplete}
-                onLogout={handleSetupLogout}
-                logoutBusy={setupLogoutBusy}
-              />
-            </div>
-          </div>
-        )}
-      </>
-    );
-  }
 
   const currentLabel = navItems.find(n => n.key === activeNav)?.label ?? "";
 
@@ -1433,7 +2714,7 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: "4px", flexShrink: 0 }}>
             <div style={{ position: "relative" }}>
-              <div className="topbar-icon-btn" style={{ cursor: "pointer", padding: "8px", position: "relative" }} onClick={handleToggleNotifDropdown}>
+                <div id="stopbar-notifications" className="topbar-icon-btn" style={{ cursor: "pointer", padding: "8px", position: "relative" }} onClick={handleToggleNotifDropdown}>
                 <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
                   <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
@@ -1512,7 +2793,7 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
               )}
             </div>
 
-            <div className="topbar-icon-btn" style={{ cursor: "pointer", padding: "8px" }} onClick={() => navigate("about")} title="About">
+              <div id="stopbar-about" className="topbar-icon-btn" style={{ cursor: "pointer", padding: "8px" }} onClick={() => navigate("about")} title="About">
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="12" cy="12" r="9"/>
                 <path d="M12 8h.01"/>
@@ -1522,7 +2803,7 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
 
             {/* Theme color picker */}
             <div style={{ position: "relative" }}>
-              <div className="topbar-icon-btn" style={{ cursor: "pointer", padding: "8px" }} onClick={() => setShowThemeDropdown(p => !p)} title="Dashboard theme color">
+                <div id="stopbar-theme-picker" className="topbar-icon-btn" style={{ cursor: "pointer", padding: "8px" }} onClick={() => setShowThemeDropdown(p => !p)} title="Dashboard theme color">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M12 2a10 10 0 1 0 0 20c1.1 0 1.8-.85 1.8-1.85 0-.5-.2-.95-.5-1.28-.32-.33-.5-.75-.5-1.27a1.9 1.9 0 0 1 1.9-1.9h2.24C19.6 15.7 22 13.35 22 10.4 22 5.76 17.5 2 12 2z"/>
                   <circle cx="7.5" cy="10.5" r="1" fill="white" stroke="none"/>
@@ -1610,10 +2891,181 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
             </>
           )}
 
-          {/* Main content */}
+          {/* Main content — laging tumatawag ng renderContent() kahit naka-
+              gate pa, kagaya ng Coordinator, para makita ang totoong
+              dashboard (banner, cards) sa likod ng setup modal, hindi lang
+              yung chrome. Ligtas ito dahil naka-overlay pa rin ang modal sa
+              ibabaw (dark backdrop), kaya hindi naman ma-i-interact ang
+              laman sa likod hangga't hindi "done" ang setup. */}
           <div className="smain-content">{(user || activeNav === "dashboard") ? renderContent() : null}</div>
         </div>
 
+      {/* ── First-login setup gate: naka-overlay sa ibabaw ng buong shell,
+          kagaya ng ginagawa ng Coordinator — hindi na ito hiwalay na
+          "return", kaya laging makikita ang tunay na dashboard (topbar
+          gradient, sidebar, theme) sa likod ng modal, hindi na plain
+          background lang. ── */}
+      {setupStage !== "done" && setupStage !== "checking" && (
+        <>
+        {setupStage === "error" && (
+          <SetupModal title="Couldn't Load Your Account" titleId="setup-error-title">
+            <SetupIntro>
+              We couldn't check your account setup. Check your internet connection, then try again.
+            </SetupIntro>
+            <SetupActions
+              label="Try Again"
+              loadingLabel="Checking…"
+              loading={false}
+              onClick={() => user?.uid && loadSetupStatus(user.uid)}
+              onLogout={handleSetupLogout}
+              logoutBusy={setupLogoutBusy}
+            />
+          </SetupModal>
+        )}
+
+        {/* ── Step 1: Set New Password ── */}
+        {setupStage === "password" && (
+          <SetupModal title="Set New Password" titleId="setup-password-title">
+            <SetupIntro>
+              Welcome! Before you continue, replace the current password you were given with a new one that only you know.
+            </SetupIntro>
+
+            <SetupPasswordInput
+              id="sp-current-password"
+              placeholder="Current Password:"
+              autoComplete="current-password"
+              value={currentPass}
+              onChange={v => { setCurrentPass(v); setPassError(""); }}
+              visible={showCurrent}
+              onToggle={() => setShowCurrent(p => !p)}
+              hasError={!!passError && !passFlagPending}
+              disabled={passLoading || passFlagPending}
+              onEnter={handleChangePassword}
+            />
+            <SetupPasswordInput
+              id="sp-new-password"
+              placeholder="Enter New Password:"
+              autoComplete="new-password"
+              value={newPass}
+              onChange={v => { setNewPass(v); setPassError(""); }}
+              visible={showNew}
+              onToggle={() => setShowNew(p => !p)}
+              hasError={!!passError && !passFlagPending}
+              disabled={passLoading || passFlagPending}
+              onEnter={handleChangePassword}
+            />
+
+            <div id="sp-checklist">
+              {!passFlagPending && <PasswordChecklist password={newPass} />}
+            </div>
+
+            <SetupPasswordInput
+              id="sp-confirm-password"
+              placeholder="Confirm New Password:"
+              autoComplete="new-password"
+              value={confirmPass}
+              onChange={v => { setConfirmPass(v); setPassError(""); }}
+              visible={showConfirm}
+              onToggle={() => setShowConfirm(p => !p)}
+              hasError={!!passError && !passFlagPending}
+              disabled={passLoading || passFlagPending}
+              onEnter={handleChangePassword}
+              marginBottom="4px"
+            />
+
+            <SetupError msg={passError} />
+
+            <SetupActions
+              buttonId="sp-save-btn"
+              label={passFlagPending ? "Retry" : "Save Password"}
+              loadingLabel="Saving…"
+              loading={passLoading}
+              onClick={handleChangePassword}
+              onLogout={handleSetupLogout}
+              logoutBusy={setupLogoutBusy}
+            />
+          </SetupModal>
+        )}
+
+        {/* ── Password updated → must log in again ── */}
+        {setupStage === "relogin" && (
+          <div style={{
+            position: "fixed", inset: 0, zIndex: 9999,
+            background: "rgba(0,0,0,0.45)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            padding: "16px",
+          }}>
+            <div role="dialog" aria-modal="true" aria-labelledby="setup-relogin-title" style={{
+              background: paper, borderRadius: "20px",
+              padding: "36px clamp(20px, 6vw, 32px)", width: "clamp(280px, 85vw, 380px)",
+              display: "flex", flexDirection: "column", alignItems: "center",
+              gap: "12px", boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
+            }}>
+              <div style={{
+                width: "64px", height: "64px", borderRadius: "50%",
+                background: "#e8f5e9", display: "flex",
+                alignItems: "center", justifyContent: "center", marginBottom: "4px",
+              }}>
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none"
+                  stroke="#2d7a2d" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <polyline points="20 6 9 17 4 12"/>
+                </svg>
+              </div>
+              <p id="setup-relogin-title" style={{
+                fontFamily: uiFont, fontWeight: 700,
+                fontSize: "1.15rem", color: inkText, margin: 0, textAlign: "center",
+              }}>Password Updated</p>
+              <p style={{
+                fontFamily: uiFont, fontSize: "0.9rem",
+                color: inkMuted, margin: 0, textAlign: "center", lineHeight: 1.5,
+              }}>
+                Password updated successfully.<br />
+                Please log in again using your Student ID and new password.
+              </p>
+              <button onClick={handleSetupLogout} disabled={setupLogoutBusy} className="pill-btn" style={{
+                width: "100%", padding: "12px", borderRadius: "30px",
+                border: "none", background: ink,
+                fontFamily: uiFont, fontWeight: 700,
+                fontSize: "0.95rem", cursor: setupLogoutBusy ? "not-allowed" : "pointer", color: paper,
+                boxShadow: "0 3px 10px rgba(0,0,0,0.5)", marginTop: "8px",
+                opacity: setupLogoutBusy ? 0.7 : 1,
+              }}>{setupLogoutBusy ? "Logging out…" : "Log In Again"}</button>
+            </div>
+          </div>
+        )}
+
+        {/* ── Step 2: Personal Information (full edit form, like the coordinator's first login) ── */}
+        {setupStage === "personal" && (
+          <div style={{
+            position: "fixed", inset: 0, zIndex: 9999,
+            background: "rgba(0,0,0,0.65)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            padding: "clamp(0px, 3vw, 24px)",
+          }}>
+            <div id="seditinfo-card" role="dialog" aria-modal="true" aria-label="Edit personal information" style={{
+              width: "100%", maxWidth: "760px",
+              height: "100%", maxHeight: "900px",
+              display: "flex", flexDirection: "column",
+              borderRadius: "clamp(0px, 3vw, 20px)", overflow: "hidden",
+              boxShadow: "0 8px 32px rgba(0,0,0,0.3)",
+            }}>
+              <ProfileResponsiveStyles />
+              <PersonalInfoScreen
+                user={effectiveUser}
+                setupMode
+                onSetupComplete={handlePersonalInfoComplete}
+                onLogout={handleSetupLogout}
+                logoutBusy={setupLogoutBusy}
+              />
+            </div>
+          </div>
+        )}
+        </>
+      )}
+      <FloatingHelpButton
+        activeNav={tourKey}
+        onBeforeTour={() => { setShowNotifDropdown(false); setShowThemeDropdown(false); }}
+      />
     </div>
   );
 };

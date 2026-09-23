@@ -330,7 +330,7 @@ const ReportModal = ({ company, onClose, onSubmit }) => {
         </div>
         <div style={{ flex: 1, overflowY: "auto", padding: isMobile ? "14px 18px" : "18px 22px" }}>
           {step === 1 && (
-            <>
+            <div id="creport-concerns">
               <p style={{ fontFamily: font.ui, ...type.label, color: ink, marginBottom: "14px" }}>What's the issue?</p>
               {reportCategories.map((cat) => (
                 <div key={cat.label} onClick={() => setSelected(cat)} style={{ display: "flex", alignItems: "center", gap: space.sm, padding: "11px 4px", cursor: "pointer", borderBottom: `1px solid ${lineSoft}` }}>
@@ -340,10 +340,10 @@ const ReportModal = ({ company, onClose, onSubmit }) => {
                   <span style={{ fontFamily: font.ui, ...type.body, color: inkBody }}>{cat.label}</span>
                 </div>
               ))}
-            </>
+            </div>
           )}
           {step === 2 && cat && (
-            <>
+            <div id="creport-details">
               <p style={{ fontFamily: font.ui, fontSize: "1rem", fontWeight: 600, color: ink, marginBottom: "4px" }}>{cat.label}</p>
               <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, marginBottom: "12px" }}>More about this reason</p>
               <div style={{ borderTop: `1px solid ${lineSoft}`, marginBottom: "14px" }} />
@@ -356,13 +356,16 @@ const ReportModal = ({ company, onClose, onSubmit }) => {
                   </ul>
                 </>
               )}
-            </>
+            </div>
           )}
           {step === 3 && (
             <>
+              <div id="creport-describe">
               <p style={{ fontFamily: font.ui, ...type.label, color: ink, marginBottom: "10px" }}>Describe what happened</p>
               <textarea value={description} onChange={e => setDescription(e.target.value)} placeholder="Describe the issue…"
                 style={{ width: "100%", minHeight: "100px", border: `1px solid ${line}`, borderRadius: radius.card, outline: "none", fontFamily: font.ui, ...type.body, resize: "none", background: lineSoft, color: ink, marginBottom: "20px", boxSizing: "border-box", padding: "12px 14px" }} />
+              </div>
+              <div id="creport-evidence">
               <p style={{ fontFamily: font.ui, ...type.label, color: ink, marginBottom: "10px" }}>Attach file</p>
               <input ref={fileRef} type="file" accept=".png,.pdf" style={{ display: "none" }} onChange={handleFile} />
               {!attachedFile ? (
@@ -376,15 +379,18 @@ const ReportModal = ({ company, onClose, onSubmit }) => {
                   <button onClick={() => setAttachedFile(null)} aria-label="Remove file" style={{ marginLeft: "auto", background: "none", border: "none", cursor: "pointer", color: inkMuted, fontSize: "0.9rem" }}>✕</button>
                 </div>
               )}
+              </div>
             </>
           )}
         </div>
         <div style={{ background: panel, padding: isMobile ? "12px 18px" : "14px 22px", display: "flex", justifyContent: "flex-end", flexShrink: 0 }}>
+          <div id="creport-actions" style={{ display: "flex" }}>
           {step < 3 ? (
             <button onClick={() => { if (step === 1 && !selected) { setInfoMsg("Please select a concern."); return; } setStep(step + 1); }} style={{ padding: "9px 22px", borderRadius: radius.pill, background: "rgba(250,250,250,0.15)", color: onPanel, border: "none", fontFamily: font.ui, ...type.control, cursor: "pointer" }}>Next {step}/3</button>
           ) : (
             <button onClick={handleSubmit} style={{ padding: "9px 22px", borderRadius: radius.pill, background: "rgba(250,250,250,0.15)", color: onPanel, border: "none", fontFamily: font.ui, ...type.control, cursor: "pointer" }}>Submit report</button>
           )}
+          </div>
         </div>
       </div>
       {infoMsg && <InfoModal message={infoMsg} onClose={() => setInfoMsg(null)} />}
@@ -393,7 +399,7 @@ const ReportModal = ({ company, onClose, onSubmit }) => {
 };
 
 // ── ChatView ──────────────────────────────────────────────────────────────────
-const ChatView = ({ contact, messages, onSend, onBack, onReport, onDeleteConversation }) => {
+const ChatView = ({ contact, messages, onSend, onBack, onReport, onDeleteConversation, onReportOpenChange }) => {
   const [input, setInput]             = useState("");
   const [attachments, setAttachments] = useState([]);
   const [showInfo, setShowInfo]       = useState(false);
@@ -401,6 +407,8 @@ const ChatView = ({ contact, messages, onSend, onBack, onReport, onDeleteConvers
   const [editText, setEditText]       = useState("");
   const [popupMsgId, setPopupMsgId]   = useState(null);
   const [showReport, setShowReport]   = useState(false);
+  // Report modal open/closed → up to the screen → Dashboard's "?" tour.
+  useEffect(() => { onReportOpenChange?.(showReport); }, [showReport]);
   // Students can be reported; coordinators never can.
   const canReport = canCompanyReport(contact);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -565,13 +573,13 @@ const ChatView = ({ contact, messages, onSend, onBack, onReport, onDeleteConvers
 
       {/* Header */}
       <div style={{ background: panel, padding: headerPadding, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: space.sm, minWidth: 0 }}>
+        <div id="cmsgchat-header" style={{ display: "flex", alignItems: "center", gap: space.sm, minWidth: 0 }}>
           <button onClick={onBack} aria-label="Back to chats" style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", color: onPanelDim, padding: "4px" }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
           </button>
           <span style={{ fontFamily: font.ui, fontSize: isMobile ? "1rem" : "1.0625rem", fontWeight: 600, letterSpacing: "-0.01em", color: onPanel, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{contact.name}</span>
         </div>
-        <div ref={infoRef} style={{ position: "relative" }}>
+        <div id="cmsgchat-options" ref={infoRef} style={{ position: "relative" }}>
           <button
             onClick={() => setShowInfo(v => !v)}
             aria-label="Conversation options"
@@ -669,7 +677,7 @@ const ChatView = ({ contact, messages, onSend, onBack, onReport, onDeleteConvers
                 style={{ display: "flex", alignItems: "flex-end", gap: isMobile ? "6px" : "10px", justifyContent: isMe ? "flex-end" : "flex-start", marginBottom: "4px", maxWidth: "100%", minWidth: 0 }}
               >
                 {!isMe && <CompanyAvatar size={avatarSize} />}
-                <div style={{ maxWidth: bubbleMaxWidth, minWidth: 0, flex: "0 1 auto", display: "flex", flexDirection: "column", alignItems: isMe ? "flex-end" : "flex-start", gap: "3px", position: "relative" }}>
+                <div className="msg-bubble-wrap" style={{ maxWidth: bubbleMaxWidth, minWidth: 0, flex: "0 1 auto", display: "flex", flexDirection: "column", alignItems: isMe ? "flex-end" : "flex-start", gap: "3px", position: "relative" }}>
                   {msg.unsent ? (
                     <div style={{ background: "transparent", border: `1px dashed ${color.wine400}`, borderRadius: isMe ? bubbleMine : bubbleTheirs, padding: "9px 16px", fontFamily: font.ui, ...type.helper, color: inkFaint, userSelect: "none" }}>Message unsent</div>
                   ) : (
@@ -794,7 +802,7 @@ const ChatView = ({ contact, messages, onSend, onBack, onReport, onDeleteConvers
           {/* Composer */}
           <div style={{ padding: inputPadding, borderTop: `1px solid ${line}`, display: "flex", alignItems: "center", gap: space.sm, background: surface, flexShrink: 0 }}>
             <input ref={fileRef} type="file" accept=".png,.pdf" multiple style={{ display: "none" }} onChange={handleFile} />
-            <button onClick={() => fileRef.current.click()} aria-label="Attach a file" style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", flexShrink: 0, padding: "6px", color: inkMuted }}>
+            <button id="cmsgchat-attach" onClick={() => fileRef.current.click()} aria-label="Attach a file" style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", flexShrink: 0, padding: "6px", color: inkMuted }}>
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
             </button>
             <input
@@ -802,10 +810,12 @@ const ChatView = ({ contact, messages, onSend, onBack, onReport, onDeleteConvers
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
+              id="cmsgchat-input"
               placeholder="Write a message"
               style={{ flex: 1, background: color.wine800, border: `1px solid ${line}`, borderRadius: radius.pill, padding: isMobile ? "9px 16px" : "10px 18px", fontFamily: font.ui, ...type.body, outline: "none", color: ink, minWidth: 0, boxSizing: "border-box" }}
             />
             <button
+              id="cmsgchat-send"
               onClick={handleSend}
               disabled={sending}
               aria-label="Send message"
@@ -888,7 +898,7 @@ const ChatListView = ({ contacts, messages, onOpen, myUid }) => {
                   : `${activeContacts.length} ${activeContacts.length === 1 ? "conversation" : "conversations"}`}
             </p>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: space.sm, background: color.white, borderRadius: radius.pill, padding: "9px 16px", flexShrink: 0 }}>
+          <div id="cmsg-search-bar" style={{ display: "flex", alignItems: "center", gap: space.sm, background: color.white, borderRadius: radius.pill, padding: "9px 16px", flexShrink: 0 }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={inkMuted} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
             <input
               value={search}
@@ -902,6 +912,7 @@ const ChatListView = ({ contacts, messages, onOpen, myUid }) => {
         </div>
 
         {/* Conversations */}
+        <div id="cmsg-conversations">
         {activeContacts.length === 0 ? (
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "72px 24px", gap: space.sm, textAlign: "center", background: surface, border: `1px dashed ${color.wine400}`, borderRadius: radius.panel }}>
             <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke={inkFaint} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
@@ -973,6 +984,7 @@ const ChatListView = ({ contacts, messages, onOpen, myUid }) => {
             })}
           </div>
         )}
+        </div>
       </div>
     </>
   );
@@ -984,6 +996,7 @@ const CompanyMessagesScreen = ({
   onReportSubmit,
   openContact,        // { id: uid, name, role } — navigate directly to this chat
   onContactOpened,
+  onViewChange,       // ("list" | "chat" | "report") — lets the dashboard's "?" tour follow the view
 }) => {
   const myName = user?.companyName || user?.name || "Company";
 
@@ -995,6 +1008,11 @@ const CompanyMessagesScreen = ({
   } = useChat(user?.uid, myName, "company");
 
   const [activeContact, setActiveContact] = useState(null);
+  const [chatReportOpen, setChatReportOpen] = useState(false);
+  const subView = activeContact ? (chatReportOpen ? "report" : "chat") : "list";
+  useEffect(() => { onViewChange?.(subView); }, [subView]);
+  useEffect(() => () => onViewChange?.("list"), []);
+  useEffect(() => { if (!activeContact) setChatReportOpen(false); }, [activeContact]);
   const [showReportSuccess, setShowReportSuccess] = useState(false);
   const [reportError, setReportError] = useState("");
 
@@ -1097,6 +1115,7 @@ const CompanyMessagesScreen = ({
           onBack={() => setActiveContact(null)}
           onReport={handleReport}
           onDeleteConversation={() => handleDeleteConversation(activeContact.convId)}
+          onReportOpenChange={setChatReportOpen}
         />
         {showReportSuccess && (
           <ReportSuccessModal onClose={() => setShowReportSuccess(false)} />

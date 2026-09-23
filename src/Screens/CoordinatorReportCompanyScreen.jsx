@@ -260,7 +260,7 @@ const ResponsiveStyles = () => (
     }
 
     .rc-table tbody tr:hover .rc-td {
-      background: ${lineSoft} !important;
+      background: ${color.hoverWash} !important;
     }
 
     .rc-card-list {
@@ -574,7 +574,7 @@ const ActionHistoryModal = ({ open, onClose, loading, history, error }) => {
   );
 };
 
-export const ReportDetailModal = ({ report, onClose, coordinatorUid, coordinatorName }) => {
+export const ReportDetailModal = ({ report, onClose, coordinatorUid, coordinatorName, onResolvePanelChange }) => {
   const [lightbox, setLightbox]           = useState(false);
   const [status, setStatus]               = useState(report?.status || "pending");
   const [working, setWorking]             = useState(false);
@@ -593,6 +593,11 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid, coordinator
   const [history, setHistory]                 = useState([]);
   const [historyLoading, setHistoryLoading]   = useState(false);
   const [historyError, setHistoryError]       = useState("");
+  // Lets the dashboard's "?" help button and auto-tour switch to
+  // HELP_STEPS_BY_NAV.reportresolve while the Resolve Report modal is open
+  // (and back to .reportdetail when it closes / this modal unmounts).
+  useEffect(() => { onResolvePanelChange?.(resolvingPanel); }, [resolvingPanel]);
+  useEffect(() => () => onResolvePanelChange?.(false), []);
 
   // Live company account status — lets the coordinator see whether this
   // company is currently Active/Approved, Suspended, or Blocked, without
@@ -838,6 +843,7 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid, coordinator
           </div>
 
           <div className="rc-modal-body">
+            <div id="rc-detail-info" style={{ width: "fit-content", maxWidth: "100%" }}>
             <p style={{ fontFamily: font.ui, fontSize: "0.9rem", marginBottom: "8px" }}>
               <b>Reported Company:</b> {report.company}
             </p>
@@ -847,7 +853,8 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid, coordinator
             <p style={{ fontFamily: font.ui, fontSize: "0.9rem", marginBottom: "8px" }}>
               <b>Date:</b> {report.date}
             </p>
-            <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "16px", flexWrap: "wrap" }}>
+            </div>
+            <div id="rc-detail-status" style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "16px", flexWrap: "wrap", width: "fit-content", maxWidth: "100%" }}>
               <p style={{ fontFamily: font.ui, fontSize: "0.9rem", margin: 0 }}>
                 <b>Company Account Status:</b>{" "}
                 {companyStatus
@@ -864,6 +871,7 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid, coordinator
                 }}
               >View Action History</button>
             </div>
+            <div id="rc-detail-description">
             <p style={{ fontFamily: font.ui, fontSize: "0.9rem", fontWeight: 700, marginBottom: "6px" }}>
               DESCRIPTION:
             </p>
@@ -872,9 +880,10 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid, coordinator
                 {report.description}
               </p>
             </div>
+            </div>
 
             {file && (
-              <>
+              <div id="rc-detail-attachment">
                 <p style={{ fontFamily: font.ui, fontSize: "0.9rem", fontWeight: 700, marginBottom: "10px" }}>
                   Attached File:
                 </p>
@@ -938,10 +947,10 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid, coordinator
                     </button>
                   </div>
                 )}
-              </>
+              </div>
             )}
             {status !== "pending" && savedAction && (
-              <div style={{ background: lineSoft, borderRadius: "10px", padding: "12px 14px", marginBottom: "16px", display: "flex", gap: "10px", alignItems: "flex-start" }}>
+              <div id="rc-detail-resolution" style={{ background: lineSoft, borderRadius: "10px", padding: "12px 14px", marginBottom: "16px", display: "flex", gap: "10px", alignItems: "flex-start" }}>
                 <span style={{ fontSize: "1rem" }}>{RESOLUTION_ACTION_META[savedAction]?.icon || "📝"}</span>
                 <div>
                   <p style={{ fontFamily: font.ui, fontSize: "0.85rem", color: color.success }}>{savedAction}</p>
@@ -963,7 +972,7 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid, coordinator
               : { display: "flex", justifyContent: "flex-end", padding: "16px 28px", borderTop: `1px solid ${line}`, background: panel }
           }>
             {status === "pending" ? (
-              <>
+              <div id="rc-detail-actions" style={{ display: "flex", gap: "10px" }}>
                 <button
                   onClick={() => setConfirmingDismiss(true)}
                   disabled={working}
@@ -973,7 +982,7 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid, coordinator
                     fontSize: "0.82rem", fontWeight: 600, cursor: working ? "not-allowed" : "pointer", opacity: working ? 0.7 : 1,
                     transition: `background 160ms ${ease}, color 160ms ${ease}`,
                   }}
-                  onMouseEnter={e => { if (!working) { e.currentTarget.style.background = "#8C8C8C"; e.currentTarget.style.color = "#ffffff"; } }}
+                  onMouseEnter={e => { if (!working) { e.currentTarget.style.background = panel; e.currentTarget.style.color = onPanel; } }}
                   onMouseLeave={e => { e.currentTarget.style.background = color.white; e.currentTarget.style.color = "#111111"; }}
                 >DISMISS</button>
                 <button
@@ -985,12 +994,12 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid, coordinator
                     fontSize: "0.82rem", fontWeight: 600, cursor: working ? "not-allowed" : "pointer", opacity: working ? 0.7 : 1,
                     transition: `background 160ms ${ease}, color 160ms ${ease}`,
                   }}
-                  onMouseEnter={e => { if (!working) { e.currentTarget.style.background = color.success; e.currentTarget.style.color = "#ffffff"; } }}
+                  onMouseEnter={e => { if (!working) { e.currentTarget.style.background = panel; e.currentTarget.style.color = onPanel; } }}
                   onMouseLeave={e => { e.currentTarget.style.background = color.white; e.currentTarget.style.color = "#111111"; }}
                 >RESOLVE</button>
-              </>
+              </div>
             ) : (
-              <p style={{ margin: 0, fontFamily: font.ui, fontSize: "0.8rem", color: onPanelDim, display: "flex", alignItems: "center", gap: "6px" }}>
+              <p id="rc-detail-locked" style={{ margin: 0, fontFamily: font.ui, fontSize: "0.8rem", color: onPanelDim, display: "flex", alignItems: "center", gap: "6px" }}>
                 This report has been {status} and can no longer be changed.
               </p>
             )}
@@ -1081,7 +1090,7 @@ const ConfirmModal = ({ title, message, confirmLabel = "CONFIRM", working, onCan
             fontSize: "0.82rem", fontWeight: 600, cursor: working ? "not-allowed" : "pointer", opacity: working ? 0.7 : 1,
             transition: `background 160ms ${ease}, color 160ms ${ease}`,
           }}
-          onMouseEnter={e => { if (!working) { e.currentTarget.style.background = "#8C8C8C"; e.currentTarget.style.color = "#ffffff"; } }}
+          onMouseEnter={e => { if (!working) { e.currentTarget.style.background = panel; e.currentTarget.style.color = onPanel; } }}
           onMouseLeave={e => { e.currentTarget.style.background = color.white; e.currentTarget.style.color = "#111111"; }}
         >CANCEL</button>
         <button
@@ -1093,7 +1102,7 @@ const ConfirmModal = ({ title, message, confirmLabel = "CONFIRM", working, onCan
             fontSize: "0.82rem", fontWeight: 600, cursor: working ? "not-allowed" : "pointer", opacity: working ? 0.7 : 1,
             transition: `background 160ms ${ease}, color 160ms ${ease}`,
           }}
-          onMouseEnter={e => { if (!working) { e.currentTarget.style.background = panel; e.currentTarget.style.color = "#ffffff"; } }}
+          onMouseEnter={e => { if (!working) { e.currentTarget.style.background = panel; e.currentTarget.style.color = onPanel; } }}
           onMouseLeave={e => { e.currentTarget.style.background = color.white; e.currentTarget.style.color = "#111111"; }}
         >{working ? "..." : confirmLabel}</button>
       </div>
@@ -1125,12 +1134,13 @@ const ResolveActionModal = ({
         >✕</button>
       </div>
 
-      <div style={{ padding: "20px 22px", overflowY: "auto", flex: 1 }}>
+      <div className="rc-resolve-body" style={{ padding: "20px 22px", overflowY: "auto", flex: 1 }}>
         <div style={{ background: lineSoft, border: `1.5px solid ${red}`, borderRadius: "12px", padding: "16px" }}>
+          <div id="rc-resolve-actions" style={{ marginBottom: "16px" }}>
           <p style={{ fontFamily: font.ui, fontSize: "1.1rem", color: darkRed, marginBottom: "10px" }}>
             What action was taken?
           </p>
-          <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "16px" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
             {availableActions.map(action => {
               const meta = RESOLUTION_ACTION_META[action];
               const isSelected = selectedAction === action;
@@ -1161,6 +1171,7 @@ const ResolveActionModal = ({
                 </div>
               );
             })}
+          </div>
           </div>
 
           {selectedAction === "Others" && (
@@ -1207,6 +1218,7 @@ const ResolveActionModal = ({
             </div>
           )}
 
+          <div id="rc-resolve-notes">
           <p style={{ fontFamily: font.ui, fontSize: "0.9rem", color: ink, marginBottom: "6px" }}>
             How was this resolved?
           </p>
@@ -1219,12 +1231,19 @@ const ResolveActionModal = ({
               border: `1.5px solid ${line}`, padding: "10px 12px",
               fontFamily: font.ui, fontSize: "0.82rem", color: ink,
               resize: "vertical", outline: "none", background: color.white,
+              // border-box: without it, width 100% + padding + border made the
+              // textarea ~27px wider than its box, so the help tour's highlight
+              // (sized to #rc-resolve-notes) cut it off on the right. display:
+              // block removes the inline-element gap under it.
+              boxSizing: "border-box", display: "block",
             }}
           />
+          </div>
         </div>
       </div>
 
       <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", padding: "14px 20px", borderTop: `1px solid ${line}` }}>
+        <div id="rc-resolve-footer" style={{ display: "flex", gap: "10px" }}>
         <button
           onClick={onCancel}
           disabled={working}
@@ -1234,7 +1253,7 @@ const ResolveActionModal = ({
             fontSize: "0.82rem", fontWeight: 600, cursor: working ? "not-allowed" : "pointer", opacity: working ? 0.7 : 1,
             transition: `background 160ms ${ease}, color 160ms ${ease}`,
           }}
-          onMouseEnter={e => { if (!working) { e.currentTarget.style.background = "#8C8C8C"; e.currentTarget.style.color = "#ffffff"; } }}
+          onMouseEnter={e => { if (!working) { e.currentTarget.style.background = panel; e.currentTarget.style.color = onPanel; } }}
           onMouseLeave={e => { e.currentTarget.style.background = color.white; e.currentTarget.style.color = "#111111"; }}
         >CANCEL</button>
         <button
@@ -1246,9 +1265,10 @@ const ResolveActionModal = ({
             fontSize: "0.82rem", fontWeight: 600, cursor: (working || !canConfirm) ? "not-allowed" : "pointer", opacity: (working || !canConfirm) ? 0.5 : 1,
             transition: `background 160ms ${ease}, color 160ms ${ease}`,
           }}
-          onMouseEnter={e => { if (!working && canConfirm) { e.currentTarget.style.background = color.success; e.currentTarget.style.color = "#ffffff"; } }}
+          onMouseEnter={e => { if (!working && canConfirm) { e.currentTarget.style.background = panel; e.currentTarget.style.color = onPanel; } }}
           onMouseLeave={e => { e.currentTarget.style.background = color.white; e.currentTarget.style.color = "#111111"; }}
         >CONFIRM RESOLUTION</button>
+        </div>
       </div>
     </div>
   </div>

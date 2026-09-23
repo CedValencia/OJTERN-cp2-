@@ -358,7 +358,7 @@ const AboutUsScreen = ({ onBack }) => (
     </div>
 
     <div className="au-body">
-      <div className="au-story">
+      <div id="cabout-story" className="au-story">
         <div className="au-story-main">
           <p className="au-headline">Your OJT Journey, Simplified.</p>
 
@@ -412,13 +412,13 @@ const AboutUsScreen = ({ onBack }) => (
           </div>
         </div>
 
-        <div className="au-story-seal">
+        <div id="cabout-team" className="au-story-seal">
           <TeamSpotlight />
         </div>
       </div>
 
       <p className="au-features-title">OJTERN Offers</p>
-      <div className="au-features-grid">
+      <div id="cabout-features" className="au-features-grid">
         <div className="au-feature-card">
           <div className="au-feature-icon">
             <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="2">
@@ -547,7 +547,7 @@ const AboutUsScreen = ({ onBack }) => (
         </div>
       </div>
 
-      <div className="au-contact">
+      <div id="cabout-contact" className="au-contact">
         <p>
           <strong>Need a hand?</strong>
           Have questions, feedback, or need help with your account? We'd love

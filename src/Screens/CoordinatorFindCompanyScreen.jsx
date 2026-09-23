@@ -313,6 +313,12 @@ const ResponsiveStyles = () => (
     /* Search bar shrinks on mobile */
     .coord-search-input { width: 170px; }
     .coord-search-input::placeholder { color: ${inkFaint}; }
+    .coord-search-input:focus,
+    .coord-search-input:focus-visible {
+      outline: none;
+      box-shadow: none;
+      -webkit-box-shadow: none;
+    }
     @media (max-width: 480px) {
       .coord-search-input { width: 90px; }
     }
@@ -652,6 +658,11 @@ const CompanyProfile = ({ company, onBack, onMessageNow }) => {
         {/* Top row: description + map */}
         <div className="coord-profile-top">
           <div style={{ flex: 1, minWidth: 0 }}>
+          {/* Inner wrapper carries the tour id with width: fit-content, so the
+              "Company Name & Description" highlight hugs Back + name +
+              description and grows/shrinks with their length — the outer
+              div keeps flex: 1 so the map's position is unchanged. */}
+          <div id="cprofile-details" style={{ width: "fit-content", maxWidth: "100%" }}>
             <button
               onClick={onBack}
               style={{ display: "inline-flex", alignItems: "center", gap: "6px", background: "none", border: "none", cursor: "pointer", fontFamily: font.ui, ...type.helper, color: inkMuted, padding: 0, marginBottom: "10px" }}
@@ -662,7 +673,8 @@ const CompanyProfile = ({ company, onBack, onMessageNow }) => {
             <h1 style={{ fontFamily: font.ui, fontSize: "clamp(1.5rem, 4vw, 2rem)", fontWeight: 600, lineHeight: 1.15, letterSpacing: "-0.02em", color: ink, marginBottom: "10px" }}>{company.companyName || company.name}</h1>
             <p style={bodyStyle}>{company.description}</p>
           </div>
-          <div className="coord-map-box" style={{ borderRadius: radius.card, overflow: "hidden" }}>
+          </div>
+          <div className="coord-map-box" id="cprofile-map" style={{ borderRadius: radius.card, overflow: "hidden" }}>
             <MapboxStaticView
               lat={company.postLocation?.lat || company.location?.lat}
               lng={company.postLocation?.lng || company.location?.lng}
@@ -673,6 +685,16 @@ const CompanyProfile = ({ company, onBack, onMessageNow }) => {
 
         <hr style={{ border: "none", borderTop: `1px solid ${line}`, margin: `0 0 ${space.lg}` }} />
 
+        {/* Requirements → Skills required as one block for the guided tour's
+            3rd step. Capped to its own scroll box (instead of flowing with
+            the page) so its highlighted size always stays bounded — without
+            this, driver.js's spotlight follows the element's FULL height
+            (even the part scrolled out of view), which on a block this long
+            stretches past the bottom of the screen and swallows whatever
+            sits there on-screen — in this case, the floating "Message Now!"
+            bar — making it look highlighted a step early even though it
+            isn't the target yet. */}
+        <div id="cprofile-details-full" style={{ maxHeight: "min(56vh, 480px)", overflowY: "auto", paddingRight: "4px", WebkitOverflowScrolling: "touch" }}>
         <SectionTitle>Requirements:</SectionTitle>
         <p style={{ ...bodyStyle, whiteSpace: "pre-line", marginBottom: space.lg }}>{Array.isArray(company.requirements) ? company.requirements.join("\n") : (company.requirements || "Not listed")}</p>
 
@@ -732,11 +754,13 @@ const CompanyProfile = ({ company, onBack, onMessageNow }) => {
 
         <SectionTitle>Skills required:</SectionTitle>
         <p style={{ ...bodyStyle, whiteSpace: "pre-line" }}>{Array.isArray(company.skillsRequired) ? company.skillsRequired.join("\n") : (company.skillsRequired || company.skills?.join(", ") || "Not listed")}</p>
+        </div>
       </div>
 
       {/* Bottom action bar */}
       <div className="coord-profile-bar" style={{ position: "absolute", bottom: 0, left: 0, right: 0, background: surface, borderTop: `1px solid ${line}`, display: "flex", alignItems: "center", justifyContent: "flex-start" }}>
         <button
+          id="cprofile-message-btn"
           onClick={onMessageNow}
           style={{ background: panel, color: onPanel, border: "none", borderRadius: radius.pill, padding: "12px 28px", fontFamily: font.ui, ...type.control, cursor: "pointer", boxShadow: shadow.pill, transition: `background 240ms ${ease}` }}
           onMouseEnter={e => (e.currentTarget.style.background = panelDeep)}
@@ -822,7 +846,7 @@ const FilterPanel = ({ selectedIndustries, setSelectedIndustries, citySearch, se
                 key={ind}
                 onClick={() => toggleIndustry(ind)}
                 title="Remove"
-                style={{ display: "inline-flex", alignItems: "center", gap: "6px", padding: "4px 11px", borderRadius: radius.pill, ...type.helper, fontFamily: font.ui, cursor: "pointer", userSelect: "none", background: ink, color: color.white, border: `1px solid ${ink}`, transition: `all 160ms ${ease}` }}
+                style={{ display: "inline-flex", alignItems: "center", gap: "6px", padding: "4px 11px", borderRadius: radius.pill, ...type.helper, fontFamily: font.ui, cursor: "pointer", userSelect: "none", background: panel, color: onPanel, border: `1px solid ${panel}`, transition: `all 160ms ${ease}` }}
               >
                 {ind}<span style={{ opacity: 0.7 }}>✕</span>
               </span>
@@ -913,7 +937,7 @@ const CompanyCard = ({ company, onViewProfile }) => {
 };
 
 // ── Main Screen ────────────────────────────────────────────────────────────────
-const CoordinatorFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onMessageNow, initialCompanyId, onClearInitialCompany, onBackToOrigin, onVisitCompany, coordinator }) => {
+const CoordinatorFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onMessageNow, initialCompanyId, onClearInitialCompany, onBackToOrigin, onVisitCompany, coordinator, onViewChange }) => {
   const { isMobile } = useBreakpoint();
   const { posts: companies, loading } = useOjtPosts();
 
@@ -932,6 +956,16 @@ const CoordinatorFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onM
   const [selectedIndustries, setSelectedIndustries] = useState([]);
   const [citySearch,          setCitySearch]          = useState("");
   const filterRef = useRef(null);
+
+  // Lets the Dashboard know whether we're on the list or a single post, so
+  // its "?" help button (and first-visit auto-tour) can switch to the
+  // profile's own steps instead of the list's. Fires for both entry paths —
+  // clicking a card here, or landing on "profile" via the initialCompanyId
+  // deep-link effect below — since both just update `view`.
+  useEffect(() => { onViewChange?.(view); }, [view]);
+  // Tell the parent we're back to "list" if this screen unmounts while a
+  // post was open (e.g. the coordinator switches nav tabs mid-view).
+  useEffect(() => () => onViewChange?.("list"), []);
 
   useEffect(() => {
     const handler = (e) => { if (filterRef.current && !filterRef.current.contains(e.target)) setShowFilter(false); };
@@ -1091,7 +1125,7 @@ const CoordinatorFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onM
                 onChange={e => setSearch(e.target.value)}
                 placeholder="Search"
                 className="coord-search-input"
-                style={{ border: "none", background: "transparent", outline: "none", color: ink, fontFamily: font.ui, ...type.control }}
+                style={{ border: "none", background: "transparent", outline: "none", boxShadow: "none", WebkitAppearance: "none", appearance: "none", color: ink, fontFamily: font.ui, ...type.control }}
               />
               {search && <button onClick={() => setSearch("")} aria-label="Clear search" style={{ background: "none", border: "none", color: inkMuted, cursor: "pointer", fontSize: "0.9rem", padding: 0, lineHeight: 1 }}>✕</button>}
             </div>

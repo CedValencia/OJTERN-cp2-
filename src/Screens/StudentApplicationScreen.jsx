@@ -3053,7 +3053,7 @@ const FormFields = ({ f, locked = false }) => {
   return (
   <>
     {/* Name */}
-    <div className="sa-name-grid">
+    <div id="sform-name" className="sa-name-grid">
       <div>
         <FieldLabel>First Name:</FieldLabel>
         <StyledInput value={f.firstName.value} onChange={(v) => f.firstName.onChange(v.replace(/[^A-Za-zÑñ\s\-]/g, ""))} placeholder="First Name" disabled={locked} hasError={!locked && f.firstName.hasError} />
@@ -3077,20 +3077,20 @@ const FormFields = ({ f, locked = false }) => {
     </div>
 
     {/* Sex */}
-    <div className="sa-sex-wrap">
+    <div id="sform-sex" className="sa-sex-wrap">
       <FieldLabel>Sex:</FieldLabel>
       <StyledSelect value={f.sex.value} onChange={(v) => f.sex.onChange(v)} options={["Male","Female"]} placeholder="Select Sex" disabled={locked} hasError={!locked && f.sex.hasError} />
       <FieldError msg={!locked ? f.sex.error : ""} />
     </div>
 
     {/* Location */}
-    <div style={{ marginBottom: "4px" }}>
+    <div id="sform-location" style={{ marginBottom: "4px" }}>
       <FieldLabel>Location:</FieldLabel>
       <LocationPicker region={f.region} province={f.province} city={f.city} barangay={f.barangay} street={f.street} onChange={f.handleLocationChange} disabled={locked} regionError={!locked ? f.regionError : ""} />
     </div>
 
     {/* College / Program / Major */}
-    <div className="sa-college-grid">
+    <div id="sform-college" className="sa-college-grid">
       <div>
         <FieldLabel>College:</FieldLabel>
         <StyledSelect value={f.college} onChange={f.handleCollegeChange} options={COLLEGES.map(c => c.name)} placeholder="Select College" disabled={locked} hasError={!locked && !!f.collegeError} />
@@ -3109,7 +3109,7 @@ const FormFields = ({ f, locked = false }) => {
     </div>
 
     {/* Contact & Email */}
-    <div className="sa-contact-grid">
+    <div id="sform-contact" className="sa-contact-grid">
       <div>
         <FieldLabel>Contact Number:</FieldLabel>
         <StyledInput value={f.contact.value} onChange={f.handleContactChange} placeholder="+63 999-999-9999" disabled={locked} hasError={!locked && f.contact.hasError} />
@@ -3123,7 +3123,7 @@ const FormFields = ({ f, locked = false }) => {
     </div>
 
     {/* Message */}
-    <div style={{ marginBottom: "4px" }}>
+    <div id="sform-message" style={{ marginBottom: "4px" }}>
       <FieldLabel>Application Message:</FieldLabel>
       <textarea
         className="app-textarea"
@@ -3137,7 +3137,7 @@ const FormFields = ({ f, locked = false }) => {
     </div>
 
     {/* Files */}
-    <div style={{ marginBottom: "8px" }}>
+    <div id="sform-files" style={{ marginBottom: "8px" }}>
       <FieldLabel>Attach File:</FieldLabel>
       <MultiFileUpload
         attachedFiles={f.attachedFiles}
@@ -3367,7 +3367,7 @@ export const ApplyModal = ({ company, onClose, onSuccessClose, onSubmit, user })
       <div className="sa-modal-inner">
         {/* Header */}
         <div className="sa-modal-header">
-          <div style={{ minWidth: 0, flex: 1 }}>
+          <div id="sapply-header" style={{ minWidth: 0, flex: 1 }}>
             <h2 className="sa-modal-title" style={{ fontSize: "clamp(1.3rem, 4vw, 1.6rem)" }}>Apply Now</h2>
             <p className="sa-modal-subtitle">Applying to: <strong style={{ color: ink }}>{company?.name}</strong></p>
           </div>
@@ -3415,10 +3415,13 @@ export const ApplyModal = ({ company, onClose, onSuccessClose, onSubmit, user })
           {submitError && (
             <p style={{ width: "100%", textAlign: "right", fontFamily: font.ui, ...type.helper, color: color.danger, margin: "0 0 4px" }}>{submitError}</p>
           )}
+          {/* Inner wrapper = help-tour target (just the buttons). */}
+          <div id="sapply-footer" style={{ display: "flex", gap: space.sm, flexWrap: "wrap", justifyContent: "flex-end" }}>
           <button onClick={onClose} className="sa-btn sa-btn-ghost">{alreadyApplied || unavailable ? "Close" : "Cancel"}</button>
           {!alreadyApplied && !unavailable && (
             <button onClick={handleSubmit} disabled={submitting || checkingApplied} className="sa-btn sa-btn-primary">{submitting ? "Submitting…" : "Submit"}</button>
           )}
+          </div>
         </div>
       </div>
 
@@ -3447,7 +3450,7 @@ export const ApplyModal = ({ company, onClose, onSuccessClose, onSubmit, user })
 };
 
 // ─── VIEW APPLICATION MODAL ───────────────────────────────────────────────────
-const ViewApplicationModal = ({ application, onClose, onSave }) => {
+const ViewApplicationModal = ({ application, onClose, onSave, onEditingChange }) => {
   const [isEditing, setIsEditing] = useState(false);
   const f = useApplicationForm(application.data);
 
@@ -3508,18 +3511,23 @@ const ViewApplicationModal = ({ application, onClose, onSave }) => {
     if (!canEdit && isEditing) setIsEditing(false);
   }, [canEdit, isEditing]);
 
+  // Viewing vs. editing → up to the screen → Dashboard's "?" tour, so each
+  // gets its own steps. Reset to false when the modal closes.
+  useEffect(() => { onEditingChange?.(isEditing); }, [isEditing]);
+  useEffect(() => () => onEditingChange?.(false), []);
+
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: "16px" }}>
       <ResponsiveStyles />
       <div className="sa-view-modal-inner">
         {/* Header */}
         <div className="sa-view-modal-header">
-          <div style={{ minWidth: 0, flex: 1 }}>
+          <div id="sview-header" style={{ minWidth: 0, flex: 1 }}>
             <h2 className="sa-modal-title" style={{ fontSize: "clamp(1.05rem, 4vw, 1.3rem)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fullName}</h2>
             <p className="sa-modal-subtitle" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>Applied to: <strong style={{ color: "#111111" }}>{application.company}</strong></p>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: "10px", flexShrink: 0 }}>
-            <span className="sa-status-badge" style={{ background: statusColor }}>{application.status}</span>
+            <span id="sview-status" className="sa-status-badge" style={{ background: statusColor }}>{application.status}</span>
             <button onClick={onClose} className="sa-view-modal-close" aria-label="Close">✕</button>
           </div>
         </div>
@@ -3550,6 +3558,7 @@ const ViewApplicationModal = ({ application, onClose, onSave }) => {
 
               return (
                 <div
+                  id="sview-tracker"
                   style={{
                     margin: "18px 0 12px",
                     padding: "16px 20px",
@@ -3734,6 +3743,7 @@ const ViewApplicationModal = ({ application, onClose, onSave }) => {
           {isEditing && saveError && (
             <p style={{ width: "100%", textAlign: "right", fontFamily: font.ui, ...type.helper, color: color.danger, margin: "0 0 4px" }}>{saveError}</p>
           )}
+          <div id="sview-footer" style={{ display: "flex", gap: space.sm, flexWrap: "wrap", justifyContent: "flex-end", alignItems: "center" }}>
           {isEditing ? (
             <>
               <button onClick={() => setIsEditing(false)} disabled={saving} className="sa-btn sa-btn-ghost">Cancel</button>
@@ -3745,6 +3755,7 @@ const ViewApplicationModal = ({ application, onClose, onSave }) => {
             <p style={{ margin: 0, fontFamily: font.ui, ...type.helper, color: isFinalized ? onPanelDim : inkMuted, display: "flex", alignItems: "center", gap: "6px" }}>
             {`Your application is now ${application.status}, you cannot edit your application`}            </p>
           )}
+          </div>
         </div>
       </div>
 
@@ -3909,7 +3920,7 @@ const ApplicationRow = ({ application, onView, onDelete, companyProfileIcon: the
 };
 
 // ─── MAIN APPLICATION SCREEN ──────────────────────────────────────────────────
-const StudentApplicationScreen = ({ initialCompany, onModalClose, user, openApplicationId, onApplicationOpened, companyProfileIcon: themedCompanyIcon = blackCompanyProfileIcon }) => {
+const StudentApplicationScreen = ({ initialCompany, onModalClose, user, openApplicationId, onApplicationOpened, companyProfileIcon: themedCompanyIcon = blackCompanyProfileIcon, onViewChange }) => {
   const [search, setSearch]                     = useState("");
   const [showApply, setShowApply]               = useState(!!initialCompany);
   const [applyCompany, setApplyCompany]         = useState(initialCompany || null);
@@ -3917,6 +3928,12 @@ const StudentApplicationScreen = ({ initialCompany, onModalClose, user, openAppl
   const [viewKey, setViewKey]                   = useState(0);
   const [applications, setApplications]         = useState([]);
   const [statusFilter, setStatusFilter]         = useState("All");
+  const [viewEditing, setViewEditing]           = useState(false);
+  // Which part of Applications is showing → Dashboard's "?" help button and
+  // first-visit auto-tour: "list" | "apply" | "view" | "edit".
+  const subView = showApply ? "apply" : viewingApplication ? (viewEditing ? "edit" : "view") : "list";
+  useEffect(() => { onViewChange?.(subView); }, [subView]);
+  useEffect(() => () => onViewChange?.("list"), []);
 
   useEffect(() => {
     if (!user?.uid) {
@@ -4010,7 +4027,7 @@ const StudentApplicationScreen = ({ initialCompany, onModalClose, user, openAppl
             </p>
           </div>
 
-          <div style={{ display: "flex", alignItems: "center", gap: space.sm, background: color.white, borderRadius: radius.pill, padding: "9px 16px", flexShrink: 0 }}>
+          <div id="sapp-search-bar" style={{ display: "flex", alignItems: "center", gap: space.sm, background: color.white, borderRadius: radius.pill, padding: "9px 16px", flexShrink: 0 }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={inkMuted} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
               <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
             </svg>
@@ -4028,7 +4045,7 @@ const StudentApplicationScreen = ({ initialCompany, onModalClose, user, openAppl
         </div>
 
         {/* Status chips — same shape as CoordinatorStudentListScreen's status row */}
-        <div style={{ display: "flex", gap: space.sm, alignItems: "center", flexWrap: "wrap", marginBottom: space.md }}>
+        <div id="sapp-status-chips" style={{ display: "flex", gap: space.sm, alignItems: "center", flexWrap: "wrap", marginBottom: space.md }}>
           {["All", "Accepted", "Declined", "Pending", "In Review", "To Interview"].map((statusOption) => {
             const isActive = statusOption === "All" ? statusFilter === "All" : statusFilter === statusOption;
             const statusColor = statusOption === "All" ? ink : (STATUS_COLORS[statusOption]?.bg || color.wine400);
@@ -4063,7 +4080,7 @@ const StudentApplicationScreen = ({ initialCompany, onModalClose, user, openAppl
 
         {/* Application rows */}
         {filteredApplications.length > 0 ? (
-          <div className="sa-list-area">
+          <div id="sapp-list" className="sa-list-area">
             {filteredApplications.map(application => (
               <ApplicationRow key={application.id} application={application} onView={handleView} onDelete={handleDelete} companyProfileIcon={themedCompanyIcon} />
             ))}
@@ -4089,8 +4106,9 @@ const StudentApplicationScreen = ({ initialCompany, onModalClose, user, openAppl
         <ViewApplicationModal
           key={viewKey}
           application={viewingApplication}
-          onClose={() => setViewingApplication(null)}
+          onClose={() => { setViewingApplication(null); setViewEditing(false); }}
           onSave={handleSave}
+          onEditingChange={setViewEditing}
         />
       )}
       {showApply && (

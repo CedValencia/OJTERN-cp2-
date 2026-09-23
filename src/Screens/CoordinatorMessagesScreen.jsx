@@ -47,6 +47,12 @@ const MessagesStyles = () => (
     /* Chat list search shrinks on narrow screens */
     .msg-search-input { width: 170px; }
     .msg-search-input::placeholder { color: ${inkFaint}; }
+    .msg-search-input:focus,
+    .msg-search-input:focus-visible {
+      outline: none;
+      box-shadow: none;
+      -webkit-box-shadow: none;
+    }
     @media (max-width: 480px) {
       .msg-search-input { width: 110px; }
     }
@@ -415,13 +421,13 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, use
 
       {/* Header */}
       <div style={{ background: panel, padding: headerPadding, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: space.sm, minWidth: 0 }}>
+        <div id="msgchat-header" style={{ display: "flex", alignItems: "center", gap: space.sm, minWidth: 0 }}>
           <button onClick={onBack} aria-label="Back to chats" style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", color: onPanelDim, padding: "4px" }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
           </button>
           <span style={{ fontFamily: font.ui, fontSize: isMobile ? "1rem" : "1.0625rem", fontWeight: 600, letterSpacing: "-0.01em", color: onPanel, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{contact.name}</span>
         </div>
-        <div ref={infoRef} style={{ position: "relative" }}>
+        <div id="msgchat-options" ref={infoRef} style={{ position: "relative" }}>
           <button
             onClick={() => setShowInfo(v => !v)}
             aria-label="Conversation options"
@@ -516,7 +522,7 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, use
                 style={{ display: "flex", alignItems: "flex-end", gap: isMobile ? "6px" : "10px", justifyContent: isMe ? "flex-end" : "flex-start", marginBottom: "4px", maxWidth: "100%", minWidth: 0 }}
               >
                 {!isMe && <CompanyAvatar size={avatarSize} userIcon={themedUserIcon} />}
-                <div style={{ maxWidth: bubbleMaxWidth, minWidth: 0, flex: "0 1 auto", display: "flex", flexDirection: "column", alignItems: isMe ? "flex-end" : "flex-start", gap: "3px", position: "relative" }}>
+                <div className="msg-bubble-wrap" style={{ maxWidth: bubbleMaxWidth, minWidth: 0, flex: "0 1 auto", display: "flex", flexDirection: "column", alignItems: isMe ? "flex-end" : "flex-start", gap: "3px", position: "relative" }}>
                   {msg.unsent ? (
                     <div style={{ background: "transparent", border: `1px dashed ${color.wine400}`, borderRadius: isMe ? bubbleMine : bubbleTheirs, padding: "9px 16px", fontFamily: font.ui, ...type.helper, color: inkFaint, userSelect: "none" }}>Message unsent</div>
                   ) : (
@@ -641,10 +647,11 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, use
           {/* Composer */}
           <div style={{ padding: inputPadding, borderTop: `1px solid ${line}`, display: "flex", alignItems: "center", gap: space.sm, background: surface, flexShrink: 0 }}>
             <input ref={fileRef} type="file" accept=".png,.pdf" multiple style={{ display: "none" }} onChange={handleFile} />
-            <button onClick={() => fileRef.current.click()} aria-label="Attach a file" style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", flexShrink: 0, padding: "6px", color: inkMuted }}>
+            <button id="msgchat-attach" onClick={() => fileRef.current.click()} aria-label="Attach a file" style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", flexShrink: 0, padding: "6px", color: inkMuted }}>
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
             </button>
             <input
+              id="msgchat-input"
               className="msg-composer-input"
               value={input}
               onChange={e => setInput(e.target.value)}
@@ -653,6 +660,7 @@ const ChatView = ({ contact, messages, onSend, onBack, onDeleteConversation, use
               style={{ flex: 1, background: color.wine800, border: `1px solid ${line}`, borderRadius: radius.pill, padding: isMobile ? "9px 16px" : "10px 18px", fontFamily: font.ui, ...type.body, outline: "none", color: ink, minWidth: 0, boxSizing: "border-box" }}
             />
             <button
+              id="msgchat-send"
               onClick={handleSend}
               disabled={sending}
               aria-label="Send message"
@@ -741,7 +749,7 @@ const ChatListView = ({ contacts, messages, onOpen, myUid, userIcon: themedUserI
               onChange={e => setSearch(e.target.value)}
               placeholder="Search"
               className="msg-search-input"
-              style={{ border: "none", background: "transparent", outline: "none", color: ink, fontFamily: font.ui, ...type.control }}
+              style={{ border: "none", background: "transparent", outline: "none", boxShadow: "none", WebkitAppearance: "none", appearance: "none", color: ink, fontFamily: font.ui, ...type.control }}
             />
             {search && <button onClick={() => setSearch("")} aria-label="Clear search" style={{ background: "none", border: "none", color: inkMuted, cursor: "pointer", fontSize: "0.9rem", padding: 0, lineHeight: 1 }}>✕</button>}
           </div>
@@ -832,6 +840,7 @@ const CoordinatorMessagesScreen = ({
   openContact,        // { id: uid, name, role }
   onContactOpened,
   userIcon: themedUserIcon = blackUserIcon,   // accent-themed user icon (default: blackuser.png)
+  onViewChange,       // ("list" | "chat") — lets the dashboard's "?" tour follow the open view
 }) => {
   const {
     contacts, messages, loading,
@@ -841,6 +850,12 @@ const CoordinatorMessagesScreen = ({
   } = useChat(user?.uid, user?.name || "Coordinator", "coordinator");
 
   const [activeContact, setActiveContact] = useState(null);
+  // Tell the Dashboard whether the chat list or a single conversation is
+  // showing, so its "?" help button (and first-visit auto-tour) runs
+  // HELP_STEPS_BY_NAV.messageschat inside a conversation. Reset to "list"
+  // if this screen unmounts mid-chat. Same pattern as Find Company.
+  useEffect(() => { onViewChange?.(activeContact ? "chat" : "list"); }, [!!activeContact]);
+  useEffect(() => () => onViewChange?.("list"), []);
 
   useEffect(() => {
     if (!activeContact?.convId) return;

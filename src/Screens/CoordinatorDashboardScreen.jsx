@@ -224,8 +224,17 @@ const FontImport = () => (
     }
     .help-fab {
       animation: help-btn-pulse 2.6s ease-out infinite;
-      transition: transform 0.18s ${ease}, background 0.18s ${ease};
+      transition: transform 0.18s ${ease}, background 0.18s ${ease}, opacity 0.45s ${ease};
     }
+    /* After a drag is released it glides to the nearest side instead of
+       jumping there. Only on while snapping, so dragging itself stays 1:1. */
+    .help-fab.help-fab-snapping {
+      transition: left 0.32s cubic-bezier(0.22, 1, 0.36, 1), top 0.32s cubic-bezier(0.22, 1, 0.36, 1),
+                  transform 0.18s ${ease}, background 0.18s ${ease}, opacity 0.45s ${ease};
+    }
+    /* Idle (untouched for 10s): faded, and the pulse ring stops so it
+       doesn't keep pulling attention. Back to full on hover/press/focus. */
+    .help-fab.help-fab-idle { opacity: 0.4; animation: none; }
     .help-fab:hover {
       transform: translateY(-3px) scale(1.06);
       background: ${ink} !important;
@@ -234,6 +243,33 @@ const FontImport = () => (
     .help-fab:hover .help-fab-icon { stroke: ${paper} !important; }
     .help-fab:hover .help-fab-icon-dot { fill: ${paper} !important; }
     .help-fab:active { transform: translateY(-1px) scale(0.98); }
+    /* Hide the "?" button while a tour is running (driver.js adds
+       .driver-active to <body>) — otherwise it floats on top of whatever is
+       highlighted in the bottom-right corner, e.g. Company List's Accept button. */
+    body.driver-active .help-fab { visibility: hidden; animation: none; }
+    /* Being dragged (after a long press): lift it, drop the pulse/hover
+       effects, and show a grabbing cursor so it's obvious it's moving. */
+    .help-fab.help-fab-dragging,
+    .help-fab.help-fab-dragging:hover {
+      animation: none !important;
+      transform: scale(1.1) !important;
+      box-shadow: 0 10px 28px rgba(0,0,0,0.28) !important;
+      cursor: grabbing !important;
+      background: ${paper} !important;
+    }
+    .help-fab.help-fab-dragging .help-fab-icon { stroke: ${ink} !important; }
+    .help-fab.help-fab-dragging .help-fab-icon-dot { fill: ${ink} !important; }
+    /* Mouse hovering, counting down to "follow the cursor": a ring fades in
+       around the button over that 1 second so it's clear it's about to move. */
+    .help-fab.help-fab-arming::after {
+      content: ""; position: absolute; inset: -6px; border-radius: 50%;
+      border: 2px solid ${ink}; opacity: 0; pointer-events: none;
+      animation: help-fab-arm 1s linear forwards;
+    }
+    @keyframes help-fab-arm {
+      0%   { opacity: 0;    transform: scale(0.8); }
+      100% { opacity: 0.55; transform: scale(1); }
+    }
 
     /* Pill-shaped, sits off the edges with real depth on hover/press so it
        reads as a button rather than a static row. Icons stay full opacity
@@ -299,6 +335,11 @@ const FontImport = () => (
       box-shadow: inset 0 2px 8px rgba(0,0,0,0.10);
     }
     .dash-card:hover { transform: translateY(-3px); box-shadow: inset 0 2px 8px rgba(0,0,0,0.10), 0 10px 28px rgba(20,20,20,0.10); }
+    /* While driver.js is spotlighting a dash-card, the cursor sitting on top of it can
+       still trigger :hover through the overlay's cutout — cancel the lift so the card
+       (and Students Overview / Recent Registered specifically) stays put during the tour. */
+    .dash-card.driver-active-element,
+    .dash-card.driver-active-element:hover { transform: none; }
 
     .stat-view-btn { transition: transform 0.18s ${ease}, filter 0.18s ${ease}; }
     .stat-view-btn:hover { transform: scale(1.08); }
@@ -451,6 +492,21 @@ const getNavKeyFromPath = (pathname) => {
   const rest = pathname.startsWith(BASE_PATH) ? pathname.slice(BASE_PATH.length) : "";
   const key = rest.replace(/^\/+|\/+$/g, ""); // strip leading/trailing slashes
   return key || "dashboard";
+};
+
+// Best-effort na "sino ba ang naka-login" bago pa man ma-resolve ang
+// Firebase Auth sa bagong pageload (refresh) — binabasa mula sa localStorage
+// sa halip na hintayin ang `user` prop, para ang PINAKAUNANG paint mismo ay
+// makapagbasa na ng tamang account-specific na theme, hindi neutral default.
+const LAST_COORDINATOR_UID_KEY = "ojtern-last-coordinator-uid";
+const getCachedCoordinatorUid = () => {
+  try { return localStorage.getItem(LAST_COORDINATOR_UID_KEY); } catch { return null; }
+};
+const setCachedCoordinatorUid = (uid) => {
+  try {
+    if (uid) localStorage.setItem(LAST_COORDINATOR_UID_KEY, uid);
+    else localStorage.removeItem(LAST_COORDINATOR_UID_KEY);
+  } catch { /* localStorage unavailable — fall back to the plain flash-fix below */ }
 };
 
 // ── Shared sub-components ──────────────────────────────────────────────────────
@@ -826,7 +882,7 @@ const DashboardContent = ({ onNavigate, onViewCompany, onViewRegistered, coordin
       {/* Recent Visited Company */}
       <div id="dash-recent-visited" className="dash-card" style={{ background: paperCard, borderRadius: "14px", overflow: "hidden" }}>
         <div className="card-header"><span>Recent Visited Company Post</span></div>
-        <div style={{ padding: "10px 12px", display: "flex", flexDirection: "column", gap: "6px", maxHeight: "260px", overflowY: "auto" }}>
+        <div style={{ padding: "10px 12px", display: "flex", flexDirection: "column", gap: "6px", height: "156px", overflowY: "auto" }}>
           {recentVisited.length > 0 ? (
             recentVisited.map((company, i) => (
               <CompanyRow key={i} company={company} onView={onViewCompany} showTime viewIcon={themedViewIcon} companyProfileIcon={themedCompanyIcon} />
@@ -844,6 +900,43 @@ const DashboardContent = ({ onNavigate, onViewCompany, onViewRegistered, coordin
 // Add an entry here (and matching `id`s on the target elements) to give any
 // other screen its own guided tour. Screens with no entry get a generic
 // one-line popover instead of a broken tour.
+// For list steps: highlight just ONE item (the first visible row/card)
+// instead of the whole list. Returns a resolver that runTour calls right
+// when the tour starts; tries each selector in order and takes the first
+// match that's actually rendered (e.g. Report List's desktop table row vs.
+// its mobile card), falling back to the whole list — e.g. its empty state —
+// when there are no items yet.
+const firstListItem = (selectors, fallback) => () => {
+  for (const sel of selectors) {
+    const el = [...document.querySelectorAll(sel)].find(n => n.getClientRects().length > 0);
+    if (el) return el;
+  }
+  return document.querySelector(fallback);
+};
+
+// Same idea as firstListItem, but picks the LAST visible match — used for
+// chat messages, where the newest one (at the bottom, already in view) is
+// the natural one to point at.
+const lastListItem = (selectors, fallback) => () => {
+  for (const sel of selectors) {
+    const el = [...document.querySelectorAll(sel)].reverse().find(n => n.getClientRects().length > 0);
+    if (el) return el;
+  }
+  return fallback ? document.querySelector(fallback) : null;
+};
+
+// Account Profile sub-view (from its onViewChange) → HELP_STEPS_BY_NAV key.
+// "main" isn't listed, so the menu keeps the regular `accountprofile` steps.
+const PROFILE_TOUR_KEYS = {
+  personalInfo:     "accprofilepersonal",
+  personalInfoEdit: "accprofilepersonaledit",
+  terms:            "accprofileterms",
+  privacy:          "accprofileprivacy",
+  reset:            "accprofilereset",
+  add:              "accprofileadd",
+  transfer:         "accprofiletransfer",
+};
+
 const HELP_STEPS_BY_NAV = {
   dashboard: [
     {
@@ -912,10 +1005,46 @@ const HELP_STEPS_BY_NAV = {
       },
     },
     {
-      element: "#findcompany-grid",
+      element: firstListItem(["#findcompany-grid > *"], "#findcompany-grid"),
       popover: {
         title: "Company Posts",
-        description: "Open postings for your assigned programs. Tap a card to view the full company profile and message them.",
+        description: "Each card is one open post for your assigned programs. Tap any card to view the full company profile and message them.",
+      },
+    },
+  ],
+  // Steps for the single-post view inside Find Company (CompanyProfile in
+  // CoordinatorFindCompanyScreen.jsx) — reached either by tapping a card in
+  // the list above, or via a deep link (a Recent Visited row on the
+  // Dashboard, or "Visit" from a student's Placement). Kept separate from
+  // `findcompany` above since that screen's list elements (#findcompany-
+  // search-bar, -filter, -grid) don't exist while a post is open.
+  findcompanyprofile: [
+    {
+      element: "#cprofile-details",
+      popover: {
+        title: "Company Name & Description",
+        description: "Who the company is and what this post is about.",
+      },
+    },
+    {
+      element: "#cprofile-map",
+      popover: {
+        title: "Location Map",
+        description: "Where the company is. Use \"Open full map\" for a bigger, interactive view.",
+      },
+    },
+    {
+      element: "#cprofile-details-full",
+      popover: {
+        title: "Post Details",
+        description: "Requirements, working hours, contact info, location, benefits, open programs, industry, and skills required — everything to check before messaging.",
+      },
+    },
+    {
+      element: "#cprofile-message-btn",
+      popover: {
+        title: "Message Now!",
+        description: "Reach out to the company directly about this post.",
       },
     },
   ],
@@ -935,17 +1064,89 @@ const HELP_STEPS_BY_NAV = {
       },
     },
     {
-      element: "#clist-registered-section",
+      element: firstListItem(["#clist-registered-section .clist-card"], "#clist-registered-section"),
       popover: {
         title: "Registered Companies",
-        description: "Companies already approved and active for your assigned industries. Tap a card to view its full profile.",
+        description: "Each card is a company already approved for your assigned industries. Tap any card to view its full profile.",
       },
     },
     {
-      element: "#clist-review-section",
+      element: firstListItem(["#clist-review-section .clist-card"], "#clist-review-section"),
       popover: {
         title: "Companies in Review",
-        description: "Companies still pending approval. Tap a card to check its details while it's under review.",
+        description: "Each card here is a company still pending approval. Tap Verify on any card to check its details and accept or decline it.",
+      },
+    },
+  ],
+  // Steps for a single company's profile inside Company List — one set per
+  // section, since the list's own steps (#clist-search-pill, etc.) don't
+  // exist while a profile is open. Set via CoordinatorCompanyListScreen's
+  // onViewChange ("registered" | "review"). Each auto-plays once on a new
+  // account's first visit, same as every other HELP_STEPS_BY_NAV key.
+  companylistregistered: [
+    {
+      element: "#clprofile-header",
+      popover: {
+        title: "Registered Company",
+        description: "This company is already approved for your department. Tap Back to return to the list.",
+      },
+    },
+    {
+      element: "#clprofile-map",
+      popover: {
+        title: "Location Map",
+        description: "Where the company is located, based on the address they registered with.",
+      },
+    },
+    {
+      element: "#clprofile-info",
+      popover: {
+        title: "Company Details",
+        description: "Name, industry, department/program approval status, full address, email, and registration date.",
+      },
+    },
+    {
+      element: "#clprofile-docs",
+      popover: {
+        title: "Verification Documents",
+        description: "The documents this company submitted when registering. Tap one to view it larger.",
+      },
+    },
+  ],
+  companylistreview: [
+    {
+      element: "#clprofile-header",
+      popover: {
+        title: "Company in Review",
+        description: "This company is still waiting for approval from your department. Tap Back to return to the list.",
+      },
+    },
+    {
+      element: "#clprofile-map",
+      popover: {
+        title: "Location Map",
+        description: "Check that the company's location matches the address they registered with.",
+      },
+    },
+    {
+      element: "#clprofile-info",
+      popover: {
+        title: "Company Details",
+        description: "Name, industry, address, email, and date. The badges show each department's status — Pending, Approved, or Rejected.",
+      },
+    },
+    {
+      element: "#clprofile-docs",
+      popover: {
+        title: "Verification Documents",
+        description: "Review the submitted documents carefully before deciding. Tap one to view it larger.",
+      },
+    },
+    {
+      element: "#clprofile-actions",
+      popover: {
+        title: "Accept or Decline",
+        description: "Accept adds the company to your Registered Companies; Decline rejects it for your department only. Both ask you to confirm first.",
       },
     },
   ],
@@ -958,10 +1159,90 @@ const HELP_STEPS_BY_NAV = {
       },
     },
     {
-      element: "#rc-report-list",
+      element: firstListItem(["#rc-report-list .rc-table-wrap tbody tr", "#rc-report-list .rc-card"], "#rc-report-list"),
       popover: {
         title: "Report List",
-        description: "Every reported company, its concern, date filed, and status. Tap the view button to see the full report.",
+        description: "Each row is one report — the reported company, its concern, date filed, and status. Tap View on any row to see the full report.",
+      },
+    },
+  ],
+  // Steps for a single report's detail modal (ReportDetailModal) — used
+  // whenever it's open, whether from Report List's View button or from a
+  // notification on any screen. Steps whose element isn't rendered (no
+  // attachment; DISMISS/RESOLVE vs. the "can no longer be changed" note)
+  // are skipped automatically by runTour.
+  reportdetail: [
+    {
+      element: "#rc-detail-info",
+      popover: {
+        title: "Report Summary",
+        description: "Which company was reported, the concern raised, and the date the report was filed.",
+      },
+    },
+    {
+      element: "#rc-detail-status",
+      popover: {
+        title: "Company Account Status",
+        description: "The reported company's current account status. View Action History shows every action taken on this company so far.",
+      },
+    },
+    {
+      element: "#rc-detail-description",
+      popover: {
+        title: "Description",
+        description: "The full details of the report, as written by the one who filed it.",
+      },
+    },
+    {
+      element: "#rc-detail-attachment",
+      popover: {
+        title: "Attached File",
+        description: "Supporting evidence attached to the report. Images can be tapped to view larger; use the button to download it.",
+      },
+    },
+    {
+      element: "#rc-detail-resolution",
+      popover: {
+        title: "Action Taken",
+        description: "The action chosen when this report was resolved, together with the resolution notes.",
+      },
+    },
+    {
+      element: "#rc-detail-actions",
+      popover: {
+        title: "Dismiss or Resolve",
+        description: "Dismiss closes the report with no action. Resolve lets you record the action taken on the company. Neither can be undone.",
+      },
+    },
+    {
+      element: "#rc-detail-locked",
+      popover: {
+        title: "Closed Report",
+        description: "This report has already been resolved or dismissed, so it can no longer be changed.",
+      },
+    },
+  ],
+  // Steps for the Resolve Report modal, opened from RESOLVE above.
+  reportresolve: [
+    {
+      element: "#rc-resolve-actions",
+      popover: {
+        title: "What Action Was Taken?",
+        description: "Pick the action taken against the company — from requiring a correction or issuing a warning, up to suspending or blocking the account.",
+      },
+    },
+    {
+      element: "#rc-resolve-notes",
+      popover: {
+        title: "How Was This Resolved?",
+        description: "Describe what was done to resolve the report. This is saved with the report.",
+      },
+    },
+    {
+      element: "#rc-resolve-footer",
+      popover: {
+        title: "Cancel or Confirm",
+        description: "Cancel goes back without saving. Confirm Resolution unlocks once an action is picked and notes are written, then asks you to confirm once more.",
       },
     },
   ],
@@ -995,10 +1276,78 @@ const HELP_STEPS_BY_NAV = {
       },
     },
     {
-      element: "#sa-student-list",
+      element: firstListItem(["#sa-student-list > .sa-row"], "#sa-student-list"),
       popover: {
         title: "Student List",
-        description: "Every student account in your department(s). Tap a row to view or edit that student's details.",
+        description: "Each row is one student account in your department(s). Tap any row to view or edit that student's details, or use ⋮ for more actions.",
+      },
+    },
+  ],
+  // Steps for the student view/edit modal itself — separate from `studentsaccount`
+  // above (which only covers the list view) since the modal covers the list once
+  // it's open. Auto-fires the first time a new account opens a student, right
+  // after (or independently of) the list's own auto-tour — see `tourKey` and the
+  // AUTO_TOUR_NAV_KEYS effect below, same mechanism as `findcompanyprofile`.
+  studentsaccountmodal: [
+    {
+      element: "#sa-modal-studentid",
+      popover: {
+        title: "Student ID",
+        description: "The student's 9-digit ID number, used to generate their account and default password.",
+      },
+    },
+    {
+      element: "#sa-modal-department",
+      popover: {
+        title: "Department & Program",
+        description: "The student's assigned department and program. Department is locked to your own; program can vary.",
+      },
+    },
+    {
+      element: "#sa-modal-info",
+      popover: {
+        title: "Section, Sex, Age",
+        description: "Year & section, sex, and age on file for this student.",
+      },
+    },
+    {
+      element: "#sa-modal-password",
+      popover: {
+        title: "Default Password",
+        description: "The student's auto-generated default password. Share this with them — they should change it after signing in.",
+      },
+    },
+  ],
+  // Steps for the Import modal inside Students Account — same idea as
+  // `studentsaccountmodal`: the modal covers the list, so the list's own
+  // steps would point at hidden elements. Set via onImportModalChange.
+  studentsaccountimport: [
+    {
+      element: "#sa-import-dropzone",
+      popover: {
+        title: "Upload Your File",
+        description: "Drop an Excel file here or click to browse. Only .xlsx or .xls files up to 10MB are accepted.",
+      },
+    },
+    {
+      element: "#sa-import-columns",
+      popover: {
+        title: "Required Columns",
+        description: "Your file's header row must follow this exact column order, or the import will be rejected.",
+      },
+    },
+    {
+      element: "#sa-import-template",
+      popover: {
+        title: "Download the Template",
+        description: "Get a ready-made Excel file with the correct columns already set up. Fill it in, then upload it here.",
+      },
+    },
+    {
+      element: "#sa-import-footer",
+      popover: {
+        title: "Choose File & Import",
+        description: "Pick a different file anytime. Import becomes active once at least one valid row is found, and shows how many will be added.",
       },
     },
   ],
@@ -1011,10 +1360,56 @@ const HELP_STEPS_BY_NAV = {
       },
     },
     {
-      element: "#messages-chat-list",
+      element: firstListItem(["#messages-chat-list .msg-row"], "#messages-chat-list"),
       popover: {
         title: "Conversations",
-        description: "All your active chats, newest activity first. Tap one to open the full conversation.",
+        description: "Each row is one chat, newest activity first — unread ones are shaded. Tap any row to open the full conversation.",
+      },
+    },
+  ],
+  // Steps for an open conversation inside Messages (ChatView). Set via
+  // CoordinatorMessagesScreen's onViewChange ("chat").
+  messageschat: [
+    {
+      element: "#msgchat-header",
+      popover: {
+        title: "Conversation",
+        description: "Who you're chatting with. Tap the back arrow to return to all your conversations.",
+      },
+    },
+    {
+      element: lastListItem([".msg-thread-body .msg-bubble-wrap"]),
+      popover: {
+        title: "Messages",
+        description: "Tap and hold a message, or tap its ⋮, to reply to it. Your own messages can also be edited or unsent. \"Seen\" shows once they've read your latest message.",
+      },
+    },
+    {
+      element: "#msgchat-options",
+      popover: {
+        title: "Conversation Options",
+        description: "More options for this chat, like deleting the conversation. Deleting only removes it for you.",
+      },
+    },
+    {
+      element: "#msgchat-attach",
+      popover: {
+        title: "Attach Files",
+        description: "Attach PNG images or PDF files — up to 5 per message.",
+      },
+    },
+    {
+      element: "#msgchat-input",
+      popover: {
+        title: "Write a Message",
+        description: "Type your message here. Press Enter to send.",
+      },
+    },
+    {
+      element: "#msgchat-send",
+      popover: {
+        title: "Send",
+        description: "Sends your message and any attached files.",
       },
     },
   ],
@@ -1048,6 +1443,281 @@ const HELP_STEPS_BY_NAV = {
       },
     },
   ],
+  // ── Account Profile sub-views & modals ──────────────────────────────
+  // Set via CoordinatorAccountProfileScreen's onViewChange (see tourKey).
+  accprofilepersonal: [
+    {
+      element: "#pinfo-edit-btn",
+      popover: {
+        title: "Edit",
+        description: "Tap Edit to update any of your details below.",
+      },
+    },
+    {
+      element: "#pinfo-name",
+      popover: {
+        title: "Name",
+        description: "Your full name, as students and companies see it.",
+      },
+    },
+    {
+      element: "#pinfo-dept",
+      popover: {
+        title: "Department",
+        description: "The department and program(s) you're assigned to. This decides which students and companies you see.",
+      },
+    },
+    {
+      element: "#pinfo-sex",
+      popover: {
+        title: "Sex",
+        description: "Your sex on file.",
+      },
+    },
+    {
+      element: "#pinfo-contact",
+      popover: {
+        title: "Contact Number",
+        description: "The mobile number you can be reached at.",
+      },
+    },
+    {
+      element: "#pinfo-email",
+      popover: {
+        title: "Email Address",
+        description: "The email you log in with. Changing it needs a confirmation link sent to the new address.",
+      },
+    },
+    {
+      element: "#pinfo-address",
+      popover: {
+        title: "Address",
+        description: "Your address on file.",
+      },
+    },
+  ],
+  accprofilepersonaledit: [
+    {
+      element: "#pinfo-name",
+      popover: {
+        title: "Name",
+        description: "Type your full name.",
+      },
+    },
+    {
+      element: "#pinfo-sex",
+      popover: {
+        title: "Sex",
+        description: "Choose Male or Female.",
+      },
+    },
+    {
+      element: "#pinfo-contact",
+      popover: {
+        title: "Contact Number",
+        description: "Your mobile number — it's formatted as +63 000-000-0000 automatically as you type.",
+      },
+    },
+    {
+      element: "#pinfo-email",
+      popover: {
+        title: "Email Address",
+        description: "Your login email. If you change it, you'll confirm with your password and a link sent to the new address.",
+      },
+    },
+    {
+      element: "#pinfo-address",
+      popover: {
+        title: "Address",
+        description: "Province, city, barangay, and street.",
+      },
+    },
+    {
+      element: "#pinfo-save",
+      popover: {
+        title: "Save Changes",
+        description: "Save your updated details, or Cancel to discard them.",
+      },
+    },
+  ],
+  accprofileterms: [
+    {
+      element: "#legal-header",
+      popover: {
+        title: "Title & Last Updated",
+        description: "The document you're reading and the date it was last updated. If it changes, the date here changes too.",
+      },
+    },
+    {
+      element: "#legal-toc",
+      popover: {
+        title: "On This Page",
+        description: "Every section of this document. Tap one to jump straight to it — the section you're reading is marked.",
+      },
+    },
+    {
+      element: "#legal-first-section",
+      popover: {
+        title: "Sections",
+        description: "Each section explains one part of the document. Scroll down to read them all.",
+      },
+    },
+    {
+      element: "#legal-progress",
+      popover: {
+        title: "Reading Progress",
+        description: "This thin bar fills up as you scroll, showing how far through the document you are.",
+      },
+    },
+    {
+      element: "#legal-understand-btn",
+      popover: {
+        title: "I Understand",
+        description: "When you're done reading, tap this to return to your Account Profile.",
+      },
+    },
+  ],
+  accprofileprivacy: [
+    {
+      element: "#legal-header",
+      popover: {
+        title: "Title & Last Updated",
+        description: "The document you're reading and the date it was last updated. If it changes, the date here changes too.",
+      },
+    },
+    {
+      element: "#legal-toc",
+      popover: {
+        title: "On This Page",
+        description: "Every section of this document. Tap one to jump straight to it — the section you're reading is marked.",
+      },
+    },
+    {
+      element: "#legal-first-section",
+      popover: {
+        title: "Sections",
+        description: "Each section explains one part of the document. Scroll down to read them all.",
+      },
+    },
+    {
+      element: "#legal-progress",
+      popover: {
+        title: "Reading Progress",
+        description: "This thin bar fills up as you scroll, showing how far through the document you are.",
+      },
+    },
+    {
+      element: "#legal-understand-btn",
+      popover: {
+        title: "I Understand",
+        description: "When you're done reading, tap this to return to your Account Profile.",
+      },
+    },
+  ],
+  accprofilereset: [
+    {
+      element: "#accreset-current",
+      popover: {
+        title: "Current Password",
+        description: "Enter the password you use now, to confirm it's really you.",
+      },
+    },
+    {
+      element: "#accreset-new",
+      popover: {
+        title: "New Password",
+        description: "Choose a new password you don't use anywhere else. A checklist appears as you type, showing what's still missing.",
+      },
+    },
+    {
+      element: "#accreset-confirm",
+      popover: {
+        title: "Confirm New Password",
+        description: "Type the same new password again.",
+      },
+    },
+    {
+      element: "#accreset-footer",
+      popover: {
+        title: "Cancel or Save",
+        description: "Save password updates it and signs you out — log back in with the new one. Cancel keeps your current password.",
+      },
+    },
+  ],
+  accprofileadd: [
+    {
+      element: "#accadd-banner",
+      popover: {
+        title: "Add Account",
+        description: "Invites an additional OJT Coordinator. They get an email with an Accept link and set up their own login — your account stays exactly as it is.",
+      },
+    },
+    {
+      element: "#accadd-identity",
+      popover: {
+        title: "Confirm Your Identity",
+        description: "Enter your own current password first, so no one else can do this from your account.",
+      },
+    },
+    {
+      element: "#accadd-dept",
+      popover: {
+        title: "Department and Program",
+        description: "Locked to your own department — the new coordinator is placed under it automatically.",
+      },
+    },
+    {
+      element: "#accadd-email",
+      popover: {
+        title: "Email Address",
+        description: "The new coordinator's email address. The invitation is sent here.",
+      },
+    },
+    {
+      element: "#accadd-footer",
+      popover: {
+        title: "Cancel or Send",
+        description: "Send invitation emails the Accept link. Cancel closes this without sending anything.",
+      },
+    },
+  ],
+  accprofiletransfer: [
+    {
+      element: "#acctransfer-banner",
+      popover: {
+        title: "Transfer Account",
+        description: "Hands this account over to another OJT Coordinator. You keep access until they accept — then the account is theirs and you're signed out automatically.",
+      },
+    },
+    {
+      element: "#acctransfer-identity",
+      popover: {
+        title: "Confirm Your Identity",
+        description: "Enter your own current password first, so no one else can do this from your account.",
+      },
+    },
+    {
+      element: "#acctransfer-dept",
+      popover: {
+        title: "Department and Program",
+        description: "Locked to your own department — the new coordinator is placed under it automatically.",
+      },
+    },
+    {
+      element: "#acctransfer-email",
+      popover: {
+        title: "Email Address",
+        description: "The email of the coordinator taking over. The invitation is sent here.",
+      },
+    },
+    {
+      element: "#acctransfer-footer",
+      popover: {
+        title: "Cancel or Send",
+        description: "Send invitation emails the Accept link. Nothing is transferred until they accept.",
+      },
+    },
+  ],
   studentlist: [
     {
       element: "#sl-search-bar",
@@ -1078,13 +1748,306 @@ const HELP_STEPS_BY_NAV = {
       },
     },
     {
-      element: "#sl-student-list",
+      element: firstListItem(["#sl-student-list > *"], "#sl-student-list"),
       popover: {
         title: "Student List",
-        description: "Tap a student to view their full placement details and application history.",
+        description: "Each row is one student and their placement status. Tap any student to view their full placement details and application history.",
       },
     },
   ],
+  // Steps for the Placement modal inside Student List — separate from
+  // `studentlist` above since the modal covers the list once it's open.
+  // Set via CoordinatorStudentListScreen's onViewingStudentChange.
+  studentlistmodal: [
+    {
+      element: "#sl-modal-name",
+      popover: {
+        title: "Student",
+        description: "The student whose placement you're viewing.",
+      },
+    },
+    {
+      element: "#sl-modal-message-btn",
+      popover: {
+        title: "Message",
+        description: "Open a chat with this student directly from here.",
+      },
+    },
+    {
+      element: "#sl-modal-applications",
+      popover: {
+        title: "Applications",
+        description: "Every company this student has applied to, with its current status. Tap \"View post\" to open that company's post.",
+      },
+    },
+    {
+      element: "#sl-modal-details",
+      popover: {
+        title: "Student Details",
+        description: "Student ID, sex, college, program, and year & section on file for this student.",
+      },
+    },
+  ],
+};
+
+// ── First-login gate tours ──────────────────────────────────────────────────────
+// The two mandatory pop-ups a brand-new coordinator account walks through
+// before it ever reaches the dashboard: forced password reset, then (on the
+// NEXT login, since resetting the password signs them out) mandatory profile
+// completion. Both get their own one-time driver.js walkthrough, auto-started
+// the moment each pop-up mounts — see the `show`-triggered effects below.
+const CHANGE_PASSWORD_STEPS = [
+  {
+    element: "#cp-current-password",
+    popover: {
+      title: "Current Password",
+      description: "Enter the temporary password you were given when this account was created.",
+    },
+  },
+  {
+    element: "#cp-new-password",
+    popover: {
+      title: "New Password",
+      description: "Choose your own password. The checklist below shows exactly what's still missing.",
+    },
+  },
+  {
+    element: "#cp-checklist",
+    popover: {
+      title: "Password Requirements",
+      description: "Every item here needs a check mark before you can continue.",
+    },
+  },
+  {
+    element: "#cp-confirm-password",
+    popover: {
+      title: "Confirm Password",
+      description: "Re-type the same new password to confirm it.",
+    },
+  },
+  {
+    element: "#cp-continue-btn",
+    popover: {
+      title: "Continue",
+      description: "Saves your new password and signs you out. Log back in with it to finish setting up your account.",
+    },
+  },
+];
+
+const EDIT_INFO_STEPS = [
+  {
+    element: "#editinfo-card",
+    popover: {
+      title: "Complete Your Profile",
+      description: "Before you can use the dashboard, add your personal information here and save it. This only appears once.",
+    },
+  },
+];
+
+// Delay before an AUTO-started tour (the two first-login gate pop-ups, and
+// the dashboard's one-time welcome tour) fires — gives the just-mounted
+// screen a moment to finish laying out so driver.js measures real element
+// positions instead of a pre-layout frame. Manual "?" clicks skip this since
+// the page is already fully on-screen.
+const AUTO_TOUR_DELAY_MS = 450;
+
+// Steps whose target must never cause the page to scroll/recenter when
+// driver.js highlights them — Students Overview and Recent Registered
+// Company should stay exactly where they are; only the tour popover moves.
+const STEADY_TOUR_ELEMENT_IDS = ["dash-students-overview", "dash-recent-registered", "sa-student-list"];
+
+// Shared driver.js launcher — both the "?" button and every auto-tour below
+// call this, so they always look and behave identically.
+const runTour = (steps) => {
+  // driver.js only locks the page/body's own scroll while a tour is active —
+  // it has no idea the dashboard actually scrolls through .main-content (and
+  // Find Company's post view scrolls through its own inner div,
+  // .coord-profile-content) instead of the body, so those containers stayed
+  // freely scrollable underneath every step — including from a manual/touch
+  // scroll — letting the highlighted card drift out from under the spotlight.
+  // Both are locked here for the duration of the tour and restored on close.
+  // #cprofile-details-full keeps its own inner scroll (it's the one step
+  // where scrolling is the point) since it's a separate scroll box nested
+  // inside .coord-profile-content, unaffected by locking the outer one.
+  const scrollLockTargets = [
+    document.querySelector(".main-content"),
+    document.querySelector(".coord-profile-content"),
+    // Company List (both its list and a company profile) scrolls through
+    // its own .clist-list-wrapper, not .main-content.
+    document.querySelector(".clist-list-wrapper"),
+    // Report modals scroll inside their own bodies — lock those too so the
+    // content can't slide out from under the highlight mid-step.
+    document.querySelector(".rc-resolve-body"),
+    document.querySelector(".rc-modal-body"),
+    // An open conversation scrolls inside its own thread body.
+    document.querySelector(".msg-thread-body"),
+    // Account Profile: modal bodies, the info card body, and legal pages.
+    document.querySelector(".cap-modal-body"),
+    document.querySelector(".cap-info-body"),
+    document.querySelector(".legal-scroll"),
+    document.querySelector(".legal-toc"),
+  ].filter(Boolean);
+  // Where each container was before the tour, so we can put it back after —
+  // the tour scrolls boxes to reach later steps (e.g. "I understand" at the
+  // very bottom of Terms), which shouldn't leave the page scrolled there.
+  const initialScrollTop = scrollLockTargets.map(el => el.scrollTop);
+  const prevOverflowY = scrollLockTargets.map(el => el.style.overflowY || "");
+  // Remember exactly where each container was sitting when the tour opened,
+  // so if anything still manages to scroll it (e.g. iOS momentum scroll,
+  // which can keep coasting for a moment even after overflow is hidden),
+  // it snaps straight back instead of leaving the highlight stranded.
+  const lockedScrollTop = scrollLockTargets.map(el => el.scrollTop);
+  // driver.js's own scrollIntoView (moving to the next step) must still be
+  // allowed through — otherwise snapBack undoes it and any step below the
+  // fold (e.g. Company List's "Company Details") gets highlighted off-screen.
+  // Only user/momentum scrolling is snapped back.
+  let allowTourScroll = false;
+  const snapBack = () => {
+    if (allowTourScroll) return;
+    scrollLockTargets.forEach((el, i) => { el.scrollTop = lockedScrollTop[i]; });
+  };
+  scrollLockTargets.forEach(el => {
+    el.style.overflowY = "hidden";
+    el.addEventListener("scroll", snapBack);
+  });
+  const restoreScroll = () => {
+    scrollLockTargets.forEach((el, i) => {
+      el.removeEventListener("scroll", snapBack);
+      el.style.overflowY = prevOverflowY[i];
+      if (el.isConnected) el.scrollTop = initialScrollTop[i];
+    });
+  };
+
+  // Drop any step whose target isn't on screen right now (e.g. Accept/Decline
+  // only renders while a department is still pending, and the Department /
+  // Program block only when the company has one) — otherwise driver.js
+  // shows that step as a floating popover pointing at nothing.
+  steps = (steps || [])
+    .map(s => (typeof s.element === "function" ? { ...s, element: s.element() || undefined, _resolved: true } : s))
+    .filter(s => s._resolved ? !!s.element : (!s.element || document.querySelector(s.element)))
+    .map(({ _resolved, ...s }) => s);
+
+  // Scrolls each scrollable ancestor of `el` (modal bodies, .clist-list-
+  // wrapper, etc. — including ones locked to overflow: hidden above, which
+  // still scroll programmatically) just enough that `el` is fully visible
+  // inside it, with a little breathing room. If `el` is taller than the box,
+  // its top is aligned instead. Returns true if anything moved.
+  const scrollIntoScrollParents = (el) => {
+    const PAD = 12;
+    let moved = false;
+    for (let p = el.parentElement; p && p !== document.body; p = p.parentElement) {
+      if (p.scrollHeight <= p.clientHeight + 1) continue;
+      const oy = getComputedStyle(p).overflowY;
+      if (!/(auto|scroll|hidden|overlay)/.test(oy)) continue;
+      const pr = p.getBoundingClientRect();
+      const er = el.getBoundingClientRect();
+      let delta = 0;
+      if (er.height > pr.height - PAD * 2 || er.top < pr.top + PAD) {
+        delta = er.top - (pr.top + PAD);          // align top
+      } else if (er.bottom > pr.bottom - PAD) {
+        delta = er.bottom - (pr.bottom - PAD);    // bring bottom into view
+      }
+      if (Math.abs(delta) > 1) {
+        const before = p.scrollTop;
+        p.scrollTop = before + delta;
+        if (p.scrollTop !== before) moved = true;
+      }
+    }
+    return moved;
+  };
+
+  let activeResizeObserver = null;
+
+  // Lock everything while a tour is running: the highlighted element can't
+  // be clicked/tapped (so e.g. "Message Now!", Accept/Decline, Back, or a
+  // document thumbnail won't fire mid-tour) — only the tour popover's own
+  // Previous / Next / Done buttons respond. Done in the capture phase on
+  // window so it runs before React's handlers. Deliberately NOT using
+  // driver.js's `disableActiveInteraction`, since that sets pointer-events:
+  // none on the target and would also kill wheel/touch scrolling inside the
+  // steps that are their own scroll boxes (#cprofile-details-full,
+  // #clprofile-info) — here only clicks are blocked, scrolling still works.
+  const blockOutsidePopover = (e) => {
+    if (e.target?.closest?.(".driver-popover")) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+  };
+  const BLOCKED_EVENTS = ["click", "dblclick", "auxclick", "contextmenu"];
+  BLOCKED_EVENTS.forEach(ev => window.addEventListener(ev, blockOutsidePopover, true));
+  // driver.js closes on Escape when allowClose is on — swallow it here (in
+  // the capture phase, before driver's own key listener) so only the ✕
+  // button or "Done" ends the tour.
+  const blockEscape = (e) => {
+    if (e.key === "Escape" || e.key === "Esc") { e.preventDefault(); e.stopImmediatePropagation(); }
+  };
+  ["keydown", "keyup"].forEach(ev => window.addEventListener(ev, blockEscape, true));
+  const unblockClicks = () => {
+    BLOCKED_EVENTS.forEach(ev => window.removeEventListener(ev, blockOutsidePopover, true));
+    ["keydown", "keyup"].forEach(ev => window.removeEventListener(ev, blockEscape, true));
+  };
+
+  const tourDriver = driver({
+    showProgress: (steps?.length ?? 0) > 1,
+    // The tour can be exited two ways only: the ✕ button on the popover, or
+    // "Done" on the last step. Clicking the dark overlay still does nothing
+    // (that click is swallowed by blockOutsidePopover above, since the
+    // overlay isn't inside .driver-popover) and Esc is swallowed by
+    // blockEscape — so it can't be dismissed by accident.
+    allowClose: true,
+    showButtons: ["next", "previous", "close"],
+    onDestroyed: () => { restoreScroll(); unblockClicks(); activeResizeObserver?.disconnect(); },
+    // driver.js calls element.scrollIntoView() every time it highlights a
+    // step's target, which can shift the whole page even when the card is
+    // already fully on screen. For the two cards that must stay put, swap
+    // scrollIntoView for a no-op just long enough for that one call to fire,
+    // then put the real one back — every other step's scrolling is untouched.
+    onHighlighted: (element) => {
+      // Keep the highlight glued to the target if its size changes while
+      // it's showing — e.g. "Loading…" turning into a status badge, a map
+      // or image finishing loading, or a list filling in from Firestore.
+      activeResizeObserver?.disconnect();
+      if (element && typeof ResizeObserver !== "undefined") {
+        activeResizeObserver = new ResizeObserver(() => tourDriver?.refresh?.());
+        activeResizeObserver.observe(element);
+      }
+      // Driver has finished scrolling to this step — make that the new
+      // locked position, then resume snapping back any other scroll.
+      setTimeout(() => {
+        scrollLockTargets.forEach((el, i) => { lockedScrollTop[i] = el.scrollTop; });
+        allowTourScroll = false;
+      }, 60);
+    },
+    onHighlightStarted: (element) => {
+      allowTourScroll = true;
+      activeResizeObserver?.disconnect();
+      activeResizeObserver = null;
+      if (element?.id && STEADY_TOUR_ELEMENT_IDS.includes(element.id)) {
+        const original = Element.prototype.scrollIntoView;
+        Element.prototype.scrollIntoView = function () {};
+        setTimeout(() => { Element.prototype.scrollIntoView = original; }, 0);
+        return;
+      }
+      // driver.js only scrolls when the target is outside the WINDOW's
+      // viewport — it doesn't know about scroll boxes inside modals (e.g. the
+      // Resolve Report body), so a target sitting below that box's visible
+      // area (like "How was this resolved?") got highlighted half-hidden,
+      // with the spotlight spilling over the footer. Scroll every scrollable
+      // ancestor ourselves so the target is fully in view, then have driver
+      // re-measure so the highlight lands exactly on it.
+      if (element && scrollIntoScrollParents(element)) {
+        requestAnimationFrame(() => tourDriver?.refresh?.());
+      }
+    },
+    steps: steps && steps.length > 0
+      ? steps
+      : [{
+          popover: {
+            title: "Help",
+            description: "There's no guided tour for this page yet.",
+          },
+        }],
+  });
+  tourDriver.drive();
 };
 
 // ── Floating "?" help button ────────────────────────────────────────────────────
@@ -1092,37 +2055,263 @@ const HELP_STEPS_BY_NAV = {
 // screen (outside renderContent), so it stays on-screen no matter which nav
 // item is active. Runs a driver.js spotlight tour scoped to HELP_STEPS_BY_NAV
 // for the current screen; falls back to a plain centered message for any
-// screen that doesn't have steps configured yet.
-const FloatingHelpButton = ({ activeNav }) => {
+// screen that doesn't have steps configured yet. This is the ALWAYS-available
+// manual trigger — separate from (and unaffected by) the auto-tours below,
+// which only ever fire once each: once for the password gate, once for the
+// profile-completion gate, and once for the dashboard's first-ever visit
+// right after a genuinely new account finishes that gate flow.
+// Drag settings for the "?" button (accessibility: move it out of the way of
+// whatever it's covering — e.g. a chat's send button).
+const HELP_FAB_SIZE        = 56;
+const HELP_FAB_EDGE        = 12;   // min gap kept from every screen edge
+const HELP_FAB_HOVER_FOLLOW = 1000; // mouse: hover this long → it follows the cursor
+const HELP_FAB_DRAG_START  = 6;    // touch: px of finger movement that starts a drag
+const HELP_FAB_POS_KEY     = "ojtern.helpFabPos";
+const HELP_FAB_SNAP_GAP    = 24;   // space kept from the side it snaps to
+const HELP_FAB_TOP_MIN     = 86;   // stay below the 70px top bar (+ gap)
+const HELP_FAB_IDLE_MS     = 10000; // fade after 10s untouched
+
+// Keeps the button fully on-screen for the current window size.
+const clampHelpFabPos = ({ x, y }) => ({
+  x: Math.min(Math.max(HELP_FAB_EDGE, x), Math.max(HELP_FAB_EDGE, window.innerWidth  - HELP_FAB_SIZE - HELP_FAB_EDGE)),
+  y: Math.min(Math.max(HELP_FAB_EDGE, y), Math.max(HELP_FAB_EDGE, window.innerHeight - HELP_FAB_SIZE - HELP_FAB_EDGE)),
+});
+
+// Where it settles after being let go: the nearer LEFT or RIGHT side, with
+// HELP_FAB_SNAP_GAP of space (not flush against the edge), keeping the
+// height it was dropped at but never under the top bar or off the bottom.
+const snapHelpFabPos = ({ x, y }) => {
+  const w = window.innerWidth, h = window.innerHeight;
+  const toLeft = x + HELP_FAB_SIZE / 2 < w / 2;
+  const maxY = Math.max(HELP_FAB_TOP_MIN, h - HELP_FAB_SIZE - HELP_FAB_SNAP_GAP);
+  return {
+    x: toLeft ? HELP_FAB_SNAP_GAP : Math.max(HELP_FAB_SNAP_GAP, w - HELP_FAB_SIZE - HELP_FAB_SNAP_GAP),
+    y: Math.min(Math.max(HELP_FAB_TOP_MIN, y), maxY),
+  };
+};
+
+const FloatingHelpButton = ({ activeNav, onBeforeTour }) => {
+  // ── Draggable position ──────────────────────────────────────────────────
+  // • Touch / pen: just hold and move — it drags right away, no long press.
+  //   A plain tap (no movement) opens the tour.
+  // • Mouse: hover over it for HELP_FAB_HOVER_FOLLOW (1s) and it starts
+  //   following the cursor; click anywhere to drop it there. A normal click
+  //   before the 1s is up opens the tour.
+  // null = default bottom-right corner. The chosen spot is remembered on
+  // this device (localStorage) and re-clamped if the window is resized.
+  const [pos, setPos] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(HELP_FAB_POS_KEY) || "null");
+      if (saved && Number.isFinite(saved.x) && Number.isFinite(saved.y)) return snapHelpFabPos(saved);
+    } catch { /* storage unavailable — fall back to the default corner */ }
+    return null;
+  });
+  const [dragging, setDragging] = useState(false);
+  const [snapping, setSnapping] = useState(false);
+  const [idle, setIdle]         = useState(false);
+  const [arming, setArming]     = useState(false); // mouse hover countdown running
+  const idleTimer  = useRef(null);
+  const snapTimer  = useRef(null);
+  const hovering   = useRef(false);
+
+  // ── Idle fade ───────────────────────────────────────────────────────────
+  // Any interaction with the button wakes it to full opacity and restarts
+  // the 10s countdown; the countdown is paused while hovered or dragged.
+  const scheduleIdle = () => {
+    clearTimeout(idleTimer.current);
+    idleTimer.current = setTimeout(() => {
+      if (!hovering.current && !dragActive.current) setIdle(true);
+    }, HELP_FAB_IDLE_MS);
+  };
+  const wake = () => { setIdle(false); scheduleIdle(); };
+  const posRef        = useRef(pos);
+  const pressTimer    = useRef(null);
+  const pressStart    = useRef(null);   // { x, y } where the press began
+  const grabOffset    = useRef({ x: 0, y: 0 });
+  const dragActive    = useRef(false);
+  const suppressClick = useRef(false);  // swallow the click that ends a drag
+
+  useEffect(() => { posRef.current = pos; }, [pos]);
+
+  useEffect(() => {
+    const onResize = () => setPos(p => (p ? snapHelpFabPos(p) : p));
+    window.addEventListener("resize", onResize);
+    scheduleIdle(); // start the first 10s countdown on mount
+    return () => {
+      window.removeEventListener("resize", onResize);
+      clearTimeout(pressTimer.current);
+      clearTimeout(idleTimer.current);
+      clearTimeout(snapTimer.current);
+      clearTimeout(hoverTimer.current);
+      followCleanup.current?.();
+    };
+  }, []);
+
+  // Glide to the nearer side (with a gap), then remember that spot.
+  const settle = () => {
+    if (!posRef.current) return;
+    const snapped = snapHelpFabPos(posRef.current);
+    setSnapping(true);
+    setPos(snapped);
+    clearTimeout(snapTimer.current);
+    snapTimer.current = setTimeout(() => setSnapping(false), 360);
+    try { localStorage.setItem(HELP_FAB_POS_KEY, JSON.stringify(snapped)); } catch { /* ignore */ }
+  };
+
+  // ── Mouse: hover 1s → follow the cursor, click anywhere to drop ──────────
+  const hoverTimer    = useRef(null);
+  const following     = useRef(false);
+  const followCleanup = useRef(null);
+  const lastMouse     = useRef({ x: 0, y: 0 });
+
+  const stopFollowing = () => {
+    if (!following.current) return;
+    following.current = false;
+    dragActive.current = false;
+    followCleanup.current?.();
+    followCleanup.current = null;
+    setDragging(false);
+    settle();
+    scheduleIdle();
+  };
+
+  const startFollowing = () => {
+    following.current = true;
+    dragActive.current = true;
+    setArming(false);
+    setDragging(true);
+    const half = HELP_FAB_SIZE / 2;
+    const place = (x, y) => setPos(clampHelpFabPos({ x: x - half, y: y - half }));
+    place(lastMouse.current.x, lastMouse.current.y);
+    const onMove = (ev) => place(ev.clientX, ev.clientY);
+    // The click that drops it must not ALSO press whatever is underneath
+    // (or open the tour) — swallow exactly that one click.
+    const swallowClick = (ev) => {
+      ev.preventDefault();
+      ev.stopImmediatePropagation();
+      window.removeEventListener("click", swallowClick, true);
+    };
+    const onDown = (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      window.addEventListener("click", swallowClick, true);
+      setTimeout(() => window.removeEventListener("click", swallowClick, true), 600);
+      stopFollowing();
+    };
+    const onKey = (ev) => { if (ev.key === "Escape") stopFollowing(); };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerdown", onDown, true);
+    window.addEventListener("keydown", onKey);
+    followCleanup.current = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerdown", onDown, true);
+      window.removeEventListener("keydown", onKey);
+    };
+  };
+
+  const onPointerEnter = (e) => {
+    hovering.current = true;
+    setIdle(false);
+    clearTimeout(idleTimer.current);
+    if (e.pointerType !== "mouse" || following.current) return;
+    lastMouse.current = { x: e.clientX, y: e.clientY };
+    setArming(true);
+    clearTimeout(hoverTimer.current);
+    hoverTimer.current = setTimeout(startFollowing, HELP_FAB_HOVER_FOLLOW);
+  };
+
+  const onPointerLeave = (e) => {
+    hovering.current = false;
+    if (e.pointerType === "mouse" && !following.current) {
+      clearTimeout(hoverTimer.current);
+      setArming(false);
+    }
+    scheduleIdle();
+  };
+
+  // ── Touch / pen: hold and move to drag straight away ─────────────────────
+  const endPress = (e) => {
+    if (e?.pointerType === "mouse") return;
+    pressStart.current = null;
+    try { e?.currentTarget?.releasePointerCapture?.(e.pointerId); } catch { /* not captured */ }
+    if (dragActive.current && !following.current) {
+      dragActive.current = false;
+      suppressClick.current = true; // the lift after a drag isn't a tap
+      setDragging(false);
+      settle();
+    }
+    hovering.current = false;
+    scheduleIdle();
+  };
+
+  const onPointerDown = (e) => {
+    wake();
+    if (e.pointerType === "mouse") {
+      // A real click before the 1s hover finished — it's a click, not a move.
+      clearTimeout(hoverTimer.current);
+      setArming(false);
+      return;
+    }
+    setSnapping(false);
+    suppressClick.current = false;
+    const rect = e.currentTarget.getBoundingClientRect();
+    pressStart.current = { x: e.clientX, y: e.clientY };
+    grabOffset.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+  };
+
+  const onPointerMove = (e) => {
+    if (e.pointerType === "mouse") { lastMouse.current = { x: e.clientX, y: e.clientY }; return; }
+    if (!pressStart.current) return;
+    if (!dragActive.current) {
+      const dx = e.clientX - pressStart.current.x, dy = e.clientY - pressStart.current.y;
+      if (Math.hypot(dx, dy) < HELP_FAB_DRAG_START) return; // still just a tap
+      dragActive.current = true;
+      setDragging(true);
+      navigator.vibrate?.(10);
+    }
+    e.preventDefault();
+    setPos(clampHelpFabPos({ x: e.clientX - grabOffset.current.x, y: e.clientY - grabOffset.current.y }));
+  };
+
+  // Close any open top-bar dropdown (Activity Log / Notifications / Theme)
+  // first, then start the tour on the next frame once React has removed it —
+  // otherwise the dropdown stays floating over the page under the tour.
+  // (In-screen filter / export panels already close themselves on any
+  // outside mousedown, which pressing this button is.)
   const handleClick = () => {
-    const steps = HELP_STEPS_BY_NAV[activeNav];
-
-    const tourDriver = driver({
-      showProgress: (steps?.length ?? 0) > 1,
-      allowClose: true,
-      steps: steps && steps.length > 0
-        ? steps
-        : [{
-            popover: {
-              title: "Help",
-              description: "There's no guided tour for this page yet.",
-            },
-          }],
-    });
-
-    tourDriver.drive();
+    wake();
+    if (suppressClick.current) { suppressClick.current = false; return; } // was a drag, not a tap
+    onBeforeTour?.();
+    requestAnimationFrame(() => runTour(HELP_STEPS_BY_NAV[activeNav]));
   };
 
   return (
     <button
       onClick={handleClick}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={endPress}
+      onPointerCancel={endPress}
+      onPointerEnter={onPointerEnter}
+      onPointerLeave={onPointerLeave}
+      onFocus={wake}
+      // Stops the long-press context menu / callout on touch screens.
+      onContextMenu={e => e.preventDefault()}
       aria-label="Help"
-      title="Help"
-      className="help-fab"
+      title="Need Help? - hover it 1 second and drag it (just drag it on mobile devices)"
+      className={`help-fab${dragging ? " help-fab-dragging" : ""}${arming && !dragging ? " help-fab-arming" : ""}${snapping ? " help-fab-snapping" : ""}${idle && !dragging ? " help-fab-idle" : ""}`}
       style={{
         position: "fixed",
-        bottom: "24px",
-        right: "24px",
+        ...(pos
+          ? { left: `${pos.x}px`, top: `${pos.y}px`, right: "auto", bottom: "auto" }
+          : { bottom: "24px", right: "24px" }),
+        // touch-action: none so a long press + drag on touch screens moves
+        // the button instead of scrolling the page underneath it.
+        touchAction: "none",
+        userSelect: "none",
+        WebkitUserSelect: "none",
+        WebkitTouchCallout: "none",
         width: "56px",
         height: "56px",
         borderRadius: "50%",
@@ -1132,7 +2321,15 @@ const FloatingHelpButton = ({ activeNav }) => {
         alignItems: "center",
         justifyContent: "center",
         cursor: "pointer",
-        zIndex: 500,
+        // 500 used to sit under CoordinatorStudentsAcccountScreen's own
+        // modals (StudentForm view/edit = 1000, ImportModal = 1000, its
+        // Dialog = 2100, the "Account created" card = 2000) — so opening
+        // "View" on a student, or any other in-screen modal there, buried
+        // the FAB behind the dark overlay instead of floating on top of it.
+        // 3000 clears every in-screen modal on every coordinator screen
+        // while staying below the app-wide 9999 blocking gates (forced
+        // password change, logout confirm) — those SHOULD still cover it.
+        zIndex: 3000,
       }}
     >
       <svg
@@ -1172,11 +2369,15 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
   // coordinator's own doc fresh here too, same pattern already used
   // successfully in CoordinatorCompanyListScreen for assignedIndustries.
   const [coordinatorProfile, setCoordinatorProfile] = useState(null);
+  const [coordinatorProfileLoaded, setCoordinatorProfileLoaded] = useState(false);
   useEffect(() => {
     if (!user?.uid) return;
     let cancelled = false;
     getUserProfile("coordinators", user.uid).then((data) => {
-      if (!cancelled) setCoordinatorProfile(data || null);
+      if (!cancelled) {
+        setCoordinatorProfile(data || null);
+        setCoordinatorProfileLoaded(true);
+      }
     });
     return () => { cancelled = true; };
   }, [user?.uid]);
@@ -1206,15 +2407,20 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
     setShowLogoutConfirm(true);
   };
 
-  const handleLogoutConfirm = async () => {
+  const handleLogoutConfirm = () => {
     setShowLogoutConfirm(false);
-    try {
-      await logOut();
-    } catch (err) {
-      console.error("Logout failed:", err);
-    } finally {
-      onLogout?.();
-    }
+    // I-unmount muna agad ang dashboard (kasama ang malinis na pag-unsubscribe
+    // ng lahat ng live na onSnapshot listeners nito) BAGO pa aktwal na
+    // mag-sign-out sa Firebase. Kung hihintayin muna natin ang signOut()
+    // bago mag-navigate — habang buo pang naka-mount ang dashboard — sabay-
+    // sabay na mag-eerror ang lahat ng listeners nito (reports, companies,
+    // activity_logs, atbp.) sa sandaling ma-invalidate ang auth token, at
+    // doon nagmumula ang pakiramdam na "matagal, parang stuck." Sa pag-
+    // navigate/unmount muna, malinis munang natatanggal ang mga listeners
+    // bago pa sila magkaroon ng pagkakataong mag-error.
+    setCachedCoordinatorUid(null);
+    onLogout?.();
+    logOut().catch((err) => console.error("Logout failed:", err));
   };
   // Recently visited companies now live in Firestore (coordinators/{uid}.recentVisited)
   // instead of localStorage, so the list follows the account across browsers
@@ -1232,12 +2438,51 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
   const [showActivityDropdown, setShowActivityDropdown]         = useState(false);
 
   // ── Nav bar accent color picker ─────────────────────────────────────────────
-  // "coordinator" scope: its own storage key, independent of Student's — see
-  // theme.js. Lazy-init from localStorage.
-  const [accentThemeId, setAccentThemeId]                        = useState(() => getSavedAccentThemeId("coordinator"));
-  const [showThemeDropdown, setShowThemeDropdown]                = useState(false);
+  // Scoped per ACCOUNT (uid), not just per role — `coordinator-${uid}` is its
+  // own storage key, completely separate from every other coordinator
+  // account's choice. This is the fix for the theme "leaking" between
+  // accounts that share a browser/device: a brand-new account's uid has
+  // never been seen on this browser before, so there's no entry for it yet,
+  // and getSavedAccentThemeId's own fallback returns "default" (black/
+  // white) — exactly the "always default on a fresh login" behavior wanted,
+  // with zero dependency on department/college. (Before this, the key was
+  // just "coordinator" — shared by every coordinator account on the same
+  // browser, which is why a brand-new account could inherit whatever color
+  // a DIFFERENT account had last picked there.)
+  // Walang binabasa mula sa localStorage habang hindi pa alam ang uid ng
+  // account — dati, gumagamit ito ng generic/bare "coordinator" key bilang
+  // fallback, na maaaring may lumang natirang data pa mula bago pa i-scope
+  // per account ang key na ito. Kaya sa bawat refresh, sandaling kumikislap
+  // yung LUMANG/ibang kulay bago mag-switch sa tamang account-specific na
+  // kulay. Sa halip, magsisimula muna tayo sa neutral na "default"
+  // (black/white) habang hinihintay ang uid, para wala nang lumalabas na
+  // maling/ibang account's na kulay kahit sandali man lang.
+  // Priyoridad: (1) totoong uid mula sa `user` prop kapag available na, (2)
+  // yung huling na-cache na uid sa localStorage bilang best-guess habang
+  // hinihintay pa ang auth. Kaya kahit sa PINAKAUNANG render pagka-refresh,
+  // tama na agad ang scope na binabasa — hindi na kailangang dumaan sa
+  // "default muna" bago sa tamang kulay.
+  const resolveAccentScope = (uid) => (uid ? `coordinator-${uid}` : null);
+  const initialAccentScope = resolveAccentScope(user?.uid || getCachedCoordinatorUid());
+
+  const accentScope = resolveAccentScope(user?.uid);
+  const [accentThemeId, setAccentThemeId] = useState(() =>
+    initialAccentScope ? getSavedAccentThemeId(initialAccentScope) : "default"
+  );
+  const [showThemeDropdown, setShowThemeDropdown] = useState(false);
+
+  useEffect(() => {
+    if (!user?.uid) return;
+    // I-remember ang uid na ito para sa PINAKAUNANG paint ng susunod na
+    // refresh — hindi na kailangang hintayin ulit ang auth para malaman kung
+    // sinong account ito.
+    setCachedCoordinatorUid(user.uid);
+    setAccentThemeId(getSavedAccentThemeId(`coordinator-${user.uid}`));
+  }, [user?.uid]);
+
   const handleSelectAccent = (id) => {
-    setAccentThemeId(saveAccentThemeId("coordinator", id));
+    if (!accentScope) return; // walang dapat masave habang hindi pa alam ang account uid
+    setAccentThemeId(saveAccentThemeId(accentScope, id));
     setShowThemeDropdown(false);
   };
   // View-icon PNG matching the current accent color (falls back to the
@@ -1436,6 +2681,33 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
   const [showChangePass, setShowChangePass] = useState(false);
   const [showPassSuccess, setShowPassSuccess]   = useState(false);
   const [showEditInfo,   setShowEditInfo]   = useState(false);
+  // Tracks whether Find Company is showing its list or a single company's
+  // post ("profile"). Lets the "?" help button and the auto-tour switch to
+  // HELP_STEPS_BY_NAV.findcompanyprofile while a post is open, instead of
+  // always running the list's steps (search bar / filter / grid) against a
+  // screen that isn't showing them. Set via CoordinatorViewCompanyScreen's
+  // onViewChange, so it updates the same way whether the post was opened by
+  // clicking a card in the list OR by a deep link (Recent Visited, Placement).
+  const [findCompanySubView, setFindCompanySubView] = useState("list");
+  // Mirrors findCompanySubView: true while a student's view/edit modal is open
+  // inside Students Account, so the "?" button and auto-tour can switch to
+  // HELP_STEPS_BY_NAV.studentsaccountmodal instead of the list's own steps.
+  // Set via CoordinatorStudentsAcccountScreen's onViewingStudentChange.
+  const [studentAccountModalOpen, setStudentAccountModalOpen] = useState(false);
+  // Same as above for the Import modal (Students Account) and the Placement
+  // modal (Student List) — switch the "?" tour to their own steps.
+  const [studentImportModalOpen, setStudentImportModalOpen]   = useState(false);
+  const [studentListModalOpen, setStudentListModalOpen]       = useState(false);
+  // Company List: "list" | "registered" | "review" — which profile (if any)
+  // is open, so the "?" tour matches it. Set via its onViewChange.
+  const [companyListSubView, setCompanyListSubView]           = useState("list");
+  // True while the Resolve Report modal is open on top of a report's detail
+  // modal. Set via ReportDetailModal's onResolvePanelChange.
+  const [reportResolveOpen, setReportResolveOpen]             = useState(false);
+  // Messages: "list" | "chat" — set via CoordinatorMessagesScreen's onViewChange.
+  const [messagesSubView, setMessagesSubView]                 = useState("list");
+  // Account Profile: which sub-view / modal is showing ("main" = the menu).
+  const [profileSubView, setProfileSubView]                   = useState("main");
   const [currentPass, setCurrentPass]       = useState("");
   const [newPass, setNewPass]               = useState("");
   const [confirmPass, setConfirmPass]       = useState("");
@@ -1443,6 +2715,18 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
   const [passLoading, setPassLoading]       = useState(false);
   const [showNew, setShowNew]               = useState(false);
   const [showConfirm, setShowConfirm]       = useState(false);
+  const [setupLogoutBusy, setSetupLogoutBusy] = useState(false);
+
+  // Lets a brand-new coordinator bail out of the mandatory password/profile
+  // gate instead of being stuck — mirrors StudentDashboardScreen's
+  // handleSetupLogout (clear the cached uid, notify the parent, sign out).
+  const handleSetupLogout = () => {
+    if (setupLogoutBusy) return;
+    setSetupLogoutBusy(true);
+    setCachedCoordinatorUid(null);
+    onLogout?.();
+    logOut().catch((err) => console.error("Logout failed:", err));
+  };
 
   const handleChangePassword = async () => {
     setPassError("");
@@ -1471,13 +2755,112 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
   // nagpalit ng password", kaya hinihintay muna bago magpasya. Isang beses lang
   // bawat user (didGateInit), para hindi muling bumukas ang modal matapos
   // i-dismiss o matapos mag-save.
+  //
+  // wasNewAccountFlow ang tunay na basehan ng automatic help sa dashboard sa
+  // baba: totoo lang ito kung, sa mismong pag-check na ito (ibig sabihin sa
+  // simula ng SESSION/LOGIN na ito), kailangan pa palang punan ang personal
+  // info (`user.passwordChanged && !user.profileComplete`) — ibig sabihin
+  // literal na dumaan sila sa set-password-then-add-info na flow. Kung sa
+  // simula pa lang ng session na ito ay kumpleto na yung dalawa (existing
+  // account, hindi bago), `false` agad ito at manatiling `false` habang buo
+  // ang session — kahit ano pang mangyari sa showChangePass/showEditInfo
+  // states pagkatapos nito, hindi na ito magbabago. Galing mismo ito sa mga
+  // field na sinusulat ng AuthService (`passwordChanged`, `profileComplete`),
+  // hindi sa hiwalay na "seen" flag.
   const didGateInit = useRef(false);
   useEffect(() => {
-    if (!user || didGateInit.current) return;
+    if (!user?.uid || !coordinatorProfileLoaded || didGateInit.current) return;
     didGateInit.current = true;
-    setShowChangePass(!user.passwordChanged);
-    setShowEditInfo(!!user.passwordChanged && !user.profileComplete);
-  }, [user]);
+    const passwordChanged = coordinatorProfile?.passwordChanged ?? user.passwordChanged;
+    const profileComplete = coordinatorProfile?.profileComplete ?? user.profileComplete;
+    const needsProfileInfo = !!passwordChanged && !profileComplete;
+    setShowChangePass(!passwordChanged);
+    setShowEditInfo(needsProfileInfo);
+
+    // Onboarding tours ay opt-in PER ACCOUNT, at ang "opt-in" mismo ay
+    // permanenteng naka-mark sa Firestore sa pamamagitan ng presensya ng
+    // `seenTours` field — hindi na sa in-memory ref lang tulad ng dati, kaya
+    // hindi na ito nawawala pag-refresh o bagong session. Isang beses lang
+    // itong ma-i-initialize: sa mismong sandaling ma-confirm nating kailangan
+    // pa palang punan ng account ang profile nito (ibig sabihin, tunay na
+    // bagong account). Kung wala kailanman itong `needsProfileInfo` na true
+    // (existing/returning account), hindi kailanman magkakaroon ng
+    // `seenTours` field — kaya manual "?" button lang pa rin sila, gaya ng
+    // dati.
+    if (needsProfileInfo && !coordinatorProfile?.seenTours) {
+      setDoc(doc(db, "coordinators", user.uid), { seenTours: {} }, { merge: true })
+        .catch((err) => console.error("Failed to initialize onboarding tour tracking:", err));
+      setCoordinatorProfile(prev => ({ ...(prev || {}), seenTours: {} }));
+    }
+  }, [user?.uid, coordinatorProfileLoaded, coordinatorProfile]);
+
+  // Auto-starts the walkthrough the moment the mandatory "complete your
+  // profile" pop-up appears — same one-time-per-mount pattern as the
+  // password gate. This only ever mounts once per account too: it shows
+  // exactly while passwordChanged is true and profileComplete is still
+  // false, and closes itself for good once PersonalInfoScreen saves.
+  const editInfoTourFired = useRef(false);
+  useEffect(() => {
+    if (!showEditInfo || editInfoTourFired.current) return;
+    editInfoTourFired.current = true;
+    const t = setTimeout(() => runTour(EDIT_INFO_STEPS), AUTO_TOUR_DELAY_MS);
+    return () => clearTimeout(t);
+  }, [showEditInfo]);
+
+  // ── Auto-tour: the screens that get one for a brand-new account ────────
+  // Same "new account" flow as before (forced password reset → forced
+  // profile completion → THEN screens become reachable), but generalized
+  // beyond just "dashboard" so Find Company gets its own one-time tour too:
+  // the first time a new account's session lands on Find Company, its steps
+  // (HELP_STEPS_BY_NAV.findcompany) auto-play once, independently of
+  // whether the dashboard tour already fired. Add another nav key here
+  // (with a matching HELP_STEPS_BY_NAV entry) to give any other screen this
+  // same treatment.
+  // Effective key for tour lookups: normally just the nav tab, but while a
+  // company post is open inside Find Company, its own steps take over (see
+  // findCompanySubView above).
+  // A report's detail modal can be opened from any screen (notifications),
+  // so it takes priority over every nav-based key.
+  const tourKey = viewingReport ? (reportResolveOpen ? "reportresolve" : "reportdetail")
+    : (activeNav === "findcompany" && findCompanySubView === "profile") ? "findcompanyprofile"
+    : (activeNav === "studentsaccount" && studentImportModalOpen) ? "studentsaccountimport"
+    : (activeNav === "studentsaccount" && studentAccountModalOpen) ? "studentsaccountmodal"
+    : (activeNav === "studentlist" && studentListModalOpen) ? "studentlistmodal"
+    : (activeNav === "companylist" && companyListSubView === "registered") ? "companylistregistered"
+    : (activeNav === "companylist" && companyListSubView === "review") ? "companylistreview"
+    : (activeNav === "messages" && messagesSubView === "chat") ? "messageschat"
+    : (activeNav === "accountprofile" && PROFILE_TOUR_KEYS[profileSubView]) ? PROFILE_TOUR_KEYS[profileSubView]
+    : activeNav;
+
+  const AUTO_TOUR_NAV_KEYS = Object.keys(HELP_STEPS_BY_NAV);
+  // Pumipigil lang sa double-fire sa loob ng maikling gap bago maisave sa
+  // Firestore/ma-reflect sa local state (hal. dahil sa React Strict Mode sa
+  // dev) — hindi ito ang "totoong" tracker, `seenTours` sa Firestore iyon.
+  const tourFiringRef = useRef({});
+  useEffect(() => {
+    if (!user?.uid || showChangePass || showEditInfo) return;
+    // Walang `seenTours` field = hindi ito onboarding account (existing/
+    // returning account) — manual "?" button lang, walang auto-tour kahit saan.
+    if (!coordinatorProfileLoaded || !coordinatorProfile?.seenTours) return;
+    if (!AUTO_TOUR_NAV_KEYS.includes(tourKey)) return;
+    if (coordinatorProfile.seenTours[tourKey] || tourFiringRef.current[tourKey]) return;
+    const steps = HELP_STEPS_BY_NAV[tourKey];
+    if (!steps || steps.length === 0) return;
+
+    tourFiringRef.current[tourKey] = true;
+    const t = setTimeout(() => {
+      runTour(steps);
+      // Permanenteng i-mark sa Firestore na nakita na ito ng account — kahit
+      // anong session/refresh/araw pa, hindi na ito muling lalabas dito.
+      setDoc(doc(db, "coordinators", user.uid), { seenTours: { [tourKey]: true } }, { merge: true })
+        .catch((err) => console.error("Failed to save seen tour state:", err));
+      setCoordinatorProfile(prev => ({
+        ...(prev || {}),
+        seenTours: { ...(prev?.seenTours || {}), [tourKey]: true },
+      }));
+    }, AUTO_TOUR_DELAY_MS);
+    return () => clearTimeout(t);
+  }, [tourKey, user?.uid, showChangePass, showEditInfo, coordinatorProfileLoaded, coordinatorProfile]);
 
   // Close drawer when resizing to desktop
   useEffect(() => { if (isDesktop) setDrawerOpen(false); }, [isDesktop]);
@@ -1523,7 +2906,7 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
     if (!id) return;
     setRecentVisited(prev => {
       const filtered = prev.filter(c => c.id !== id);
-      return [{ id, name: name || id, visitedAt: Date.now() }, ...filtered].slice(0, 5);
+      return [{ id, name: name || id, visitedAt: Date.now() }, ...filtered];
     });
   };
 
@@ -1540,6 +2923,14 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
 
   useEffect(() => {
     if (activeNav !== "messages") setMessageTarget(null);
+  }, [activeNav]);
+
+  useEffect(() => {
+    if (activeNav !== "studentsaccount") { setStudentAccountModalOpen(false); setStudentImportModalOpen(false); }
+    if (activeNav !== "studentlist") setStudentListModalOpen(false);
+    if (activeNav !== "companylist") setCompanyListSubView("list");
+    if (activeNav !== "messages") setMessagesSubView("list");
+    if (activeNav !== "accountprofile") setProfileSubView("main");
   }, [activeNav]);
 
   const handleViewCompany = (companyId) => {
@@ -1602,6 +2993,7 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
         }
         coordinator={user}
         onVisitCompany={({ id, name }) => trackVisit(id, name)}
+        onViewChange={setFindCompanySubView}
       />
     );
 
@@ -1610,6 +3002,8 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
         coordinatorUid={user?.uid}
         coordinatorColleges={coordinatorColleges}
         userIcon={themedUserIcon}
+        onViewingStudentChange={setStudentAccountModalOpen}
+        onImportModalChange={setStudentImportModalOpen}
       />
     );
 
@@ -1627,6 +3021,7 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
         onMessageStudent={handleMessageStudent}
         userIcon={themedUserIcon}
         viewIcon={themedViewIcon}
+        onViewingStudentChange={setStudentListModalOpen}
       />
     );
 
@@ -1636,6 +3031,7 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
         initialCompanyId={dashboardTarget === "companylist" ? dashboardCompanyId : null}
         onClearInitialCompany={() => { setDashboardCompanyId(null); setDashboardTarget(null); }}
         onBackToOrigin={() => navigate("dashboard")}
+        onViewChange={setCompanyListSubView}
       />
     );
 
@@ -1647,10 +3043,11 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
         openContact={messageTarget}
         onContactOpened={() => setMessageTarget(null)}
         userIcon={themedUserIcon}
+        onViewChange={setMessagesSubView}
       />
     );
 
-    if (activeNav === "accountprofile") return <CoordinatorAccountProfileScreen user={user} onLogout={onLogout} viewIcon={themedViewIcon} />;
+    if (activeNav === "accountprofile") return <CoordinatorAccountProfileScreen user={user} onLogout={onLogout} viewIcon={themedViewIcon} onViewChange={setProfileSubView} />;
     if (activeNav === "about") return <AboutUsScreen onBack={() => navigate("dashboard")} />;
 
     if (activeNav === "reportcompany") return (
@@ -1711,12 +3108,12 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
                   <div style={{ position: "fixed", inset: 0, zIndex: 40 }} onClick={() => setShowActivityDropdown(false)} />
                   <div style={(isMobile || isTablet) ? {
                       position: "fixed", top: "76px", right: "12px", width: "min(320px, 88vw)", maxHeight: "min(45vh, 340px)",
-                      overflowY: "auto", overflowX: "hidden", background: paper, border: `1px solid ${ink}`,
-                      borderRadius: "10px", boxShadow: "0 8px 24px rgba(0,0,0,0.18)", zIndex: 50,
+                      overflowY: "auto", overflowX: "hidden", background: paper, border: `1px solid ${hairline}`,
+                      borderRadius: "16px", boxShadow: "0 8px 24px rgba(0,0,0,0.18)", zIndex: 50,
                     } : {
                       position: "absolute", top: "48px", right: 0, width: "min(560px, 90vw)", maxHeight: "320px",
-                      overflowY: "auto", background: paper, border: `1px solid ${ink}`,
-                      borderRadius: "10px", boxShadow: "0 8px 24px rgba(0,0,0,0.18)", zIndex: 50,
+                      overflowY: "auto", background: paper, border: `1px solid ${hairline}`,
+                      borderRadius: "16px", boxShadow: "0 8px 24px rgba(0,0,0,0.18)", zIndex: 50,
                     }}>
                     <div style={{ padding: "12px 14px", borderBottom: `1px solid ${hairline}`, fontFamily: uiFont, fontWeight: 600, fontSize: "1rem", color: ink, position: "sticky", top: 0, background: paper }}>
                       Activity Log
@@ -1777,12 +3174,12 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
                   <div style={{ position: "fixed", inset: 0, zIndex: 40 }} onClick={() => setShowNotifDropdown(false)} />
                   <div style={(isMobile || isTablet) ? {
                       position: "fixed", top: "76px", right: "12px", width: "min(320px, 88vw)", maxHeight: "min(45vh, 320px)",
-                      overflowY: "auto", background: paper, border: `1px solid ${ink}`,
-                      borderRadius: "10px", boxShadow: "0 8px 24px rgba(0,0,0,0.18)", zIndex: 50,
+                      overflowY: "auto", background: paper, border: `1px solid ${hairline}`,
+                      borderRadius: "16px", boxShadow: "0 8px 24px rgba(0,0,0,0.18)", zIndex: 50,
                     } : {
                       position: "absolute", top: "48px", right: 0, width: "320px", maxHeight: "300px",
-                      overflowY: "auto", background: paper, border: `1px solid ${ink}`,
-                      borderRadius: "10px", boxShadow: "0 8px 24px rgba(0,0,0,0.18)", zIndex: 50,
+                      overflowY: "auto", background: paper, border: `1px solid ${hairline}`,
+                      borderRadius: "16px", boxShadow: "0 8px 24px rgba(0,0,0,0.18)", zIndex: 50,
                     }}>
                     <div style={{ padding: "12px 14px", borderBottom: `1px solid ${hairline}`, fontFamily: uiFont, fontWeight: 600, fontSize: "1rem", color: ink }}>
                       Notifications
@@ -1918,10 +3315,13 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
           </div>
         </div>
 
-      <FloatingHelpButton activeNav={activeNav} />
+      <FloatingHelpButton
+        activeNav={tourKey}
+        onBeforeTour={() => { setShowActivityDropdown(false); setShowNotifDropdown(false); setShowThemeDropdown(false); }}
+      />
 
       {viewingReport && (
-        <ReportDetailModal report={viewingReport} onClose={() => setViewingReport(null)} coordinatorUid={user?.uid} coordinatorName={user?.name} />
+        <ReportDetailModal report={viewingReport} onClose={() => { setViewingReport(null); setReportResolveOpen(false); }} coordinatorUid={user?.uid} coordinatorName={user?.name} onResolvePanelChange={setReportResolveOpen} />
       )}
 
       {/* ── Forced first-login flow: reset password, then complete profile ── */}
@@ -1934,6 +3334,8 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
         passLoading={passLoading} handleChangePassword={handleChangePassword}
         showNew={showNew} setShowNew={setShowNew}
         showConfirm={showConfirm} setShowConfirm={setShowConfirm}
+        onLogout={handleSetupLogout}
+        logoutBusy={setupLogoutBusy}
       />
       {showEditInfo && (
         <div style={{
@@ -1942,7 +3344,7 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
           display: "flex", alignItems: "center", justifyContent: "center",
           padding: "16px",
         }}>
-          <div style={{
+          <div id="editinfo-card" style={{
             width: "100%", maxWidth: "520px",
             height: "85vh",
             background: ink,
@@ -1956,6 +3358,8 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
               user={user}
               mandatory
               onSaved={() => setShowEditInfo(false)}
+              onLogout={handleSetupLogout}
+              logoutBusy={setupLogoutBusy}
             />
           </div>
         </div>
@@ -1964,8 +3368,21 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
   );
 };
 
-const ChangePasswordModal = ({ show, currentPass, setCurrentPass, newPass, setNewPass, confirmPass, setConfirmPass, passError, setPassError, passLoading, handleChangePassword, showNew, setShowNew, showConfirm, setShowConfirm }) => {
+const ChangePasswordModal = ({ show, currentPass, setCurrentPass, newPass, setNewPass, confirmPass, setConfirmPass, passError, setPassError, passLoading, handleChangePassword, showNew, setShowNew, showConfirm, setShowConfirm, onLogout, logoutBusy }) => {
   const [showCurrent, setShowCurrent] = useState(false);
+
+  // Auto-starts the walkthrough the moment this mandatory pop-up appears —
+  // fires once per mount (guarded by the ref, not by localStorage) because
+  // `show` only ever goes true→false ONE time in an account's life: once the
+  // password is saved, `passwordChanged` flips true in Firestore and this
+  // gate never shows again for this account.
+  const tourFired = useRef(false);
+  useEffect(() => {
+    if (!show || tourFired.current) return;
+    tourFired.current = true;
+    const t = setTimeout(() => runTour(CHANGE_PASSWORD_STEPS), AUTO_TOUR_DELAY_MS);
+    return () => clearTimeout(t);
+  }, [show]);
 
   if (!show) return null;
 
@@ -1997,7 +3414,7 @@ const ChangePasswordModal = ({ show, currentPass, setCurrentPass, newPass, setNe
 
           {/* Current Password */}
           <p style={{ fontFamily: uiFont, fontSize: "0.8rem", fontWeight: 700, color: inkText, marginBottom: "4px" }}>Current Password:</p>
-          <div style={{ position: "relative", marginBottom: "10px" }}>
+          <div id="cp-current-password" style={{ position: "relative", marginBottom: "10px" }}>
             <input type={showCurrent ? "text" : "password"} placeholder="Enter Current Password:" value={currentPass}
               onChange={e => { setCurrentPass(e.target.value); setPassError(""); }}
               onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); handleChangePassword(); } }}
@@ -2009,7 +3426,7 @@ const ChangePasswordModal = ({ show, currentPass, setCurrentPass, newPass, setNe
 
           {/* New Password */}
           <p style={{ fontFamily: uiFont, fontSize: "0.8rem", fontWeight: 700, color: inkText, marginBottom: "4px" }}>New Password:</p>
-          <div style={{ position: "relative", marginBottom: "10px" }}>
+          <div id="cp-new-password" style={{ position: "relative", marginBottom: "10px" }}>
             <input type={showNew ? "text" : "password"} placeholder="Enter New Password:" value={newPass}
               onChange={e => { setNewPass(e.target.value); setPassError(""); }}
               onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); handleChangePassword(); } }}
@@ -2017,11 +3434,13 @@ const ChangePasswordModal = ({ show, currentPass, setCurrentPass, newPass, setNe
             <EyeBtn show={showNew} onToggle={() => setShowNew(p => !p)} />
           </div>
 
-          <PasswordChecklist password={newPass} />
+          <div id="cp-checklist">
+            <PasswordChecklist password={newPass} />
+          </div>
 
           {/* Confirm New Password */}
           <p style={{ fontFamily: uiFont, fontSize: "0.8rem", fontWeight: 700, color: inkText, marginBottom: "4px" }}>Confirm New Password:</p>
-          <div style={{ position: "relative", marginBottom: "4px" }}>
+          <div id="cp-confirm-password" style={{ position: "relative", marginBottom: "4px" }}>
             <input type={showConfirm ? "text" : "password"} placeholder="Confirm New Password:" value={confirmPass}
               onChange={e => { setConfirmPass(e.target.value); setPassError(""); }}
               onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); handleChangePassword(); } }}
@@ -2031,11 +3450,21 @@ const ChangePasswordModal = ({ show, currentPass, setCurrentPass, newPass, setNe
 
           {passError && <p style={{ fontFamily: uiFont, fontSize: "0.78rem", color: color.danger, margin: "4px 0 8px 4px" }}>⚠️ {passError}</p>}
           <hr style={{ border: "none", borderTop: `1.5px solid ${hairline}`, margin: "16px 0" }} />
-          <div style={{ textAlign: "center" }}>
-            <button onClick={handleChangePassword} disabled={passLoading} className="pill-btn"
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "10px" }}>
+            <button id="cp-continue-btn" onClick={handleChangePassword} disabled={passLoading} className="pill-btn"
               style={{ background: ink, color: paper, border: "none", borderRadius: "24px", padding: "12px 48px", fontFamily: uiFont, fontWeight: 700, fontSize: "1.05rem", letterSpacing: "0.02em", cursor: passLoading ? "not-allowed" : "pointer", opacity: passLoading ? 0.7 : 1 }}>
               {passLoading ? "Saving…" : "Continue"}
             </button>
+            {onLogout && (
+              <button
+                type="button"
+                onClick={onLogout}
+                disabled={passLoading || logoutBusy}
+                style={{ background: "none", border: "none", fontFamily: uiFont, fontSize: "0.8rem", color: inkMuted, textDecoration: "underline", cursor: passLoading || logoutBusy ? "not-allowed" : "pointer", padding: "4px" }}
+              >
+                {logoutBusy ? "Logging out…" : "Log out"}
+              </button>
+            )}
           </div>
         </div>
       </div>

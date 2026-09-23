@@ -420,6 +420,7 @@ const CompanyCoordinatorsScreen = ({ embedded, user, onNavigateToMessages }) => 
 
         <div style={{ display: "flex", alignItems: "center", gap: "8px", width: isMobile ? "100%" : "auto" }}>
           <div
+            id="ccoord-search-bar"
             style={{
               flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: "9px",
               background: color.wine900, border: `1px solid ${border}`,
@@ -451,7 +452,7 @@ const CompanyCoordinatorsScreen = ({ embedded, user, onNavigateToMessages }) => 
             )}
           </div>
 
-          <div ref={filterRef} style={{ position: "relative", flexShrink: 0 }}>
+          <div id="ccoord-filter-btn" ref={filterRef} style={{ position: "relative", flexShrink: 0 }}>
             <button
               onClick={() => setShowFilter(v => !v)}
               aria-label="Filter coordinators"
@@ -495,7 +496,7 @@ const CompanyCoordinatorsScreen = ({ embedded, user, onNavigateToMessages }) => 
         </div>
       </header>
 
-      <main style={{ flex: 1, minHeight: 0, overflowY: "auto", overflowX: "hidden", padding: isMobile ? "18px 16px 28px" : "24px 32px 36px" }}>
+      <main id="ccoord-list" style={{ flex: 1, minHeight: 0, overflowY: "auto", overflowX: "hidden", padding: isMobile ? "18px 16px 28px" : "24px 32px 36px" }}>
         {!loading && scoped.length > 0 && (
           <div style={{
             display: "flex", alignItems: "center", justifyContent: "space-between",
