@@ -64,15 +64,118 @@
     <!-- Theme -->
     <meta name="theme-color" content="#1e293b" />
 
-    <!-- Favicon
-         The .ico covers the address bar and tab (16/32/48px inside one file).
-         The PNGs are what fix the blurry icon in Chrome's site dropdown,
-         bookmarks and new-tab tiles: without them Chrome has only the small
-         .ico to work with and stretches it. The apple-touch-icon is used when
-         the site is saved to an iPhone/iPad home screen. -->
+    <!-- Favicon (PNG, transparent background)
+         Two sets: the black mark for light tab bars, the white one for dark
+         mode. The logo is a single colour, so one transparent file would
+         disappear on one of the two backgrounds. Browsers that ignore the
+         media attribute fall back to favicon.ico, which has a white tile and
+         works everywhere.
+         The PNGs are listed first so they win where both are understood. -->
+    <link rel="icon" type="image/png" sizes="96x96" href="%PUBLIC_URL%/favicon-96.png" media="(prefers-color-scheme: light)" />
+    <link rel="icon" type="image/png" sizes="48x48" href="%PUBLIC_URL%/favicon-48.png" media="(prefers-color-scheme: light)" />
+    <link rel="icon" type="image/png" sizes="32x32" href="%PUBLIC_URL%/favicon-32.png" media="(prefers-color-scheme: light)" />
+    <link rel="icon" type="image/png" sizes="16x16" href="%PUBLIC_URL%/favicon-16.png" media="(prefers-color-scheme: light)" />
+
+    <link rel="icon" type="image/png" sizes="96x96" href="%PUBLIC_URL%/favicon-96-dark.png" media="(prefers-color-scheme: dark)" />
+    <link rel="icon" type="image/png" sizes="48x48" href="%PUBLIC_URL%/favicon-48-dark.png" media="(prefers-color-scheme: dark)" />
+    <link rel="icon" type="image/png" sizes="32x32" href="%PUBLIC_URL%/favicon-32-dark.png" media="(prefers-color-scheme: dark)" />
+    <link rel="icon" type="image/png" sizes="16x16" href="%PUBLIC_URL%/favicon-16-dark.png" media="(prefers-color-scheme: dark)" />
+
+    <!-- Fallback + the larger icons used by bookmarks, tab tiles and home screens -->
     <link rel="icon" href="%PUBLIC_URL%/favicon.ico" sizes="any" />
     <link rel="icon" type="image/png" sizes="192x192" href="%PUBLIC_URL%/ojtern_192.png" />
     <link rel="icon" type="image/png" sizes="512x512" href="%PUBLIC_URL%/ojtern_512.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="%PUBLIC_URL%/apple-touch-icon.png" />
+
+    <!-- Manifest -->
+    <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
+  </head>
+
+  <body>
+    <noscript>
+      You need to enable JavaScript to run this app.
+    </noscript>
+
+    <div id="root"></div>
+  </body>
+</html><!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>
+      OJTERN
+    </title>
+
+    <!-- SEO -->
+    <meta
+      name="description"
+      content="OJTERN connects students, companies, and professionals through training, opportunities, and career development."
+    />
+
+    <!-- Open Graph / Facebook / Messenger -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://ojtern.com/" />
+    <meta
+      property="og:title"
+      content="OJTERN — Online Job Training and Employment Resource Network"
+    />
+    <meta
+      property="og:description"
+      content="OJTERN connects students, companies, and professionals through training, opportunities, and career development."
+    />
+    <meta
+      property="og:image"
+      content="https://ojtern.com/ojtern-preview.png"
+    />
+    <meta
+      property="og:image:secure_url"
+      content="https://ojtern.com/ojtern-preview.png"
+    />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="OJTERN — Online Job Training and Employment Resource Network"
+    />
+    <meta property="og:site_name" content="OJTERN" />
+
+    <!-- Twitter / X -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta
+      name="twitter:title"
+      content="OJTERN — Online Job Training and Employment Resource Network"
+    />
+    <meta
+      name="twitter:description"
+      content="OJTERN connects students, companies, and professionals through training, opportunities, and career development."
+    />
+    <meta
+      name="twitter:image"
+      content="https://ojtern.com/ojtern-preview.png"
+    />
+    <meta
+      name="twitter:image:alt"
+      content="OJTERN — Online Job Training and Employment Resource Network"
+    />
+
+    <!-- Theme -->
+    <meta name="theme-color" content="#1e293b" />
+
+    <!-- Favicon
+         ONLY the SVG plus the .ico fallback are declared here. Chromium picks
+         the largest matching <link rel="icon"> rather than honouring media="",
+         so listing ojtern_512.png (white background) here made it win and put a
+         white tile behind the logo in the tab. Those larger icons are still
+         available to bookmarks, tab tiles and home screens through
+         manifest.json, which is what uses them.
+         favicon.svg carries both the black and the white mark with a
+         prefers-color-scheme query inside the file, so the tab icon stays
+         visible on a light or a dark tab bar with nothing behind it. -->
+    <link rel="icon" type="image/svg+xml" href="%PUBLIC_URL%/favicon.svg" />
+    <link rel="alternate icon" href="%PUBLIC_URL%/favicon.ico" sizes="any" />
     <link rel="apple-touch-icon" sizes="180x180" href="%PUBLIC_URL%/apple-touch-icon.png" />
 
     <!-- Manifest -->

@@ -38,6 +38,15 @@ const resendApiKey = defineSecret("RESEND_API_KEY");
 const EMAIL_FROM      = process.env.EMAIL_FROM || "OJTern <noreply@ojtern.com>";
 const EMAIL_REPLY_TO  = process.env.EMAIL_REPLY_TO || "support@ojtern.com";
 
+// Logo shown at the top of every email. It must be a PUBLIC https URL: a local
+// React asset path (e.g. ../icons/ojtern.png) doesn't exist for a mail client
+// reading the message outside the app. Square PNG, 256–512px, and it may be
+// dark — the header places it on a white tile so it stays visible.
+// To change it: upload the new file (Cloudinary, Firebase Storage, or any
+// public host), paste its URL here, and redeploy the functions.
+const EMAIL_LOGO_URL = process.env.EMAIL_LOGO_URL
+  || "https://ojtern.com/email-logo-512.png";
+
 // studentPersonalEmails/{email} → { uid }: written by the app when a student
 // saves a personal (recovery) email. See requestStudentPasswordReset below.
 const STUDENT_PERSONAL_EMAIL_INDEX = "studentPersonalEmails";
@@ -361,11 +370,7 @@ exports.sendApplicationStatusEmail = onDocumentUpdated(
 
     const currentYear = new Date().getFullYear();
     const loginUrl = "https://ojtern.com/signin";
-    // Publicly hosted on Cloudinary (same account used for uploads
-    // elsewhere in the app — see cloudinary.config below) — a local React
-    // asset path (e.g. ../icons/ojtern.png) wouldn't resolve for a mail
-    // client reading this HTML outside the app.
-    const logoUrl = "https://res.cloudinary.com/doalndt5l/image/upload/v1787477580/ojtern_512_hdruhv.png";
+    const logoUrl = EMAIL_LOGO_URL;
 
     const html = `
       <!DOCTYPE html>
@@ -555,7 +560,7 @@ exports.sendApplicationSubmittedEmail = onDocumentCreated(
 
     const currentYear = new Date().getFullYear();
     const loginUrl = "https://ojtern.com/signin";
-    const logoUrl = "https://res.cloudinary.com/doalndt5l/image/upload/v1787477580/ojtern_512_hdruhv.png";
+    const logoUrl = EMAIL_LOGO_URL;
     const positionLineHtml = positionTitle
       ? `<p style="margin:0 0 20px; font-size:15px; color:#333; line-height:1.6;">Position: <strong>${positionTitle}</strong></p>`
       : "";
