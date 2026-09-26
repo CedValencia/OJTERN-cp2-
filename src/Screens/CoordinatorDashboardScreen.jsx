@@ -475,7 +475,7 @@ const FontImport = () => (
 const navItems = [
   { key: "dashboard",         label: "Dashboard",          icon: dashboardIcon },
   { key: "findcompany",       label: "Find Company",      icon: findIcon },
-  { key: "studentsaccount",      label: "Students Account",      icon: studentListIcon },
+  { key: "studentsaccount",      label: "Student Accounts",      icon: studentListIcon },
   { key: "studentlist", label: "Student List", icon: studentPlacementIcon },  
   { key: "companylist",       label: "Company List",       icon: companyListIcon },
   { key: "reportcompany",     label: "Report List",     icon: reportCompanyIcon },
@@ -1785,6 +1785,36 @@ const HELP_STEPS_BY_NAV = {
       popover: {
         title: "Student Details",
         description: "Student ID, sex, college, program, and year & section on file for this student.",
+      },
+    },
+  ],
+    about: [
+    {
+      element: "#cabout-story",
+      popover: {
+        title: "Our Story",
+        description: "Learn what OJTern is, what it does, and the mission behind it.",
+      },
+    },
+    {
+      element: "#cabout-team",
+      popover: {
+        title: "The Team",
+        description: "Meet the team behind OJTern.",
+      },
+    },
+    {
+      element: "#cabout-features",
+      popover: {
+        title: "What OJTern Offers",
+        description: "A quick look at what OJTern gives students, coordinators, and companies.",
+      },
+    },
+    {
+      element: "#cabout-contact",
+      popover: {
+        title: "Need Help?",
+        description: "Have questions or feedback? Reach out to the OJTern team any time.",
       },
     },
   ],
