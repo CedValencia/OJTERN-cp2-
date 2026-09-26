@@ -1231,10 +1231,6 @@ const ResolveActionModal = ({
               border: `1.5px solid ${line}`, padding: "10px 12px",
               fontFamily: font.ui, fontSize: "0.82rem", color: ink,
               resize: "vertical", outline: "none", background: color.white,
-              // border-box: without it, width 100% + padding + border made the
-              // textarea ~27px wider than its box, so the help tour's highlight
-              // (sized to #rc-resolve-notes) cut it off on the right. display:
-              // block removes the inline-element gap under it.
               boxSizing: "border-box", display: "block",
             }}
           />

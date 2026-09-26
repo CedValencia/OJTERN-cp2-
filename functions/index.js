@@ -164,7 +164,7 @@ exports.sendApprovalEmail = onDocumentUpdated(
         ? `
         <table role="presentation" cellpadding="0" cellspacing="0" style="margin: 20px 0;">
           <tr>
-            <td style="background:#8B0000; border-radius:24px;">
+            <td style="background:#111111; border-radius:24px;">
               <a href="${verifyUrl}" style="display:inline-block; padding:13px 32px; font-family:Arial, Helvetica, sans-serif; font-size:15px; font-weight:bold; color:#ffffff; text-decoration:none; border-radius:24px;">
                 Activate
               </a>
@@ -335,14 +335,16 @@ exports.sendApplicationStatusEmail = onDocumentUpdated(
     // Same colors CompanyApplicantsScreen.jsx uses for the status badge in
     // the app, so the email visually matches what the student would see
     // after logging in — see STATUS_COLORS there.
+    // Greyscale, to match the app's black-and-white theme. The status word
+    // itself carries the meaning, so no colour coding is needed.
     const STATUS_BADGE_COLOR = {
-      "Accepted":     "#4CAF50",
-      "Declined":     "#8B0000",
-      "Pending":      "#C8B800",
-      "In Review":    "#1A3A8B",
-      "To Interview": "#6B21A8",
+      "Accepted":     "#111111",
+      "Declined":     "#111111",
+      "Pending":      "#6B6B6B",
+      "In Review":    "#3D3D3D",
+      "To Interview": "#3D3D3D",
     };
-    const badgeColor = STATUS_BADGE_COLOR[newStatus] || "#8B0000";
+    const badgeColor = STATUS_BADGE_COLOR[newStatus] || "#111111";
 
     // Status-specific message — phrasing follows the existing
     // STATUS_NOTIF_TEXT used for the in-app notification (same file), just
@@ -381,8 +383,17 @@ exports.sendApplicationStatusEmail = onDocumentUpdated(
 
                 <!-- Header -->
                 <tr>
-                  <td style="background:linear-gradient(180deg, #A32424 0%, #590101 100%); background-color:#590101; padding:28px 24px; text-align:center;">
-                    <img src="${logoUrl}" alt="OJTern" width="56" height="56" style="display:block; margin:0 auto 8px; border-radius:12px;" />
+                  <td style="background:#111111; padding:28px 24px; text-align:center;">
+                    <!-- The logo sits on a white tile: it's a dark mark, so on the
+                         black header (and in Gmail's dark mode) it would otherwise
+                         disappear into the background. -->
+                    <table role="presentation" cellpadding="0" cellspacing="0" align="center" style="margin:0 auto 10px;">
+                      <tr>
+                        <td style="background:#ffffff; border-radius:14px; padding:8px; line-height:0;">
+                          <img src="${logoUrl}" alt="OJTern" width="48" height="48" style="display:block; border-radius:10px;" />
+                        </td>
+                      </tr>
+                    </table>
                     <span style="font-family:Arial, Helvetica, sans-serif; font-size:22px; font-weight:bold; color:#ffffff; letter-spacing:0.03em;">OJTern</span>
                   </td>
                 </tr>
@@ -414,7 +425,7 @@ exports.sendApplicationStatusEmail = onDocumentUpdated(
                     <!-- CTA -->
                     <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 28px;">
                       <tr>
-                        <td style="background:#8B0000; border-radius:24px;">
+                        <td style="background:#111111; border-radius:24px;">
                           <a href="${loginUrl}" style="display:inline-block; padding:13px 30px; font-size:15px; font-weight:bold; color:#ffffff; text-decoration:none;">
                             View My Application
                           </a>
@@ -566,8 +577,17 @@ exports.sendApplicationSubmittedEmail = onDocumentCreated(
 
                 <!-- Header -->
                 <tr>
-                  <td style="background:linear-gradient(180deg, #A32424 0%, #590101 100%); background-color:#590101; padding:28px 24px; text-align:center;">
-                    <img src="${logoUrl}" alt="OJTern" width="56" height="56" style="display:block; margin:0 auto 8px; border-radius:12px;" />
+                  <td style="background:#111111; padding:28px 24px; text-align:center;">
+                    <!-- The logo sits on a white tile: it's a dark mark, so on the
+                         black header (and in Gmail's dark mode) it would otherwise
+                         disappear into the background. -->
+                    <table role="presentation" cellpadding="0" cellspacing="0" align="center" style="margin:0 auto 10px;">
+                      <tr>
+                        <td style="background:#ffffff; border-radius:14px; padding:8px; line-height:0;">
+                          <img src="${logoUrl}" alt="OJTern" width="48" height="48" style="display:block; border-radius:10px;" />
+                        </td>
+                      </tr>
+                    </table>
                     <span style="font-family:Arial, Helvetica, sans-serif; font-size:22px; font-weight:bold; color:#ffffff; letter-spacing:0.03em;">OJTern</span>
                   </td>
                 </tr>
@@ -587,7 +607,7 @@ exports.sendApplicationSubmittedEmail = onDocumentCreated(
                     <!-- Status badge -->
                     <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 20px;">
                       <tr>
-                        <td style="background:#C8B800; border-radius:20px; padding:8px 20px;">
+                        <td style="background:#6B6B6B; border-radius:20px; padding:8px 20px;">
                           <span style="font-size:13px; font-weight:bold; color:#ffffff; letter-spacing:0.04em; text-transform:uppercase;">Pending</span>
                         </td>
                       </tr>
@@ -600,7 +620,7 @@ exports.sendApplicationSubmittedEmail = onDocumentCreated(
                     <!-- CTA -->
                     <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 28px;">
                       <tr>
-                        <td style="background:#8B0000; border-radius:24px;">
+                        <td style="background:#111111; border-radius:24px;">
                           <a href="${loginUrl}" style="display:inline-block; padding:13px 30px; font-size:15px; font-weight:bold; color:#ffffff; text-decoration:none;">
                             View My Application
                           </a>
@@ -757,7 +777,7 @@ exports.sendCoordinatorInviteEmail = onDocumentCreated(
       <p>${copy.body(invite)}</p>
       <p>Click below to accept the invitation and set up your own account:</p>
       <p>
-        <a href="${acceptUrl}" style="display:inline-block;padding:12px 24px;background:#8B0000;color:#ffffff;text-decoration:none;border-radius:6px;">
+        <a href="${acceptUrl}" style="display:inline-block;padding:12px 24px;background:#111111;color:#ffffff;text-decoration:none;border-radius:24px;">
           Accept Invitation
         </a>
       </p>
@@ -885,7 +905,7 @@ exports.resendCompanyActivation = onCall(
         <p>Here's a fresh activation link for your company account. This one replaces any earlier link, which may have expired or already been used.</p>
         <table role="presentation" cellpadding="0" cellspacing="0" style="margin: 20px 0;">
           <tr>
-            <td style="background:#8B0000; border-radius:24px;">
+            <td style="background:#111111; border-radius:24px;">
               <a href="${verifyUrl}" style="display:inline-block; padding:13px 32px; font-family:Arial, Helvetica, sans-serif; font-size:15px; font-weight:bold; color:#ffffff; text-decoration:none; border-radius:24px;">
                 Activate
               </a>
@@ -1026,7 +1046,7 @@ exports.requestStudentPasswordReset = onCall(
         <p>We received a request to reset the password for your OJTern student account${student.studentId ? ` (Student ID <strong>${student.studentId}</strong>)` : ""}.</p>
         <table role="presentation" cellpadding="0" cellspacing="0" style="margin: 20px 0;">
           <tr>
-            <td style="background:#8B0000; border-radius:24px;">
+            <td style="background:#111111; border-radius:24px;">
               <a href="${resetUrl}" style="display:inline-block; padding:13px 32px; font-family:Arial, Helvetica, sans-serif; font-size:15px; font-weight:bold; color:#ffffff; text-decoration:none; border-radius:24px;">
                 Reset Password
               </a>

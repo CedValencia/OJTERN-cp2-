@@ -64,8 +64,16 @@
     <!-- Theme -->
     <meta name="theme-color" content="#1e293b" />
 
-    <!-- Favicon -->
-    <link rel="icon" href="%PUBLIC_URL%/favicon.ico" />
+    <!-- Favicon
+         The .ico covers the address bar and tab (16/32/48px inside one file).
+         The PNGs are what fix the blurry icon in Chrome's site dropdown,
+         bookmarks and new-tab tiles: without them Chrome has only the small
+         .ico to work with and stretches it. The apple-touch-icon is used when
+         the site is saved to an iPhone/iPad home screen. -->
+    <link rel="icon" href="%PUBLIC_URL%/favicon.ico" sizes="any" />
+    <link rel="icon" type="image/png" sizes="192x192" href="%PUBLIC_URL%/ojtern_192.png" />
+    <link rel="icon" type="image/png" sizes="512x512" href="%PUBLIC_URL%/ojtern_512.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="%PUBLIC_URL%/apple-touch-icon.png" />
 
     <!-- Manifest -->
     <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
