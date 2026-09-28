@@ -915,7 +915,12 @@ const FilterPanel = ({ selectedIndustries, setSelectedIndustries, citySearch, se
 
 // ─── COMPANY CARD ─────────────────────────────────────────────────────────────
 const CompanyCard = ({ company, onViewProfile }) => {
-  const isActive = company.disabled === false || company.active !== false;
+  // An expired post can't be applied to, so it shouldn't open either: the card
+  // greys out and stops responding, the same as a disabled post. It stays in
+  // the list (with its "Expired" date) rather than vanishing, so a student who
+  // remembers seeing it can tell what happened.
+  const postExpired = isPostExpired(company);
+  const isActive = (company.disabled === false || company.active !== false) && !postExpired;
   const displayName = company.companyName || company.name || "Unnamed company";
   const displayIndustry = industriesOf(company).join(", ") || "—";
   const displayLocation = typeof company.location === "object"
@@ -930,7 +935,7 @@ const CompanyCard = ({ company, onViewProfile }) => {
 
   // Expiration is worth seeing before opening a post — an expired one can't be
   // applied to. Posts with no expirationDate simply don't show the line.
-  const expired = isPostExpired(company);
+  const expired = postExpired;
   const expiryDate = formatDateStr(company.expirationDate);
 
   const meta = { fontFamily: font.ui, ...type.helper, color: inkMuted };
@@ -971,7 +976,7 @@ const CompanyCard = ({ company, onViewProfile }) => {
           onClick={() => isActive && onViewProfile(company)}
           style={{ fontFamily: font.ui, ...type.helper, fontWeight: 500, color: isActive ? ink : inkFaint, cursor: isActive ? "pointer" : "default", flexShrink: 0 }}
         >
-          View post
+          {postExpired ? "Closed" : "View post"}
         </span>
       </div>
     </div>

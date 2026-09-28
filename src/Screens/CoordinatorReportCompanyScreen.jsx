@@ -6,7 +6,7 @@ import {
   logActivity,
   applyCompanyEnforcement,
   recordCompanyAction,
-  notifyCompany,
+  notifyCompanyAccount,
   getCompanyActionHistory,
 } from "./AuthService";
 
@@ -585,6 +585,17 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid, coordinator
   const [otherActionText, setOtherActionText] = useState("");
   const [resolutionNotes, setResolutionNotes] = useState("");
   const [suspensionDays, setSuspensionDays]   = useState("7");
+  const suspensionDaysNum = Number(suspensionDays);
+  // A suspension is a temporary hold, not a ban — anything beyond a month is a
+  // Block. Typing is capped here because min/max on a number input only
+  // constrains the arrows; a pasted "10000000000" would otherwise go straight
+  // through to applyCompanyEnforcement.
+  const suspensionDaysError =
+    selectedAction !== "Suspend Account" ? ""
+    : !String(suspensionDays).trim() ? "Enter the number of days."
+    : !Number.isInteger(suspensionDaysNum) || suspensionDaysNum < SUSPENSION_MIN_DAYS || suspensionDaysNum > SUSPENSION_MAX_DAYS
+      ? `Enter a whole number from ${SUSPENSION_MIN_DAYS} to ${SUSPENSION_MAX_DAYS} days.`
+      : "";
   const [savedAction, setSavedAction]         = useState(report?.resolutionAction || "");
   const [savedNotes, setSavedNotes]           = useState(report?.resolutionNotes || "");
   const [enforcementNote, setEnforcementNote] = useState(null);
@@ -648,7 +659,7 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid, coordinator
   const canConfirmResolve = selectedAction
     && resolutionNotes.trim().length > 0
     && (selectedAction !== "Others" || otherActionText.trim().length > 0)
-    && (selectedAction !== "Suspend Account" || Number(suspensionDays) > 0);
+    && (selectedAction !== "Suspend Account" || !suspensionDaysError);
 
   const handleDismiss = async () => {
     if (working || status !== "pending") return;
@@ -696,7 +707,7 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid, coordinator
       // Actually enforce the action on the company itself, not just the report.
       let enforcementResult = null;
       try {
-        enforcementResult = await applyCompanyEnforcement(report.companyId, finalAction, coordinatorUid, suspensionDays);
+        enforcementResult = await applyCompanyEnforcement(report.companyId, finalAction, coordinatorUid, clampSuspensionDays(suspensionDays));
         if (enforcementResult) {
           setCompanyStatus(enforcementResult.status);
           if (enforcementResult.status === "blocked" || enforcementResult.status === "suspended") {
@@ -741,13 +752,15 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid, coordinator
 
       // Notify the company — reuses the existing chat/messaging system.
       try {
-        await notifyCompany(
+        // Goes to the company's notifications, not the chat thread — a
+        // coordinator decision is an account notice, not a message.
+        await notifyCompanyAccount(report.companyId, {
+          title: `Account update: ${finalAction}`,
+          body: buildNotificationText(finalAction, resolutionNotes.trim()),
+          type: "report_resolution",
+          reportId: report.id || null,
           coordinatorUid,
-          coordinatorName || "Coordinator",
-          report.companyId,
-          report.company,
-          buildNotificationText(finalAction, resolutionNotes.trim()),
-        );
+        });
       } catch (err) {
         console.error("Failed to notify company:", err);
       }
@@ -779,7 +792,7 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid, coordinator
       case "Suspend Account":
         return {
           title: "Suspend this company?",
-          message: `Are you sure you want to suspend ${report.company} for ${Number(suspensionDays) > 0 ? suspensionDays : 7} day(s)? They will not be able to log in until the suspension ends.`,
+          message: `Are you sure you want to suspend ${report.company} for ${clampSuspensionDays(suspensionDays)} day(s)? They will not be able to log in until the suspension ends.`,
           confirmLabel: "SUSPEND ACCOUNT",
         };
       case "Require Correction":
@@ -1022,6 +1035,7 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid, coordinator
           setResolutionNotes={setResolutionNotes}
           suspensionDays={suspensionDays}
           setSuspensionDays={setSuspensionDays}
+          suspensionDaysError={suspensionDaysError}
           working={working}
           canConfirm={canConfirmResolve}
           onCancel={() => { setResolvingPanel(false); setSelectedAction(null); setOtherActionText(""); setResolutionNotes(""); setSuspensionDays("7"); }}
@@ -1115,7 +1129,7 @@ const ResolveActionModal = ({
   availableActions, selectedAction, setSelectedAction,
   otherActionText, setOtherActionText,
   resolutionNotes, setResolutionNotes,
-  suspensionDays, setSuspensionDays,
+  suspensionDays, setSuspensionDays, suspensionDaysError = "",
   working, canConfirm,
   onCancel, onConfirm,
 }) => (
@@ -1197,24 +1211,40 @@ const ResolveActionModal = ({
           {selectedAction === "Suspend Account" && (
             <div style={{ marginBottom: "16px" }}>
               <p style={{ fontFamily: font.ui, fontSize: "0.9rem", color: ink, marginBottom: "6px" }}>
-                Suspend for how many days?
+                Suspend for how many days? ({SUSPENSION_MIN_DAYS}–{SUSPENSION_MAX_DAYS})
               </p>
               <input
                 type="number"
-                min="1"
+                inputMode="numeric"
+                min={SUSPENSION_MIN_DAYS}
+                max={SUSPENSION_MAX_DAYS}
+                step="1"
                 value={suspensionDays}
-                onChange={e => setSuspensionDays(e.target.value)}
+                onChange={e => {
+                  // Digits only, and the whole number is clamped to the
+                  // maximum — so a pasted 10000000000 becomes 31, not 10.
+                  const digits = e.target.value.replace(/\D/g, "").slice(0, 10);
+                  if (digits === "") { setSuspensionDays(""); return; }
+                  setSuspensionDays(String(Math.min(Number(digits), SUSPENSION_MAX_DAYS) || SUSPENSION_MIN_DAYS));
+                }}
                 placeholder="e.g. 7"
+                aria-invalid={!!suspensionDaysError}
                 style={{
                   width: "120px", borderRadius: "10px",
-                  border: `1.5px solid ${line}`, padding: "10px 12px",
+                  border: `1.5px solid ${suspensionDaysError ? color.danger : line}`, padding: "10px 12px",
                   fontFamily: font.ui, fontSize: "0.82rem", color: ink,
                   outline: "none", background: color.white, boxSizing: "border-box",
                 }}
               />
-              <p style={{ fontFamily: font.ui, fontSize: "0.7rem", color: inkMuted, marginTop: "6px" }}>
-                Account auto-reactivates once this period ends.
-              </p>
+              {suspensionDaysError ? (
+                <p role="alert" style={{ fontFamily: font.ui, fontSize: "0.7rem", color: color.danger, marginTop: "6px" }}>
+                  {suspensionDaysError}
+                </p>
+              ) : (
+                <p style={{ fontFamily: font.ui, fontSize: "0.7rem", color: inkMuted, marginTop: "6px" }}>
+                  Account auto-reactivates once this period ends. For anything longer, use Block Account.
+                </p>
+              )}
             </div>
           )}
 
@@ -1314,7 +1344,30 @@ const StatusBadge = ({ status }) => {
 };
 
 // ── Report Company Screen ─────────────────────────────────────────────────────
-const CoordinatorReportCompanyScreen = ({ reports = [], onViewReport }) => (
+// A suspension is a temporary hold: 1 day minimum, one month maximum. Anything
+// longer is a Block, which has no end date. Both the input and the value handed
+// to applyCompanyEnforcement are held to this range.
+const SUSPENSION_MIN_DAYS = 1;
+const SUSPENSION_MAX_DAYS = 31;
+const SUSPENSION_DEFAULT_DAYS = 7;
+const clampSuspensionDays = (value) => {
+  const n = Math.floor(Number(value));
+  if (!Number.isFinite(n) || n < SUSPENSION_MIN_DAYS) return SUSPENSION_DEFAULT_DAYS;
+  return Math.min(n, SUSPENSION_MAX_DAYS);
+};
+
+// `reports` are the ones in this coordinator's assigned industries;
+// `otherReports` is everything else, including companies whose industry
+// matches no coordinator at all. Those used to be invisible to everyone (the
+// scope fails closed by design), which meant a serious report about an
+// unassigned company could sit unread — the second tab makes them reachable
+// without mixing them into the default view.
+const CoordinatorReportCompanyScreen = ({ reports = [], otherReports = [], onViewReport }) => {
+  const [tab, setTab] = useState("mine");
+  const shown = tab === "all" ? [...reports, ...otherReports] : reports;
+  const pendingOther = otherReports.filter(r => r.status !== "resolved" && r.status !== "dismissed").length;
+
+  return (
   <>
     <ResponsiveStyles />
     <div className="rc-screen" style={{ background: page, color: ink }}>
@@ -1328,7 +1381,7 @@ const CoordinatorReportCompanyScreen = ({ reports = [], onViewReport }) => (
         <div
           className="rc-total-badge"
           id="rc-total-badge"
-          aria-label={`Total reports: ${reports.length}`}
+          aria-label={`Total reports: ${shown.length}`}
         >
           <div style={{
             fontFamily: font.ui,
@@ -1336,7 +1389,7 @@ const CoordinatorReportCompanyScreen = ({ reports = [], onViewReport }) => (
             color: ink,
             lineHeight: 1,
           }}>
-            {reports.length}
+            {shown.length}
           </div>
 
           <div style={{
@@ -1351,6 +1404,38 @@ const CoordinatorReportCompanyScreen = ({ reports = [], onViewReport }) => (
         </div>
       </div>
 
+      {otherReports.length > 0 && (
+        <div role="tablist" aria-label="Report scope" style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "14px" }}>
+          {[
+            { key: "mine", label: "My industries", count: reports.length },
+            { key: "all",  label: "All reports",   count: reports.length + otherReports.length },
+          ].map(t => {
+            const on = tab === t.key;
+            return (
+              <button
+                key={t.key}
+                role="tab"
+                aria-selected={on}
+                onClick={() => setTab(t.key)}
+                style={{
+                  border: `1px solid ${on ? ink : line}`, background: on ? ink : color.white,
+                  color: on ? color.white : inkBody, borderRadius: "999px",
+                  padding: "7px 16px", cursor: "pointer", fontFamily: font.ui,
+                  fontSize: "0.8rem", fontWeight: 600,
+                  display: "inline-flex", alignItems: "center", gap: "8px", maxWidth: "100%",
+                }}
+              >
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.label}</span>
+                <span style={{ background: on ? "rgba(255,255,255,0.22)" : color.wine700, color: on ? color.white : inkMuted, borderRadius: "999px", padding: "1px 8px", fontSize: "0.72rem", fontWeight: 700 }}>{t.count}</span>
+                {t.key === "all" && pendingOther > 0 && !on && (
+                  <span title={`${pendingOther} unresolved outside your industries`} style={{ width: "7px", height: "7px", borderRadius: "50%", background: color.danger, flexShrink: 0 }} />
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       <div id="rc-report-list">
         {/* ── Desktop: table ── */}
         <div className="rc-table-wrap">
@@ -1364,7 +1449,7 @@ const CoordinatorReportCompanyScreen = ({ reports = [], onViewReport }) => (
             </thead>
 
             <tbody>
-              {reports.map((r, i) => (
+              {shown.map((r, i) => (
                 <tr key={r.id || i}>
                   <td className="rc-td">{r.company}</td>
                   <td className="rc-td">{r.concern}</td>
@@ -1378,7 +1463,7 @@ const CoordinatorReportCompanyScreen = ({ reports = [], onViewReport }) => (
                 </tr>
               ))}
 
-              {reports.length === 0 && (
+              {shown.length === 0 && (
                 <tr>
                   <td colSpan={5} style={{
                     padding: "60px 20px",
@@ -1394,7 +1479,7 @@ const CoordinatorReportCompanyScreen = ({ reports = [], onViewReport }) => (
 
         {/* ── Mobile: cards ── */}
         <div className="rc-card-list">
-          {reports.map((r, i) => (
+          {shown.map((r, i) => (
             <div key={r.id || i} className="rc-card">
               <div className="rc-card-top">
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -1432,7 +1517,7 @@ const CoordinatorReportCompanyScreen = ({ reports = [], onViewReport }) => (
             </div>
           ))}
 
-          {reports.length === 0 && (
+          {shown.length === 0 && (
             <div style={{ paddingTop: "60px" }}>
               <EmptyState />
             </div>
@@ -1442,6 +1527,7 @@ const CoordinatorReportCompanyScreen = ({ reports = [], onViewReport }) => (
 
     </div>
   </>
-);
+  );
+};
 
 export default CoordinatorReportCompanyScreen;

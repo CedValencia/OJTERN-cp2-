@@ -3,7 +3,7 @@ import { doc, onSnapshot, runTransaction, serverTimestamp } from "firebase/fires
 import { getAuth } from "firebase/auth";
 import { db } from "./firebase";
 import { changePassword } from "./AuthService";
-import { normalizeEmail, validatePersonalEmail, claimPersonalEmail, personalEmailErrorMessage } from "./studentPersonalEmail";
+import { normalizeEmail, validatePersonalEmail, claimPersonalEmail, personalEmailErrorMessage, isEmailUsedByAnotherAccount } from "./studentPersonalEmail";
 import { useDepartmentsPrograms } from "./departmentsPrograms";
 import { color, font, type, space, radius, shadow, ease, getThemedAsset } from "./theme";
 
@@ -146,10 +146,6 @@ const ResponsiveStyles = () => (
       border-color: ${color.hoverBorder};
       box-shadow: 0 8px 22px rgba(10,10,10,0.08);
     }
-    /* Same hover-grow feel as .stat-view-btn on the dashboard — only grows
-       when hovering the icon itself, not the whole row. */
-    .sap-menu-view-icon { transition: transform 0.18s ${ease}, filter 0.18s ${ease}; }
-    .sap-menu-view-icon:hover { transform: scale(1.15); }
     @media (max-width: 480px) {
       .sap-menu-row { padding: 13px 16px; }
     }
@@ -230,14 +226,6 @@ const ResponsiveStyles = () => (
       .sap-modal-footer button { width: 100%; text-align: center; }
     }
 
-    /* Inner wrapper for a modal footer's buttons — tight help-tour target
-       (just the buttons, not the whole footer bar). Mirrors .sap-modal-footer,
-       incl. the stacked mobile layout. */
-    .sap-footer-btns { display: flex; gap: ${space.sm}; justify-content: flex-end; }
-    @media (max-width: 480px) {
-      .sap-footer-btns { flex-direction: column-reverse; align-items: stretch; width: 100%; }
-    }
-
     /* ── Divider line ── */
     .sap-divider {
       height: 1px;
@@ -269,7 +257,7 @@ const ResponsiveStyles = () => (
 
     @media (prefers-reduced-motion: reduce) {
       .sap-overlay, .sap-dialog { animation: none !important; }
-      .sap-menu-row, .sap-menu-view-icon { transition: none !important; }
+      .sap-menu-row { transition: none !important; }
     }
   `}</style>
 );
@@ -285,9 +273,7 @@ const LegalStyles = () => (
     .legal-progress-track { height: 3px; flex-shrink: 0; background: ${lineSoft}; }
     .legal-progress-fill {
       height: 100%;
-      /* Theme-driven, lightened (mixed with white) so it stays visible on
-         the pale track in every accent theme. */
-      background: color-mix(in srgb, ${panel} 55%, #ffffff);
+      background: ${inkMuted};
       transition: width 120ms linear;
     }
 
@@ -455,12 +441,12 @@ const MenuRow = ({ label, icon, onClick, viewIcon: themedViewIcon = blackViewIco
       {icon && <RowIcon>{icons[icon]}</RowIcon>}
       <span style={{ fontFamily: font.ui, fontSize: "1rem", fontWeight: 500, letterSpacing: "-0.01em", color: ink }}>{label}</span>
     </span>
-    <img src={themedViewIcon} alt="" className="sap-menu-view-icon" style={{ width: "35px", height: "35px", objectFit: "contain", flexShrink: 0 }} />
+    <img src={themedViewIcon} alt="" style={{ width: "30px", height: "30px", objectFit: "contain", flexShrink: 0 }} />
   </button>
 );
 
-const MenuGroup = ({ title, children, id }) => (
-  <div id={id} className="sap-menu-group">
+const MenuGroup = ({ title, children }) => (
+  <div className="sap-menu-group">
     <p style={{ fontFamily: font.ui, fontSize: "1rem", fontWeight: 600, letterSpacing: "-0.01em", color: ink, margin: `0 0 10px 6px` }}>{title}</p>
     {children}
   </div>
@@ -529,20 +515,63 @@ const YEAR_SECTIONS = [
   "4-A", "4-B", "4-C", "4-D",
 ];
 
+// ─── Required profile fields ───────────────────────────────────────────────────
+// What a student record must have before the dashboard opens. Bulk-imported
+// students arrive with only Student ID, name, section, and department (see
+// IMPORT_TEMPLATE_COLUMNS in CoordinatorStudentsAcccountScreen.jsx), so the
+// rest is filled in by the student on first login. StudentDashboardScreen's
+// setup gate uses missingProfileFields() to decide whether to open the form,
+// so a student can't reach the dashboard with any of these still empty.
+// Suffix isn't listed: most students have none, and the form already requires
+// an explicit "None" before it saves.
+export const REQUIRED_PROFILE_FIELDS = [
+  ["firstName",   "First name"],
+  ["lastName",    "Last name"],
+  ["college",     "College"],
+  ["program",     "Program"],
+  ["yearSection", "Year and section"],
+  ["sex",         "Sex"],
+  ["age",         "Age"],
+];
+
+// Labels of the required fields that are still empty on a students/{uid} doc.
+export const missingProfileFields = (data = {}) =>
+  REQUIRED_PROFILE_FIELDS
+    .filter(([key]) => {
+      const value = data?.[key];
+      if (key === "age") {
+        const n = Number(value);
+        return value == null || value === "" || !Number.isInteger(n) || n < 1;
+      }
+      return !String(value ?? "").trim();
+    })
+    .map(([, label]) => label);
+
+// Same check against the edit form's own field names, plus suffix and the
+// personal email, which the form also requires — drives the setup banner.
+const FORM_REQUIRED_FIELDS = [
+  ["firstName",     "First name"],
+  ["lastName",      "Last name"],
+  ["suffix",        "Suffix"],
+  ["collegeCode",   "College"],
+  ["programCode",   "Program"],
+  ["yearSection",   "Year and section"],
+  ["sex",           "Sex"],
+  ["age",           "Age"],
+  ["personalEmail", "Email address"],
+];
+
 // ─── PersonalInfoScreen ───────────────────────────────────────────────────────
 // setupMode: used by StudentDashboardScreen on a student's first login. The form
 // opens already in edit mode with no Back/Edit/Cancel, and after a successful
 // save calls onSetupComplete(personalEmail) instead of showing the success sheet.
-const PersonalInfoScreen = ({ onBack, user, setupMode = false, onSetupComplete, onLogout, logoutBusy = false, onEditingChange }) => {
+const PersonalInfoScreen = ({ onBack, user, setupMode = false, onSetupComplete, onLogout, logoutBusy = false }) => {
   const [editing, setEditing] = useState(setupMode);
   const [showSaveSuccess, setShowSaveSuccess] = useState(false);
   const editingRef = useRef(setupMode);
   // Always fill the form from the first snapshot, even when it opens in edit mode.
   const hasLoadedRef = useRef(false);
   useEffect(() => { editingRef.current = editing; }, [editing]);
-  // Viewing vs. filling in → Account Profile → Dashboard's "?" tour.
-  useEffect(() => { onEditingChange?.(editing); }, [editing]);
-  useEffect(() => () => onEditingChange?.(false), []);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving]   = useState(false);
   const [saveError, setSaveError] = useState("");
@@ -685,15 +714,64 @@ const PersonalInfoScreen = ({ onBack, user, setupMode = false, onSetupComplete, 
     const emailErr = validatePersonalEmail(form.personalEmail);
     if (emailErr) e.personalEmail = emailErr;
     setErrors(e);
-    return Object.keys(e).length === 0;
+    return e;
+  };
+
+  // Which fields a student may change themselves. Everything else (name,
+  // suffix, college, program, year & section, sex, Student ID) is school
+  // record data owned by the coordinator — a student editing those would put
+  // their account out of step with the coordinator's list. During first-login
+  // setup the whole form stays open, because that's where the details the
+  // coordinator's import didn't provide get filled in.
+  const STUDENT_EDITABLE_FIELDS = ["age", "personalEmail"];
+  const canEditField = (field) => setupMode || STUDENT_EDITABLE_FIELDS.includes(field);
+
+  // Brings the first field with an error into view — an error scrolled above
+  // the fold otherwise makes Save look like it did nothing.
+  const scrollToFirstError = () => {
+    const run = () => {
+      const first = document.querySelector('[data-field-error="true"]');
+      const row = (first && first.closest(".sap-info-row")) || first;
+      if (!row) return;
+      if (typeof row.scrollIntoView === "function") row.scrollIntoView({ behavior: "smooth", block: "center" });
+      const input = row.querySelector && row.querySelector("input, select");
+      if (input && typeof input.focus === "function") input.focus({ preventScroll: true });
+    };
+    // Wait for React to paint the error messages before looking for them.
+    if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") window.requestAnimationFrame(run);
+    else setTimeout(run, 0);
   };
 
   const handleSave = async () => {
-    if (saving || !validate()) return;
-    setSaving(true);
+    if (saving) return;
     setSaveError("");
+    const fieldErrors = validate();
+    const nextPersonalEmail = normalizeEmail(form.personalEmail);
+    const emailChanged = nextPersonalEmail !== savedPersonalEmail;
+
+    if (Object.keys(fieldErrors).length > 0) {
+      // Still report a taken email now, so the student sees every problem at once.
+      if (!fieldErrors.personalEmail && emailChanged) {
+        try {
+          if (await isEmailUsedByAnotherAccount(nextPersonalEmail, user?.uid)) {
+            setErrors(prev => ({ ...prev, personalEmail: personalEmailErrorMessage({ code: "email-in-use" }) }));
+          }
+        } catch (err) {
+          console.warn("Email check failed:", err);
+        }
+      }
+      setSaveError("Please complete the highlighted fields above.");
+      scrollToFirstError();
+      return;
+    }
+
+    setSaving(true);
     try {
-      const nextPersonalEmail = normalizeEmail(form.personalEmail);
+      if (emailChanged && await isEmailUsedByAnotherAccount(nextPersonalEmail, user?.uid)) {
+        const inUse = new Error("Email already used by another account.");
+        inUse.code = "email-in-use";
+        throw inUse;
+      }
       const profileUpdate = {
         // studentId intentionally omitted — no longer editable from this screen.
         // email intentionally omitted — AuthService.signIn resolves it by Student ID,
@@ -712,7 +790,7 @@ const PersonalInfoScreen = ({ onBack, user, setupMode = false, onSetupComplete, 
 
       await runTransaction(db, async (tx) => {
         const studentRef = doc(db, "students", user?.uid);
-        if (nextPersonalEmail !== savedPersonalEmail) {
+        if (emailChanged) {
           // Reserve the new address (fails if another student owns it) and
           // release the old one, in the same transaction as the profile update.
           await claimPersonalEmail(tx, { uid: user?.uid, email: nextPersonalEmail, previousEmail: savedPersonalEmail });
@@ -740,6 +818,7 @@ const PersonalInfoScreen = ({ onBack, user, setupMode = false, onSetupComplete, 
       console.error("Failed to save profile:", err);
       if (err?.code === "email-in-use") {
         setErrors(prev => ({ ...prev, personalEmail: personalEmailErrorMessage(err) }));
+        scrollToFirstError();
       } else if (err?.code === "permission-denied") {
         setSaveError("Your information couldn't be saved because your account doesn't have permission. Contact your coordinator for assistance.");
       } else if (err?.code === "unavailable" || err?.code === "deadline-exceeded") {
@@ -779,7 +858,7 @@ const PersonalInfoScreen = ({ onBack, user, setupMode = false, onSetupComplete, 
   const inlineErrText = { color: danger, fontSize: "0.75rem", fontFamily: font.ui, margin: "4px 0 0" };
 
   const fieldLabel = (text) => <span style={rowLabel}>{text}</span>;
-  const errText = (msg) => (msg ? <p style={inlineErrText}>{msg}</p> : null);
+  const errText = (msg) => (msg ? <p data-field-error="true" role="alert" style={inlineErrText}>{msg}</p> : null);
 
   if (loading) {
     return (
@@ -809,10 +888,41 @@ const PersonalInfoScreen = ({ onBack, user, setupMode = false, onSetupComplete, 
             }
           }}
         >
+          {editing && !setupMode && (
+            <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, margin: `0 0 ${space.md}`, lineHeight: 1.6 }}>
+              You can update your age and email address here. Your name, course, year &amp; section and other school records are maintained by your coordinator — contact them if something needs correcting.
+            </p>
+          )}
+
+          {/* First login: what still has to be filled in. Updates live as the
+              student types, so it's clear when they're done. */}
+          {setupMode && (() => {
+            const missing = FORM_REQUIRED_FIELDS
+              .filter(([key]) => !String(form[key] ?? "").trim())
+              .map(([, label]) => label);
+            const done = missing.length === 0;
+            return (
+              <div role="status" style={{
+                background: done ? "#EEF7EE" : "#FFF6E5",
+                border: `1px solid ${done ? "#B7DDB7" : "#F0D29A"}`,
+                borderRadius: radius.card, padding: "12px 16px", marginBottom: space.md,
+              }}>
+                <p style={{ fontFamily: font.ui, ...type.label, color: ink, margin: 0 }}>
+                  {done ? "All required information is filled in." : "Complete your information to continue"}
+                </p>
+                <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, margin: "4px 0 0", lineHeight: 1.6, overflowWrap: "anywhere" }}>
+                  {done
+                    ? "Review your details, then select Save and Continue."
+                    : `Still needed: ${missing.join(", ")}.`}
+                </p>
+              </div>
+            );
+          })()}
+
           {/* Edit button */}
           {!editing && !setupMode && (
             <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: space.sm }}>
-              <button id="spinfo-edit-btn" onClick={() => setEditing(true)}
+              <button onClick={() => setEditing(true)}
                 style={{ display: "inline-flex", alignItems: "center", gap: "7px", padding: "8px 16px", borderRadius: radius.pill, border: `1px solid ${line}`, background: surface, color: ink, fontFamily: font.ui, ...type.control, cursor: "pointer", boxShadow: shadow.input }}>
                 <EditIcon size={14} />
                 Edit
@@ -825,15 +935,15 @@ const PersonalInfoScreen = ({ onBack, user, setupMode = false, onSetupComplete, 
               so changing it here would be able to break sign-in / mismatch
               the account's own identifier. Always shown as plain text, even
               while the rest of the form is in edit mode. */}
-          <div id="spinfo-studentid" className="sap-info-row">
+          <div className="sap-info-row">
             {fieldLabel("Student ID")}
             <span style={rowValue}>{form.studentId || "—"}</span>
           </div>
 
           {/* First name */}
-          <div id="spinfo-first" className="sap-info-row">
+          <div className="sap-info-row">
             {fieldLabel("First name")}
-            {editing ? (
+            {editing && canEditField("firstName") ? (
               <>
                 <input
                   value={form.firstName}
@@ -849,9 +959,9 @@ const PersonalInfoScreen = ({ onBack, user, setupMode = false, onSetupComplete, 
           </div>
 
           {/* Middle initial */}
-          <div id="spinfo-middle" className="sap-info-row">
+          <div className="sap-info-row">
             {fieldLabel("Middle initial")}
-            {editing ? (
+            {editing && canEditField("middleInitial") ? (
               <>
                 <input
                   value={form.middleInitial}
@@ -868,9 +978,9 @@ const PersonalInfoScreen = ({ onBack, user, setupMode = false, onSetupComplete, 
           </div>
 
           {/* Last name */}
-          <div id="spinfo-last" className="sap-info-row">
+          <div className="sap-info-row">
             {fieldLabel("Last name")}
-            {editing ? (
+            {editing && canEditField("lastName") ? (
               <>
                 <input
                   value={form.lastName}
@@ -886,9 +996,9 @@ const PersonalInfoScreen = ({ onBack, user, setupMode = false, onSetupComplete, 
           </div>
 
           {/* Suffix */}
-          <div id="spinfo-suffix" className="sap-info-row">
+          <div className="sap-info-row">
             {fieldLabel("Suffix")}
-            {editing ? (
+            {editing && canEditField("suffix") ? (
               <>
                 <select
                   value={form.suffix}
@@ -912,9 +1022,9 @@ const PersonalInfoScreen = ({ onBack, user, setupMode = false, onSetupComplete, 
           </div>
 
           {/* College */}
-          <div id="spinfo-college" className="sap-info-row">
+          <div className="sap-info-row">
             {fieldLabel("College")}
-            {editing ? (
+            {editing && canEditField("collegeCode") ? (
               <>
                 <select
                   value={form.collegeCode}
@@ -934,9 +1044,9 @@ const PersonalInfoScreen = ({ onBack, user, setupMode = false, onSetupComplete, 
           </div>
 
           {/* Program */}
-          <div id="spinfo-program" className="sap-info-row">
+          <div className="sap-info-row">
             {fieldLabel("Program")}
-            {editing ? (
+            {editing && canEditField("programCode") ? (
               <>
                 <select
                   value={form.programCode}
@@ -956,9 +1066,9 @@ const PersonalInfoScreen = ({ onBack, user, setupMode = false, onSetupComplete, 
           </div>
 
           {/* Year and section */}
-          <div id="spinfo-section" className="sap-info-row">
+          <div className="sap-info-row">
             {fieldLabel("Year and section")}
-            {editing ? (
+            {editing && canEditField("yearSection") ? (
               <>
                 <select
                   value={form.yearSection}
@@ -978,9 +1088,9 @@ const PersonalInfoScreen = ({ onBack, user, setupMode = false, onSetupComplete, 
           </div>
 
           {/* Sex */}
-          <div id="spinfo-sex" className="sap-info-row">
+          <div className="sap-info-row">
             {fieldLabel("Sex")}
-            {editing ? (
+            {editing && canEditField("sex") ? (
               <>
                 <select
                   value={form.sex}
@@ -999,9 +1109,9 @@ const PersonalInfoScreen = ({ onBack, user, setupMode = false, onSetupComplete, 
           </div>
 
           {/* Age */}
-          <div id="spinfo-age" className="sap-info-row">
+          <div className="sap-info-row">
             {fieldLabel("Age")}
-            {editing ? (
+            {editing && canEditField("age") ? (
               <>
                 <input
                   value={form.age}
@@ -1018,9 +1128,9 @@ const PersonalInfoScreen = ({ onBack, user, setupMode = false, onSetupComplete, 
 
           {/* Personal email — the student's own address, used for Forgot Password.
               The login address (students/{uid}.email) is intentionally not shown. */}
-          <div id="spinfo-email" className="sap-info-row">
+          <div className="sap-info-row">
             {fieldLabel("Email address")}
-            {editing ? (
+            {editing && canEditField("personalEmail") ? (
               <>
                 <input
                   type="email"
@@ -1051,7 +1161,6 @@ const PersonalInfoScreen = ({ onBack, user, setupMode = false, onSetupComplete, 
           {/* Cancel / Save (setup mode: Log out / Save and Continue) */}
           {editing && (
             <div className="sap-save-row">
-              <div id="spinfo-save" style={{ display: "flex", gap: space.sm, flexWrap: "wrap" }}>
               {setupMode ? (
                 onLogout && (
                   <button onClick={onLogout} disabled={saving || logoutBusy}
@@ -1069,7 +1178,6 @@ const PersonalInfoScreen = ({ onBack, user, setupMode = false, onSetupComplete, 
                 style={{ padding: "9px 22px", borderRadius: radius.pill, background: panel, color: onPanel, border: "none", fontFamily: font.ui, ...type.control, cursor: saving ? "not-allowed" : "pointer", opacity: saving ? 0.7 : 1, boxShadow: shadow.pill }}>
                 {saving ? "Saving…" : (setupMode ? "Save and Continue" : "Save changes")}
               </button>
-              </div>
             </div>
           )}
         </div>
@@ -1078,21 +1186,6 @@ const PersonalInfoScreen = ({ onBack, user, setupMode = false, onSetupComplete, 
       {showSaveSuccess && <StudentSaveSuccessModal onClose={() => setShowSaveSuccess(false)} />}
     </div>
   );
-};
-
-// ── Backdrop click-to-close ───────────────────────────────────────────────────
-// Spread onto a modal's overlay: clicking anywhere OUTSIDE the dialog closes
-// it. Only counts when the press started AND ended on the overlay, so dragging
-// a text selection out of an input won't close it. `disabled` = mid-submit.
-const useBackdropClose = (onClose, disabled = false) => {
-  const downOnBackdrop = useRef(false);
-  return {
-    onMouseDown: (e) => { downOnBackdrop.current = e.target === e.currentTarget; },
-    onClick: (e) => {
-      if (downOnBackdrop.current && e.target === e.currentTarget && !disabled) onClose?.();
-      downOnBackdrop.current = false;
-    },
-  };
 };
 
 // ─── Reset Password Modal ─────────────────────────────────────────────────────
@@ -1152,9 +1245,6 @@ const ResetPasswordModal = ({ onClose, user, onLogout }) => {
     else onClose(); // fallback, shouldn't normally happen
   };
 
-  // Declared before the early return below so hook order never changes.
-  const backdropClose = useBackdropClose(onClose, loading);
-
   if (success) {
     return (
       <StatusDialog
@@ -1168,40 +1258,32 @@ const ResetPasswordModal = ({ onClose, user, onLogout }) => {
   }
 
   return (
-    <div {...backdropClose} className="sap-modal sap-overlay" style={{ position: "fixed", inset: 0, background: "rgba(10,10,10,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: space.md }}>
+    <div className="sap-modal sap-overlay" style={{ position: "fixed", inset: 0, background: "rgba(10,10,10,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: space.md }}>
       <div className="sap-modal-inner sap-dialog">
         <div className="sap-modal-body">
           <ModalTitle sub="Choose a password you don't use anywhere else.">Reset password</ModalTitle>
 
-          <div id="sreset-current">
           <label style={labelStyle}>Current password</label>
           <PasswordInput value={currentPass} onChange={e => { setCurrentPass(e.target.value); setErrors(p => ({ ...p, currentPass: "" })); }} onKeyDown={handleKeyDown} invalid={!!errors.currentPass} />
           {errors.currentPass && <p style={errorTextStyle}>{errors.currentPass}</p>}
-          </div>
 
           <hr style={{ border: "none", borderTop: `1px solid ${line}`, margin: `${space.lg} 0 ${space.md}` }} />
 
-          <div id="sreset-new">
           <label style={labelStyle}>New password</label>
           <PasswordInput value={newPass} onChange={e => { setNewPass(e.target.value); setErrors(p => ({ ...p, newPass: "" })); }} onKeyDown={handleKeyDown} invalid={!!errors.newPass} />
           {errors.newPass && <p style={errorTextStyle}>{errors.newPass}</p>}
 
           <PasswordChecklist password={newPass} />
-          </div>
 
-          <div id="sreset-confirm">
           <label style={labelStyle}>Confirm new password</label>
           <PasswordInput value={confirm} onChange={e => { setConfirm(e.target.value); setErrors(p => ({ ...p, confirm: "" })); }} onKeyDown={handleKeyDown} invalid={!!errors.confirm} />
           {errors.confirm && <p style={errorTextStyle}>{errors.confirm}</p>}
-          </div>
 
           {errors.general && <p style={{ ...errorTextStyle, textAlign: "center", marginTop: space.md }}>{errors.general}</p>}
         </div>
         <div className="sap-modal-footer">
-          <div id="sreset-footer" className="sap-footer-btns">
           <FooterGhostButton onClick={onClose}>Cancel</FooterGhostButton>
           <FooterSolidButton onClick={handleSave} disabled={loading}>{loading ? "Saving…" : "Save password"}</FooterSolidButton>
-          </div>
         </div>
       </div>
     </div>
@@ -1422,7 +1504,7 @@ const LegalPanel = ({ title, lastUpdated, sections, onBack }) => {
       <LegalStyles />
       <SectionHeaderBar title={title} onBack={onBack} />
 
-      <div id="slegal-progress" className="legal-progress-track">
+      <div className="legal-progress-track">
         <div className="legal-progress-fill" style={{ width: `${progress}%` }} />
       </div>
 
@@ -1430,7 +1512,7 @@ const LegalPanel = ({ title, lastUpdated, sections, onBack }) => {
         {toc.length > 0 && (
           <nav className="legal-toc" aria-label="Sections">
             <p className="legal-toc-heading">On this page</p>
-            <ol id="slegal-toc" style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: "2px" }}>
+            <ol style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: "2px" }}>
               {toc.map(item => {
                 const isActive = activeId === item.id;
                 return (
@@ -1455,8 +1537,6 @@ const LegalPanel = ({ title, lastUpdated, sections, onBack }) => {
         )}
 
         <div className="legal-scroll" ref={scrollRef}>
-          {/* Title + "Last updated" badge, wrapped as one help-tour target. */}
-          <div id="slegal-header" style={{ width: "fit-content", maxWidth: "100%" }}>
           <h1 style={{ fontFamily: font.ui, fontSize: "clamp(1.4rem, 4vw, 2rem)", fontWeight: 600, letterSpacing: "-0.02em", color: ink, margin: `0 0 ${space.md}`, lineHeight: 1.2 }}>
             {title}
           </h1>
@@ -1468,13 +1548,12 @@ const LegalPanel = ({ title, lastUpdated, sections, onBack }) => {
               </span>
             </div>
           )}
-          </div>
 
           {sections.map((section, idx) => {
             const id = `sec-${idx}`;
             const isFirst = idx === 0;
             return (
-              <section key={section.title} id={isFirst ? "slegal-first-section" : undefined} style={isFirst ? { width: "fit-content", maxWidth: "100%" } : undefined}>
+              <section key={section.title}>
                 <h2
                   id={id}
                   data-heading={id}
@@ -1517,7 +1596,6 @@ const LegalPanel = ({ title, lastUpdated, sections, onBack }) => {
 
           <div style={{ display: "flex", justifyContent: "flex-end", marginTop: space.xl }}>
             <button
-              id="slegal-understand-btn"
               type="button"
               onClick={onBack}
               style={{ padding: "13px 36px", borderRadius: radius.pill, border: "none", background: panel, color: onPanel, fontFamily: font.ui, ...type.control, cursor: "pointer", boxShadow: shadow.pill, transition: `background 240ms ${ease}` }}
@@ -1542,19 +1620,9 @@ const PrivacyScreen = ({ onBack }) => (
 );
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
-const StudentAccountProfileScreen = ({ user, onLogout, viewIcon: themedViewIcon = blackViewIcon, onViewChange }) => {
+const StudentAccountProfileScreen = ({ user, onLogout, viewIcon: themedViewIcon = blackViewIcon }) => {
   const [view, setView] = useState("main");
   const [showReset, setShowReset] = useState(false);
-  const [editingInfo, setEditingInfo] = useState(false);
-  // Which part of Account Profile is showing → Dashboard's "?" help button and
-  // first-visit auto-tour: "main" | "personalInfo" | "personalInfoEdit" |
-  // "terms" | "privacy" | "reset".
-  const profileSubView =
-      showReset ? "reset"
-    : view === "personalInfo" ? (editingInfo ? "personalInfoEdit" : "personalInfo")
-    : view;
-  useEffect(() => { onViewChange?.(profileSubView); }, [profileSubView]);
-  useEffect(() => () => onViewChange?.("main"), []);
   const [profileName, setProfileName] = useState("");
 
   React.useEffect(() => {
@@ -1568,7 +1636,7 @@ const StudentAccountProfileScreen = ({ user, onLogout, viewIcon: themedViewIcon 
     return () => unsub();
   }, [user?.uid]);
 
-  if (view === "personalInfo") return <><ResponsiveStyles /><GlobalStyles /><PersonalInfoScreen onBack={() => { setView("main"); setEditingInfo(false); }} user={user} onEditingChange={setEditingInfo} /></>;
+  if (view === "personalInfo") return <><ResponsiveStyles /><GlobalStyles /><PersonalInfoScreen onBack={() => setView("main")} user={user} /></>;
   if (view === "terms")        return <><ResponsiveStyles /><GlobalStyles /><TermsScreen        onBack={() => setView("main")} /></>;
   if (view === "privacy")      return <><ResponsiveStyles /><GlobalStyles /><PrivacyScreen       onBack={() => setView("main")} /></>;
 
@@ -1595,15 +1663,15 @@ const StudentAccountProfileScreen = ({ user, onLogout, viewIcon: themedViewIcon 
       {/* Scrollable body — grouped list */}
       <div className="sap-body">
         <div className="sap-menu-stack">
-          <MenuGroup id="sacc-personal-info" title="Personal Information:">
+          <MenuGroup title="Personal Information:">
             <MenuRow icon="person" label="Personal Information" onClick={() => setView("personalInfo")} viewIcon={themedViewIcon} />
           </MenuGroup>
 
-          <MenuGroup id="sacc-security" title="Security:">
+          <MenuGroup title="Security:">
             <MenuRow icon="key" label="Reset Password" onClick={() => setShowReset(true)} viewIcon={themedViewIcon} />
           </MenuGroup>
 
-          <MenuGroup id="sacc-legal" title="Legal:">
+          <MenuGroup title="Legal:">
             <MenuRow icon="document" label="Terms & Condition" onClick={() => setView("terms")} viewIcon={themedViewIcon} />
             <MenuRow icon="shield" label="Privacy Policy" onClick={() => setView("privacy")} viewIcon={themedViewIcon} />
           </MenuGroup>

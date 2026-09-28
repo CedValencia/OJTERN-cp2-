@@ -67,8 +67,9 @@ const Styles = () => (
     }
     .au-logo-badge {
       width: 80px; height: 80px; border-radius: 50%;
+      /* Grey disc, no white ring: the mark itself is inverted to white below,
+         so the outline only added a second edge around an already-round logo. */
       background: ${color.badge};
-      border: 2px solid #ffffff;
       display: flex; align-items: center; justify-content: center;
       box-shadow: 0 4px 14px rgba(0,0,0,0.28);
       margin-top: -40px;

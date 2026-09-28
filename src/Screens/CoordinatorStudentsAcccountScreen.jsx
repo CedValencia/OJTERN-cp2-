@@ -104,8 +104,51 @@ const EXCEL_COLUMNS = [
 // template, the header check, and the "Columns, in this order" hint are all
 // derived from this list.
 const IMPORT_TEMPLATE_COLUMNS = [
-  "Student ID", "Last Name", "First Name", "Middle Name", "Section", "Department", "Sex",
+  "Student ID", "Last Name", "First Name", "Middle Name", "Section", "Department", "Sex", "Batch",
 ];
+
+// ── Batch + archive ──────────────────────────────────────────────────────────
+// `batch` is the student's ACADEMIC YEAR ("2026-2027") and is NOT the same as
+// yearSection ("4-A"). Older student docs predate the field, so a missing batch
+// groups under "No batch set" instead of hiding the student.
+// Archiving is a status change only: isArchived + archivedAt are written, and
+// nothing (doc, Auth account, applications, messages) is ever deleted.
+const BATCH_NONE = "__none__";
+const batchKeyOf   = (s) => { const b = String(s?.batch || "").trim(); return b || BATCH_NONE; };
+const batchLabelOf = (key) => (key === BATCH_NONE ? "No batch set" : `Batch ${key}`);
+const isArchivedStudent = (s) => s?.isArchived === true;   // missing field = active
+// Accepts "2026-2027", "2026 - 2027", "2026-27" and a bare "2026", and returns
+// the canonical "2026-2027". Anything else (including a section like "4-A")
+// returns "" so it can be reported as invalid.
+const normalizeBatch = (value) => {
+  const raw = String(value || "").replace(/[\s\u2013\u2014]/g, (m) => (m === "\u2013" || m === "\u2014" ? "-" : ""));
+  const inRange = (y) => y >= 1990 && y <= 2100;
+
+  const single = raw.match(/^(\d{4})$/);
+  if (single) {
+    const start = Number(single[1]);
+    return inRange(start) ? `${start}-${start + 1}` : "";
+  }
+  const span = raw.match(/^(\d{4})-(\d{2}|\d{4})$/);
+  if (span) {
+    const start = Number(span[1]);
+    const end = span[2].length === 2
+      ? Number(String(start).slice(0, 2) + span[2])   // "2026-27" → 2027
+      : Number(span[2]);
+    // One school year only: the end must be the year right after the start.
+    if (inRange(start) && end === start + 1) return `${start}-${end}`;
+  }
+  return "";
+};
+const isValidBatch = (v) => normalizeBatch(v) !== "";
+const batchStartYear = (key) => Number(String(key).split("-")[0]) || 0;
+
+// Newest batch first; "No batch set" always last.
+const sortBatchKeys = (keys) => [...keys].sort((a, b) => {
+  if (a === BATCH_NONE) return 1;
+  if (b === BATCH_NONE) return -1;
+  return batchStartYear(b) - batchStartYear(a);
+});
 
 // "m", "MALE", "Female", "f" → "Male" / "Female"; anything else → "".
 const normalizeSex = (value) => {
@@ -431,6 +474,11 @@ const validators = {
     if (!NAME_REGEX.test(v)) return "Letters, Ñ/ñ and hyphens only";
     return "";
   },
+  batch: (v) => {
+    if (!v) return "Required";
+    if (!isValidBatch(v)) return "Academic year, e.g. 2026-2027";
+    return "";
+  },
   middleName: (v) => {
     if (!v) return "";
     if (!NAME_REGEX.test(v)) return "Letters, Ñ/ñ and hyphens only";
@@ -517,12 +565,12 @@ const downloadTemplateXLSX = () => {
     IMPORT_TEMPLATE_COLUMNS,
     [
       "e.g. 201112345", "e.g. Dela Cruz", "e.g. Juan", "e.g. Santos (or blank)",
-      "e.g. 4-A", "e.g. CCS", "e.g. Male",
+      "e.g. 4-A", "e.g. CCS", "e.g. Male", "e.g. 2026-2027",
     ],
   ];
   const ws = XLSX.utils.aoa_to_sheet(rows);
   ws["!cols"] = [
-    { wch: 15 }, { wch: 22 }, { wch: 22 }, { wch: 24 }, { wch: 12 }, { wch: 38 }, { wch: 12 },
+    { wch: 15 }, { wch: 22 }, { wch: 22 }, { wch: 24 }, { wch: 12 }, { wch: 38 }, { wch: 12 }, { wch: 14 },
   ];
   for (let r = 2; r < 200; r++) {
     for (let c = 0; c < IMPORT_TEMPLATE_COLUMNS.length; c++) {
@@ -855,6 +903,8 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
   // every field.
   const isCreate      = !readOnly;
   const middleName    = useField(initial.middleName || "", "middleName");
+  // Graduating batch year — separate from Year & section (see BATCH_NONE above).
+  const batch         = useField(initial.batch || "", "batch");
   const firstName     = useField(initial.firstName || "", "firstName");
   const suffix        = useField(initial.suffix || "", "suffix");
   const sex           = useField(initial.sex || "", "sex");
@@ -886,8 +936,8 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
   const handleProgramChange = (val) => { setProgram(val); setProgramTouched(true); };
 
   const allFields = isCreate
-    ? [studentId, lastName, firstName, middleName, yearSection, sex]
-    : [studentId, lastName, middleInitial, firstName, suffix, sex, yearSection, age];
+    ? [studentId, lastName, firstName, middleName, yearSection, sex, batch]
+    : [studentId, lastName, middleInitial, firstName, suffix, sex, yearSection, age, batch];
   const touchAll = () => { allFields.forEach(f => f.touch()); setCollegeTouched(true); if (!isCreate) setProgramTouched(true); };
 
   const isValid = () => {
@@ -896,6 +946,7 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
     if (validators.firstName(firstName.value)) return false;
     if (validators.yearSection(yearSection.value)) return false;
     if (!college) return false;
+    if (validators.batch(batch.value)) return false;
     if (isCreate) {
       if (validators.middleName(middleName.value)) return false;
       if (validators.sex(sex.value)) return false;
@@ -931,11 +982,13 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
           college,
           program: deptPrograms.length === 1 ? deptPrograms[0] : "",
           sex: sex.value,
+          batch: normalizeBatch(batch.value) || batch.value.trim(),
           specialization: "", suffix: "", age: "",
         });
         return;
       }
       await onSubmit({
+        batch: normalizeBatch(batch.value) || batch.value.trim(),
         studentId: studentId.value, lastName: lastName.value,
         middleInitial: middleInitial.value, firstName: firstName.value,
         suffix: suffix.value, college, program, specialization: "",
@@ -1053,10 +1106,17 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
                 </div>
               </div>
 
-              <div style={{ width: "min(220px, 100%)", marginTop: "12px" }}>
-                <FieldLabel>Sex</FieldLabel>
-                <StyledSelect value={sex.value} onChange={(v) => sex.onChange(v)} options={SEX_OPTIONS} placeholder="Select sex" hasError={!!sex.error} />
-                <FieldError msg={sex.error} />
+              <div className="sa-college-grid" style={{ marginTop: "12px" }}>
+                <div>
+                  <FieldLabel>Sex</FieldLabel>
+                  <StyledSelect value={sex.value} onChange={(v) => sex.onChange(v)} options={SEX_OPTIONS} placeholder="Select sex" hasError={!!sex.error} />
+                  <FieldError msg={sex.error} />
+                </div>
+                <div>
+                  <FieldLabel>Batch</FieldLabel>
+                  <StyledInput value={batch.value} onChange={(v) => batch.onChange(v.replace(/[^\d-]/g, "").slice(0, 9))} placeholder="2026-2027" hasError={!!batch.error} />
+                  <FieldError msg={batch.error} />
+                </div>
               </div>
 
               <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, marginTop: space.sm, lineHeight: 1.6 }}>
@@ -1139,6 +1199,11 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
               <StyledInput value={age.value} onChange={onAgeChange} disabled={locked} hasError={!!age.error} />
               <FieldError msg={age.error} />
             </div>
+            <div>
+              <FieldLabel>Batch</FieldLabel>
+              <StyledInput value={batch.value} onChange={(v) => batch.onChange(v.replace(/[^\d-]/g, "").slice(0, 9))} placeholder="2026-2027" disabled={locked} hasError={!!batch.error} />
+              <FieldError msg={batch.error} />
+            </div>
           </div>
 
           </>
@@ -1213,6 +1278,14 @@ const validateRow = (row, rowIndex, coordinatorColleges = [], departments = {}) 
     else row.sex = sex; // normalize in place, e.g. "m" → "Male"
   }
 
+  if (!row.batch) {
+    errs.push(`Row ${r}: Batch is required (e.g. 2026-2027)`);
+  } else {
+    const batch = normalizeBatch(row.batch);
+    if (!batch) errs.push(`Row ${r}: Batch "${row.batch}" must be an academic year like 2026-2027`);
+    else row.batch = batch; // normalize in place, e.g. "2026" → "2026-2027"
+  }
+
   if (!row.college) {
     errs.push(`Row ${r}: Department is required`);
   } else {
@@ -1275,6 +1348,7 @@ const ImportModal = ({ onClose, onImport, coordinatorColleges = [], departments 
           yearSection:   String(row[4]||"").trim(),
           college:       String(row[5]||"").trim(),
           sex:           String(row[6]||"").trim(),
+          batch:         String(row[7]||"").trim(),
           // Not in the template — filled in by validateRow (single-program
           // departments) or by the student on first login.
           program: "", major: "", specialization: "",
@@ -1381,7 +1455,7 @@ const ImportModal = ({ onClose, onImport, coordinatorColleges = [], departments 
 };
 
 // ── Filter Panel ───────────────────────────────────────────────────────────────
-const FilterPanel = ({ filters, setFilters, filterRef, coordinatorColleges = [], departments = {}, departmentNames = [] }) => {
+const FilterPanel = ({ filters, setFilters, filterRef, coordinatorColleges = [], departments = {}, departmentNames = [], batchOptions = [], hasUnbatched = false }) => {
   const { isMobile, isTablet } = useBreakpoint();
   const [expandedCollege, setExpandedCollege] = useState(filters.college || "");
   // Scoped to the coordinator's own assigned department(s) — never the
@@ -1392,7 +1466,8 @@ const FilterPanel = ({ filters, setFilters, filterRef, coordinatorColleges = [],
   // Derive section letters from YEAR_SECTIONS (e.g. "4-A" → "A")
   const sectionLetters = YEAR_SECTIONS.map(s => s.split("-")[1]).filter(Boolean);
 
-  const clearAll = () => { setExpandedCollege(""); setFilters({ college: "", program: "", sex: "", section: "" }); };
+  const clearAll = () => { setExpandedCollege(""); setFilters({ college: "", program: "", sex: "", section: "", batch: "" }); };
+  const toggleBatch   = (val) => setFilters(prev => ({ ...prev, batch: prev.batch === val ? "" : val }));
   const toggleSex     = (val) => setFilters(prev => ({ ...prev, sex: prev.sex === val ? "" : val }));
   const toggleSection = (val) => setFilters(prev => ({ ...prev, section: prev.section === val ? "" : val }));
   const toggleCollege = (col) => {
@@ -1424,6 +1499,26 @@ const FilterPanel = ({ filters, setFilters, filterRef, coordinatorColleges = [],
             SEX_OPTIONS.map(s => (<span key={s} onClick={() => toggleSex(s)} style={chip(filters.sex === s)}>{s}</span>))
           ) : (
             <span style={emptyNote}>No options available</span>
+          )}
+        </div>
+      </div>
+
+      <hr style={{ border: "none", borderTop: `1px solid ${lineSoft}`, margin: "10px 0" }} />
+
+      {/* Batch — the graduating year, not the section. Options come from the
+          students currently loaded, so no year is offered that has nobody. */}
+      <div style={{ padding: "0 14px 12px" }}>
+        <p style={{ ...groupLabel, marginBottom: space.sm }}>Batch</p>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+          {batchOptions.length > 0 || hasUnbatched ? (
+            <>
+              {batchOptions.map(b => (<span key={b} onClick={() => toggleBatch(b)} style={chip(filters.batch === b)}>{b}</span>))}
+              {hasUnbatched && (
+                <span onClick={() => toggleBatch(BATCH_NONE)} style={chip(filters.batch === BATCH_NONE)}>No batch</span>
+              )}
+            </>
+          ) : (
+            <span style={emptyNote}>No batches yet</span>
           )}
         </div>
       </div>
@@ -1485,7 +1580,7 @@ const StudentAvatar = ({ size = 34, userIcon: themedUserIcon = blackUserIcon }) 
 );
 
 // ── Row overflow menu ─────────────────────────────────────────────────────────
-const StudentRowMenu = ({ onView, onDelete }) => {
+const StudentRowMenu = ({ onView, onDelete, onArchive, onRestore, archived }) => {
   const [showMenu, setShowMenu] = useState(false);
   const menuRef = useRef();
 
@@ -1519,6 +1614,9 @@ const StudentRowMenu = ({ onView, onDelete }) => {
         <div style={{ position: "absolute", top: "28px", right: 0, background: surface, border: `1px solid ${line}`, borderRadius: radius.card, boxShadow: shadow.panel, zIndex: 100, minWidth: "110px", overflow: "hidden" }}>
           {item("View", (e) => { e.stopPropagation(); onView(); setShowMenu(false); })}
           <div style={{ height: "1px", background: lineSoft }} />
+          {archived
+            ? item("Restore", (e) => { e.stopPropagation(); onRestore(); setShowMenu(false); })
+            : item("Archive", (e) => { e.stopPropagation(); onArchive(); setShowMenu(false); })}
           {item("Delete", (e) => { e.stopPropagation(); onDelete(); setShowMenu(false); }, true)}
         </div>
       )}
@@ -1555,6 +1653,11 @@ const mapStudentDoc = (docSnap) => {
     email:          d.email          || "",
     fullName:       d.fullName       || `${d.firstName} ${d.lastName}`,
     status:         d.status         || "active",
+    // Batch + archive state. Missing fields on older docs stay harmless:
+    // no batch → "No batch set" group; no isArchived → active.
+    batch:          d.batch          || "",
+    isArchived:     d.isArchived === true,
+    archivedAt:     d.archivedAt     || null,
   };
 };
 
@@ -1565,7 +1668,7 @@ const mapStudentDoc = (docSnap) => {
 // checkboxes stack into one vertical column, so a ticked set reads at a glance.
 // The email lives in the row's tooltip instead of the meta line: it's the one
 // field long enough to break the alignment everything else depends on.
-const StudentRow = ({ student: s, selectMode, isSelected, onToggleSelect, onView, onDelete, userIcon: themedUserIcon = blackUserIcon }) => {
+const StudentRow = ({ student: s, selectMode, isSelected, onToggleSelect, onView, onDelete, onArchive, onRestore, userIcon: themedUserIcon = blackUserIcon }) => {
   const meta = [s.studentId, s.program, s.yearSection, s.sex].filter(Boolean).join(" · ");
 
   return (
@@ -1604,7 +1707,13 @@ const StudentRow = ({ student: s, selectMode, isSelected, onToggleSelect, onView
 
       <div className="sa-row-actions">
         <div onClick={(e) => e.stopPropagation()}>
-          <StudentRowMenu onView={() => onView(s)} onDelete={() => onDelete(s.id)} />
+          <StudentRowMenu
+            onView={() => onView(s)}
+            onDelete={() => onDelete(s.id)}
+            onArchive={() => onArchive(s)}
+            onRestore={() => onRestore(s)}
+            archived={isArchivedStudent(s)}
+          />
         </div>
       </div>
     </div>
@@ -1701,7 +1810,15 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
   useEffect(() => { onImportModalChange?.(showImportModal); }, [showImportModal, onImportModalChange]);
   const [successInfo, setSuccessInfo]           = useState(null); // { fullName, password }
   const [importResult, setImportResult]        = useState(null); // { successCount, failures[] }
-  const [filters, setFilters]                   = useState({ college: "", program: "", sex: "", section: "" });
+  const [filters, setFilters]                   = useState({ college: "", program: "", sex: "", section: "", batch: "" });
+  // "active" | "archived" — which pool the list is showing.
+  const [viewTab, setViewTab]                   = useState("active");
+  const [confirmArchiveInfo, setConfirmArchiveInfo] = useState(null); // { student, mode: "archive"|"restore" }
+  const [archiveBusy, setArchiveBusy]           = useState(false);
+  // Bulk "Set batch" — fills the academic year on the ticked rows. Existing
+  // student records predate the batch field, so without this every one of them
+  // would have to be edited by hand to leave "No batch set".
+  const [batchAssign, setBatchAssign]           = useState(null); // { ids, value, error, busy }
   const filterRef = useRef(null);
 
   // ── Real-time listener: ALL students in this coordinator's department(s) ──
@@ -1752,15 +1869,36 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
 
   const hasFilter = Object.values(filters).some(Boolean);
 
-  const filtered = students.filter(s => {
+  // Split first so each tab keeps its own count and its own batch options,
+  // and so the two never interfere with each other.
+  const activeStudents   = students.filter(s => !isArchivedStudent(s));
+  const archivedStudents = students.filter(s => isArchivedStudent(s));
+  const pool = viewTab === "archived" ? archivedStudents : activeStudents;
+
+  // Batch options come from the students actually in this tab, so the list
+  // never offers a year that returns nothing.
+  const batchOptions = sortBatchKeys([...new Set(pool.map(batchKeyOf))])
+    .filter(k => k !== BATCH_NONE);
+  const hasUnbatched = pool.some(s => batchKeyOf(s) === BATCH_NONE);
+
+  const filtered = pool.filter(s => {
     const q = search.toLowerCase();
-    const matchSearch  = `${s.firstName} ${s.lastName}`.toLowerCase().includes(q) || s.studentId.includes(q) || s.email.toLowerCase().includes(q);
+    const matchSearch  = [s.firstName, s.lastName, s.fullName, s.studentId, s.email, s.college, s.program, s.batch]
+      .filter(Boolean).some(v => String(v).toLowerCase().includes(q));
     const matchCollege = !filters.college || s.college === filters.college;
     const matchProgram = !filters.program || s.program === filters.program;
     const matchSex     = !filters.sex || s.sex === filters.sex;
     const matchSection = !filters.section || s.yearSection.endsWith(`-${filters.section}`);
-    return matchSearch && matchCollege && matchProgram && matchSex && matchSection;
+    const matchBatch   = !filters.batch || batchKeyOf(s) === filters.batch;
+    return matchSearch && matchCollege && matchProgram && matchSex && matchSection && matchBatch;
   });
+
+  // Group the visible students by batch, newest year first.
+  const groupedByBatch = (() => {
+    const groups = {};
+    filtered.forEach(s => { (groups[batchKeyOf(s)] ||= []).push(s); });
+    return sortBatchKeys(Object.keys(groups)).map(key => ({ key, label: batchLabelOf(key), rows: groups[key] }));
+  })();
 
   const toggleSelect = (id) => { setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; }); };
   const toggleAll    = () => { if (selected.size === filtered.length && filtered.length > 0) setSelected(new Set()); else setSelected(new Set(filtered.map(s => s.id))); };
@@ -1795,6 +1933,92 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
     });
     logActivity(coordinatorUid, "student_edited", `Edited student account for ${fullName}`, { targetId: viewingStudent.id, targetName: fullName }).catch(err => console.error("Failed to log activity:", err));
     setViewingStudent(null);
+  };
+
+  // ── Archive / restore ─────────────────────────────────────────────────────
+  // A status change only: the student doc, their Auth account, applications,
+  // placements and messages are all left untouched.
+  const handleArchive = (student) => setTimeout(() => setConfirmArchiveInfo({ student, mode: "archive" }), 0);
+  const handleRestore = (student) => setTimeout(() => setConfirmArchiveInfo({ student, mode: "restore" }), 0);
+
+  // Bulk archive/restore over the ticked rows. Which one it is follows the tab
+  // the coordinator is in — the Archived tab can only restore, and vice versa.
+  const handleArchiveSelected = () => {
+    if (selected.size === 0) return;
+    setConfirmArchiveInfo({
+      mode: viewTab === "archived" ? "restore" : "archive",
+      bulk: true,
+      ids: [...selected],
+      count: selected.size,
+    });
+  };
+
+  const confirmArchive = async () => {
+    if (!confirmArchiveInfo || archiveBusy) return;
+    const { student, mode, bulk, ids = [] } = confirmArchiveInfo;
+    const archiving = mode === "archive";
+    const payload = archiving
+      ? { isArchived: true,  archivedAt: serverTimestamp() }
+      : { isArchived: false, archivedAt: null };
+
+    setArchiveBusy(true);
+    try {
+      if (bulk) {
+        await Promise.all(ids.map(id => updateDoc(doc(db, "students", id), payload)));
+        logActivity(
+          coordinatorUid,
+          archiving ? "student_archived_bulk" : "student_restored_bulk",
+          `${archiving ? "Archived" : "Restored"} ${ids.length} student account(s)`,
+          { targetCount: ids.length }
+        ).catch(err => console.error("Failed to log activity:", err));
+        setSelected(new Set());
+        exitSelectMode();
+      } else {
+        await updateDoc(doc(db, "students", student.id), payload);
+        const name = student.fullName || student.studentId;
+        logActivity(
+          coordinatorUid,
+          archiving ? "student_archived" : "student_restored",
+          `${archiving ? "Archived" : "Restored"} student account for ${name}`,
+          { targetId: student.id, targetName: name }
+        ).catch(err => console.error("Failed to log activity:", err));
+        // Deselect: a row that just left this tab shouldn't stay ticked.
+        setSelected(prev => { const n = new Set(prev); n.delete(student.id); return n; });
+      }
+      setConfirmArchiveInfo(null);
+    } catch (err) {
+      console.error(`Failed to ${mode} student(s):`, err);
+      setConfirmArchiveInfo(prev => prev && { ...prev, error: "That didn't save. Check your connection and try again." });
+    } finally {
+      setArchiveBusy(false);
+    }
+  };
+
+  // ── Bulk: set the batch on the selected students ──────────────────────────
+  const handleSetBatchSelected = () => {
+    if (selected.size === 0) return;
+    setBatchAssign({ ids: [...selected], value: "", error: "", busy: false });
+  };
+
+  const confirmSetBatch = async () => {
+    if (!batchAssign || batchAssign.busy) return;
+    const batch = normalizeBatch(batchAssign.value);
+    if (!batch) {
+      setBatchAssign(prev => prev && { ...prev, error: "Enter an academic year like 2026-2027." });
+      return;
+    }
+    setBatchAssign(prev => prev && { ...prev, busy: true, error: "" });
+    try {
+      await Promise.all(batchAssign.ids.map(id => updateDoc(doc(db, "students", id), { batch })));
+      logActivity(coordinatorUid, "student_batch_set", `Set batch ${batch} on ${batchAssign.ids.length} student account(s)`, { targetCount: batchAssign.ids.length })
+        .catch(err => console.error("Failed to log activity:", err));
+      setSelected(new Set());
+      exitSelectMode();
+      setBatchAssign(null);
+    } catch (err) {
+      console.error("Failed to set batch:", err);
+      setBatchAssign(prev => prev && { ...prev, busy: false, error: "That didn't save. Check your connection and try again." });
+    }
   };
 
   // ── Delete single ─────────────────────────────────────────────────────────
@@ -1884,8 +2108,8 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
         <div className="sa-search-bar">
           <div style={{ minWidth: 0, flex: "1 1 auto" }}>
             <span title="Student Accounts" style={{ fontFamily: font.ui, fontSize: "clamp(1.1rem, 3.5vw, 1.375rem)", fontWeight: 600, letterSpacing: "-0.01em", color: onPanel, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>Student Accounts</span>
-            <p title={`${filtered.length} of ${students.length} in your departments`} style={{ fontFamily: font.ui, ...type.helper, color: onPanelDim, marginTop: "2px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              {filtered.length} of {students.length} in your departments
+            <p title={`${filtered.length} of ${pool.length} ${viewTab === "archived" ? "archived" : "active"} students`} style={{ fontFamily: font.ui, ...type.helper, color: onPanelDim, marginTop: "2px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {filtered.length} of {pool.length} {viewTab === "archived" ? "archived" : "active"} · {activeStudents.length} active, {archivedStudents.length} archived
             </p>
           </div>
 
@@ -1907,7 +2131,7 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
               >
                 <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={hasFilter ? onPanel : inkMuted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
               </div>
-              {showFilterDrawer && <FilterPanel filters={filters} setFilters={setFilters} filterRef={filterRef} coordinatorColleges={normalizedCoordinatorColleges} departments={departments} departmentNames={departmentNames} />}
+              {showFilterDrawer && <FilterPanel filters={filters} setFilters={setFilters} filterRef={filterRef} coordinatorColleges={normalizedCoordinatorColleges} departments={departments} departmentNames={departmentNames} batchOptions={batchOptions} hasUnbatched={hasUnbatched} />}
             </div>
           </div>
         </div>
@@ -1923,6 +2147,22 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
                   <Checkbox checked={allSelected} />
                   <span style={{ fontFamily: font.ui, ...type.control, color: inkBody }}>Select all</span>
                 </div>
+                <button
+                  onClick={handleSetBatchSelected}
+                  disabled={selected.size === 0}
+                  style={{ ...ghostBtn, opacity: selected.size === 0 ? 0.5 : 1, cursor: selected.size === 0 ? "default" : "pointer" }}
+                >
+                  {allSelected && selected.size > 0 ? "Set batch (all)" : `Set batch${selected.size > 0 ? ` (${selected.size})` : ""}`}
+                </button>
+                <button
+                  onClick={handleArchiveSelected}
+                  disabled={selected.size === 0}
+                  style={{ ...ghostBtn, opacity: selected.size === 0 ? 0.5 : 1, cursor: selected.size === 0 ? "default" : "pointer" }}
+                >
+                  {viewTab === "archived"
+                    ? (allSelected && selected.size > 0 ? "Restore all" : `Restore${selected.size > 0 ? ` (${selected.size})` : ""}`)
+                    : (allSelected && selected.size > 0 ? "Archive all" : `Archive${selected.size > 0 ? ` (${selected.size})` : ""}`)}
+                </button>
                 <button
                   onClick={handleDeleteSelected}
                   disabled={selected.size === 0}
@@ -1941,6 +2181,34 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
           </div>
         </div>
 
+        {/* Active / Archived — archiving never deletes anything, so both pools
+            stay in Firestore and a student can be moved back at any time. */}
+        <div role="tablist" aria-label="Student pool" style={{ display: "flex", gap: "6px", marginBottom: space.md, flexWrap: "wrap" }}>
+          {[
+            { key: "active",   label: "Active Students",   count: activeStudents.length },
+            { key: "archived", label: "Archived Students", count: archivedStudents.length },
+          ].map(t => {
+            const on = viewTab === t.key;
+            return (
+              <button
+                key={t.key}
+                role="tab"
+                aria-selected={on}
+                onClick={() => { setViewTab(t.key); setFilters(prev => ({ ...prev, batch: "" })); exitSelectMode(); }}
+                style={{
+                  border: `1px solid ${on ? ink : line}`, background: on ? ink : surface,
+                  color: on ? color.white : inkBody, borderRadius: radius.pill,
+                  padding: "7px 16px", cursor: "pointer", fontFamily: font.ui, ...type.control,
+                  display: "inline-flex", alignItems: "center", gap: "8px", maxWidth: "100%",
+                }}
+              >
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.label}</span>
+                <span style={{ background: on ? "rgba(255,255,255,0.22)" : color.wine700, color: on ? color.white : inkMuted, borderRadius: radius.pill, padding: "1px 8px", fontSize: "0.72rem", fontWeight: 700 }}>{t.count}</span>
+              </button>
+            );
+          })}
+        </div>
+
         {/* Active filter chips */}
         {hasFilter && (
           <div style={{ display: "flex", alignItems: "center", gap: space.sm, marginBottom: space.md, flexWrap: "wrap" }}>
@@ -1948,39 +2216,69 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
               filters.sex     && { label: filters.sex,          clear: () => setFilters(prev => ({ ...prev, sex: "" })) },
               filters.section && { label: `4-${filters.section}`, clear: () => setFilters(prev => ({ ...prev, section: "" })) },
               filters.college && { label: [filters.college, filters.program].filter(Boolean).join(" › "), clear: () => setFilters(prev => ({ ...prev, college: "", program: "" })) },
+              filters.batch   && { label: batchLabelOf(filters.batch), clear: () => setFilters(prev => ({ ...prev, batch: "" })) },
             ].filter(Boolean).map(({ label, clear }) => (
               <span key={label} style={{ background: surface, color: inkBody, border: `1px solid ${line}`, borderRadius: radius.pill, padding: "4px 12px", fontFamily: font.ui, ...type.helper, display: "flex", alignItems: "center", gap: "6px" }}>
                 {label}<span onClick={clear} style={{ cursor: "pointer", color: inkMuted }}>✕</span>
               </span>
             ))}
-            <span onClick={() => setFilters({ college: "", program: "", sex: "", section: "" })} style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, cursor: "pointer", textDecoration: "underline" }}>Clear all</span>
+            <span onClick={() => setFilters({ college: "", program: "", sex: "", section: "", batch: "" })} style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, cursor: "pointer", textDecoration: "underline" }}>Clear all</span>
           </div>
         )}
 
         {/* Student list */}
         {filtered.length > 0 ? (
           <>
-            <div id="sa-student-list" className="sa-student-list">
-              {filtered.map(s => (
-                <StudentRow
-                  key={s.id}
-                  student={s}
-                  selectMode={selectMode}
-                  isSelected={selected.has(s.id)}
-                  onToggleSelect={toggleSelect}
-                  onView={setViewingStudent}
-                  onDelete={handleDelete}
-                  userIcon={themedUserIcon}
-                />
-              ))}
-            </div>
+            {groupedByBatch.map(group => (
+              <section key={group.key} style={{ marginBottom: space.lg }}>
+                <div style={{
+                  display: "flex", alignItems: "center", gap: space.sm,
+                  padding: "0 2px 8px", borderBottom: `1px solid ${line}`, marginBottom: space.sm,
+                  flexWrap: "wrap",
+                }}>
+                  <h3 style={{ fontFamily: font.ui, ...type.label, color: ink, fontWeight: 650, margin: 0, minWidth: 0, overflowWrap: "anywhere" }}>
+                    {group.label}
+                  </h3>
+                  <span style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, whiteSpace: "nowrap" }}>
+                    {group.rows.length} student{group.rows.length !== 1 ? "s" : ""}
+                  </span>
+                </div>
+                <div className="sa-student-list">
+                  {group.rows.map(s => (
+                    <StudentRow
+                      key={s.id}
+                      student={s}
+                      selectMode={selectMode}
+                      isSelected={selected.has(s.id)}
+                      onToggleSelect={toggleSelect}
+                      onView={setViewingStudent}
+                      onDelete={handleDelete}
+                      onArchive={handleArchive}
+                      onRestore={handleRestore}
+                      userIcon={themedUserIcon}
+                    />
+                  ))}
+                </div>
+              </section>
+            ))}
             <p style={{ textAlign: "center", fontFamily: font.ui, ...type.helper, color: inkFaint, padding: "20px 0 4px" }}>
-              Showing {filtered.length} of {students.length} student{students.length !== 1 ? "s" : ""}
+              Showing {filtered.length} of {pool.length} {viewTab === "archived" ? "archived" : "active"} student{pool.length !== 1 ? "s" : ""}
             </p>
           </>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", padding: "72px 24px", gap: space.xs, background: surface, border: `1px dashed ${color.wine400}`, borderRadius: radius.panel }}>
-            {students.length === 0 ? (
+            {viewTab === "archived" ? (
+              <>
+                <p style={{ fontFamily: font.ui, fontSize: "1.0625rem", fontWeight: 600, color: ink }}>
+                  {archivedStudents.length === 0 ? "No archived students" : "No archived students match this search"}
+                </p>
+                <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, maxWidth: "44ch" }}>
+                  {archivedStudents.length === 0
+                    ? "Archiving a student moves them here. Their records, applications and account are kept."
+                    : "Try a different name, ID, or batch, or clear a filter to widen the results."}
+                </p>
+              </>
+            ) : students.length === 0 ? (
               <>
                 <p style={{ fontFamily: font.ui, fontSize: "1.0625rem", fontWeight: 600, color: ink }}>No student accounts yet</p>
                 <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, maxWidth: "44ch" }}>Add students one at a time, or import a whole section from a spreadsheet.</p>
@@ -2064,6 +2362,72 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
         >
           <button onClick={() => setConfirmDeleteInfo(null)} style={ghostBtn}>Cancel</button>
           <button onClick={confirmDelete} style={{ ...primaryBtn, background: danger }}>Delete</button>
+        </Dialog>
+      )}
+
+      {/* ── Bulk set batch ── */}
+      {batchAssign && (
+        <Dialog
+          title={`Set batch for ${batchAssign.ids.length} student${batchAssign.ids.length !== 1 ? "s" : ""}`}
+          body="Type the academic year these students belong to. This replaces whatever batch they have now."
+        >
+          <div style={{ width: "100%", display: "flex", flexDirection: "column", alignItems: "center", gap: space.sm, marginBottom: space.sm }}>
+            <input
+              value={batchAssign.value}
+              autoFocus
+              onChange={e => {
+                const v = e.target.value.replace(/[^\d-]/g, "").slice(0, 9);
+                setBatchAssign(prev => prev && { ...prev, value: v, error: "" });
+              }}
+              onKeyDown={e => { if (e.key === "Enter") confirmSetBatch(); }}
+              placeholder="2026-2027"
+              disabled={batchAssign.busy}
+              style={{
+                width: "160px", textAlign: "center", padding: "10px 12px",
+                borderRadius: radius.pill, border: `1.5px solid ${batchAssign.error ? danger : line}`,
+                fontFamily: font.ui, ...type.control, color: ink, outline: "none", background: color.white,
+              }}
+            />
+            {batchAssign.error && (
+              <p role="alert" style={{ fontFamily: font.ui, ...type.helper, color: danger, margin: 0, textAlign: "center" }}>{batchAssign.error}</p>
+            )}
+          </div>
+          <button onClick={() => setBatchAssign(null)} disabled={batchAssign.busy} style={ghostBtn}>Cancel</button>
+          <button onClick={confirmSetBatch} disabled={batchAssign.busy} style={primaryBtn}>
+            {batchAssign.busy ? "Saving…" : "Set batch"}
+          </button>
+        </Dialog>
+      )}
+
+      {/* ── Archive / restore confirmation ── */}
+      {confirmArchiveInfo && (
+        <Dialog
+          title={confirmArchiveInfo.bulk
+            ? (confirmArchiveInfo.mode === "archive"
+                ? `Archive ${confirmArchiveInfo.count} student account${confirmArchiveInfo.count !== 1 ? "s" : ""}?`
+                : `Restore ${confirmArchiveInfo.count} student account${confirmArchiveInfo.count !== 1 ? "s" : ""}?`)
+            : (confirmArchiveInfo.mode === "archive" ? "Archive student?" : "Restore student?")}
+          body={confirmArchiveInfo.bulk
+            ? (confirmArchiveInfo.mode === "archive"
+                ? `These accounts move to the Archived Students section and the students can no longer log in. Their records and application history are not deleted, and you can restore them any time.`
+                : `These accounts return to the active student list and the students will be able to log in again.`)
+            : (confirmArchiveInfo.mode === "archive"
+                ? `Are you sure you want to archive ${confirmArchiveInfo.student.fullName || confirmArchiveInfo.student.studentId}? This account moves to the Archived Students section. Their records and application history are not deleted, and they can be restored later.`
+                : `Restore ${confirmArchiveInfo.student.fullName || confirmArchiveInfo.student.studentId} to the active student list? They'll be able to log in again.`)}
+        >
+          {confirmArchiveInfo.error && (
+            <p role="alert" style={{ fontFamily: font.ui, ...type.helper, color: danger, width: "100%", textAlign: "center", marginBottom: space.sm }}>
+              {confirmArchiveInfo.error}
+            </p>
+          )}
+          <button onClick={() => setConfirmArchiveInfo(null)} disabled={archiveBusy} style={ghostBtn}>Cancel</button>
+          <button onClick={confirmArchive} disabled={archiveBusy} style={primaryBtn}>
+            {archiveBusy
+              ? (confirmArchiveInfo.mode === "archive" ? "Archiving…" : "Restoring…")
+              : confirmArchiveInfo.bulk
+                ? (confirmArchiveInfo.mode === "archive" ? `Archive ${confirmArchiveInfo.count}` : `Restore ${confirmArchiveInfo.count}`)
+                : (confirmArchiveInfo.mode === "archive" ? "Archive" : "Restore")}
+          </button>
         </Dialog>
       )}
 

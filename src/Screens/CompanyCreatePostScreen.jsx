@@ -1000,6 +1000,15 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile, onMo
     approvedDeptSelections.some(s => s.department === college && s.program === program);
   const defaultCourseSelections = approvedDeptSelections.map(s => ({ college: s.department, program: s.program, specialization: "", slot: 1 }));
 
+  // Courses this post was created with that the company no longer accepts (or
+  // that a coordinator hasn't approved). They're filtered out of the form
+  // above — this names them, so an edit doesn't quietly change what the post
+  // offers. The saved post keeps them until this edit is saved, and students
+  // who already applied under them are untouched.
+  const droppedCourseLabels = (post?.courseSelections || [])
+    .filter(s => !isApproved(s.college, s.program))
+    .map(s => [s.college, s.program].filter(Boolean).join(" — "));
+
   const [form, setForm] = useState({
     benefits:         post?.benefits         || "",
     courseSelections: post?.courseSelections
@@ -1288,6 +1297,18 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile, onMo
               each with its own slot count */}
           <div id="cpostf-programs">
           <FieldLabel>College / Program required (set slots per department):</FieldLabel>
+          {isEditing && mode !== "create" && droppedCourseLabels.length > 0 && (
+            <div role="status" style={{
+              background: "#FAF1DD", border: "1px solid #E4CE9B", borderRadius: "14px",
+              padding: "12px 14px", marginBottom: "10px",
+            }}>
+              <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.78rem", color: "#7A5B10", margin: 0, lineHeight: 1.6 }}>
+                {droppedCourseLabels.join(", ")} {droppedCourseLabels.length === 1 ? "is" : "are"} no longer in your accepted courses,
+                so {droppedCourseLabels.length === 1 ? "it has" : "they have"} been removed from this post. Students who already applied keep their applications.
+                To offer {droppedCourseLabels.length === 1 ? "it" : "them"} again, add {droppedCourseLabels.length === 1 ? "it" : "them"} back in Account Profile and wait for coordinator approval.
+              </p>
+            </div>
+          )}
           <ApprovedDepartmentPicker
             approvedDeptSelections={approvedDeptSelections}
             selections={form.courseSelections}
@@ -1359,11 +1380,36 @@ const menuItemStyle = {
   cursor: "pointer", color: "#1a1a1a",
 };
 
-const ThreeDotMenu = ({ isDisabled, onView, onToggleDisable, onDelete }) => {
-  const [open, setOpen] = useState(false);
+// `open` is controlled by the parent (one openMenuId for the whole list) so a
+// second ⋮ closes the first — with per-menu state every post could be left
+// hanging open at once. A pointerdown listener on the document closes it when
+// anything else on the page is clicked.
+const ThreeDotMenu = ({ isDisabled, onView, onToggleDisable, onDelete, open, onOpenChange }) => {
+  const wrapRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (e) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) onOpenChange(false);
+    };
+    const onKey = (e) => { if (e.key === "Escape") onOpenChange(false); };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open, onOpenChange]);
+
+  const setOpen = (next) => onOpenChange(next);
+
   return (
-    <div style={{ position: "relative" }}>
-      <button onClick={e => { e.stopPropagation(); setOpen(!open); }}
+    <div ref={wrapRef} style={{ position: "relative" }}>
+      <button
+        onClick={e => { e.stopPropagation(); setOpen(!open); }}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label="Post options"
         style={{ background: "none", border: "none", cursor: "pointer", fontSize: "1.2rem", color: "#555", padding: "4px 8px", lineHeight: 1 }}>⋮</button>
       {open && (
         <div
@@ -1385,6 +1431,9 @@ const PostOJTContent = ({ user, openPostId, onPostOpened, onViewChange }) => {
   const [loading, setLoading] = useState(true);
   const [modal, setModal]     = useState(null);
   const [companyProfile, setCompanyProfile] = useState({});
+  // Only one post menu may be open at a time; null = none.
+  const [openMenuId, setOpenMenuId] = useState(null);
+
   // Pending Delete/Disable/Enable action awaiting the user's confirmation —
   // { type: "delete" | "disable" | "enable", post }.
   const [confirmAction, setConfirmAction] = useState(null);
@@ -1550,6 +1599,8 @@ const PostOJTContent = ({ user, openPostId, onPostOpened, onViewChange }) => {
                   <div onClick={e => e.stopPropagation()} style={{ flexShrink: 0 }}>
                     <ThreeDotMenu
                       isDisabled={post.disabled}
+                      open={openMenuId === post.id}
+                      onOpenChange={(next) => setOpenMenuId(next ? post.id : null)}
                       onView={() => openView(post)}
                       onToggleDisable={() => requestToggleDisable(post)}
                       onDelete={() => requestDelete(post)}

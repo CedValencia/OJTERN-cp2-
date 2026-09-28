@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { collection, onSnapshot, query, where, doc, getDoc, setDoc } from "firebase/firestore";
+import { collection, onSnapshot, query, where, doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
 import { db } from "./firebase";
 import { logOut, getUserProfile } from "./AuthService";
 import { useUnreadCount } from "./useChat";
@@ -2180,6 +2180,23 @@ const CompanyDashboardScreen = ({ user, onLogout, onAuthStateChange }) => {
     return () => unsub();
   }, [user?.uid]);
 
+  // ── Account notices from a coordinator (warnings, corrections, suspensions,
+  //    blocks). Written by notifyCompanyAccount in AuthService.js when a report
+  //    is resolved — they belong here in the bell, not in the chat thread. ────
+  const [accountNotices, setAccountNotices] = useState([]);
+
+  useEffect(() => {
+    if (!user?.uid) return;
+    const q = query(collection(db, "notifications"), where("recipientId", "==", user.uid));
+    const unsub = onSnapshot(q, snap => {
+      setAccountNotices(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    }, err => {
+      // Usually means the notifications rule hasn't been published yet.
+      console.error("Failed to load account notifications:", err);
+    });
+    return () => unsub();
+  }, [user?.uid]);
+
   // ── Notifications: new applicants, time-sorted ──────────────────────────────
   const [notifOpen, setNotifOpen] = useState(false);
   // Last-seen notification timestamp now lives in Firestore
@@ -2204,21 +2221,41 @@ const CompanyDashboardScreen = ({ user, onLogout, onAuthStateChange }) => {
   }, [user?.uid]);
 
   const notifications = React.useMemo(() => {
-    return [...applications]
-      .map((a) => ({
-        id: `app-${a.id}`,
-        time: (a.createdAt?.seconds || 0) * 1000,
-        title: "New applicant",
-        subtitle: [
-          [a.firstName, a.middleInitial, a.lastName].filter(Boolean).join(" ") || a.studentName || a.studentFullName || a.name || "A student",
-          a.jobTitle || a.postTitle || a.position,
-        ].filter(Boolean).join(" — applied for "),
-        applicantId: a.id,
-      }))
+    const applicantItems = applications.map((a) => ({
+      id: `app-${a.id}`,
+      time: (a.createdAt?.seconds || 0) * 1000,
+      title: "New applicant",
+      subtitle: [
+        [a.firstName, a.middleInitial, a.lastName].filter(Boolean).join(" ") || a.studentName || a.studentFullName || a.name || "A student",
+        a.jobTitle || a.postTitle || a.position,
+      ].filter(Boolean).join(" — applied for "),
+      applicantId: a.id,
+    }));
+
+    // Coordinator notices sit in the same list, newest first. `read` on the
+    // document is the source of truth for these (they're marked read when the
+    // bell is opened), so an important notice isn't buried by lastSeenNotif.
+    const noticeItems = accountNotices.map((n) => ({
+      id: `notice-${n.id}`,
+      docId: n.id,
+      time: (n.createdAt?.seconds || 0) * 1000,
+      title: n.title || "Account update",
+      subtitle: n.message || "",
+      isNotice: true,
+      forceUnread: n.read !== true,
+    }));
+
+    return [...applicantItems, ...noticeItems]
       .sort((a, b) => b.time - a.time)
       .slice(0, 30)
-      .map((n) => ({ ...n, unread: n.time > lastSeenNotif, onClick: () => { setNotifOpen(false); navigate("applicants", n.applicantId); } }));
-  }, [applications, lastSeenNotif]);
+      .map((n) => ({
+        ...n,
+        unread: n.isNotice ? n.forceUnread : n.time > lastSeenNotif,
+        onClick: n.isNotice
+          ? () => setNotifOpen(false)
+          : () => { setNotifOpen(false); navigate("applicants", n.applicantId); },
+      }));
+  }, [applications, accountNotices, lastSeenNotif]);
 
   const toggleNotif = () => {
     setNotifOpen((prev) => {
@@ -2230,6 +2267,13 @@ const CompanyDashboardScreen = ({ user, onLogout, onAuthStateChange }) => {
           setDoc(doc(db, "companies", user.uid), { lastSeenNotif: now }, { merge: true })
             .catch((err) => console.error("Failed to save notification seen state:", err));
         }
+        // Coordinator notices carry their own read flag, so clear it here too.
+        accountNotices
+          .filter((n) => n.read !== true)
+          .forEach((n) => {
+            updateDoc(doc(db, "notifications", n.id), { read: true })
+              .catch((err) => console.error("Failed to mark notification read:", err));
+          });
       }
       return next;
     });

@@ -268,6 +268,172 @@ Reason: ${reason}`;
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
+// ACCOUNT STANDING EMAIL — tells a company by email when a coordinator
+// suspends, blocks, or restores their account.
+//
+// This one matters more than the other notices: a suspended or blocked company
+// CANNOT log in, so the in-app notification written by notifyCompanyAccount
+// (AuthService.js) is unreachable for exactly the people who need it most.
+// Without this they just hit "Your company account has been suspended" on the
+// sign-in screen with no idea why, for how long, or what to do next.
+//
+// Fires on the status transition only, so an unrelated profile edit doesn't
+// re-send it. Auto-reactivation after a suspension expires also lands here
+// (approved again), which is a welcome "you're back" rather than silence.
+const ACCOUNT_STANDING_STATUSES = ["suspended", "blocked"];
+
+exports.sendAccountStandingEmail = onDocumentUpdated(
+  { document: "companies/{companyId}", region: "asia-southeast1", secrets: [resendApiKey] },
+  async (event) => {
+    const before = event.data.before.data() || {};
+    const after  = event.data.after.data()  || {};
+
+    const prevStatus = String(before.status || "").toLowerCase();
+    const newStatus  = String(after.status  || "").toLowerCase();
+    if (prevStatus === newStatus) return;               // nothing actually changed
+
+    const becameRestricted = ACCOUNT_STANDING_STATUSES.includes(newStatus);
+    const wasRestored = ACCOUNT_STANDING_STATUSES.includes(prevStatus) && newStatus === "approved";
+    if (!becameRestricted && !wasRestored) return;      // approval/rejection have their own emails
+
+    if (!after.email) {
+      console.warn(`Company ${event.params.companyId} has no email — skipping account standing email.`);
+      return;
+    }
+
+    const companyName = after.companyName || "there";
+    const reason = String(after.statusReason || "").trim();
+    const until = after.suspendedUntil && typeof after.suspendedUntil.toDate === "function"
+      ? after.suspendedUntil.toDate().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
+      : "";
+
+    let subject, heading, lead, whatNow;
+    if (newStatus === "suspended") {
+      subject = "OJTern - Your Account Has Been Suspended";
+      heading = "Account Suspended";
+      lead = until
+        ? `Your OJTern company account has been suspended until <strong>${until}</strong>. You won't be able to sign in until then.`
+        : "Your OJTern company account has been suspended, so you won't be able to sign in for now.";
+      whatNow = until
+        ? "Your account reactivates on its own after that date — just sign in again. If you believe this was a mistake, reply to this email or contact your OJT coordinator."
+        : "If you believe this was a mistake, reply to this email or contact your OJT coordinator.";
+    } else if (newStatus === "blocked") {
+      subject = "OJTern - Your Account Has Been Blocked";
+      heading = "Account Blocked";
+      lead = "Your OJTern company account has been blocked, so you can no longer sign in.";
+      whatNow = "A blocked account can only be restored by a coordinator. To appeal, reply to this email or contact your OJT coordinator.";
+    } else {
+      subject = "OJTern - Your Account Has Been Restored";
+      heading = "Account Restored";
+      lead = "Your OJTern company account is active again. You can sign in and post as usual.";
+      whatNow = "Your posts and applicants are exactly as you left them.";
+    }
+
+    const reasonHtml = reason
+      ? `<p style="margin:0 0 20px; font-size:15px; color:#333; line-height:1.6;"><strong>Reason:</strong> ${reason}</p>`
+      : "";
+    const reasonText = reason ? `Reason: ${reason}\n\n` : "";
+
+    const currentYear = new Date().getFullYear();
+    const loginUrl = "https://ojtern.com/signin";
+    const logoUrl = EMAIL_LOGO_URL;
+    const badgeLabel = newStatus === "suspended" ? "Suspended" : newStatus === "blocked" ? "Blocked" : "Active";
+
+    const html = `
+      <!DOCTYPE html>
+      <html>
+      <head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" /><title>${heading} — OJTern</title></head>
+      <body style="margin:0; padding:0; background:#f0f0f0; font-family:Arial, Helvetica, sans-serif;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f0f0f0; padding:24px 12px;">
+          <tr>
+            <td align="center">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px; background:#ffffff; border-radius:16px; overflow:hidden; box-shadow:0 4px 18px rgba(0,0,0,0.08);">
+
+                <tr>
+                  <td style="background:#111111; padding:28px 24px; text-align:center;">
+                    <table role="presentation" cellpadding="0" cellspacing="0" align="center" style="margin:0 auto 8px;">
+                      <tr>
+                        <td style="background:#ffffff; border-radius:10px; padding:5px; line-height:0;">
+                          <img src="${logoUrl}" alt="OJTern" width="32" height="32" style="display:block; border-radius:7px;" />
+                        </td>
+                      </tr>
+                    </table>
+                    <span style="font-family:Arial, Helvetica, sans-serif; font-size:22px; font-weight:bold; color:#ffffff; letter-spacing:0.03em;">OJTern</span>
+                  </td>
+                </tr>
+
+                <tr>
+                  <td style="padding:32px 28px 8px;">
+                    <h1 style="margin:0 0 18px; font-size:20px; color:#1a1a1a;">${heading}</h1>
+                    <p style="margin:0 0 16px; font-size:15px; color:#333; line-height:1.6;">Hi <strong>${companyName}</strong>,</p>
+                    <p style="margin:0 0 20px; font-size:15px; color:#333; line-height:1.6;">${lead}</p>
+
+                    <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 20px;">
+                      <tr>
+                        <td style="background:${newStatus === "approved" ? "#3D3D3D" : "#111111"}; border-radius:20px; padding:8px 20px;">
+                          <span style="font-size:13px; font-weight:bold; color:#ffffff; letter-spacing:0.04em; text-transform:uppercase;">${badgeLabel}</span>
+                        </td>
+                      </tr>
+                    </table>
+
+                    ${reasonHtml}
+                    <p style="margin:0 0 26px; font-size:15px; color:#333; line-height:1.6;">${whatNow}</p>
+
+                    <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 28px;">
+                      <tr>
+                        <td style="background:#111111; border-radius:24px;">
+                          <a href="${loginUrl}" style="display:inline-block; padding:13px 30px; font-size:15px; font-weight:bold; color:#ffffff; text-decoration:none;">Go to OJTern</a>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+
+                <tr>
+                  <td style="padding:20px 28px 28px; border-top:1px solid #eee;">
+                    <p style="margin:0 0 4px; font-size:13px; color:#888;">Thank you,<br/>OJTern Team</p>
+                    <p style="margin:16px 0 4px; font-size:12px; color:#aaa;">OJTern — Online Job Training and Employment Referral Network</p>
+                    <p style="margin:0 0 4px; font-size:11px; color:#bbb;">This is an automated message from OJTern.</p>
+                    <p style="margin:0; font-size:11px; color:#bbb;">&copy; ${currentYear} OJTern. All rights reserved.</p>
+                  </td>
+                </tr>
+
+              </table>
+            </td>
+          </tr>
+        </table>
+      </body>
+      </html>
+    `;
+
+    const text = `${heading} — OJTern
+
+Hi ${companyName},
+
+${lead.replace(/<[^>]+>/g, "")}
+
+${reasonText}${whatNow}
+
+${loginUrl}
+
+Thank you,
+OJTern Team
+
+OJTern — Online Job Training and Employment Referral Network
+This is an automated message from OJTern.
+© ${currentYear} OJTern. All rights reserved.`;
+
+    try {
+      await sendMail({ to: after.email, subject, html, text });
+      console.log(`Account standing email sent to ${after.email} (${prevStatus} → ${newStatus})`);
+    } catch (error) {
+      // Never let a failed email undo the status change a coordinator made.
+      console.error(`Failed to send account standing email for ${event.params.companyId}:`, error);
+    }
+  }
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
 // APPLICATION STATUS EMAIL — notifies a student by email whenever a company
 // changes their application status (Pending / In Review / To Interview /
 // Accepted / Declined — the actual statuses this system uses; see
@@ -392,10 +558,10 @@ exports.sendApplicationStatusEmail = onDocumentUpdated(
                     <!-- The logo sits on a white tile: it's a dark mark, so on the
                          black header (and in Gmail's dark mode) it would otherwise
                          disappear into the background. -->
-                    <table role="presentation" cellpadding="0" cellspacing="0" align="center" style="margin:0 auto 10px;">
+                    <table role="presentation" cellpadding="0" cellspacing="0" align="center" style="margin:0 auto 8px;">
                       <tr>
-                        <td style="background:#ffffff; border-radius:14px; padding:8px; line-height:0;">
-                          <img src="${logoUrl}" alt="OJTern" width="48" height="48" style="display:block; border-radius:10px;" />
+                        <td style="background:#ffffff; border-radius:10px; padding:5px; line-height:0;">
+                          <img src="${logoUrl}" alt="OJTern" width="32" height="32" style="display:block; border-radius:7px;" />
                         </td>
                       </tr>
                     </table>
@@ -586,10 +752,10 @@ exports.sendApplicationSubmittedEmail = onDocumentCreated(
                     <!-- The logo sits on a white tile: it's a dark mark, so on the
                          black header (and in Gmail's dark mode) it would otherwise
                          disappear into the background. -->
-                    <table role="presentation" cellpadding="0" cellspacing="0" align="center" style="margin:0 auto 10px;">
+                    <table role="presentation" cellpadding="0" cellspacing="0" align="center" style="margin:0 auto 8px;">
                       <tr>
-                        <td style="background:#ffffff; border-radius:14px; padding:8px; line-height:0;">
-                          <img src="${logoUrl}" alt="OJTern" width="48" height="48" style="display:block; border-radius:10px;" />
+                        <td style="background:#ffffff; border-radius:10px; padding:5px; line-height:0;">
+                          <img src="${logoUrl}" alt="OJTern" width="32" height="32" style="display:block; border-radius:7px;" />
                         </td>
                       </tr>
                     </table>

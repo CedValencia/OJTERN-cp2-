@@ -181,7 +181,16 @@ export const signIn = async (role, emailOrStudentId, password) => {
     const q    = query(collection(db, "students"), where("studentId", "==", emailOrStudentId.trim()));
     const snap = await getDocs(q);
     if (snap.empty) throw new Error("Student ID not found. Please check and try again.");
-    loginEmail = snap.docs[0].data().email;
+    const studentData = snap.docs[0].data();
+
+    // Archived students keep their Firebase Auth account and all their records —
+    // they just can't sign in as an active student. Checked here, before the Auth
+    // call, so no session is ever created for an archived account.
+    if (studentData.isArchived === true) {
+      throw new Error("Your student account has been archived. Please contact your coordinator for assistance.");
+    }
+
+    loginEmail = studentData.email;
   }
 
   // For companies — check Firestore status BEFORE attempting Auth sign-in
@@ -971,6 +980,31 @@ export const getCompanyActionHistory = async (companyId) => {
  * @param {string} companyName
  * @param {string} text
  */
+/**
+ * Notification for a COMPANY — the counterpart of the student notifications
+ * StudentDashboardScreen reads. Coordinator decisions (warnings, corrections,
+ * suspensions, blocks) belong in the company's notification bell, not in the
+ * chat thread: chat is for conversation, and a decision pushed there reads as
+ * if the coordinator had typed it personally.
+ *
+ * `recipientId` is the field to query on. Student notifications use
+ * `studentId`, which stays as it is so nothing existing breaks.
+ */
+export const notifyCompanyAccount = async (companyId, { title, body, type = "account", reportId = null, coordinatorUid = null }) => {
+  if (!companyId || !body) return;
+  await addDoc(collection(db, "notifications"), {
+    recipientId:   companyId,
+    recipientRole: "company",
+    title:         title || "Account update",
+    message:       body,
+    type,
+    reportId,
+    coordinatorUid,
+    read:          false,
+    createdAt:     serverTimestamp(),
+  });
+};
+
 export const notifyCompany = async (coordinatorUid, coordinatorName, companyId, companyName, text) => {
   if (!coordinatorUid || !companyId || !text) return;
   const convId  = [coordinatorUid, companyId].sort().join("_"); // matches useChat.js makeConvId
@@ -1076,7 +1110,7 @@ export const createStudentAccount = async (studentData, createdByUid) => {
   const {
     studentId, lastName, middleInitial, firstName, middleName,
     college, program, specialization, yearSection,
-    sex, age, email, collegeAbbr,
+    sex, age, email, collegeAbbr, batch,
   } = studentData;
 
   // 1. Check for duplicate studentId
@@ -1129,6 +1163,12 @@ export const createStudentAccount = async (studentData, createdByUid) => {
       program:        (program || "").trim(),
       specialization: (specialization || "").trim(),
       yearSection:    yearSection.trim(),
+      // Graduating batch year — distinct from yearSection ("4-A"). Set from the
+      // New student form and the Batch column of the import template.
+      batch:          String(batch || "").trim(),
+      // Archive state, so every new account starts in the active list.
+      isArchived:     false,
+      archivedAt:     null,
       sex:            sex || "",
       // Bulk-imported students have no age yet (they enter it on first
       // login). Store null rather than Number("") === 0.

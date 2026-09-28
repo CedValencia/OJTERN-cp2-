@@ -21,6 +21,21 @@ const panelDeep  = color.blush50;
 const onPanel    = color.onWine;
 const onPanelDim = color.onWineMuted;
 
+// ── Batch ────────────────────────────────────────────────────────────────────
+// Same field and rules as the Student Accounts screen (CoordinatorStudents-
+// AcccountScreen.jsx): students/{uid}.batch is the ACADEMIC YEAR ("2026-2027"),
+// which is not the same as yearSection ("4-A"). Older records have no batch, so
+// they group under "No batch set" rather than disappearing.
+const BATCH_NONE     = "__none__";
+const batchKeyOf     = (s) => { const b = String(s?.batch || "").trim(); return b || BATCH_NONE; };
+const batchLabelOf   = (key) => (key === BATCH_NONE ? "No batch set" : `Batch ${key}`);
+const batchStartYear = (key) => Number(String(key).split("-")[0]) || 0;
+const sortBatchKeys  = (keys) => [...keys].sort((a, b) => {
+  if (a === BATCH_NONE) return 1;
+  if (b === BATCH_NONE) return -1;
+  return batchStartYear(b) - batchStartYear(a);
+});
+
 // Colors for the small status pill shown on each student row / placement modal
 const STATUS_COLORS = {
   "Accepted":    { bg: color.success, color: color.white },
@@ -108,6 +123,7 @@ const describeExportScope = (filters, search) => {
   if (filters.sex)            parts.push(filters.sex);
   if (filters.section)        parts.push(`Section ${filters.section}`);
   if (filters.status)         parts.push(filters.status);
+  if (filters.batch)          parts.push(batchLabelOf(filters.batch));
   return parts.length ? parts.join(" · ") : "No filters applied";
 };
 
@@ -531,7 +547,7 @@ const PlacementModal = ({ student, onClose, onNavigateToCompany, companies, onMe
   );
 };
 
-const FilterPanel = ({ filters, setFilters, filterRef, coordinatorColleges = [] }) => {
+const FilterPanel = ({ filters, setFilters, filterRef, coordinatorColleges = [], batchOptions = [], hasUnbatched = false }) => {
   const [expandedCollege, setExpandedCollege] = useState(filters.college || "");
 
   // Scoped to the coordinator's own assigned department(s) — never the
@@ -564,6 +580,7 @@ const FilterPanel = ({ filters, setFilters, filterRef, coordinatorColleges = [] 
   };
   const toggleProgram = (prog) => setFilters(prev => ({ ...prev, program: prev.program === prog ? "" : prog, specialization: "" }));
   const toggleSpec    = (spec) => setFilters(prev => ({ ...prev, specialization: prev.specialization === spec ? "" : spec }));
+  const toggleBatch   = (val)  => setFilters(prev => ({ ...prev, batch: prev.batch === val ? "" : val }));
 
   const locationLevel = !expandedCollege ? "college" : !filters.program ? "program" : "specialization";
 
@@ -600,6 +617,23 @@ const FilterPanel = ({ filters, setFilters, filterRef, coordinatorColleges = [] 
             ))
           ) : (
             <span style={emptyNote}>No options available</span>
+          )}
+        </div>
+      </div>
+
+      <hr style={{ border: "none", borderTop: `1px solid ${lineSoft}`, margin: "10px 0" }} />
+
+      {/* Batch — academic year, built from the students actually loaded */}
+      <div style={{ padding: "0 14px 12px" }}>
+        <p style={{ ...groupLabel, marginBottom: space.sm }}>Batch</p>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+          {batchOptions.length > 0 || hasUnbatched ? (
+            <>
+              {batchOptions.map(b => (<span key={b} onClick={() => toggleBatch(b)} style={chip(filters.batch === b)}>{b}</span>))}
+              {hasUnbatched && (<span onClick={() => toggleBatch(BATCH_NONE)} style={chip(filters.batch === BATCH_NONE)}>No batch</span>)}
+            </>
+          ) : (
+            <span style={emptyNote}>No batches yet</span>
           )}
         </div>
       </div>
@@ -717,7 +751,7 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
   const [showFilter, setShowFilter]         = useState(false);
   const [showExport, setShowExport]         = useState(false);
   const [exportingPdf, setExportingPdf]     = useState(false);
-  const [filters, setFilters]               = useState({ college: "", program: "", specialization: "", sex: "", section: "", status: "" });
+  const [filters, setFilters]               = useState({ college: "", program: "", specialization: "", sex: "", section: "", status: "", batch: "" });
 
   const filterRef = useRef(null);
   const exportRef = useRef(null);
@@ -769,6 +803,13 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
     const unsub = onSnapshot(q, snap => {
       const rows = snap.docs
         .map(d => ({ id: d.id, ...d.data() }))
+        // Archived students (Student Accounts → Archive) are no longer current
+        // students, so they drop out of this list — their Firestore doc,
+        // applications and placement history are all still intact, and
+        // restoring them there brings them straight back here.
+        // A missing isArchived field means active, which keeps every older
+        // student record visible.
+        .filter(r => r.isArchived !== true)
         .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
       setStudents(rows);
       setLoadingStudents(false);
@@ -836,7 +877,7 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
   const filtered = students.filter(s => {
     const q        = search.toLowerCase();
     const fullName = `${s.firstName} ${s.lastName}`.toLowerCase();
-    const matchSearch  = fullName.includes(q) || s.studentId.includes(q) || s.program.toLowerCase().includes(q) || s.college.toLowerCase().includes(q);
+    const matchSearch  = fullName.includes(q) || s.studentId.includes(q) || s.program.toLowerCase().includes(q) || s.college.toLowerCase().includes(q) || String(s.batch || "").toLowerCase().includes(q);
     const matchSex     = !filters.sex     || s.sex === filters.sex;
     const matchSection = !filters.section || s.yearSection.endsWith(`-${filters.section}`);
     const matchCollege = !filters.college || s.college  === filters.college;
@@ -846,10 +887,24 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
     // Status filter — non-exclusive, see matchesStatusFilter above.
     const matchStatus = matchesStatusFilter(applicationsByStudent[s.id], filters.status);
 
-    return matchSearch && matchSex && matchSection && matchCollege && matchProgram && matchSpec && matchStatus;
+    const matchBatch = !filters.batch || batchKeyOf(s) === filters.batch;
+
+    return matchSearch && matchSex && matchSection && matchCollege && matchProgram && matchSpec && matchStatus && matchBatch;
   });
 
-  const clearAllFilters = () => setFilters({ college: "", program: "", specialization: "", sex: "", section: "", status: "" });
+  // Batch options from the loaded students, newest academic year first.
+  const batchOptions = sortBatchKeys([...new Set(students.map(batchKeyOf))]).filter(k => k !== BATCH_NONE);
+  const hasUnbatched = students.some(s => batchKeyOf(s) === BATCH_NONE);
+
+  // Group the visible rows by batch so this screen reads the same way as
+  // Student Accounts.
+  const groupedByBatch = (() => {
+    const groups = {};
+    filtered.forEach(s => { (groups[batchKeyOf(s)] ||= []).push(s); });
+    return sortBatchKeys(Object.keys(groups)).map(key => ({ key, label: batchLabelOf(key), rows: groups[key] }));
+  })();
+
+  const clearAllFilters = () => setFilters({ college: "", program: "", specialization: "", sex: "", section: "", status: "", batch: "" });
 
   // The export uses `filtered`, not `students` — what downloads is exactly
   // what the search box and filter chips are currently showing, so the file
@@ -1030,7 +1085,7 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
                   <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>
                 </svg>
               </div>
-              {showFilter && <FilterPanel filters={filters} setFilters={setFilters} filterRef={filterRef} coordinatorColleges={coordinatorColleges} />}
+              {showFilter && <FilterPanel filters={filters} setFilters={setFilters} filterRef={filterRef} coordinatorColleges={coordinatorColleges} batchOptions={batchOptions} hasUnbatched={hasUnbatched} />}
             </div>
           </div>
         </div>
@@ -1082,7 +1137,20 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
           </div>
         ) : filtered.length > 0 ? (
           <div id="sl-student-list" className="sp-rows">
-            {filtered.map(renderStudentRow)}
+            {groupedByBatch.map(group => (
+              <section key={group.key} style={{ marginBottom: space.lg }}>
+                <div style={{
+                  display: "flex", alignItems: "center", gap: space.sm, flexWrap: "wrap",
+                  padding: "0 2px 8px", borderBottom: `1px solid ${line}`, marginBottom: space.sm,
+                }}>
+                  <h3 style={{ fontFamily: font.ui, ...type.label, color: ink, fontWeight: 650, margin: 0, minWidth: 0, overflowWrap: "anywhere" }}>{group.label}</h3>
+                  <span style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, whiteSpace: "nowrap" }}>
+                    {group.rows.length} student{group.rows.length !== 1 ? "s" : ""}
+                  </span>
+                </div>
+                {group.rows.map(renderStudentRow)}
+              </section>
+            ))}
           </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", padding: "72px 24px", gap: space.xs, background: surface, border: `1px dashed ${color.wine400}`, borderRadius: radius.panel }}>

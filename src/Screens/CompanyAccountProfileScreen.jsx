@@ -4166,6 +4166,12 @@ const PersonalInfoScreen = ({ onBack, user, onEditingChange }) => {
   // state) purely so handleSave can look up each existing entry's status
   // by department+program without needing it in the render path.
   const deptSelectionsRef = useRef([]);
+  // Same data as the ref above, in state, so the read-only list can show each
+  // pair's coordinator status (pending / approved / rejected).
+  const [deptStatuses, setDeptStatuses] = useState([]);
+  // Set when Save would add or drop a college/program pair — the company sees
+  // exactly what changes before it reaches the coordinator's list.
+  const [courseChangeConfirm, setCourseChangeConfirm] = useState(null);
   const [location, setLocation] = useState({
     region: "", province: "", city: "", barangay: "", street: "",
   });
@@ -4258,6 +4264,7 @@ const PersonalInfoScreen = ({ onBack, user, onEditingChange }) => {
         }
         if (d.courseSelections) setCourseSelections(d.courseSelections);
         deptSelectionsRef.current = Array.isArray(d.deptSelections) ? d.deptSelections : [];
+        setDeptStatuses(deptSelectionsRef.current);
       }
       setLoading(false);
     }, (err) => {
@@ -4280,6 +4287,30 @@ const PersonalInfoScreen = ({ onBack, user, onEditingChange }) => {
     // Street address is optional - no validation required
     setErrors(e);
     return Object.keys(e).length === 0;
+  };
+
+  // Adding a course needs coordinator approval, and removing one takes it out
+  // of Create Post while leaving existing posts (and their applicants) alone.
+  // Both are worth confirming rather than discovering later.
+  const pairKey   = (d) => `${d.department || d.college || ""}||${d.program || ""}`;
+  const pairLabel = (d) => [d.department || d.college, d.program].filter(Boolean).join(" — ");
+
+  const courseChanges = () => {
+    const before = deptSelectionsRef.current.filter(d => d.department);
+    const after  = courseSelections.filter(s => s.college).map(s => ({ department: s.college, program: s.program || "" }));
+    const beforeKeys = new Set(before.map(pairKey));
+    const afterKeys  = new Set(after.map(pairKey));
+    return {
+      added:     after.filter(d => !beforeKeys.has(pairKey(d))).map(pairLabel),
+      removed:   before.filter(d => !afterKeys.has(pairKey(d))).map(pairLabel),
+      remaining: after.length,
+    };
+  };
+
+  const requestSave = () => {
+    const changes = courseChanges();
+    if (changes.added.length === 0 && changes.removed.length === 0) { handleSave(); return; }
+    setCourseChangeConfirm(changes);
   };
 
   const handleSave = async () => {
@@ -4525,11 +4556,25 @@ const PersonalInfoScreen = ({ onBack, user, onEditingChange }) => {
               </div>
             ) : acceptedCourses.length > 0 ? (
               <ul style={{ margin: 0, paddingLeft: "18px" }}>
-                {acceptedCourses.map((s, idx) => (
+                {acceptedCourses.map((s, idx) => {
+                  const match = deptStatuses.find(d => d.department === s.college && (d.program || "") === (s.program || ""));
+                  const status = match?.status || "pending";
+                  const badge = status === "approved"
+                    ? { text: "Approved", bg: "#E8F3E8", color: "#2D6A2D" }
+                    : status === "rejected"
+                      ? { text: "Not approved", bg: "#F7E9E9", color: color.danger }
+                      : { text: "Pending approval", bg: "#FAF1DD", color: "#8A6A12" };
+                  return (
                   <li key={idx} style={{ fontFamily: font.ui, ...type.body, color: ink, marginBottom: "2px" }}>
                     {[s.college, s.program, s.specialization].filter(Boolean).join(" — ")}
+                    <span style={{
+                      marginLeft: "8px", display: "inline-block", verticalAlign: "middle",
+                      background: badge.bg, color: badge.color, borderRadius: radius.pill,
+                      padding: "1px 9px", fontFamily: font.ui, ...type.helper, fontWeight: 600, whiteSpace: "nowrap",
+                    }}>{badge.text}</span>
                   </li>
-                ))}
+                  );
+                })}
               </ul>
             ) : (
               <span style={rowValue}>—</span>
@@ -4587,6 +4632,28 @@ const PersonalInfoScreen = ({ onBack, user, onEditingChange }) => {
             )}
           </div>
 
+          {courseChangeConfirm && (
+            <ConfirmDialog
+              icon="📚"
+              title="Update the courses you accept?"
+              body={[
+                courseChangeConfirm.added.length > 0
+                  ? `Adding: ${courseChangeConfirm.added.join(", ")}. Each new course needs your coordinator's approval before you can post for it.`
+                  : "",
+                courseChangeConfirm.removed.length > 0
+                  ? `Removing: ${courseChangeConfirm.removed.join(", ")}. New posts can no longer include these courses. Your existing posts and the applications already on them stay as they are — you'll be asked to drop the course the next time you edit one of those posts.`
+                  : "",
+                courseChangeConfirm.remaining === 0
+                  ? "You'd be left with no accepted courses, so you won't be able to create any posts until you add one back."
+                  : "",
+              ].filter(Boolean).join("\n\n")}
+              cancelLabel="Keep editing"
+              confirmLabel="Save changes"
+              onCancel={() => setCourseChangeConfirm(null)}
+              onConfirm={() => { setCourseChangeConfirm(null); handleSave(); }}
+            />
+          )}
+
           {/* Cancel / Save */}
           {editing && (
             <div className="cap-save-row">
@@ -4595,7 +4662,7 @@ const PersonalInfoScreen = ({ onBack, user, onEditingChange }) => {
                 style={{ padding: "9px 20px", borderRadius: radius.pill, background: "transparent", color: inkMuted, border: `1px solid ${line}`, fontFamily: font.ui, ...type.control, cursor: "pointer" }}>
                 Cancel
               </button>
-              <button onClick={handleSave} disabled={saving}
+              <button onClick={requestSave} disabled={saving}
                 style={{ padding: "9px 22px", borderRadius: radius.pill, background: panel, color: onPanel, border: "none", fontFamily: font.ui, ...type.control, cursor: saving ? "not-allowed" : "pointer", opacity: saving ? 0.7 : 1, boxShadow: shadow.pill }}>
                 {saving ? "Saving…" : "Save changes"}
               </button>

@@ -2531,19 +2531,47 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
     return unsub;
   }, []);
 
+  // Department labels a company accepts, from whichever field their doc uses:
+  // `departments` (names), `deptSelections[].department`, or
+  // `collegePrograms[].college`. Returned as college KEYS ("CCS") so they can
+  // be compared with the coordinator's own assigned departments.
+  const companyDepartmentKeys = (data) => {
+    const pick = (entry) => (typeof entry === "string" ? entry : (entry?.department || entry?.college || ""));
+    const labels = [data?.departments, data?.deptSelections, data?.collegePrograms]
+      .filter(Array.isArray)
+      .flatMap(list => list.map(pick))
+      .map(label => String(label || "").trim())
+      .filter(Boolean);
+    return [...new Set(labels.map(l => DEPT_LABEL_TO_COLLEGE_KEY[l]).filter(Boolean))];
+  };
+
   // ── Map company name -> industry, so reports (which only store a company
   //    name, not an id) can be scoped to this coordinator's assigned industries ──
   const [companyIndustryMap, setCompanyIndustryMap]              = useState({});
   const [companyIndustryMapLoaded, setCompanyIndustryMapLoaded]  = useState(false);
+  // company id/name -> college keys of the departments that company accepts
+  const [companyDeptMap, setCompanyDeptMap]                      = useState({});
   useEffect(() => {
     const unsub = onSnapshot(collection(db, "companies"), (snap) => {
       const map = {};
+      const deptMap = {};
       snap.docs.forEach(d => {
         const data = d.data();
+        const industries = Array.isArray(data.industry) ? data.industry : (data.industry ? [data.industry] : []);
         const name = data?.companyName || data?.name;
-        if (name) map[name] = Array.isArray(data.industry) ? data.industry : (data.industry ? [data.industry] : []);
+        // Keyed by BOTH the doc id and the name: reports store companyId, and
+        // matching on that survives a company renaming itself (or two
+        // companies sharing a name), with the name kept for older reports
+        // written before companyId was saved.
+        map[d.id] = industries;
+        if (name) map[name] = industries;
+
+        const deptKeys = companyDepartmentKeys(data);
+        deptMap[d.id] = deptKeys;
+        if (name) deptMap[name] = deptKeys;
       });
       setCompanyIndustryMap(map);
+      setCompanyDeptMap(deptMap);
       setCompanyIndustryMapLoaded(true);
     }, (err) => console.error("Failed to load company industries:", err));
     return unsub;
@@ -2558,15 +2586,29 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
   // never shown to everyone. The only case that legitimately shows
   // everything is the brief window before the initial company fetch above
   // resolves (companyIndustryMapLoaded), same reasoning as the activity log.
+  // Scoped by DEPARTMENT: a coordinator sees reports about companies that
+  // accept one of their own departments, and nothing from another department.
+  // Still fails closed — an unmatched company shows for nobody — so a company
+  // with no accepted course is worth spotting in the Company List.
   const scopedReports = React.useMemo(() => {
     if (!companyIndustryMapLoaded) return reports;
-    if (coordinatorIndustries.length === 0) return [];
+    if (coordinatorColleges.length === 0) return [];
     return reports.filter(r => {
-      const ind = companyIndustryMap[r.company];
-      if (!ind || ind.length === 0) return false;
-      return ind.some(i => coordinatorIndustries.includes(i));
+      const depts = companyDeptMap[r.companyId] || companyDeptMap[r.company];
+      if (!depts || depts.length === 0) return false;
+      return depts.some(key => coordinatorColleges.includes(key));
     });
-  }, [reports, companyIndustryMap, companyIndustryMapLoaded, coordinatorIndustries]);
+  }, [reports, companyDeptMap, companyIndustryMapLoaded, coordinatorColleges]);
+
+  // Everything outside this coordinator's industries — including companies
+  // whose industry can't be matched at all. `scopedReports` fails closed on
+  // purpose, but with no coordinator assigned to an industry those reports
+  // would never be read by anyone, which is the wrong outcome for something
+  // like a harassment report. The Report List offers them under a separate
+  // "All reports" tab rather than mixing them into the default view.
+  // Deliberately empty: reports from other departments are not this
+  // coordinator's to read, so the Report List shows no second tab.
+  const unscopedReports = [];
 
 
   // ── Load the shared activity log — every coordinator's actions, newest first ──
@@ -3083,6 +3125,7 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
     if (activeNav === "reportcompany") return (
       <CoordinatorReportCompanyScreen
         reports={scopedReports}
+        otherReports={unscopedReports}
         onViewReport={(r) => setViewingReport(r)}
       />
     );
