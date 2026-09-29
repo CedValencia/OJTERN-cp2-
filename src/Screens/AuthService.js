@@ -990,11 +990,14 @@ export const getCompanyActionHistory = async (companyId) => {
  * `recipientId` is the field to query on. Student notifications use
  * `studentId`, which stays as it is so nothing existing breaks.
  */
-export const notifyCompanyAccount = async (companyId, { title, body, type = "account", reportId = null, coordinatorUid = null }) => {
+export const notifyCompanyAccount = async (companyId, { title, body, type = "account", reportId = null, coordinatorUid = null, action = null }) => {
   if (!companyId || !body) return;
   await addDoc(collection(db, "notifications"), {
     recipientId:   companyId,
     recipientRole: "company",
+    // The coordinator's action ("Warning Issued", "Require Correction", …).
+    // ReportResponseModal reads it to decide whether proof is required.
+    action,
     title:         title || "Account update",
     message:       body,
     type,

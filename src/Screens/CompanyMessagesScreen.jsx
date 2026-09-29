@@ -315,7 +315,10 @@ const ReportModal = ({ company, onClose, onSubmit }) => {
   const handleSubmit = () => {
     if (!description.trim()) { setInfoMsg("Please describe your report."); return; }
     if (!attachedFile)        { setInfoMsg("Please attach a file."); return; }
-    onSubmit({ company: company.name, companyId: company.id || "", concern: selected?.label || "Others", date: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }), description, attachedFile });
+    // subjectType says WHAT is being reported. A company reporting from chat is
+    // usually reporting a student, and the coordinator's resolve flow needs to
+    // know that: account actions like Suspend only apply to companies.
+    onSubmit({ company: company.name, companyId: company.id || "", subjectType: String(company.role || "student").toLowerCase(), subjectId: company.id || "", subjectName: company.name, concern: selected?.label || "Others", date: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }), description, attachedFile });
     onClose();
   };
 
@@ -1064,6 +1067,9 @@ const CompanyMessagesScreen = ({
       await addDoc(collection(db, "reports"), {
         company:      report.company,
         companyId:    report.companyId || "",
+        subjectType:  report.subjectType || "student",
+        subjectId:    report.subjectId || report.companyId || "",
+        subjectName:  report.subjectName || report.company || "",
         concern:      report.concern,
         date:         report.date,
         description:  report.description,

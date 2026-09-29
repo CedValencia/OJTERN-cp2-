@@ -321,6 +321,12 @@ const ReportModal = ({ company, onClose, onSubmit }) => {
     onSubmit({
       company: company.name,
       companyId: company.id || "",
+      // What's being reported — a company, or a coordinator from chat. The
+      // coordinator's resolve flow needs this: account actions such as Suspend
+      // only apply to companies.
+      subjectType: String(company.role || "company").toLowerCase(),
+      subjectId: company.id || "",
+      subjectName: company.name,
       concern: selected?.label || "Others",
       date: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
       description,
@@ -1144,6 +1150,9 @@ const StudentMessagesScreen = ({
       await addDoc(collection(db, "reports"), {
         company:      report.company,
         companyId:    report.companyId || "",
+        subjectType:  report.subjectType || "company",
+        subjectId:    report.subjectId || report.companyId || "",
+        subjectName:  report.subjectName || report.company || "",
         concern:      report.concern,
         date:         report.date,
         description:  report.description,

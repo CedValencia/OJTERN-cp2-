@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { collection, onSnapshot, query, where, doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
 import { db } from "./firebase";
 import { logOut, getUserProfile } from "./AuthService";
+import ReportResponseModal, { RESPONDABLE_ACTIONS } from "./ReportResponseModal";
 import { useUnreadCount } from "./useChat";
 import { color, font, ease } from "./theme";
 import { driver } from "driver.js";
@@ -2184,6 +2185,10 @@ const CompanyDashboardScreen = ({ user, onLogout, onAuthStateChange }) => {
   //    blocks). Written by notifyCompanyAccount in AuthService.js when a report
   //    is resolved — they belong here in the bell, not in the chat thread. ────
   const [accountNotices, setAccountNotices] = useState([]);
+  // Notice whose response form is open. Warning Issued / Require Correction /
+  // Others ask the company to say what they did; Suspend and Block don't,
+  // since a locked-out account can't fill anything in.
+  const [respondingTo, setRespondingTo] = useState(null);
 
   useEffect(() => {
     if (!user?.uid) return;
@@ -2243,6 +2248,8 @@ const CompanyDashboardScreen = ({ user, onLogout, onAuthStateChange }) => {
       subtitle: n.message || "",
       isNotice: true,
       forceUnread: n.read !== true,
+      notice: n,
+      canRespond: RESPONDABLE_ACTIONS.includes(String(n.action || "").trim()) && !!n.reportId,
     }));
 
     return [...applicantItems, ...noticeItems]
@@ -2252,7 +2259,7 @@ const CompanyDashboardScreen = ({ user, onLogout, onAuthStateChange }) => {
         ...n,
         unread: n.isNotice ? n.forceUnread : n.time > lastSeenNotif,
         onClick: n.isNotice
-          ? () => setNotifOpen(false)
+          ? () => { setNotifOpen(false); if (n.canRespond) setRespondingTo(n.notice); }
           : () => { setNotifOpen(false); navigate("applicants", n.applicantId); },
       }));
   }, [applications, accountNotices, lastSeenNotif]);
@@ -2411,6 +2418,15 @@ const CompanyDashboardScreen = ({ user, onLogout, onAuthStateChange }) => {
         <LogoutConfirmModal
           onConfirm={handleLogoutConfirm}
           onCancel={() => setShowLogoutConfirm(false)}
+        />
+      )}
+      {respondingTo && (
+        <ReportResponseModal
+          notification={respondingTo}
+          responderId={user?.uid}
+          responderRole="company"
+          responderName={companyProfile?.companyName || user?.companyName || ""}
+          onClose={() => setRespondingTo(null)}
         />
       )}
       <div style={{ width: "100vw", height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>

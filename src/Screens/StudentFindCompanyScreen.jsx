@@ -504,6 +504,10 @@ const ReportModal = ({ company, onClose, onSubmit, reporter }) => {
         // field (the real owner uid) instead.
         companyId:      company.companyId || company.id || company.uid || "",
         company:        company.companyName || company.name || "",
+        // Always a company here — this modal is opened from a company's post.
+        subjectType:    "company",
+        subjectId:      company.companyId || company.id || company.uid || "",
+        subjectName:    company.companyName || company.name || "",
         concern:        selected?.label || "Others",
         description,
         attachedFile:   fileData,

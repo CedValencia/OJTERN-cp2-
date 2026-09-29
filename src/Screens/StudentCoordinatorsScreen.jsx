@@ -1,0 +1,773 @@
+import React, { useState, useEffect, useRef } from "react";
+import { collection, doc, onSnapshot } from "firebase/firestore";
+import { db } from "./firebase";
+import userIcon from "../icons/user.png";
+import { color, font, type, space, radius, shadow, ease } from "./theme";
+
+const red = "#8B0000";
+const darkRed = "#590101";
+const border = "#E5E5E5";
+
+// Canonical college order — keeps the grouping consistent with the rest of
+// the app instead of falling back to alphabetical sorting.
+const COLLEGE_ORDER = [
+  "College of Computer Studies",
+  "College of Business and Accountancy",
+  "College of Criminal Justice Education",
+  "College of Liberal Arts",
+  "College of Education",
+  "College of Hospitality and Tourism Management",
+];
+
+// ── College → Program data (kept consistent with CompanyApplicantsScreen) ──
+const COLLEGE_DATA = {
+  "College of Computer Studies": {
+    programs: {
+      "Bachelor of Science in Information Technology": { specializations: [] },
+    },
+  },
+  "College of Business and Accountancy": {
+    programs: {
+      "BS Business Administration — Major in Marketing Management": { specializations: [] },
+      "Bachelor of Science in Accountancy": { specializations: [] },
+    },
+  },
+  "College of Criminal Justice Education": {
+    programs: {
+      "Bachelor of Science in Criminology": { specializations: [] },
+    },
+  },
+  "College of Liberal Arts": {
+    programs: {
+      "Bachelor of Arts in Political Science": { specializations: [] },
+    },
+  },
+  "College of Education": {
+    programs: {
+      "Bachelor of Elementary Education": { specializations: [] },
+      "BS Education — Major in English": { specializations: [] },
+      "BS Education — Major in Mathematics": { specializations: [] },
+    },
+  },
+  "College of Hospitality and Tourism Management": {
+    programs: {
+      "Bachelor of Science in Tourism Management": { specializations: [] },
+      "Bachelor of Science in Hospitality Management": { specializations: [] },
+    },
+  },
+};
+
+// ── Filter-label → stored-value mapping ─────────────────────────────────────
+// The filter UI above shows full program names, but coordinators' Firestore
+// docs (deptSelections[].program, see DEPARTMENT_PROGRAM_DATA in
+// CoordinatorAccountProfileScreen.jsx) actually store short codes instead
+// (e.g. "BSED (Major in English)"). Without this mapping, matchesProgram
+// below compares two different vocabularies and never matches anything —
+// selecting a program filter always returned zero results.
+const PROGRAM_CODE_MAP = {
+  "Bachelor of Science in Information Technology": "BSIT",
+  "BS Business Administration — Major in Marketing Management": "BSBA (Major in Marketing Management)",
+  "Bachelor of Science in Accountancy": "BSA",
+  "Bachelor of Science in Criminology": "BS Crim",
+  "Bachelor of Arts in Political Science": "BA Pol Sci",
+  "Bachelor of Elementary Education": "BEED (Generalist)",
+  "BS Education — Major in English": "BSED (Major in English)",
+  "BS Education — Major in Mathematics": "BSED (Major in Mathematics)",
+  "Bachelor of Science in Tourism Management": "BSTM",
+  "Bachelor of Science in Hospitality Management": "BSHM",
+};
+
+// ── useIsMobile ───────────────────────────────────────────────────────────────
+const useIsMobile = () => {
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth < 640);
+  useEffect(() => {
+    const handler = () => setIsMobile(window.innerWidth < 640);
+    window.addEventListener("resize", handler);
+    return () => window.removeEventListener("resize", handler);
+  }, []);
+  return isMobile;
+};
+
+// ── CoordinatorAvatar ─────────────────────────────────────────────────────────
+const CoordinatorAvatar = ({ size = 44 }) => (
+  <img
+    src={userIcon}
+    alt="coordinator"
+    style={{ width: size, height: size, objectFit: "contain", flexShrink: 0 }}
+  />
+);
+
+// ── FilterPanel ───────────────────────────────────────────────────────────────
+const FilterPanel = ({ filterRef, filterCollege, filterProgram, setFilterCollege, setFilterProgram }) => {
+  const colleges = Object.keys(COLLEGE_DATA);
+  const programs = filterCollege
+    ? Object.keys(COLLEGE_DATA[filterCollege]?.programs || {})
+    : [];
+
+  const clearAll = () => {
+    setFilterCollege("");
+    setFilterProgram("");
+  };
+
+  return (
+    <div
+      ref={filterRef}
+      style={{
+        position: "absolute",
+        top: "calc(100% + 10px)",
+        right: 0,
+        width: "min(330px, calc(100vw - 32px))",
+        background: color.white,
+        border: `1px solid ${border}`,
+        borderRadius: radius.card,
+        boxShadow: shadow.panel,
+        zIndex: 100,
+        overflow: "hidden",
+        fontFamily: font.ui,
+      }}
+    >
+      <div style={{ padding: space.md }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: space.sm }}>
+          <div>
+            <p style={{ ...type.label, color: color.ink, margin: 0 }}>Filter coordinators</p>
+            <p style={{ ...type.helper, color: color.inkMuted, margin: "3px 0 0" }}>Narrow the directory by college and program.</p>
+          </div>
+          {(filterCollege || filterProgram) && (
+            <button
+              onClick={clearAll}
+              style={{
+                background: "none", border: "none", color: red, cursor: "pointer",
+                fontFamily: font.ui, fontSize: "0.78rem", fontWeight: 600, padding: "4px 0",
+              }}
+            >
+              Clear
+            </button>
+          )}
+        </div>
+
+        <p style={{ ...type.helper, color: color.inkMuted, margin: "16px 0 7px", textTransform: "uppercase", letterSpacing: "0.07em", fontWeight: 600 }}>
+          College
+        </p>
+        <div style={{ maxHeight: "190px", overflowY: "auto", overflowX: "hidden", display: "grid", gap: "5px" }}>
+          {colleges.map((col) => {
+            const selected = filterCollege === col;
+            return (
+              <button
+                key={col}
+                onClick={() => { setFilterCollege(selected ? "" : col); setFilterProgram(""); }}
+                style={{
+                  width: "100%", textAlign: "left", padding: "9px 10px", borderRadius: "10px",
+                  border: `1px solid ${selected ? "#D9A4A4" : border}`,
+                  background: selected ? "#F8EDED" : color.wine900,
+                  color: selected ? darkRed : color.inkBody,
+                  cursor: "pointer", fontFamily: font.ui, fontSize: "0.8rem",
+                  fontWeight: selected ? 600 : 500, transition: `all 160ms ${ease}`,
+                }}
+              >
+                <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <span style={{
+                    width: "7px", height: "7px", borderRadius: "50%",
+                    background: selected ? red : "#D0D0D0", flexShrink: 0,
+                  }} />
+                  {col}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        {filterCollege && (
+          <>
+            <p style={{ ...type.helper, color: color.inkMuted, margin: "16px 0 7px", textTransform: "uppercase", letterSpacing: "0.07em", fontWeight: 600 }}>
+              Program
+            </p>
+            <div style={{ maxHeight: "145px", overflowY: "auto", overflowX: "hidden", display: "flex", flexWrap: "wrap", gap: "6px" }}>
+              {programs.map((prog) => {
+                const selected = filterProgram === prog;
+                return (
+                  <button
+                    key={prog}
+                    onClick={() => setFilterProgram(selected ? "" : prog)}
+                    style={{
+                      padding: "7px 10px", borderRadius: radius.pill,
+                      border: `1px solid ${selected ? red : border}`,
+                      background: selected ? red : color.wine900,
+                      color: selected ? color.white : color.inkBody,
+                      cursor: "pointer", fontFamily: font.ui, fontSize: "0.76rem",
+                      fontWeight: selected ? 600 : 500, transition: `all 160ms ${ease}`,
+                      maxWidth: "100%", whiteSpace: "normal", wordBreak: "break-word", textAlign: "left",
+                    }}
+                  >
+                    {prog}
+                  </button>
+                );
+              })}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+};
+
+
+// Pulls department names out of a company doc, whichever shape it uses.
+// Entries may be plain strings or objects ({ department } / { college }).
+const departmentNamesOf = (data) => {
+  // A student belongs to one college (students/{uid}.college), and that label
+  // is the same one coordinators store in deptSelections[].department, so the
+  // two compare directly.
+  const college = String(data?.college || "").trim();
+  return college ? [college] : [];
+};
+
+// ── CoordinatorDetailsModal ───────────────────────────────────────────────────
+// Opens when a coordinator card is clicked. The card itself only shows the name
+// and program; contact details (email) and the Message action live here.
+const CoordinatorDetailsModal = ({ coordinator, onClose, onMessage, canMessage }) => {
+  const closeRef = useRef(null);
+
+  useEffect(() => {
+    closeRef.current?.focus();
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const departments = coordinator.colleges || [];
+  const programs = coordinator.programs || [];
+  const rowLabel = { ...type.helper, color: color.inkMuted, margin: 0, textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 600 };
+  const rowValue = { fontFamily: font.ui, fontSize: "0.9rem", color: color.ink, margin: "4px 0 0", lineHeight: 1.5, overflowWrap: "anywhere" };
+
+  return (
+    <div
+      onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      style={{
+        position: "fixed", inset: 0, zIndex: 1000, background: "rgba(0,0,0,0.45)",
+        display: "flex", alignItems: "center", justifyContent: "center", padding: "16px",
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="coordinator-details-title"
+        style={{
+          width: "100%", maxWidth: "420px", maxHeight: "calc(100vh - 32px)", overflowY: "auto",
+          background: color.white, borderRadius: radius.card, boxShadow: "0 18px 50px rgba(0,0,0,0.22)",
+          fontFamily: font.ui,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: "12px", padding: "18px 18px 14px", borderBottom: `1px solid ${border}` }}>
+          <div style={{
+            width: "48px", height: "48px", borderRadius: "14px", background: color.wine800,
+            display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, overflow: "hidden",
+          }}>
+            <CoordinatorAvatar size={48} />
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <h3 id="coordinator-details-title" style={{ ...type.label, fontSize: "1.05rem", color: color.ink, fontWeight: 650, margin: 0, overflowWrap: "anywhere" }}>
+              {coordinator.name}
+            </h3>
+            <p style={{ ...type.helper, color: color.inkMuted, margin: "3px 0 0" }}>Coordinator</p>
+          </div>
+          <button
+            ref={closeRef}
+            onClick={onClose}
+            aria-label="Close"
+            style={{
+              width: "34px", height: "34px", borderRadius: "50%", border: `1px solid ${border}`,
+              background: color.white, cursor: "pointer", fontSize: "1.05rem", color: color.inkBody, flexShrink: 0,
+            }}
+          >
+            ×
+          </button>
+        </div>
+
+        <div style={{ padding: "16px 18px", display: "grid", gap: "14px" }}>
+          <div>
+            <p style={rowLabel}>Department</p>
+            <p style={rowValue}>{departments.length > 0 ? departments.join(", ") : "Unassigned"}</p>
+          </div>
+          <div>
+            <p style={rowLabel}>Program</p>
+            <p style={rowValue}>{programs.length > 0 ? programs.join(", ") : "—"}</p>
+          </div>
+          <div>
+            <p style={rowLabel}>Email address</p>
+            {coordinator.email ? (
+              <a href={`mailto:${coordinator.email}`} style={{ ...rowValue, display: "block", color: color.ink, textDecoration: "underline" }}>
+                {coordinator.email}
+              </a>
+            ) : (
+              <p style={{ ...rowValue, color: color.inkMuted }}>Not provided yet</p>
+            )}
+          </div>
+        </div>
+
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px", padding: "0 18px 18px" }}>
+          <button
+            onClick={onClose}
+            style={{
+              background: color.white, color: color.ink, border: `1px solid ${border}`,
+              borderRadius: radius.pill, padding: "9px 16px", cursor: "pointer",
+              fontFamily: font.ui, fontWeight: 600, fontSize: "0.8rem",
+            }}
+          >
+            Close
+          </button>
+          {canMessage && (
+            <button
+              onClick={() => onMessage(coordinator)}
+              style={{
+                background: "#000000", color: color.white, border: "1px solid #000000",
+                borderRadius: radius.pill, padding: "9px 18px", cursor: "pointer",
+                fontFamily: font.ui, fontWeight: 600, fontSize: "0.8rem", transition: `background 160ms ${ease}`,
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background = "#FFFFFF"; e.currentTarget.style.color = "#000000"; }}
+              onMouseLeave={e => { e.currentTarget.style.background = "#000000"; e.currentTarget.style.color = "#FFFFFF"; }}
+            >
+              Message
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ── Main CompanyCoordinatorsScreen ────────────────────────────────────────────
+const StudentCoordinatorsScreen = ({ embedded, user, onNavigateToMessages }) => {
+  const isMobile = useIsMobile();
+  // Coordinator icon size — same as the chat-list icon in CompanyMessagesScreen.
+  const avatarSize = isMobile ? 46 : 48;
+  const [search, setSearch] = useState("");
+  const [coordinators, setCoordinators] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  // Departments this company picked at Sign-Up Step 1 (companies/{uid}.departments,
+  // with deptSelections[].department as the fallback shape). null = still loading,
+  // [] = the company picked none, so nothing can be matched against.
+  const [companyDepartments, setCompanyDepartments] = useState(null);
+
+  const [showFilter, setShowFilter] = useState(false);
+  // Coordinator whose details window is open (null = closed).
+  const [selectedCoordinator, setSelectedCoordinator] = useState(null);
+  const [filterCollege, setFilterCollege] = useState("");
+  const [filterProgram, setFilterProgram] = useState("");
+  const filterRef = useRef(null);
+
+  // Close the filter panel on outside click.
+  useEffect(() => {
+    const handler = (e) => {
+      if (filterRef.current && !filterRef.current.contains(e.target)) setShowFilter(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  // Read the student's own college live, so a coordinator correcting it
+  // updates this list without a reload.
+  //
+  // Company docs carry their Department/Program picks under more than one
+  // shape depending on when and how they registered — `departments` (plain
+  // names), `deptSelections` ([{ department, program }], written by
+  // registerCompany) and `collegePrograms` ([{ college, program }], the shape
+  // CoordinatorCompanyListScreen reads). All three are collected, so a company
+  // is never matched against an empty list just because of which one it uses.
+  useEffect(() => {
+    if (!user?.uid) {
+      console.warn("[Coordinators] No student uid on `user` — cannot scope the list by college.");
+      setCompanyDepartments([]);
+      return;
+    }
+    const unsub = onSnapshot(
+      doc(db, "students", user.uid),
+      (snap) => {
+        const data = snap.exists() ? (snap.data() || {}) : {};
+        setCompanyDepartments(departmentNamesOf(data));
+      },
+      (err) => {
+        // Don't strand the company with an empty screen on a read failure —
+        // fall back to whatever their session profile already carries.
+        console.error("Failed to load the student college:", err);
+        setCompanyDepartments(departmentNamesOf(user));
+      }
+    );
+    return () => unsub();
+  }, [user?.uid]);
+
+  // Coordinators of the departments this company selected at sign-up.
+  useEffect(() => {
+    const unsub = onSnapshot(
+      collection(db, "coordinators"),
+      (snap) => {
+        const list = snap.docs.map((d) => {
+          const data = d.data() || {};
+          const colleges = Array.isArray(data.deptSelections)
+            ? [...new Set(data.deptSelections.map(sel => sel?.department).filter(Boolean))]
+            : [];
+          const programs = Array.isArray(data.deptSelections)
+            ? [...new Set(data.deptSelections.map(sel => sel?.program).filter(Boolean))]
+            : [];
+          return {
+            id: d.id,
+            name: data.name || "Coordinator",
+            // The address the coordinator gave during first-login setup and can
+            // update from their Account Profile (requestUserEmailChange keeps
+            // this field and their Auth login email in step).
+            email: String(data.email || "").trim(),
+            department: Array.isArray(data.deptSelections) ? data.deptSelections : [],
+            colleges,
+            programs,
+          };
+        });
+        list.sort((a, b) => a.name.localeCompare(b.name));
+        setCoordinators(list);
+        setLoading(false);
+      },
+      (err) => { console.error("Failed to load coordinators:", err); setLoading(false); }
+    );
+    return () => unsub();
+  }, []);
+
+  // Safety net: if the selected college changes (or is cleared) and no
+  // longer offers the currently selected program, clear the program filter.
+  useEffect(() => {
+    if (filterCollege && filterProgram && COLLEGE_DATA[filterCollege] && !(filterProgram in COLLEGE_DATA[filterCollege].programs)) {
+      setFilterProgram("");
+    }
+  }, [filterCollege]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const activeFilterCount = (filterCollege ? 1 : 0) + (filterProgram ? 1 : 0);
+
+  // Only coordinators who handle at least one of the company's departments.
+  // While the departments are still loading, show nothing rather than briefly
+  // flashing the full directory.
+  const companyDeptsLower = (companyDepartments || []).map(d => String(d).trim().toLowerCase());
+  const scoped = companyDepartments === null
+    ? []
+    : coordinators.filter(c => (c.colleges || []).some(col => companyDeptsLower.includes(String(col).trim().toLowerCase())));
+
+  // One line in the console makes a naming mismatch obvious: if the company's
+  // departments and the coordinators' departments are spelled differently,
+  // nothing matches and this says so in the data's own words.
+  useEffect(() => {
+    if (companyDepartments === null || coordinators.length === 0) return;
+    console.debug(
+      "[Coordinators] student college:", companyDepartments,
+      "| coordinator departments:", [...new Set(coordinators.flatMap(c => c.colleges || []))],
+      "| matched:", scoped.length, "of", coordinators.length
+    );
+  }, [companyDepartments, coordinators, scoped.length]);
+
+  const filtered = scoped.filter((c) => {
+    const term = search.toLowerCase();
+    const matchesName = c.name.toLowerCase().includes(term) || (c.email || "").toLowerCase().includes(term);
+    const matchesCollege = !filterCollege || (c.colleges || []).includes(filterCollege);
+    const filterProgramCode = PROGRAM_CODE_MAP[filterProgram] || filterProgram;
+    const matchesProgram = !filterProgram || (c.programs || []).includes(filterProgramCode);
+    return matchesName && matchesCollege && matchesProgram;
+  });
+
+  // Group by college — a coordinator with multiple assigned colleges appears
+  // under each one. Coordinators with no college assignment go under "Unassigned".
+  const groups = {};
+  filtered.forEach((c) => {
+    const colleges = Array.isArray(c.colleges) ? c.colleges : [];
+    const cols = colleges.length > 0 ? colleges : ["Unassigned"];
+    cols.forEach((col) => {
+      if (!groups[col]) groups[col] = [];
+      groups[col].push(c);
+    });
+  });
+  const groupNames = Object.keys(groups).sort((a, b) => {
+    if (a === "Unassigned") return 1;
+    if (b === "Unassigned") return -1;
+    const ai = COLLEGE_ORDER.indexOf(a);
+    const bi = COLLEGE_ORDER.indexOf(b);
+    if (ai !== -1 && bi !== -1) return ai - bi;
+    if (ai !== -1) return -1; // known colleges before unrecognized ones
+    if (bi !== -1) return 1;
+    return a.localeCompare(b);
+  });
+
+  const handleMessage = (coordinator) => {
+    setSelectedCoordinator(null);
+    if (onNavigateToMessages) {
+      onNavigateToMessages({ id: coordinator.id, name: coordinator.name, role: "coordinator" });
+    }
+  };
+
+  return (
+    <div
+      style={{
+        flex: 1, display: "flex", flexDirection: "column", overflow: "hidden",
+        background: color.wine500, height: embedded ? "100%" : "100vh",
+        fontFamily: font.ui, color: color.ink,
+      }}
+    >
+      {/* Header */}
+      <header
+        style={{
+          background: color.white,
+          borderBottom: `1px solid ${border}`,
+          padding: isMobile ? "18px 16px" : "22px 32px",
+          display: "flex", alignItems: isMobile ? "stretch" : "center",
+          justifyContent: "space-between", gap: space.md, flexWrap: "wrap",
+        }}
+      >
+        <div>
+          <div style={{ display: "flex", alignItems: "center", gap: "9px" }}>
+            <div style={{ width: "5px", height: "28px", borderRadius: radius.pill, background: red }} />
+            <h2 style={{ ...type.heading, fontSize: isMobile ? "1.45rem" : "1.7rem", margin: 0, color: color.ink }}>
+              Coordinators
+            </h2>
+          </div>
+          <p style={{ ...type.helper, color: color.inkMuted, margin: "6px 0 0 14px" }}>
+            Connect with the coordinators of your college.
+          </p>
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: "8px", width: isMobile ? "100%" : "auto" }}>
+          <div
+            style={{
+              flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: "9px",
+              background: color.wine900, border: `1px solid ${border}`,
+              borderRadius: radius.field, padding: "9px 13px",
+              boxShadow: shadow.input,
+            }}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={color.inkMuted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="11" cy="11" r="7.5" /><line x1="16.5" y1="16.5" x2="21" y2="21" />
+            </svg>
+            <input
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Search name or email"
+              aria-label="Search coordinators"
+              style={{
+                width: isMobile ? "100%" : "205px", border: "none", background: "transparent",
+                outline: "none", color: color.ink, fontFamily: font.ui, fontSize: "0.875rem",
+              }}
+            />
+            {search && (
+              <button
+                onClick={() => setSearch("")}
+                aria-label="Clear search"
+                style={{ background: "none", border: "none", color: color.inkMuted, cursor: "pointer", fontSize: "0.95rem", padding: 0 }}
+              >
+                ×
+              </button>
+            )}
+          </div>
+
+          <div ref={filterRef} style={{ position: "relative", flexShrink: 0 }}>
+            <button
+              onClick={() => setShowFilter(v => !v)}
+              aria-label="Filter coordinators"
+              aria-expanded={showFilter}
+              style={{
+                width: "40px", height: "40px", borderRadius: "12px",
+                background: activeFilterCount > 0 ? "#F8EDED" : color.white,
+                border: `1px solid ${activeFilterCount > 0 ? "#D9A4A4" : border}`,
+                cursor: "pointer", display: "flex", alignItems: "center",
+                justifyContent: "center", position: "relative",
+              }}
+            >
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none"
+                stroke={activeFilterCount > 0 ? red : color.inkBody}
+                strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M4 5h16l-6.5 7.2v5.1l-3 1.7v-6.8L4 5z" />
+              </svg>
+              {activeFilterCount > 0 && (
+                <span style={{
+                  position: "absolute", top: "-5px", right: "-5px",
+                  minWidth: "17px", height: "17px", padding: "0 4px",
+                  borderRadius: radius.pill, background: red, color: color.white,
+                  fontSize: "0.62rem", fontWeight: 700, display: "flex",
+                  alignItems: "center", justifyContent: "center", border: `2px solid ${color.white}`,
+                }}>
+                  {activeFilterCount}
+                </span>
+              )}
+            </button>
+
+            {showFilter && (
+              <FilterPanel
+                filterRef={undefined}
+                filterCollege={filterCollege}
+                filterProgram={filterProgram}
+                setFilterCollege={setFilterCollege}
+                setFilterProgram={setFilterProgram}
+              />
+            )}
+          </div>
+        </div>
+      </header>
+
+      <main style={{ flex: 1, minHeight: 0, overflowY: "auto", overflowX: "hidden", padding: isMobile ? "18px 16px 28px" : "24px 32px 36px" }}>
+        {!loading && scoped.length > 0 && (
+          <div style={{
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+            marginBottom: "18px", gap: "12px",
+          }}>
+            <p style={{ ...type.helper, color: color.inkMuted, margin: 0 }}>
+              {filtered.length} {filtered.length === 1 ? "coordinator" : "coordinators"} shown
+            </p>
+            {(search || activeFilterCount > 0) && (
+              <button
+                onClick={() => { setSearch(""); setFilterCollege(""); setFilterProgram(""); }}
+                style={{
+                  background: "none", border: "none", color: red, cursor: "pointer",
+                  fontFamily: font.ui, fontSize: "0.78rem", fontWeight: 600, padding: 0,
+                }}
+              >
+                Reset filters
+              </button>
+            )}
+          </div>
+        )}
+
+        {loading && (
+          <div style={{ maxWidth: "760px", margin: "50px auto", textAlign: "center" }}>
+            <div style={{
+              width: "34px", height: "34px", margin: "0 auto 12px",
+              borderRadius: "50%", border: "3px solid #E8E8E8", borderTopColor: red,
+              animation: "cc-spin 0.8s linear infinite",
+            }} />
+            <p style={{ ...type.helper, color: color.inkMuted, margin: 0 }}>Loading coordinators…</p>
+            <style>{`@keyframes cc-spin { to { transform: rotate(360deg); } }`}</style>
+          </div>
+        )}
+
+        {!loading && groupNames.length === 0 && (
+          <div style={{
+            maxWidth: "560px", margin: "50px auto", padding: "34px 24px",
+            background: color.white, border: `1px solid ${border}`,
+            borderRadius: radius.card, textAlign: "center",
+          }}>
+            <div style={{
+              width: "48px", height: "48px", margin: "0 auto 14px",
+              borderRadius: "14px", background: "#F8EDED", color: red,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: "1.35rem", fontWeight: 700,
+            }}>
+              {scoped.length === 0 ? "C" : "⌕"}
+            </div>
+            <p style={{ ...type.label, color: color.ink, margin: 0 }}>
+              {scoped.length === 0 ? "No coordinators yet" : "No matching coordinators"}
+            </p>
+            <p style={{ ...type.helper, color: color.inkMuted, margin: "6px 0 0" }}>
+              {scoped.length > 0
+                ? "Try a different name or clear your filters."
+                : (companyDepartments && companyDepartments.length === 0
+                    ? "Your college isn't set on your account yet, so we can't match you to a coordinator."
+                    : "No coordinator handles your college yet. They'll appear here once assigned.")}
+            </p>
+          </div>
+        )}
+
+        {groupNames.map((college, gIdx) => (
+          <section key={college} style={{ marginBottom: gIdx < groupNames.length - 1 ? "28px" : 0 }}>
+            <div style={{
+              display: "flex", alignItems: "center", gap: "9px",
+              marginBottom: "10px", paddingLeft: "2px",
+            }}>
+              <div style={{ width: "4px", height: "18px", borderRadius: radius.pill, background: red, flexShrink: 0 }} />
+              <h3 style={{
+                ...type.label, color: color.ink, fontWeight: 650, margin: 0,
+                minWidth: 0, overflow: "hidden", textOverflow: "ellipsis",
+                whiteSpace: isMobile ? "normal" : "nowrap",
+              }}>
+                {college}
+              </h3>
+              <span style={{
+                minWidth: "23px", height: "23px", padding: "0 7px",
+                borderRadius: radius.pill, background: color.wine700, color: color.inkMuted,
+                display: "inline-flex", alignItems: "center", justifyContent: "center",
+                fontSize: "0.7rem", fontWeight: 600, flexShrink: 0,
+              }}>
+                {groups[college].length}
+              </span>
+            </div>
+
+            <div style={{
+              display: "grid",
+              gridTemplateColumns: isMobile ? "minmax(0, 1fr)" : "repeat(auto-fit, minmax(280px, 1fr))",
+              gap: "10px",
+            }}>
+              {groups[college].map((coord) => (
+                <article
+                  key={coord.id}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`View ${coord.name}'s details`}
+                  onClick={() => setSelectedCoordinator(coord)}
+                  onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelectedCoordinator(coord); } }}
+                  style={{
+                    display: "flex", alignItems: "center", gap: "12px", cursor: "pointer",
+                    padding: isMobile ? "13px" : "14px 16px",
+                    background: color.white, border: `1px solid ${border}`,
+                    borderRadius: radius.card, boxShadow: "0 1px 2px rgba(0,0,0,0.03)",
+                    transition: `transform 160ms ${ease}, box-shadow 160ms ${ease}, border-color 160ms ${ease}`,
+                  }}
+                  onMouseEnter={e => {
+                    e.currentTarget.style.transform = "translateY(-1px)";
+                    e.currentTarget.style.boxShadow = "0 8px 22px rgba(0,0,0,0.07)";
+                    e.currentTarget.style.borderColor = "#D7D7D7";
+                  }}
+                  onMouseLeave={e => {
+                    e.currentTarget.style.transform = "translateY(0)";
+                    e.currentTarget.style.boxShadow = "0 1px 2px rgba(0,0,0,0.03)";
+                    e.currentTarget.style.borderColor = border;
+                  }}
+                >
+                  <div style={{
+                    width: `${avatarSize}px`, height: `${avatarSize}px`, borderRadius: "14px",
+                    background: color.wine800, display: "flex", alignItems: "center",
+                    justifyContent: "center", flexShrink: 0, overflow: "hidden",
+                  }}>
+                    <CoordinatorAvatar size={avatarSize} />
+                  </div>
+
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{
+                      ...type.label, color: color.ink, fontWeight: 650, margin: 0,
+                      whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+                    }}>
+                      {coord.name}
+                    </p>
+                    <p style={{
+                      ...type.helper, color: color.inkMuted, margin: "4px 0 0",
+                      whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+                    }}>
+                      {coord.programs?.length > 0 ? coord.programs.join(", ") : "Coordinator"}
+                    </p>
+                  </div>
+
+                  {/* Chevron: tells the user the card opens more details. */}
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={color.inkMuted}
+                    strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0 }}>
+                    <polyline points="9 6 15 12 9 18" />
+                  </svg>
+                </article>
+              ))}
+            </div>
+          </section>
+        ))}
+      </main>
+
+      {selectedCoordinator && (
+        <CoordinatorDetailsModal
+          coordinator={selectedCoordinator}
+          onClose={() => setSelectedCoordinator(null)}
+          onMessage={handleMessage}
+          canMessage={!!onNavigateToMessages}
+        />
+      )}
+    </div>
+  );
+
+};
+
+export default StudentCoordinatorsScreen;

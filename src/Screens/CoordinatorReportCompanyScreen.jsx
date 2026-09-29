@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { doc, updateDoc, getDoc, serverTimestamp } from "firebase/firestore";
+import { doc, updateDoc, getDoc, onSnapshot, serverTimestamp } from "firebase/firestore";
 import { db } from "./firebase";
 import { color, font, type, space, radius, shadow, ease } from "./theme";
 import {
@@ -580,6 +580,7 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid, coordinator
   const [working, setWorking]             = useState(false);
   const [resolvingPanel, setResolvingPanel] = useState(false);
   const [confirmingDismiss, setConfirmingDismiss] = useState(false);
+  const [confirmingCorrected, setConfirmingCorrected] = useState(false);
   const [confirmingResolve, setConfirmingResolve] = useState(false);
   const [selectedAction, setSelectedAction] = useState(null);
   const [otherActionText, setOtherActionText] = useState("");
@@ -598,6 +599,27 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid, coordinator
       : "";
   const [savedAction, setSavedAction]         = useState(report?.resolutionAction || "");
   const [savedNotes, setSavedNotes]           = useState(report?.resolutionNotes || "");
+  // What the reported company/student sent back: their description and proof
+  // (ReportResponseModal). Watched live, so it appears without a reload.
+  const [response, setResponse] = useState(report?.correctionResponse || null);
+
+  // What this report is about. Companies can report students from chat, and
+  // those reports live in the same collection — without this the resolve flow
+  // would call applyCompanyEnforcement with a student's uid, find no company
+  // document, and silently do nothing while the report still said "resolved".
+  // Older reports have no subjectType, and those were all about companies.
+  const subjectType = String(report?.subjectType || "company").toLowerCase();
+  const isCompanySubject = subjectType === "company";
+
+  useEffect(() => {
+    if (!report?.id) return;
+    const unsub = onSnapshot(
+      doc(db, "reports", report.id),
+      (snap) => { if (snap.exists()) setResponse(snap.data()?.correctionResponse || null); },
+      (err) => console.error("Failed to watch the report response:", err)
+    );
+    return () => unsub();
+  }, [report?.id]);
   const [enforcementNote, setEnforcementNote] = useState(null);
   const [companyStatus, setCompanyStatus]     = useState(null); // live accountStatus, fetched below
   const [historyOpen, setHistoryOpen]         = useState(false);
@@ -655,7 +677,14 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid, coordinator
   const isPdf   = allowed && file.type === "application/pdf";
 
   const badge = REPORT_STATUS_BADGE[status] || REPORT_STATUS_BADGE.pending;
-  const availableActions = STANDARD_ACTIONS;
+  // Suspend and Block act on a COMPANY account (applyCompanyEnforcement), so
+  // they aren't offered when the report is about a student — a coordinator
+  // would otherwise pick a penalty that quietly does nothing. Student cases are
+  // handled with Require Correction / Warning / Others, and archiving the
+  // account from Student Accounts if it comes to that.
+  const availableActions = isCompanySubject
+    ? STANDARD_ACTIONS
+    : STANDARD_ACTIONS.filter(a => a !== "Suspend Account" && a !== "Block Account");
   const canConfirmResolve = selectedAction
     && resolutionNotes.trim().length > 0
     && (selectedAction !== "Others" || otherActionText.trim().length > 0)
@@ -685,13 +714,61 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid, coordinator
     }
   };
 
+  // The follow-up check: a coordinator looks at the flagged content again and
+  // says whether it was fixed. Only then does the report close.
+  const handleMarkCorrected = async () => {
+    if (working || status !== "awaiting_correction") return;
+    setWorking(true);
+    try {
+      await updateDoc(doc(db, "reports", report.id), {
+        status:      "resolved",
+        correctedAt: serverTimestamp(),
+        correctedBy: coordinatorUid || "",
+      });
+      logActivity(
+        coordinatorUid,
+        "report_correction_confirmed",
+        `Confirmed ${report.company} made the required correction`,
+        { targetId: report.id, targetName: report.company }
+      ).catch(err => console.error("Failed to log activity:", err));
+      setStatus("resolved");
+      setConfirmingCorrected(false);
+    } catch (err) {
+      console.error("Failed to mark the correction as done:", err);
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  // Not fixed → reopen the Resolve window for a stronger action. The report
+  // goes back to pending so the normal resolve path applies, and that new
+  // action is recorded separately in the company's history.
+  const handleEscalate = async () => {
+    if (working || status !== "awaiting_correction") return;
+    setWorking(true);
+    try {
+      await updateDoc(doc(db, "reports", report.id), { status: "pending" });
+      setStatus("pending");
+      setSelectedAction("");
+      setResolutionNotes("");
+      setResolvingPanel(true);
+    } catch (err) {
+      console.error("Failed to reopen the report:", err);
+    } finally {
+      setWorking(false);
+    }
+  };
+
   const handleConfirmResolve = async () => {
     if (working || status !== "pending" || !canConfirmResolve) return;
     setWorking(true);
     const finalAction = selectedAction === "Others" ? otherActionText.trim() : selectedAction;
     try {
+      // Require Correction is the one action that isn't finished when it's
+      // chosen — it waits for the company to act and a coordinator to confirm.
+      const nextStatus = finalAction === "Require Correction" ? "awaiting_correction" : "resolved";
       await updateDoc(doc(db, "reports", report.id), {
-        status:           "resolved",
+        status:           nextStatus,
         resolutionAction: finalAction,
         resolutionNotes:  resolutionNotes.trim(),
         resolvedBy:       coordinatorUid || "",
@@ -699,15 +776,19 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid, coordinator
       });
       logActivity(
         coordinatorUid,
-        "report_resolved",
-        `Resolved report on ${report.company} (${finalAction})`,
+        nextStatus === "awaiting_correction" ? "report_awaiting_correction" : "report_resolved",
+        nextStatus === "awaiting_correction"
+          ? `Required correction from ${report.company} — awaiting their fix`
+          : `Resolved report on ${report.company} (${finalAction})`,
         { targetId: report.id, targetName: report.company }
       ).catch(err => console.error("Failed to log activity:", err));
 
       // Actually enforce the action on the company itself, not just the report.
       let enforcementResult = null;
       try {
-        enforcementResult = await applyCompanyEnforcement(report.companyId, finalAction, coordinatorUid, clampSuspensionDays(suspensionDays));
+        enforcementResult = isCompanySubject
+          ? await applyCompanyEnforcement(report.companyId, finalAction, coordinatorUid, clampSuspensionDays(suspensionDays))
+          : null;
         if (enforcementResult) {
           setCompanyStatus(enforcementResult.status);
           if (enforcementResult.status === "blocked" || enforcementResult.status === "suspended") {
@@ -758,6 +839,7 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid, coordinator
           title: `Account update: ${finalAction}`,
           body: buildNotificationText(finalAction, resolutionNotes.trim()),
           type: "report_resolution",
+          action: finalAction,
           reportId: report.id || null,
           coordinatorUid,
         });
@@ -767,7 +849,7 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid, coordinator
 
       setSavedAction(finalAction);
       setSavedNotes(resolutionNotes.trim());
-      setStatus("resolved");
+      setStatus(nextStatus);
       setResolvingPanel(false);
     } catch (err) {
       console.error("Failed to resolve report:", err);
@@ -971,6 +1053,43 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid, coordinator
                 </div>
               </div>
             )}
+            {response?.description && (
+              <div style={{ background: color.white, border: `1.5px solid ${line}`, borderRadius: "10px", padding: "12px 14px", marginBottom: "16px" }}>
+                <p style={{ fontFamily: font.ui, fontSize: "0.72rem", color: inkMuted, textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 600, marginBottom: "6px" }}>
+                  Response from {response.submittedName || report.company}
+                </p>
+                <p style={{ fontFamily: font.ui, fontSize: "0.85rem", color: inkBody, lineHeight: 1.6, overflowWrap: "anywhere", marginBottom: response.attachedFile ? "10px" : 0 }}>
+                  {response.description}
+                </p>
+                {response.attachedFile?.url && (
+                  <a
+                    href={response.attachedFile.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      display: "inline-flex", alignItems: "center", gap: "8px",
+                      padding: "8px 14px", borderRadius: "20px", border: `1px solid ${line}`,
+                      fontFamily: font.ui, fontSize: "0.78rem", fontWeight: 600,
+                      color: ink, textDecoration: "none", background: lineSoft, overflowWrap: "anywhere",
+                    }}
+                  >
+                    📎 {response.attachedFile.name || "View proof"}
+                  </a>
+                )}
+                {response.submittedAt && (
+                  <p style={{ fontFamily: font.ui, fontSize: "0.72rem", color: inkMuted, marginTop: "8px" }}>
+                    Submitted {new Date(response.submittedAt).toLocaleString()}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {status === "awaiting_correction" && !response?.description && (
+              <p style={{ fontFamily: font.ui, fontSize: "0.78rem", color: inkMuted, marginBottom: "16px" }}>
+                No correction has been submitted yet.
+              </p>
+            )}
+
             {enforcementNote && (
               <div style={{ background: lineSoft, border: `1.5px solid ${red}`, borderRadius: "10px", padding: "12px 14px", marginBottom: "16px", display: "flex", gap: "10px", alignItems: "flex-start" }}>
                 <span style={{ fontSize: "1rem" }}>⛔</span>
@@ -1011,9 +1130,33 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid, coordinator
                   onMouseLeave={e => { e.currentTarget.style.background = color.white; e.currentTarget.style.color = "#111111"; }}
                 >RESOLVE</button>
               </div>
+            ) : status === "awaiting_correction" ? (
+              <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap", justifyContent: "flex-end", width: "100%" }}>
+                <span style={{ fontFamily: font.ui, fontSize: "0.78rem", color: onPanelDim, marginRight: "auto" }}>
+                  Waiting for {report.company} to make the correction.
+                </span>
+                <button
+                  onClick={handleEscalate}
+                  disabled={working}
+                  style={{
+                    padding: "9px 18px", borderRadius: "22px", background: "transparent",
+                    color: onPanel, border: `1px solid ${onPanelDim}`, fontFamily: font.ui,
+                    fontSize: "0.82rem", fontWeight: 600, cursor: working ? "not-allowed" : "pointer", opacity: working ? 0.7 : 1,
+                  }}
+                >NOT CORRECTED</button>
+                <button
+                  onClick={() => setConfirmingCorrected(true)}
+                  disabled={working}
+                  style={{
+                    padding: "9px 18px", borderRadius: "22px", background: color.white,
+                    color: "#111111", border: `1px solid ${line}`, fontFamily: font.ui,
+                    fontSize: "0.82rem", fontWeight: 600, cursor: working ? "not-allowed" : "pointer", opacity: working ? 0.7 : 1,
+                  }}
+                >MARK AS CORRECTED</button>
+              </div>
             ) : (
               <p id="rc-detail-locked" style={{ margin: 0, fontFamily: font.ui, fontSize: "0.8rem", color: onPanelDim, display: "flex", alignItems: "center", gap: "6px" }}>
-                This report has been {status} and can no longer be changed.
+                This report has been {status === "resolved" ? "resolved" : status} and can no longer be changed.
               </p>
             )}
           </div>
@@ -1060,6 +1203,17 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid, coordinator
           working={working}
           onCancel={() => setConfirmingDismiss(false)}
           onConfirm={handleDismiss}
+        />
+      )}
+
+      {confirmingCorrected && (
+        <ConfirmModal
+          title="Mark as corrected?"
+          message={`Confirm that ${report.company} has made the required correction. The report closes as resolved. If they haven't, choose "Not corrected" instead and apply a stronger action.`}
+          confirmLabel="MARK AS CORRECTED"
+          working={working}
+          onCancel={() => setConfirmingCorrected(false)}
+          onConfirm={handleMarkCorrected}
         />
       )}
 
@@ -1329,6 +1483,10 @@ const ViewButton = ({ onClick }) => (
 // ── Status badge (reused in table and cards) ──────────────────────────────────
 const REPORT_STATUS_BADGE = {
   pending:   { bg: inkFaint, label: "Pending" },
+  // Require Correction leaves the report OPEN: the company was told to fix
+  // something, but nothing verifies that they did. Closing it as "resolved"
+  // right away would file away a matter nobody has actually checked.
+  awaiting_correction: { bg: "#B8860B", label: "Awaiting correction" },
   resolved:  { bg: color.success, label: "Resolved" },
   dismissed: { bg: lineSoft, label: "Dismissed" },
 };
@@ -1363,7 +1521,10 @@ const clampSuspensionDays = (value) => {
 // unassigned company could sit unread — the second tab makes them reachable
 // without mixing them into the default view.
 const CoordinatorReportCompanyScreen = ({ reports = [], otherReports = [], onViewReport }) => {
-  const [tab, setTab] = useState("mine");
+  // Open on "All reports" when this coordinator's own industries have nothing:
+  // an empty default list reads as "no reports exist", which is exactly the
+  // confusion the second tab is meant to prevent.
+  const [tab, setTab] = useState(() => (reports.length === 0 && otherReports.length > 0 ? "all" : "mine"));
   const shown = tab === "all" ? [...reports, ...otherReports] : reports;
   const pendingOther = otherReports.filter(r => r.status !== "resolved" && r.status !== "dismissed").length;
 
