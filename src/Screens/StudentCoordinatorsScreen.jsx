@@ -543,6 +543,7 @@ const StudentCoordinatorsScreen = ({ embedded, user, onNavigateToMessages }) => 
             <input
               value={search}
               onChange={e => setSearch(e.target.value)}
+              id="scoord-search"
               placeholder="Search name or email"
               aria-label="Search coordinators"
               style={{

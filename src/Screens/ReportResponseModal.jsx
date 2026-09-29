@@ -45,6 +45,7 @@ export const responseRequirements = (action) => {
   };
 };
 
+const RESPONSE_DESCRIPTION_MAX = 1500;
 const MAX_FILE_MB = 10;
 const ACCEPTED = "image/png,image/jpeg,image/jpg,application/pdf";
 
@@ -154,9 +155,9 @@ const ReportResponseModal = ({ notification, responderId, responderRole, respond
             <textarea
               id="rr-desc"
               value={description}
-              onChange={e => { setDescription(e.target.value); setError(""); }}
+              onChange={e => { setDescription(e.target.value.slice(0, RESPONSE_DESCRIPTION_MAX)); setError(""); }}
               placeholder="Describe the action you took…"
-              maxLength={1000}
+              maxLength={RESPONSE_DESCRIPTION_MAX}
               disabled={saving}
               style={fieldStyle}
             />

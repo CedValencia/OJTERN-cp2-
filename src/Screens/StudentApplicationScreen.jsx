@@ -2847,6 +2847,10 @@ const StyledInput = ({ value, onChange, placeholder, type = "text", disabled, ha
 );
 
 // ─── FIELD LABEL ──────────────────────────────────────────────────────────────
+// Application message ceiling — the same field is used when applying and when
+// editing an application afterwards.
+const APPLICATION_MESSAGE_MAX = 1500;
+
 const FieldLabel = ({ children }) => (
   <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.3rem", color: black, marginBottom: "5px", letterSpacing: "0.03em", marginTop: "10px" }}>
     {children}
@@ -3128,7 +3132,8 @@ const FormFields = ({ f, locked = false }) => {
       <textarea
         className="app-textarea"
         value={f.message}
-        onChange={e => f.handleMessageChange(e.target.value)}
+        onChange={e => f.handleMessageChange(e.target.value.slice(0, APPLICATION_MESSAGE_MAX))}
+        maxLength={APPLICATION_MESSAGE_MAX}
         placeholder="Write your application message..."
         disabled={locked}
         style={{ width: "100%", background: locked ? "#e8e8e8" : "white", border: (!locked && f.messageError) ? "1.5px solid #c00" : "none", borderRadius: "16px", padding: "10px 14px", fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", color: "#222", outline: "none", boxShadow: "inset 0 1px 3px rgba(0,0,0,0.08)", resize: "none", minHeight: "90px", lineHeight: 1.6, boxSizing: "border-box", overflowY: "auto" }}
@@ -4102,7 +4107,7 @@ const StudentApplicationScreen = ({ initialCompany, onModalClose, user, openAppl
 
         {/* Application rows */}
         {filteredApplications.length > 0 ? (
-          <div className="sa-list-area">
+          <div className="sa-list-area" id="sapp-list">
             {filteredApplications.map(application => (
               <ApplicationRow key={application.id} application={application} onView={handleView} onDelete={handleDelete} companyProfileIcon={themedCompanyIcon} />
             ))}

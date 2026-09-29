@@ -1122,7 +1122,7 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile, onMo
             <div style={{ width: "100%" }}>
               <div id="cpostf-description">
               <FieldLabel>Description:</FieldLabel>
-              <textarea className="ojt-field ojt-textarea" disabled={readOnly} value={form.description}
+              <textarea className="ojt-field ojt-textarea" disabled={readOnly} value={form.description} maxLength={POST_DESCRIPTION_MAX}
                 onChange={e => { set("description", e.target.value); setErrors(p => ({ ...p, description: "" })); }}
                 placeholder="Enter description..." rows={3}
                 style={{ ...(readOnly ? pillTextareaReadonly : pillTextareaStyle), border: errors.description ? "1.5px solid #c00" : "none" }} />
@@ -1131,7 +1131,7 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile, onMo
 
               <div id="cpostf-requirements">
               <FieldLabel>Requirements:</FieldLabel>
-              <textarea className="ojt-field ojt-textarea" disabled={readOnly} value={form.requirements}
+              <textarea className="ojt-field ojt-textarea" disabled={readOnly} value={form.requirements} maxLength={POST_LIST_FIELD_MAX}
                 onChange={e => { set("requirements", e.target.value); setErrors(p => ({ ...p, requirements: "" })); }}
                 placeholder="Enter requirements..." rows={2}
                 style={{ ...(readOnly ? pillTextareaReadonly : pillTextareaStyle), border: errors.requirements ? "1.5px solid #c00" : "none" }} />
@@ -1276,7 +1276,7 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile, onMo
           {/* Benefits */}
           <div id="cpostf-benefits">
           <FieldLabel>Benefits:</FieldLabel>
-          <textarea className="ojt-field ojt-textarea" disabled={readOnly} value={form.benefits}
+          <textarea className="ojt-field ojt-textarea" disabled={readOnly} value={form.benefits} maxLength={POST_LIST_FIELD_MAX}
             onChange={e => { set("benefits", e.target.value); setErrors(p => ({ ...p, benefits: "" })); }}
             placeholder="Enter benefits..." rows={2}
             style={{ ...(readOnly ? pillTextareaReadonly : pillTextareaStyle), border: errors.benefits ? "1.5px solid #c00" : "none" }} />
@@ -1321,7 +1321,7 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile, onMo
           {/* Skills */}
           <div id="cpostf-skills">
           <FieldLabel>Skills Required:</FieldLabel>
-          <textarea className="ojt-field ojt-textarea" disabled={readOnly} value={form.skillsRequired}
+          <textarea className="ojt-field ojt-textarea" disabled={readOnly} value={form.skillsRequired} maxLength={POST_LIST_FIELD_MAX}
             onChange={e => { set("skillsRequired", e.target.value); setErrors(p => ({ ...p, skillsRequired: "" })); }}
             placeholder="Enter required skills..." rows={2}
             style={{ ...(readOnly ? pillTextareaReadonly : pillTextareaStyle), border: errors.skillsRequired ? "1.5px solid #c00" : "none" }} />
@@ -1658,6 +1658,10 @@ const PostOJTContent = ({ user, openPostId, onPostOpened, onViewChange }) => {
 };
 
 // ── Main Screen ───────────────────────────────────────────────────────────────
+// Input ceilings for a post's long fields.
+const POST_DESCRIPTION_MAX = 5000;
+const POST_LIST_FIELD_MAX  = 1500;
+
 const CompanyCreatePostScreen = ({ embedded = false, user, openPostId, onPostOpened, onViewChange }) => (
   <>
     <GlobalFonts />

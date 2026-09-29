@@ -445,8 +445,8 @@ const MenuRow = ({ label, icon, onClick, viewIcon: themedViewIcon = blackViewIco
   </button>
 );
 
-const MenuGroup = ({ title, children }) => (
-  <div className="sap-menu-group">
+const MenuGroup = ({ title, children, id }) => (
+  <div className="sap-menu-group" id={id}>
     <p style={{ fontFamily: font.ui, fontSize: "1rem", fontWeight: 600, letterSpacing: "-0.01em", color: ink, margin: `0 0 10px 6px` }}>{title}</p>
     {children}
   </div>
@@ -1663,15 +1663,15 @@ const StudentAccountProfileScreen = ({ user, onLogout, viewIcon: themedViewIcon 
       {/* Scrollable body — grouped list */}
       <div className="sap-body">
         <div className="sap-menu-stack">
-          <MenuGroup title="Personal Information:">
+          <MenuGroup id="sprof-personal" title="Personal Information:">
             <MenuRow icon="person" label="Personal Information" onClick={() => setView("personalInfo")} viewIcon={themedViewIcon} />
           </MenuGroup>
 
-          <MenuGroup title="Security:">
+          <MenuGroup id="sprof-security" title="Security:">
             <MenuRow icon="key" label="Reset Password" onClick={() => setShowReset(true)} viewIcon={themedViewIcon} />
           </MenuGroup>
 
-          <MenuGroup title="Legal:">
+          <MenuGroup id="sprof-legal" title="Legal:">
             <MenuRow icon="document" label="Terms & Condition" onClick={() => setView("terms")} viewIcon={themedViewIcon} />
             <MenuRow icon="shield" label="Privacy Policy" onClick={() => setView("privacy")} viewIcon={themedViewIcon} />
           </MenuGroup>

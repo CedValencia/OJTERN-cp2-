@@ -4,6 +4,8 @@ import { collection, onSnapshot, query, where, orderBy, limit, doc, getDoc, setD
 import { getAuth, EmailAuthProvider, reauthenticateWithCredential } from "firebase/auth";
 import { db } from "./firebase";
 import { changePassword, logOut } from "./AuthService";
+import { driver } from "driver.js";
+import "driver.js/dist/driver.css";
 import ReportResponseModal, { RESPONDABLE_ACTIONS } from "./ReportResponseModal";
 import { normalizeEmail, isValidEmail } from "./studentPersonalEmail";
 import { useUnreadCount } from "./useChat";
@@ -513,6 +515,62 @@ const FontImport = () => (
 );
 
 // ── Nav items ──────────────────────────────────────────────────────────────────
+// ── Guided tour (driver.js) ───────────────────────────────────────────────────
+// Same idea as the Coordinator/Company dashboards: a "?" button replays the
+// guide for the current screen, and each screen auto-plays its own once.
+// Progress lives in students/{uid}.seenTours, so it follows the student to
+// another device instead of staying in this browser.
+const TOUR_AUTO_DELAY_MS = 500;
+
+const runTour = (steps) => {
+  const usable = (steps || []).filter(s => !s.element || document.querySelector(s.element));
+  if (usable.length === 0) return;
+
+  // driver.js locks the page's own scroll, but these screens scroll inside
+  // .smain-content — lock whatever is scrollable, then put it back.
+  const locked = [...document.querySelectorAll("body *")].filter(el => {
+    if (el.scrollHeight <= el.clientHeight + 1) return false;
+    const oy = getComputedStyle(el).overflowY;
+    return oy === "auto" || oy === "scroll" || oy === "overlay";
+  });
+  const prevOverflow = locked.map(el => el.style.overflowY || "");
+  locked.forEach(el => { el.style.overflowY = "hidden"; });
+  const restore = () => locked.forEach((el, i) => { el.style.overflowY = prevOverflow[i]; });
+
+  driver({
+    showProgress: true,
+    allowClose: true,
+    overlayOpacity: 0.6,
+    nextBtnText: "Next",
+    prevBtnText: "Back",
+    doneBtnText: "Done",
+    steps: usable,
+    onDestroyed: restore,
+  }).drive();
+};
+
+// One tour per screen. A step whose element isn't on the page is skipped, so a
+// card that hasn't loaded yet never leaves a popover pointing at nothing.
+const STUDENT_TOURS = {
+  dashboard: [
+    { element: "#snav-dashboard",           popover: { title: "Your dashboard", description: "A quick look at companies worth considering and where your applications stand." } },
+    { element: "#sdash-recommended",        popover: { title: "Recommended companies", description: "Companies accepting students from your course. Open one to see its OJT posts." } },
+    { element: "#sdash-recent-visited",     popover: { title: "Recently visited", description: "Company posts you opened lately, so you can pick up where you left off." } },
+    { element: "#sdash-recent-application", popover: { title: "Your latest application", description: "The application you sent most recently, and its current status." } },
+    { element: "#stopbar-notif",            popover: { title: "Notifications", description: "Updates on your applications appear here, along with any notice from your coordinator." } },
+    { element: "#snav-findcompany",         popover: { title: "Find Company", description: "Browse companies and OJT posts open to your course, and apply from there." } },
+    { element: "#snav-application",         popover: { title: "Recent Application", description: "Every application you've sent, with its status and your message." } },
+    { element: "#snav-messages",            popover: { title: "Messages", description: "Chat with companies and your coordinator." } },
+    { element: "#snav-coordinators",        popover: { title: "Coordinators", description: "The coordinators of your college, with their email and a way to message them." } },
+    { element: "#snav-accountprofile",      popover: { title: "Account Profile", description: "Update your age and email, or change your password. Your course details are kept by your coordinator." } },
+  ],
+  findcompany:    [{ element: "#snav-findcompany",    popover: { title: "Find Company", description: "Search companies and OJT posts open to your course, then open a post to apply." } }],
+  application:    [{ element: "#snav-application",    popover: { title: "Recent Application", description: "Track every application you've sent, and edit your message while it's still pending." } }],
+  messages:       [{ element: "#snav-messages",       popover: { title: "Messages", description: "Your chats with companies and coordinators." } }],
+  coordinators:   [{ element: "#snav-coordinators",   popover: { title: "Coordinators", description: "The coordinators handling your college. Open one for their email or to message them." } }],
+  accountprofile: [{ element: "#snav-accountprofile", popover: { title: "Account Profile", description: "Your details, your password, and the email used to recover your account." } }],
+};
+
 const navItems = [
   { key: "dashboard",      label: "Dashboard",       icon: dashboardIcon },
   { key: "findcompany",    label: "Find Company",    icon: findIcon },
@@ -608,6 +666,7 @@ const SidebarNavList = ({ activeNav, onNavigate, onLogout, unreadMessages = 0 })
       return (
         <div
           key={item.key}
+          id={`snav-${item.key}`}
           className={`snav-item ${isActive ? "active" : ""}`}
           onClick={() => onNavigate(item.key)}
           style={{
@@ -745,7 +804,7 @@ const DashboardContent = ({ onNavigate, onViewCompany, recentVisited = [], recen
 
         {/* Recommended OJT Companies */}
         <div className="sdash-card" style={{ background: paperCard, borderRadius: "14px", overflow: "hidden", display: "flex", flexDirection: "column" }}>
-          <div className="scard-header"><span>Recommended OJT Companies</span></div>
+          <div className="scard-header" id="sdash-recommended"><span>Recommended OJT Companies</span></div>
           <div style={{ padding: "10px 0 10px 12px", display: "flex", flexDirection: "column", gap: "6px", maxHeight: "280px", overflowY: "auto" }}>
             {recommendedCompanies.length > 0 ? (
               recommendedCompanies.map((company, i) => (
@@ -775,7 +834,7 @@ const DashboardContent = ({ onNavigate, onViewCompany, recentVisited = [], recen
 
         {/* Recent Visited Company Profiles */}
         <div className="sdash-card" style={{ background: paperCard, borderRadius: "14px", overflow: "hidden", display: "flex", flexDirection: "column" }}>
-          <div className="scard-header"><span>Recent Visited Company Post</span></div>
+          <div className="scard-header" id="sdash-recent-visited"><span>Recent Visited Company Post</span></div>
           <div style={{ padding: "10px 0 10px 12px", display: "flex", flexDirection: "column", gap: "6px", maxHeight: "280px", overflowY: "auto" }}>
             {recentVisited.length > 0 ? (
               recentVisited.map((company, i) => (
@@ -809,7 +868,7 @@ const DashboardContent = ({ onNavigate, onViewCompany, recentVisited = [], recen
 
       {/* Recent Application */}
       <div className="sdash-card" style={{ background: paperCard, borderRadius: "14px", overflow: "hidden" }}>
-        <div className="scard-header"><span>Recent Application</span></div>
+        <div className="scard-header" id="sdash-recent-application"><span>Recent Application</span></div>
         <div style={{ padding: "10px 12px", display: "flex", flexDirection: "column", gap: "6px", maxHeight: "260px", overflowY: "auto" }}>
           {recentApplications.length > 0 ? (
             recentApplications.map((a, i) => (
@@ -1022,6 +1081,41 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
   const effectiveUser = useMemo(() => (
     user && setupProfile.personalEmail ? { ...user, personalEmail: setupProfile.personalEmail } : user
   ), [user, setupProfile.personalEmail]);
+
+  // ── Guided tour: auto-play each screen once, replay from the "?" button ──
+  const [seenTours, setSeenTours] = useState(null);   // null = not loaded yet
+  const autoTourRef = useRef({});
+
+  useEffect(() => {
+    if (!user?.uid) return;
+    const unsub = onSnapshot(
+      doc(db, "students", user.uid),
+      (snap) => setSeenTours(snap.exists() ? (snap.data()?.seenTours || {}) : {}),
+      (err) => { console.error("Failed to load tour progress:", err); setSeenTours({}); }
+    );
+    return () => unsub();
+  }, [user?.uid]);
+
+  const markTourSeen = (key) => {
+    setSeenTours(prev => ({ ...(prev || {}), [key]: true }));
+    if (!user?.uid) return;
+    setDoc(doc(db, "students", user.uid), { seenTours: { [key]: true } }, { merge: true })
+      .catch(err => console.error("Failed to save tour progress:", err));
+  };
+
+  const startTour = (key) => runTour(STUDENT_TOURS[key] || STUDENT_TOURS.dashboard);
+
+  // Auto-play once per screen, after it's had a moment to render. Never while
+  // the first-login setup gate is up: the tour would point at a dashboard the
+  // student can't see yet.
+  useEffect(() => {
+    if (setupStage !== "done" || seenTours === null) return;
+    if (!STUDENT_TOURS[activeNav] || seenTours[activeNav] || autoTourRef.current[activeNav]) return;
+    autoTourRef.current[activeNav] = true;
+    const t = setTimeout(() => { startTour(activeNav); markTourSeen(activeNav); }, TOUR_AUTO_DELAY_MS);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeNav, seenTours, setupStage]);
 
   const handleSetupLogout = async () => {
     if (setupLogoutBusy) return;
@@ -1424,6 +1518,26 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
       width: "100vw", height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden",
       ...getAccentThemeVars(accentThemeId),
     }}>
+      {/* Need help? — replays the guide for whichever screen is open. */}
+      <button
+        onClick={() => startTour(activeNav)}
+        title="Need help? Replay the guide for this screen"
+        aria-label="Need help"
+        style={{
+          position: "fixed", bottom: "24px", right: "24px", zIndex: 900,
+          width: "52px", height: "52px", borderRadius: "50%",
+          background: paper, border: `1px solid ${hairline}`,
+          boxShadow: "0 6px 18px rgba(0,0,0,0.18)", cursor: "pointer",
+          display: "flex", alignItems: "center", justifyContent: "center",
+        }}
+      >
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={ink} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="10" />
+          <path d="M9.1 9a3 3 0 1 1 4.2 2.7c-.8.4-1.3 1-1.3 1.9v.4" />
+          <circle cx="12" cy="17.2" r="1" fill={ink} stroke="none" />
+        </svg>
+      </button>
+
       {respondingTo && (
         <ReportResponseModal
           notification={respondingTo}
@@ -1463,7 +1577,7 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: "4px", flexShrink: 0 }}>
             <div style={{ position: "relative" }}>
-              <div className="topbar-icon-btn" style={{ cursor: "pointer", padding: "8px", position: "relative" }} onClick={handleToggleNotifDropdown}>
+              <div id="stopbar-notif" className="topbar-icon-btn" style={{ cursor: "pointer", padding: "8px", position: "relative" }} onClick={handleToggleNotifDropdown}>
                 <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
                   <path d="M13.73 21a2 2 0 0 1-3.46 0"/>

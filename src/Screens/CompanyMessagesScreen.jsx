@@ -295,6 +295,9 @@ const ReportSuccessModal = ({ onClose }) => (
 );
 
 // ── ReportModal ───────────────────────────────────────────────────────────────
+// Input ceilings for the report form.
+const REPORT_DESCRIPTION_MAX = 1500;
+
 const ReportModal = ({ company, onClose, onSubmit }) => {
   const [step, setStep]               = useState(1);
   const [selected, setSelected]       = useState(null);
@@ -365,7 +368,7 @@ const ReportModal = ({ company, onClose, onSubmit }) => {
             <>
               <div id="creport-describe">
               <p style={{ fontFamily: font.ui, ...type.label, color: ink, marginBottom: "10px" }}>Describe what happened</p>
-              <textarea value={description} onChange={e => setDescription(e.target.value)} placeholder="Describe the issue…"
+              <textarea value={description} onChange={e => setDescription(e.target.value.slice(0, REPORT_DESCRIPTION_MAX))} maxLength={REPORT_DESCRIPTION_MAX} placeholder="Describe the issue…"
                 style={{ width: "100%", minHeight: "100px", border: `1px solid ${line}`, borderRadius: radius.card, outline: "none", fontFamily: font.ui, ...type.body, resize: "none", background: lineSoft, color: ink, marginBottom: "20px", boxSizing: "border-box", padding: "12px 14px" }} />
               </div>
               <div id="creport-evidence">

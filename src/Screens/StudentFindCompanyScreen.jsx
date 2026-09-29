@@ -268,6 +268,9 @@ export const useOjtPosts = () => {
 };
 
 // ─── REPORT CATEGORIES ────────────────────────────────────────────────────────
+// Input ceilings for the report form.
+const REPORT_DESCRIPTION_MAX = 1500;
+
 const reportCategories = [
   { label: "Fraud and Scam", description: "Job scams are fraudulent schemes where scammers impersonate employers to steal money, personal information, or coerce victims into fake work activities.", details: ["Fake job postings requiring payment", "Identity theft", "Misrepresentation of company"] },
   { label: "Discrimination", description: "Discrimination in the workplace involves unfair treatment of individuals based on race, gender, age, religion, disability, or other protected characteristics.", details: ["Racial discrimination", "Gender-based bias", "Age discrimination", "Religious intolerance"] },
@@ -586,7 +589,8 @@ const ReportModal = ({ company, onClose, onSubmit, reporter }) => {
               <p style={{ fontFamily: font.ui, ...type.label, color: ink, marginBottom: space.sm }}>Describe what happened</p>
               <textarea
                 value={description}
-                onChange={e => setDescription(e.target.value)}
+                onChange={e => setDescription(e.target.value.slice(0, REPORT_DESCRIPTION_MAX))}
+                maxLength={REPORT_DESCRIPTION_MAX}
                 placeholder="Include dates, names, and anything the review team should see."
                 style={{ width: "100%", minHeight: "112px", border: `1px solid ${line}`, borderRadius: radius.card, padding: "12px 14px", outline: "none", fontFamily: font.ui, ...type.body, resize: "vertical", background: color.wine800, color: ink, marginBottom: space.lg, boxSizing: "border-box" }}
               />
@@ -1177,6 +1181,7 @@ const StudentFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onNavig
               <input
                 value={search}
                 onChange={e => setSearch(e.target.value)}
+                id="sfind-search"
                 placeholder="Search"
                 className="stud-search-input"
                 style={{ border: "none", background: "transparent", outline: "none", color: ink, fontFamily: font.ui, ...type.control }}
@@ -1185,6 +1190,7 @@ const StudentFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onNavig
             </div>
             <div id="sfind-filter-btn" ref={filterRef} style={{ position: "relative", marginLeft: "10px" }}>
               <div
+                id="sfind-filter"
                 onClick={() => setShowFilter(v => !v)}
                 title="Filters"
                 style={{ width: "40px", height: "40px", background: hasFilter ? color.goldTint : color.white, borderRadius: radius.pill, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", border: hasFilter ? `1px solid ${color.onWineFaint}` : "none", position: "relative" }}

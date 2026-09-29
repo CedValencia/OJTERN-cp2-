@@ -298,6 +298,9 @@ const ReportSuccessModal = ({ onClose }) => (
 );
 
 // ── Report Modal ──────────────────────────────────────────────────────────────
+// Input ceilings for the report form.
+const REPORT_DESCRIPTION_MAX = 1500;
+
 const ReportModal = ({ company, onClose, onSubmit }) => {
   const [step, setStep]                 = useState(1);
   const [selected, setSelected]         = useState(null);
@@ -392,7 +395,8 @@ const ReportModal = ({ company, onClose, onSubmit }) => {
               <p style={{ fontFamily: font.ui, ...type.label, color: ink, marginBottom: space.sm }}>Describe what happened</p>
               <textarea
                 value={description}
-                onChange={e => setDescription(e.target.value)}
+                onChange={e => setDescription(e.target.value.slice(0, REPORT_DESCRIPTION_MAX))}
+                maxLength={REPORT_DESCRIPTION_MAX}
                 placeholder="Include dates, names, and anything the review team should see."
                 style={{ width: "100%", minHeight: "112px", border: `1px solid ${line}`, borderRadius: radius.card, padding: "12px 14px", outline: "none", fontFamily: font.ui, ...type.body, resize: "vertical", background: color.wine800, color: ink, marginBottom: space.lg, boxSizing: "border-box" }}
               />
@@ -988,6 +992,7 @@ const ChatListView = ({ contacts, messages, onOpen, myUid, userIcon: themedUserI
             <input
               value={search}
               onChange={e => setSearch(e.target.value)}
+              id="smsg-search"
               placeholder="Search"
               className="msg-search-input"
               style={{ border: "none", background: "transparent", outline: "none", color: ink, fontFamily: font.ui, ...type.control }}

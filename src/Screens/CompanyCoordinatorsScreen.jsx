@@ -228,6 +228,120 @@ const departmentNamesOf = (data) => {
   return [...new Set(names)];
 };
 
+// ── CoordinatorDetailsModal ───────────────────────────────────────────────────
+// Opens when a coordinator card is clicked. The card itself only shows the name
+// and program; contact details (email) and the Message action live here.
+const CoordinatorDetailsModal = ({ coordinator, onClose, onMessage, canMessage }) => {
+  const closeRef = useRef(null);
+
+  useEffect(() => {
+    closeRef.current?.focus();
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const departments = coordinator.colleges || [];
+  const programs = coordinator.programs || [];
+  const rowLabel = { ...type.helper, color: color.inkMuted, margin: 0, textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 600 };
+  const rowValue = { fontFamily: font.ui, fontSize: "0.9rem", color: color.ink, margin: "4px 0 0", lineHeight: 1.5, overflowWrap: "anywhere" };
+
+  return (
+    <div
+      onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      style={{
+        position: "fixed", inset: 0, zIndex: 1000, background: "rgba(0,0,0,0.45)",
+        display: "flex", alignItems: "center", justifyContent: "center", padding: "16px",
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="coordinator-details-title"
+        style={{
+          width: "100%", maxWidth: "420px", maxHeight: "calc(100vh - 32px)", overflowY: "auto",
+          background: color.white, borderRadius: radius.card, boxShadow: "0 18px 50px rgba(0,0,0,0.22)",
+          fontFamily: font.ui,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: "12px", padding: "18px 18px 14px", borderBottom: `1px solid ${border}` }}>
+          <div style={{
+            width: "48px", height: "48px", borderRadius: "14px", background: color.wine800,
+            display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, overflow: "hidden",
+          }}>
+            <CoordinatorAvatar size={48} />
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <h3 id="coordinator-details-title" style={{ ...type.label, fontSize: "1.05rem", color: color.ink, fontWeight: 650, margin: 0, overflowWrap: "anywhere" }}>
+              {coordinator.name}
+            </h3>
+            <p style={{ ...type.helper, color: color.inkMuted, margin: "3px 0 0" }}>Coordinator</p>
+          </div>
+          <button
+            ref={closeRef}
+            onClick={onClose}
+            aria-label="Close"
+            style={{
+              width: "34px", height: "34px", borderRadius: "50%", border: `1px solid ${border}`,
+              background: color.white, cursor: "pointer", fontSize: "1.05rem", color: color.inkBody, flexShrink: 0,
+            }}
+          >
+            ×
+          </button>
+        </div>
+
+        <div style={{ padding: "16px 18px", display: "grid", gap: "14px" }}>
+          <div>
+            <p style={rowLabel}>Department</p>
+            <p style={rowValue}>{departments.length > 0 ? departments.join(", ") : "Unassigned"}</p>
+          </div>
+          <div>
+            <p style={rowLabel}>Program</p>
+            <p style={rowValue}>{programs.length > 0 ? programs.join(", ") : "—"}</p>
+          </div>
+          <div>
+            <p style={rowLabel}>Email address</p>
+            {coordinator.email ? (
+              <a href={`mailto:${coordinator.email}`} style={{ ...rowValue, display: "block", color: color.ink, textDecoration: "underline" }}>
+                {coordinator.email}
+              </a>
+            ) : (
+              <p style={{ ...rowValue, color: color.inkMuted }}>Not provided yet</p>
+            )}
+          </div>
+        </div>
+
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px", padding: "0 18px 18px" }}>
+          <button
+            onClick={onClose}
+            style={{
+              background: color.white, color: color.ink, border: `1px solid ${border}`,
+              borderRadius: radius.pill, padding: "9px 16px", cursor: "pointer",
+              fontFamily: font.ui, fontWeight: 600, fontSize: "0.8rem",
+            }}
+          >
+            Close
+          </button>
+          {canMessage && (
+            <button
+              onClick={() => onMessage(coordinator)}
+              style={{
+                background: "#000000", color: color.white, border: "1px solid #000000",
+                borderRadius: radius.pill, padding: "9px 18px", cursor: "pointer",
+                fontFamily: font.ui, fontWeight: 600, fontSize: "0.8rem", transition: `background 160ms ${ease}`,
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background = "#FFFFFF"; e.currentTarget.style.color = "#000000"; }}
+              onMouseLeave={e => { e.currentTarget.style.background = "#000000"; e.currentTarget.style.color = "#FFFFFF"; }}
+            >
+              Message
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ── Main CompanyCoordinatorsScreen ────────────────────────────────────────────
 const CompanyCoordinatorsScreen = ({ embedded, user, onNavigateToMessages }) => {
   const isMobile = useIsMobile();
@@ -243,6 +357,8 @@ const CompanyCoordinatorsScreen = ({ embedded, user, onNavigateToMessages }) => 
   const [companyDepartments, setCompanyDepartments] = useState(null);
 
   const [showFilter, setShowFilter] = useState(false);
+  // Coordinator whose details window is open (null = closed).
+  const [selectedCoordinator, setSelectedCoordinator] = useState(null);
   const [filterCollege, setFilterCollege] = useState("");
   const [filterProgram, setFilterProgram] = useState("");
   const filterRef = useRef(null);
@@ -383,6 +499,7 @@ const CompanyCoordinatorsScreen = ({ embedded, user, onNavigateToMessages }) => 
   });
 
   const handleMessage = (coordinator) => {
+    setSelectedCoordinator(null);
     if (onNavigateToMessages) {
       onNavigateToMessages({ id: coordinator.id, name: coordinator.name, role: "coordinator" });
     }
@@ -420,7 +537,6 @@ const CompanyCoordinatorsScreen = ({ embedded, user, onNavigateToMessages }) => 
 
         <div style={{ display: "flex", alignItems: "center", gap: "8px", width: isMobile ? "100%" : "auto" }}>
           <div
-            id="ccoord-search-bar"
             style={{
               flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: "9px",
               background: color.wine900, border: `1px solid ${border}`,
@@ -452,7 +568,7 @@ const CompanyCoordinatorsScreen = ({ embedded, user, onNavigateToMessages }) => 
             )}
           </div>
 
-          <div id="ccoord-filter-btn" ref={filterRef} style={{ position: "relative", flexShrink: 0 }}>
+          <div ref={filterRef} style={{ position: "relative", flexShrink: 0 }}>
             <button
               onClick={() => setShowFilter(v => !v)}
               aria-label="Filter coordinators"
@@ -496,7 +612,7 @@ const CompanyCoordinatorsScreen = ({ embedded, user, onNavigateToMessages }) => 
         </div>
       </header>
 
-      <main id="ccoord-list" style={{ flex: 1, minHeight: 0, overflowY: "auto", overflowX: "hidden", padding: isMobile ? "18px 16px 28px" : "24px 32px 36px" }}>
+      <main style={{ flex: 1, minHeight: 0, overflowY: "auto", overflowX: "hidden", padding: isMobile ? "18px 16px 28px" : "24px 32px 36px" }}>
         {!loading && scoped.length > 0 && (
           <div style={{
             display: "flex", alignItems: "center", justifyContent: "space-between",
@@ -590,8 +706,13 @@ const CompanyCoordinatorsScreen = ({ embedded, user, onNavigateToMessages }) => 
               {groups[college].map((coord) => (
                 <article
                   key={coord.id}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`View ${coord.name}'s details`}
+                  onClick={() => setSelectedCoordinator(coord)}
+                  onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelectedCoordinator(coord); } }}
                   style={{
-                    display: "flex", alignItems: "center", gap: "12px",
+                    display: "flex", alignItems: "center", gap: "12px", cursor: "pointer",
                     padding: isMobile ? "13px" : "14px 16px",
                     background: color.white, border: `1px solid ${border}`,
                     borderRadius: radius.card, boxShadow: "0 1px 2px rgba(0,0,0,0.03)",
@@ -629,42 +750,28 @@ const CompanyCoordinatorsScreen = ({ embedded, user, onNavigateToMessages }) => 
                     }}>
                       {coord.programs?.length > 0 ? coord.programs.join(", ") : "Coordinator"}
                     </p>
-                    {coord.email && (
-                      <a
-                        href={`mailto:${coord.email}`}
-                        title={coord.email}
-                        style={{
-                          ...type.helper, color: color.inkMuted, margin: "3px 0 0",
-                          display: "block", textDecoration: "none",
-                          whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
-                        }}
-                        onMouseEnter={e => { e.currentTarget.style.color = color.ink; e.currentTarget.style.textDecoration = "underline"; }}
-                        onMouseLeave={e => { e.currentTarget.style.color = color.inkMuted; e.currentTarget.style.textDecoration = "none"; }}
-                      >
-                        {coord.email}
-                      </a>
-                    )}
                   </div>
 
-                  <button
-                    onClick={() => handleMessage(coord)}
-                    style={{
-                      background: "#000000", color: color.white, border: "none",
-                      borderRadius: radius.pill, padding: "9px 14px", cursor: "pointer",
-                      fontFamily: font.ui, fontWeight: 600, fontSize: "0.76rem",
-                      flexShrink: 0, transition: `background 160ms ${ease}`,
-                    }}
-                    onMouseEnter={e => { e.currentTarget.style.background = "#FFFFFF"; e.currentTarget.style.color = "#000000"; e.currentTarget.style.border = "1px solid #000000"; }}
-                    onMouseLeave={e => { e.currentTarget.style.background = "#000000"; e.currentTarget.style.color = "#FFFFFF"; e.currentTarget.style.border = "none"; }}
-                  >
-                    Message
-                  </button>
+                  {/* Chevron: tells the user the card opens more details. */}
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={color.inkMuted}
+                    strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0 }}>
+                    <polyline points="9 6 15 12 9 18" />
+                  </svg>
                 </article>
               ))}
             </div>
           </section>
         ))}
       </main>
+
+      {selectedCoordinator && (
+        <CoordinatorDetailsModal
+          coordinator={selectedCoordinator}
+          onClose={() => setSelectedCoordinator(null)}
+          onMessage={handleMessage}
+          canMessage={!!onNavigateToMessages}
+        />
+      )}
     </div>
   );
 

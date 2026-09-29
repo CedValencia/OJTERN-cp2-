@@ -479,6 +479,11 @@ const ImageLightbox = ({ src, name, onClose }) => {
 // these now live in AuthService.js (applyCompanyEnforcement / recordCompanyAction
 // / notifyCompany) so account-status logic has one home instead of being
 // duplicated between this screen and the login flow.
+// Input ceilings. Both the field and the state are capped, so a paste can't
+// slip past maxLength (which only limits typing in some browsers).
+const OTHER_ACTION_MAX     = 500;
+const RESOLUTION_NOTES_MAX = 1500;
+
 const STANDARD_ACTIONS = ["Require Correction", "Warning Issued", "Suspend Account", "Others", "Block Account"];
 
 const RESOLUTION_ACTION_META = {
@@ -1350,7 +1355,8 @@ const ResolveActionModal = ({
               <input
                 type="text"
                 value={otherActionText}
-                onChange={e => setOtherActionText(e.target.value)}
+                onChange={e => setOtherActionText(e.target.value.slice(0, OTHER_ACTION_MAX))}
+                maxLength={OTHER_ACTION_MAX}
                 placeholder=""
                 style={{
                   width: "100%", borderRadius: "10px",
@@ -1408,7 +1414,8 @@ const ResolveActionModal = ({
           </p>
           <textarea
             value={resolutionNotes}
-            onChange={e => setResolutionNotes(e.target.value)}
+            onChange={e => setResolutionNotes(e.target.value.slice(0, RESOLUTION_NOTES_MAX))}
+            maxLength={RESOLUTION_NOTES_MAX}
             placeholder="Describe the resolution"
             style={{
               width: "100%", minHeight: "80px", borderRadius: "10px",
