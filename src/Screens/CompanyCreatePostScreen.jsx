@@ -931,7 +931,7 @@ const ConfirmDiscardModal = ({ onKeepEditing, onDiscard }) => (
           Keep Editing
         </button>
         <button onClick={onDiscard} style={{ padding: "9px 22px", borderRadius: "22px", background: inkDeep, color: "white", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.85rem", cursor: "pointer" }}>
-          Yes, Discard
+          Discard
         </button>
       </div>
     </div>
@@ -1384,7 +1384,12 @@ const menuItemStyle = {
 // second ⋮ closes the first — with per-menu state every post could be left
 // hanging open at once. A pointerdown listener on the document closes it when
 // anything else on the page is clicked.
-const ThreeDotMenu = ({ isDisabled, onView, onToggleDisable, onDelete, open, onOpenChange }) => {
+// Which options show depends on the post's state:
+//   expired            → Delete only (enabling/viewing a closed post is pointless;
+//                        this wins even if the post is also disabled)
+//   disabled (not expired) → Enable only
+//   enabled            → View, Disable, Delete
+const ThreeDotMenu = ({ isDisabled, isExpired, onView, onToggleDisable, onDelete, open, onOpenChange }) => {
   const wrapRef = useRef(null);
 
   useEffect(() => {
@@ -1416,9 +1421,17 @@ const ThreeDotMenu = ({ isDisabled, onView, onToggleDisable, onDelete, open, onO
           style={{ position: "absolute", right: 0, top: "100%", background: "white", border: "1px solid #ddd", borderRadius: "10px", boxShadow: "0 4px 16px rgba(0,0,0,0.15)", zIndex: 100, minWidth: "120px", overflow: "hidden" }}
           onClick={e => e.stopPropagation()}
         >
-          <button onClick={() => { setOpen(false); onView(); }}             style={menuItemStyle}>View</button>
-          <button onClick={() => { setOpen(false); onToggleDisable(); }}    style={menuItemStyle}>{isDisabled ? "Enable" : "Disable"}</button>
-          <button onClick={() => { setOpen(false); onDelete(); }}           style={{ ...menuItemStyle, color: red, fontWeight: "700" }}>Delete</button>
+          {isExpired ? (
+            <button onClick={() => { setOpen(false); onDelete(); }}         style={{ ...menuItemStyle, color: red, fontWeight: "700" }}>Delete</button>
+          ) : isDisabled ? (
+            <button onClick={() => { setOpen(false); onToggleDisable(); }}  style={menuItemStyle}>Enable</button>
+          ) : (
+            <>
+              <button onClick={() => { setOpen(false); onView(); }}           style={menuItemStyle}>View</button>
+              <button onClick={() => { setOpen(false); onToggleDisable(); }}  style={menuItemStyle}>Disable</button>
+              <button onClick={() => { setOpen(false); onDelete(); }}         style={{ ...menuItemStyle, color: red, fontWeight: "700" }}>Delete</button>
+            </>
+          )}
         </div>
       )}
     </div>
@@ -1456,7 +1469,8 @@ const PostOJTContent = ({ user, openPostId, onPostOpened, onViewChange }) => {
     if (!openPostId) return;
     const target = posts.find(p => p.id === openPostId);
     if (target) {
-      openView(target);
+      // A disabled post can't be viewed — clear the target without opening it.
+      if (!target.disabled) openView(target);
       onPostOpened?.();
     }
   }, [openPostId, posts, onPostOpened]);
@@ -1599,6 +1613,7 @@ const PostOJTContent = ({ user, openPostId, onPostOpened, onViewChange }) => {
                   <div onClick={e => e.stopPropagation()} style={{ flexShrink: 0 }}>
                     <ThreeDotMenu
                       isDisabled={post.disabled}
+                      isExpired={expired}
                       open={openMenuId === post.id}
                       onOpenChange={(next) => setOpenMenuId(next ? post.id : null)}
                       onView={() => openView(post)}
@@ -1644,9 +1659,9 @@ const PostOJTContent = ({ user, openPostId, onPostOpened, onViewChange }) => {
               : "This post will become visible to students again. Continue?"
           }
           confirmLabel={
-            confirmAction.type === "delete"  ? "Yes, Delete"  :
-            confirmAction.type === "disable" ? "Yes, Disable" :
-                                                "Yes, Enable"
+            confirmAction.type === "delete"  ? "Delete"  :
+            confirmAction.type === "disable" ? "Disable" :
+                                                "Enable"
           }
           danger={confirmAction.type === "delete"}
           onCancel={() => setConfirmAction(null)}

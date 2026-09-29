@@ -928,7 +928,9 @@ const CompanyCard = ({ company, onViewProfile }) => {
   // the list (with its "Expired" date) rather than vanishing, so a student who
   // remembers seeing it can tell what happened.
   const postExpired = isPostExpired(company);
-  const isActive = (company.disabled === false || company.active !== false) && !postExpired;
+  // Strict on purpose: a post with disabled:true but no `active` field used to slip
+  // through `active !== false` and stay clickable. Disabled OR expired = closed.
+  const isActive = company.disabled !== true && company.active !== false && !postExpired;
   const displayName = company.companyName || company.name || "Unnamed company";
   const displayIndustry = industriesOf(company).join(", ") || "—";
   const displayLocation = typeof company.location === "object"
@@ -951,6 +953,7 @@ const CompanyCard = ({ company, onViewProfile }) => {
   return (
     <div
       className="stud-card"
+      data-closed={isActive ? undefined : "true"}
       onClick={() => isActive && onViewProfile(company)}
       style={{
         background: isActive ? surface : color.wine800,
