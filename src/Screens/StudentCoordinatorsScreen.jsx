@@ -284,7 +284,7 @@ const CoordinatorDetailsModal = ({ coordinator, onClose, onMessage, canMessage }
         </div>
 
         <div style={{ padding: "16px 18px", display: "grid", gap: "14px" }}>
-          <div>
+          <div id="scoord-details-dept">
             <p style={rowLabel}>Department</p>
             <p style={rowValue}>{departments.length > 0 ? departments.join(", ") : "Unassigned"}</p>
           </div>
@@ -292,7 +292,7 @@ const CoordinatorDetailsModal = ({ coordinator, onClose, onMessage, canMessage }
             <p style={rowLabel}>Program</p>
             <p style={rowValue}>{programs.length > 0 ? programs.join(", ") : "—"}</p>
           </div>
-          <div>
+          <div id="scoord-details-email">
             <p style={rowLabel}>Email address</p>
             {coordinator.email ? (
               <a href={`mailto:${coordinator.email}`} style={{ ...rowValue, display: "block", color: color.ink, textDecoration: "underline" }}>
@@ -317,6 +317,7 @@ const CoordinatorDetailsModal = ({ coordinator, onClose, onMessage, canMessage }
           </button>
           {canMessage && (
             <button
+              id="scoord-details-message"
               onClick={() => onMessage(coordinator)}
               style={{
                 background: "#000000", color: color.white, border: "1px solid #000000",
@@ -336,7 +337,7 @@ const CoordinatorDetailsModal = ({ coordinator, onClose, onMessage, canMessage }
 };
 
 // ── Main CompanyCoordinatorsScreen ────────────────────────────────────────────
-const StudentCoordinatorsScreen = ({ embedded, user, onNavigateToMessages }) => {
+const StudentCoordinatorsScreen = ({ embedded, user, onNavigateToMessages, onViewChange }) => {
   const isMobile = useIsMobile();
   // Coordinator icon size — same as the chat-list icon in CompanyMessagesScreen.
   const avatarSize = isMobile ? 46 : 48;
@@ -355,6 +356,11 @@ const StudentCoordinatorsScreen = ({ embedded, user, onNavigateToMessages }) => 
   const [filterCollege, setFilterCollege] = useState("");
   const [filterProgram, setFilterProgram] = useState("");
   const filterRef = useRef(null);
+
+  // List vs. open details window → Dashboard's "?" help button / auto-tour.
+  const subView = selectedCoordinator ? "details" : "list";
+  useEffect(() => { onViewChange?.(subView); }, [subView]);
+  useEffect(() => () => onViewChange?.("list"), []);
 
   // Close the filter panel on outside click.
   useEffect(() => {
@@ -439,6 +445,8 @@ const StudentCoordinatorsScreen = ({ embedded, user, onNavigateToMessages }) => 
   }, [filterCollege]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const activeFilterCount = (filterCollege ? 1 : 0) + (filterProgram ? 1 : 0);
+  // Loading = coordinators still loading, or the student profile hasn't arrived yet (e.g. right after a refresh).
+  const listLoading = loading || companyDepartments === null || !user?.uid;
 
   // Only coordinators who handle at least one of the company's departments.
   // While the departments are still loading, show nothing rather than briefly
@@ -564,6 +572,7 @@ const StudentCoordinatorsScreen = ({ embedded, user, onNavigateToMessages }) => 
 
           <div ref={filterRef} style={{ position: "relative", flexShrink: 0 }}>
             <button
+              id="scoord-filter-btn"
               onClick={() => setShowFilter(v => !v)}
               aria-label="Filter coordinators"
               aria-expanded={showFilter}
@@ -606,8 +615,8 @@ const StudentCoordinatorsScreen = ({ embedded, user, onNavigateToMessages }) => 
         </div>
       </header>
 
-      <main style={{ flex: 1, minHeight: 0, overflowY: "auto", overflowX: "hidden", padding: isMobile ? "18px 16px 28px" : "24px 32px 36px" }}>
-        {!loading && scoped.length > 0 && (
+      <main id="scoord-list" style={{ flex: 1, minHeight: 0, overflowY: "auto", overflowX: "hidden", padding: isMobile ? "18px 16px 28px" : "24px 32px 36px" }}>
+        {!listLoading && scoped.length > 0 && (
           <div style={{
             display: "flex", alignItems: "center", justifyContent: "space-between",
             marginBottom: "18px", gap: "12px",
@@ -629,7 +638,7 @@ const StudentCoordinatorsScreen = ({ embedded, user, onNavigateToMessages }) => 
           </div>
         )}
 
-        {loading && (
+        {listLoading && (
           <div style={{ maxWidth: "760px", margin: "50px auto", textAlign: "center" }}>
             <div style={{
               width: "34px", height: "34px", margin: "0 auto 12px",
@@ -641,7 +650,7 @@ const StudentCoordinatorsScreen = ({ embedded, user, onNavigateToMessages }) => 
           </div>
         )}
 
-        {!loading && groupNames.length === 0 && (
+        {!listLoading && groupNames.length === 0 && (
           <div style={{
             maxWidth: "560px", margin: "50px auto", padding: "34px 24px",
             background: color.white, border: `1px solid ${border}`,

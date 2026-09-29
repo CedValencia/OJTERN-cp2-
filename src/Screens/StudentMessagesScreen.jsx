@@ -944,7 +944,7 @@ const formatChatTime = (ts) => {
 };
 
 // ── ChatListView ──────────────────────────────────────────────────────────────
-const ChatListView = ({ contacts, messages, onOpen, myUid, userIcon: themedUserIcon = blackUserIcon }) => {
+const ChatListView = ({ contacts, messages, onOpen, myUid, loading = false, userIcon: themedUserIcon = blackUserIcon }) => {
   const [search, setSearch] = useState("");
   const isMobile = useIsMobile();
 
@@ -980,7 +980,9 @@ const ChatListView = ({ contacts, messages, onOpen, myUid, userIcon: themedUserI
           <div style={{ minWidth: 0 }}>
             <span style={{ fontFamily: font.ui, fontSize: "clamp(1.1rem, 3.5vw, 1.375rem)", fontWeight: 600, letterSpacing: "-0.01em", color: onPanel }}>Messages</span>
             <p style={{ fontFamily: font.ui, ...type.helper, color: onPanelDim, marginTop: "2px" }}>
-              {activeContacts.length === 0
+              {loading
+                ? "Loading chats…"
+                : activeContacts.length === 0
                 ? "No conversations yet"
                 : unreadCount > 0
                   ? `${unreadCount} unread of ${activeContacts.length} ${activeContacts.length === 1 ? "conversation" : "conversations"}`
@@ -1002,7 +1004,11 @@ const ChatListView = ({ contacts, messages, onOpen, myUid, userIcon: themedUserI
         </div>
 
         {/* Conversations */}
-        {activeContacts.length === 0 ? (
+        {loading ? (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "72px 0" }}>
+            <p style={{ fontFamily: font.ui, ...type.body, color: inkFaint }}>Loading chats…</p>
+          </div>
+        ) : activeContacts.length === 0 ? (
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "72px 24px", gap: space.sm, textAlign: "center", background: surface, border: `1px dashed ${color.wine400}`, borderRadius: radius.panel }}>
             <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke={inkFaint} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
             <p style={{ fontFamily: font.ui, fontSize: "1.0625rem", fontWeight: 600, color: ink, margin: 0 }}>No conversations yet</p>
@@ -1187,11 +1193,8 @@ const StudentMessagesScreen = ({
     ? (contacts.find(c => c.convId === activeContact.convId) || activeContact)
     : null;
 
-  if (loading) return (
-    <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", background: page }}>
-      <MessagesStyles />
-      <p style={{ fontFamily: font.ui, ...type.body, color: inkFaint }}>Loading chats…</p>
-    </div>
+  if (loading || !user?.uid) return (
+    <ChatListView contacts={[]} messages={{}} loading myUid={user?.uid} userIcon={themedUserIcon} onOpen={() => {}} />
   );
 
   if (activeContact) {

@@ -996,7 +996,8 @@ const CompanyCard = ({ company, onViewProfile }) => {
 
 // ─── MAIN FIND COMPANY SCREEN ─────────────────────────────────────────────────
 const StudentFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onNavigateToApplications, onMessageNow, onApplyNow, initialCompanyId, onClearInitialCompany, user, onVisitCompany, onViewChange }) => {
-  const { posts: companies, loading } = useOjtPosts();
+  const { posts: companies, loading: postsLoading } = useOjtPosts();
+  const loading = postsLoading || !user; // after a refresh `user` is null for a moment
   const [view, setView] = useState("list");
   const [selectedCompany, setSelectedCompany] = useState(null);
   const [showReportModal, setShowReportModal] = useState(false);
