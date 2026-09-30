@@ -3154,7 +3154,7 @@ const FormFields = ({ f, locked = false }) => {
         <FieldLabel>Suffix:</FieldLabel>
         <StyledSelect value={f.suffix.value} onChange={(v) => f.suffix.onChange(v)} options={SUFFIX_OPTIONS} placeholder="Select Suffix" disabled={idLocked} hasError={!locked && f.suffix.hasError} />
         <FieldError msg={!locked ? f.suffix.error : ""} />
-=======
+
         <StyledInput value={f.firstName.value} onChange={(v) => f.firstName.onChange(v.replace(/[^A-Za-zÑñ\s\-]/g, ""))} placeholder="First Name" disabled={acct} hasError={false} />
         
       </div>

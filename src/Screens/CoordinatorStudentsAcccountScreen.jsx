@@ -1221,10 +1221,6 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
               <FieldLabel>Age</FieldLabel>
               {/* Age is the student's to set (first-login setup / their own
                   profile), so a coordinator never types it here. */}
-              <StyledInput value={age.value} onChange={onAgeChange} disabled hasError={!!age.error} />
-              <FieldError msg={age.error} />
-
-              {/* Set by the student in their Personal Information — read-only here. */}
               <StyledInput value={age.value} onChange={onAgeChange} disabled hasError={false} />
               {isEditing && readOnly && (
                 <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, marginTop: "4px" }}>Set by the student</p>
@@ -1304,32 +1300,6 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
           </div>
         )}
 
-        {/* An existing student: read-only until Edit is pressed. Corrections
-            (a misspelled name, the wrong section, a new batch) happen here
-            rather than in the Firestore console. Age stays the student's. */}
-        {readOnly && (
-          <div className="sa-modal-footer">
-            {isEditing ? (
-              <>
-                <button
-                  onClick={() => { setIsEditing(false); }}
-                  disabled={saving}
-                  style={ghostBtn}
-                >Cancel</button>
-                <button
-                  onClick={handleSubmit}
-                  disabled={saving}
-                  style={{ ...primaryBtn, opacity: saving ? 0.6 : 1, cursor: saving ? "not-allowed" : "pointer" }}
-                >{saving ? "Saving…" : "Save changes"}</button>
-              </>
-            ) : (
-              <>
-                <button onClick={onClose} style={ghostBtn}>Close</button>
-                <button onClick={() => setIsEditing(true)} style={primaryBtn}>Edit</button>
-              </>
-            )}
-          </div>
-        )}
       </div>
     </div>
   );
