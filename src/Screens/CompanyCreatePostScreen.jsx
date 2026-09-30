@@ -1578,12 +1578,15 @@ const PostOJTContent = ({ user, openPostId, onPostOpened, onViewChange }) => {
               return (
                 <div
                   key={post.id}
-                  onClick={() => !post.disabled && openView(post)}
+                  // A disabled or expired post can't be opened — not from the ⋮
+                  // menu (which drops View for both) and not by clicking the
+                  // card either, so the two can't disagree.
+                  onClick={() => { if (!post.disabled && !expired) openView(post); }}
                   style={{
                     background: post.disabled ? "#b8b8b8" : "white",
                     borderRadius: "14px", padding: "14px 16px",
                     display: "flex", justifyContent: "space-between", alignItems: "center",
-                    cursor: post.disabled ? "default" : "pointer",
+                    cursor: post.disabled || expired ? "default" : "pointer",
                     boxShadow: post.disabled ? "none" : "0 2px 8px rgba(0,0,0,0.08)",
                     opacity: post.disabled ? 0.75 : (expired ? 0.85 : 1),
                     border: post.disabled ? "none" : (expired ? `1.5px solid ${red}` : "1.5px solid #e8e8e8"),

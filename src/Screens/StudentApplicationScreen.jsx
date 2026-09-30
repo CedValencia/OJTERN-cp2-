@@ -3054,28 +3054,37 @@ const useApplicationForm = (initial) => {
 // ─── SHARED FORM FIELDS (used in both Apply + View modals) ───────────────────
 const FormFields = ({ f, locked = false }) => {
   const [infoMsg, setInfoMsg] = useState(null);
+
+  // Name, sex, course and email come from the student's own record and are
+  // shown here for the company to see — not for the student to retype. Letting
+  // them differ per application would mean a company reading one course while
+  // the coordinator's list says another. What IS editable is what can honestly
+  // change per application: where they are, how to reach them, their message
+  // and their attachments.
+  const profileLocked = true;
+  const idLocked = locked || profileLocked;
   return (
   <>
     {/* Name */}
     <div id="sform-name" className="sa-name-grid">
       <div>
         <FieldLabel>First Name:</FieldLabel>
-        <StyledInput value={f.firstName.value} onChange={(v) => f.firstName.onChange(v.replace(/[^A-Za-zÑñ\s\-]/g, ""))} placeholder="First Name" disabled={locked} hasError={!locked && f.firstName.hasError} />
+        <StyledInput value={f.firstName.value} onChange={(v) => f.firstName.onChange(v.replace(/[^A-Za-zÑñ\s\-]/g, ""))} placeholder="First Name" disabled={idLocked} hasError={!locked && f.firstName.hasError} />
         <FieldError msg={!locked ? f.firstName.error : ""} />
       </div>
       <div>
         <FieldLabel>M. I.:</FieldLabel>
-        <StyledInput value={f.middleInitial.value} onChange={(v) => f.middleInitial.onChange(v.replace(/[^A-Za-z.\/]/g, "").toUpperCase().slice(0, 3))} placeholder="M. or N/A" disabled={locked} hasError={!locked && f.middleInitial.hasError} />
+        <StyledInput value={f.middleInitial.value} onChange={(v) => f.middleInitial.onChange(v.replace(/[^A-Za-z.\/]/g, "").toUpperCase().slice(0, 3))} placeholder="M. or N/A" disabled={idLocked} hasError={!locked && f.middleInitial.hasError} />
         <FieldError msg={!locked ? f.middleInitial.error : ""} />
       </div>
       <div>
         <FieldLabel>Last Name:</FieldLabel>
-        <StyledInput value={f.lastName.value} onChange={(v) => f.lastName.onChange(v.replace(/[^A-Za-zÑñ\s\-]/g, ""))} placeholder="Last Name" disabled={locked} hasError={!locked && f.lastName.hasError} />
+        <StyledInput value={f.lastName.value} onChange={(v) => f.lastName.onChange(v.replace(/[^A-Za-zÑñ\s\-]/g, ""))} placeholder="Last Name" disabled={idLocked} hasError={!locked && f.lastName.hasError} />
         <FieldError msg={!locked ? f.lastName.error : ""} />
       </div>
       <div>
         <FieldLabel>Suffix:</FieldLabel>
-        <StyledSelect value={f.suffix.value} onChange={(v) => f.suffix.onChange(v)} options={SUFFIX_OPTIONS} placeholder="Select Suffix" disabled={locked} hasError={!locked && f.suffix.hasError} />
+        <StyledSelect value={f.suffix.value} onChange={(v) => f.suffix.onChange(v)} options={SUFFIX_OPTIONS} placeholder="Select Suffix" disabled={idLocked} hasError={!locked && f.suffix.hasError} />
         <FieldError msg={!locked ? f.suffix.error : ""} />
       </div>
     </div>
@@ -3083,7 +3092,7 @@ const FormFields = ({ f, locked = false }) => {
     {/* Sex */}
     <div id="sform-sex" className="sa-sex-wrap">
       <FieldLabel>Sex:</FieldLabel>
-      <StyledSelect value={f.sex.value} onChange={(v) => f.sex.onChange(v)} options={["Male","Female"]} placeholder="Select Sex" disabled={locked} hasError={!locked && f.sex.hasError} />
+      <StyledSelect value={f.sex.value} onChange={(v) => f.sex.onChange(v)} options={["Male","Female"]} placeholder="Select Sex" disabled={idLocked} hasError={!locked && f.sex.hasError} />
       <FieldError msg={!locked ? f.sex.error : ""} />
     </div>
 
@@ -3097,20 +3106,26 @@ const FormFields = ({ f, locked = false }) => {
     <div id="sform-college" className="sa-college-grid">
       <div>
         <FieldLabel>College:</FieldLabel>
-        <StyledSelect value={f.college} onChange={f.handleCollegeChange} options={COLLEGES.map(c => c.name)} placeholder="Select College" disabled={locked} hasError={!locked && !!f.collegeError} />
+        <StyledSelect value={f.college} onChange={f.handleCollegeChange} options={COLLEGES.map(c => c.name)} placeholder="Select College" disabled={idLocked} hasError={!locked && !!f.collegeError} />
         <FieldError msg={!locked ? f.collegeError : ""} />
       </div>
       <div>
         <FieldLabel>Program:</FieldLabel>
-        <StyledSelect value={f.program} onChange={f.handleProgramChange} options={f.programOptions} placeholder="Select Program" disabled={locked || !f.college} hasError={!locked && !!f.programError} />
+        <StyledSelect value={f.program} onChange={f.handleProgramChange} options={f.programOptions} placeholder="Select Program" disabled={idLocked || !f.college} hasError={!locked && !!f.programError} />
         <FieldError msg={!locked ? f.programError : ""} />
       </div>
       <div>
         <FieldLabel>Major:</FieldLabel>
-        <StyledSelect value={f.major} onChange={f.handleMajorChange} options={f.majorOptions} placeholder={f.majorOptions.length === 0 ? "N/A" : "Select Major"} disabled={locked || !f.program || f.majorOptions.length === 0} hasError={!locked && !!f.majorError} />
+        <StyledSelect value={f.major} onChange={f.handleMajorChange} options={f.majorOptions} placeholder={f.majorOptions.length === 0 ? "N/A" : "Select Major"} disabled={idLocked || !f.program || f.majorOptions.length === 0} hasError={!locked && !!f.majorError} />
         <FieldError msg={!locked ? f.majorError : ""} />
       </div>
     </div>
+
+    {!locked && (
+      <p style={{ fontFamily: font.ui, fontSize: "0.72rem", color: inkMuted, margin: "0 0 10px", lineHeight: 1.6 }}>
+        Your name, sex, course and email come from your account. To correct them, open Account Profile, or message your coordinator for the course details.
+      </p>
+    )}
 
     {/* Contact & Email */}
     <div id="sform-contact" className="sa-contact-grid">
@@ -3121,7 +3136,7 @@ const FormFields = ({ f, locked = false }) => {
       </div>
       <div>
         <FieldLabel>Email Address:</FieldLabel>
-        <StyledInput value={f.email.value} onChange={(v) => f.email.onChange(v)} type="email" placeholder="student@gmail.com" disabled={locked} hasError={!locked && f.email.hasError} />
+        <StyledInput value={f.email.value} onChange={(v) => f.email.onChange(v)} type="email" placeholder="student@gmail.com" disabled={idLocked} hasError={!locked && f.email.hasError} />
         <FieldError msg={!locked ? f.email.error : ""} />
       </div>
     </div>
