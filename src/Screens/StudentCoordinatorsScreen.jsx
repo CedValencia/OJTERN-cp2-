@@ -4,8 +4,8 @@ import { db } from "./firebase";
 import userIcon from "../icons/user.png";
 import { color, font, type, space, radius, shadow, ease } from "./theme";
 
-const red = "#8B0000";
-const darkRed = "#590101";
+const accent = color.blush100;      // var(--ojt-ink-deep) — tracks the nav-bar theme picker
+const accentDeep = color.blush50;   // var(--ojt-ink)
 const border = "#E5E5E5";
 
 // Canonical college order — keeps the grouping consistent with the rest of
@@ -78,10 +78,10 @@ const PROGRAM_CODE_MAP = {
 };
 
 // ── useIsMobile ───────────────────────────────────────────────────────────────
-const useIsMobile = () => {
-  const [isMobile, setIsMobile] = useState(() => window.innerWidth < 640);
+const useIsMobile = (breakpoint = 640) => {
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth < breakpoint);
   useEffect(() => {
-    const handler = () => setIsMobile(window.innerWidth < 640);
+    const handler = () => setIsMobile(window.innerWidth < breakpoint);
     window.addEventListener("resize", handler);
     return () => window.removeEventListener("resize", handler);
   }, []);
@@ -89,9 +89,9 @@ const useIsMobile = () => {
 };
 
 // ── CoordinatorAvatar ─────────────────────────────────────────────────────────
-const CoordinatorAvatar = ({ size = 44 }) => (
+const CoordinatorAvatar = ({ size = 44, icon = userIcon }) => (
   <img
-    src={userIcon}
+    src={icon}
     alt="coordinator"
     style={{ width: size, height: size, objectFit: "contain", flexShrink: 0 }}
   />
@@ -136,7 +136,7 @@ const FilterPanel = ({ filterRef, filterCollege, filterProgram, setFilterCollege
             <button
               onClick={clearAll}
               style={{
-                background: "none", border: "none", color: red, cursor: "pointer",
+                background: "none", border: "none", color: accent, cursor: "pointer",
                 fontFamily: font.ui, fontSize: "0.78rem", fontWeight: 600, padding: "4px 0",
               }}
             >
@@ -157,9 +157,9 @@ const FilterPanel = ({ filterRef, filterCollege, filterProgram, setFilterCollege
                 onClick={() => { setFilterCollege(selected ? "" : col); setFilterProgram(""); }}
                 style={{
                   width: "100%", textAlign: "left", padding: "9px 10px", borderRadius: "10px",
-                  border: `1px solid ${selected ? "#D9A4A4" : border}`,
-                  background: selected ? "#F8EDED" : color.wine900,
-                  color: selected ? darkRed : color.inkBody,
+                  border: `1px solid ${selected ? color.hoverBorder : border}`,
+                  background: selected ? color.hoverWash : color.wine900,
+                  color: selected ? accentDeep : color.inkBody,
                   cursor: "pointer", fontFamily: font.ui, fontSize: "0.8rem",
                   fontWeight: selected ? 600 : 500, transition: `all 160ms ${ease}`,
                 }}
@@ -167,7 +167,7 @@ const FilterPanel = ({ filterRef, filterCollege, filterProgram, setFilterCollege
                 <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                   <span style={{
                     width: "7px", height: "7px", borderRadius: "50%",
-                    background: selected ? red : "#D0D0D0", flexShrink: 0,
+                    background: selected ? accent : "#D0D0D0", flexShrink: 0,
                   }} />
                   {col}
                 </span>
@@ -190,8 +190,8 @@ const FilterPanel = ({ filterRef, filterCollege, filterProgram, setFilterCollege
                     onClick={() => setFilterProgram(selected ? "" : prog)}
                     style={{
                       padding: "7px 10px", borderRadius: radius.pill,
-                      border: `1px solid ${selected ? red : border}`,
-                      background: selected ? red : color.wine900,
+                      border: `1px solid ${selected ? accent : border}`,
+                      background: selected ? accent : color.wine900,
                       color: selected ? color.white : color.inkBody,
                       cursor: "pointer", fontFamily: font.ui, fontSize: "0.76rem",
                       fontWeight: selected ? 600 : 500, transition: `all 160ms ${ease}`,
@@ -224,8 +224,10 @@ const departmentNamesOf = (data) => {
 // ── CoordinatorDetailsModal ───────────────────────────────────────────────────
 // Opens when a coordinator card is clicked. The card itself only shows the name
 // and program; contact details (email) and the Message action live here.
-const CoordinatorDetailsModal = ({ coordinator, onClose, onMessage, canMessage }) => {
+const CoordinatorDetailsModal = ({ coordinator, onClose, onMessage, canMessage, userIcon: themedUserIcon = userIcon }) => {
   const closeRef = useRef(null);
+  // Same 560px breakpoint as the Recent Application modal (StudentApplicationScreen).
+  const isNarrow = useIsMobile(561);
 
   useEffect(() => {
     closeRef.current?.focus();
@@ -252,7 +254,7 @@ const CoordinatorDetailsModal = ({ coordinator, onClose, onMessage, canMessage }
         aria-modal="true"
         aria-labelledby="coordinator-details-title"
         style={{
-          width: "100%", maxWidth: "420px", maxHeight: "calc(100vh - 32px)", overflowY: "auto",
+          width: "100%", maxWidth: isNarrow ? "calc(100vw - 72px)" : "420px", maxHeight: "calc(100vh - 32px)", overflowY: "auto",
           background: color.white, borderRadius: radius.card, boxShadow: "0 18px 50px rgba(0,0,0,0.22)",
           fontFamily: font.ui,
         }}
@@ -262,7 +264,7 @@ const CoordinatorDetailsModal = ({ coordinator, onClose, onMessage, canMessage }
             width: "48px", height: "48px", borderRadius: "14px", background: color.wine800,
             display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, overflow: "hidden",
           }}>
-            <CoordinatorAvatar size={48} />
+            <CoordinatorAvatar size={48} icon={themedUserIcon} />
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <h3 id="coordinator-details-title" style={{ ...type.label, fontSize: "1.05rem", color: color.ink, fontWeight: 650, margin: 0, overflowWrap: "anywhere" }}>
@@ -320,12 +322,12 @@ const CoordinatorDetailsModal = ({ coordinator, onClose, onMessage, canMessage }
               id="scoord-details-message"
               onClick={() => onMessage(coordinator)}
               style={{
-                background: "#000000", color: color.white, border: "1px solid #000000",
+                background: accent, color: color.white, border: `1px solid ${accent}`,
                 borderRadius: radius.pill, padding: "9px 18px", cursor: "pointer",
                 fontFamily: font.ui, fontWeight: 600, fontSize: "0.8rem", transition: `background 160ms ${ease}`,
               }}
-              onMouseEnter={e => { e.currentTarget.style.background = "#FFFFFF"; e.currentTarget.style.color = "#000000"; }}
-              onMouseLeave={e => { e.currentTarget.style.background = "#000000"; e.currentTarget.style.color = "#FFFFFF"; }}
+              onMouseEnter={e => { e.currentTarget.style.background = "#FFFFFF"; e.currentTarget.style.color = accent; }}
+              onMouseLeave={e => { e.currentTarget.style.background = accent; e.currentTarget.style.color = "#FFFFFF"; }}
             >
               Message
             </button>
@@ -337,7 +339,7 @@ const CoordinatorDetailsModal = ({ coordinator, onClose, onMessage, canMessage }
 };
 
 // ── Main CompanyCoordinatorsScreen ────────────────────────────────────────────
-const StudentCoordinatorsScreen = ({ embedded, user, onNavigateToMessages, onViewChange }) => {
+const StudentCoordinatorsScreen = ({ embedded, user, onNavigateToMessages, onViewChange, userIcon: themedUserIcon = userIcon }) => {
   const isMobile = useIsMobile();
   // Coordinator icon size — same as the chat-list icon in CompanyMessagesScreen.
   const avatarSize = isMobile ? 46 : 48;
@@ -526,7 +528,7 @@ const StudentCoordinatorsScreen = ({ embedded, user, onNavigateToMessages, onVie
       >
         <div>
           <div style={{ display: "flex", alignItems: "center", gap: "9px" }}>
-            <div style={{ width: "5px", height: "28px", borderRadius: radius.pill, background: red }} />
+            <div style={{ width: "5px", height: "28px", borderRadius: radius.pill, background: accent }} />
             <h2 style={{ ...type.heading, fontSize: isMobile ? "1.45rem" : "1.7rem", margin: 0, color: color.ink }}>
               Coordinators
             </h2>
@@ -578,14 +580,14 @@ const StudentCoordinatorsScreen = ({ embedded, user, onNavigateToMessages, onVie
               aria-expanded={showFilter}
               style={{
                 width: "40px", height: "40px", borderRadius: "12px",
-                background: activeFilterCount > 0 ? "#F8EDED" : color.white,
-                border: `1px solid ${activeFilterCount > 0 ? "#D9A4A4" : border}`,
+                background: activeFilterCount > 0 ? color.hoverWash : color.white,
+                border: `1px solid ${activeFilterCount > 0 ? color.hoverBorder : border}`,
                 cursor: "pointer", display: "flex", alignItems: "center",
                 justifyContent: "center", position: "relative",
               }}
             >
               <svg width="17" height="17" viewBox="0 0 24 24" fill="none"
-                stroke={activeFilterCount > 0 ? red : color.inkBody}
+                stroke={activeFilterCount > 0 ? accent : color.inkBody}
                 strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M4 5h16l-6.5 7.2v5.1l-3 1.7v-6.8L4 5z" />
               </svg>
@@ -593,7 +595,7 @@ const StudentCoordinatorsScreen = ({ embedded, user, onNavigateToMessages, onVie
                 <span style={{
                   position: "absolute", top: "-5px", right: "-5px",
                   minWidth: "17px", height: "17px", padding: "0 4px",
-                  borderRadius: radius.pill, background: red, color: color.white,
+                  borderRadius: radius.pill, background: accent, color: color.white,
                   fontSize: "0.62rem", fontWeight: 700, display: "flex",
                   alignItems: "center", justifyContent: "center", border: `2px solid ${color.white}`,
                 }}>
@@ -628,7 +630,7 @@ const StudentCoordinatorsScreen = ({ embedded, user, onNavigateToMessages, onVie
               <button
                 onClick={() => { setSearch(""); setFilterCollege(""); setFilterProgram(""); }}
                 style={{
-                  background: "none", border: "none", color: red, cursor: "pointer",
+                  background: "none", border: "none", color: accent, cursor: "pointer",
                   fontFamily: font.ui, fontSize: "0.78rem", fontWeight: 600, padding: 0,
                 }}
               >
@@ -642,7 +644,7 @@ const StudentCoordinatorsScreen = ({ embedded, user, onNavigateToMessages, onVie
           <div style={{ maxWidth: "760px", margin: "50px auto", textAlign: "center" }}>
             <div style={{
               width: "34px", height: "34px", margin: "0 auto 12px",
-              borderRadius: "50%", border: "3px solid #E8E8E8", borderTopColor: red,
+              borderRadius: "50%", border: "3px solid #E8E8E8", borderTopColor: accent,
               animation: "cc-spin 0.8s linear infinite",
             }} />
             <p style={{ ...type.helper, color: color.inkMuted, margin: 0 }}>Loading coordinators…</p>
@@ -658,7 +660,7 @@ const StudentCoordinatorsScreen = ({ embedded, user, onNavigateToMessages, onVie
           }}>
             <div style={{
               width: "48px", height: "48px", margin: "0 auto 14px",
-              borderRadius: "14px", background: "#F8EDED", color: red,
+              borderRadius: "14px", background: color.hoverWash, color: accent,
               display: "flex", alignItems: "center", justifyContent: "center",
               fontSize: "1.35rem", fontWeight: 700,
             }}>
@@ -683,7 +685,7 @@ const StudentCoordinatorsScreen = ({ embedded, user, onNavigateToMessages, onVie
               display: "flex", alignItems: "center", gap: "9px",
               marginBottom: "10px", paddingLeft: "2px",
             }}>
-              <div style={{ width: "4px", height: "18px", borderRadius: radius.pill, background: red, flexShrink: 0 }} />
+              <div style={{ width: "4px", height: "18px", borderRadius: radius.pill, background: accent, flexShrink: 0 }} />
               <h3 style={{
                 ...type.label, color: color.ink, fontWeight: 650, margin: 0,
                 minWidth: 0, overflow: "hidden", textOverflow: "ellipsis",
@@ -737,7 +739,7 @@ const StudentCoordinatorsScreen = ({ embedded, user, onNavigateToMessages, onVie
                     background: color.wine800, display: "flex", alignItems: "center",
                     justifyContent: "center", flexShrink: 0, overflow: "hidden",
                   }}>
-                    <CoordinatorAvatar size={avatarSize} />
+                    <CoordinatorAvatar size={avatarSize} icon={themedUserIcon} />
                   </div>
 
                   <div style={{ flex: 1, minWidth: 0 }}>
@@ -769,6 +771,7 @@ const StudentCoordinatorsScreen = ({ embedded, user, onNavigateToMessages, onVie
 
       {selectedCoordinator && (
         <CoordinatorDetailsModal
+          userIcon={themedUserIcon}
           coordinator={selectedCoordinator}
           onClose={() => setSelectedCoordinator(null)}
           onMessage={handleMessage}

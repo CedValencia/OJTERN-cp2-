@@ -39,6 +39,7 @@ import {
 import { httpsCallable } from "firebase/functions";
 
 import { auth, db, functions } from "./firebase";
+import { normalizeScope } from "./affiliationService";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // INITIAL URL ACTION PARAMS — snapshotted at module load
@@ -132,7 +133,9 @@ export const registerCompany = async (step1Data, verificationDocs) => {
     // status — see approveCompanyDepartment/rejectCompanyDepartment below —
     // so a multi-department company must be approved separately by each
     // Department's coordinator before it can post/pull students there.
-    deptSelections:   (deptSelections || []).map(s => ({ ...s, status: "pending" })),
+    // requestedAt + history match the shape affiliationService.js keeps for
+    // programs added later, so every entry has the same audit trail.
+    deptSelections:   (deptSelections || []).map(s => ({ ...s, status: "pending", requestedAt: Timestamp.now(), history: [{ status: "pending", at: Timestamp.now(), by: "" }] })),
     location,         // { fullAddress, region, province, city, barangay, street, lat, lng }
     verificationDocs, // Cloudinary URLs
     role:             "company",
@@ -656,59 +659,96 @@ export const confirmReset = async (oobCode, newPassword) => {
  * @param {string} coordinatorUid
  * @param {string} department  — must match one of the company's deptSelections[].department values
  */
-export const approveCompanyDepartment = (companyId, coordinatorUid, department) =>
-  runTransaction(db, async (transaction) => {
-    const companyRef = doc(db, "companies", companyId);
-    const snap = await transaction.get(companyRef);
-    if (!snap.exists()) throw new Error("Company not found.");
-    const data = snap.data();
-    const deptSelections = (data.deptSelections || []).map(entry =>
-      entry.department === department
-        ? { ...entry, status: "approved", approvedBy: coordinatorUid, approvedAt: Timestamp.now() }
-        : entry
-    );
-    const anyApproved = deptSelections.some(e => e.status === "approved");
-    transaction.update(companyRef, {
-      deptSelections,
-      // Only ever move the account-level status FORWARD out of "pending"
-      // here — never touch it if it's already "rejected"/"suspended"/
-      // "blocked" (those are separate admin actions, see
-      // applyCompanyEnforcement below).
-      ...(data.status === "pending" && anyApproved ? { status: "approved" } : {}),
-    });
-  });
+export const approveCompanyDepartment = (companyId, coordinatorUid, department, program) =>
+  decideCompanyAffiliation(companyId, coordinatorUid, department, program, "approved");
 
 /**
- * Rejects a company for ONE of its registered Departments. Other
- * Departments the company also registered under are unaffected — see
- * approveCompanyDepartment above for why this is per-entry, not per-company.
- *
- * @param {string} companyId
- * @param {string} coordinatorUid
- * @param {string} department
+ * Rejects a company for ONE of its registered Department/Program entries.
+ * Other entries are unaffected — see approveCompanyDepartment above for why
+ * this is per-entry, not per-company.
  */
-export const rejectCompanyDepartment = (companyId, coordinatorUid, department) =>
+export const rejectCompanyDepartment = (companyId, coordinatorUid, department, program) =>
+  decideCompanyAffiliation(companyId, coordinatorUid, department, program, "rejected");
+
+/**
+ * Shared approve/reject for one affiliation entry (OJTern workflow rules):
+ *
+ *  • Matches the exact Department AND Program the coordinator acted on
+ *    (normalised, so dash/spacing/case drift doesn't matter). Previously it
+ *    matched Department only, so approving CCS — BSIT also approved every
+ *    other CCS program the company had, including WITHDRAWN ones.
+ *  • Only PENDING entries can be decided. Withdrawn, already-approved and
+ *    already-rejected entries are never touched.
+ *  • `program` is optional for older callers: when it's undefined, every
+ *    PENDING entry under that Department is decided (the old behaviour, minus
+ *    the withdrawn/approved bug).
+ *  • Adds a history entry to the affiliation and notifies the company in the
+ *    same transaction, so the notice exists only if the decision was saved.
+ *
+ * Throws if nothing was pending any more (e.g. the company withdrew the
+ * program while the coordinator had the page open).
+ */
+const decideCompanyAffiliation = (companyId, coordinatorUid, department, program, decision) =>
   runTransaction(db, async (transaction) => {
     const companyRef = doc(db, "companies", companyId);
     const snap = await transaction.get(companyRef);
     if (!snap.exists()) throw new Error("Company not found.");
     const data = snap.data();
-    const deptSelections = (data.deptSelections || []).map(entry =>
-      entry.department === department
-        ? { ...entry, status: "rejected", rejectedBy: coordinatorUid, rejectedAt: Timestamp.now() }
-        : entry
-    );
-    const allRejected = deptSelections.length > 0 && deptSelections.every(e => e.status === "rejected");
+    const now = Timestamp.now();
+
+    const matchesTarget = (entry) =>
+      normalizeScope(entry.department) === normalizeScope(department) &&
+      (program === undefined || normalizeScope(entry.program) === normalizeScope(program));
+
+    const decided = [];
+    const deptSelections = (data.deptSelections || []).map(entry => {
+      if (!matchesTarget(entry) || (entry.status || "pending") !== "pending") return entry;
+      decided.push(entry);
+      const history = Array.isArray(entry.history) ? entry.history : [];
+      return {
+        ...entry,
+        status: decision,
+        decidedAt: now,
+        ...(decision === "approved"
+          ? { approvedBy: coordinatorUid, approvedAt: now }
+          : { rejectedBy: coordinatorUid, rejectedAt: now }),
+        history: [...history, { status: decision, at: now, by: coordinatorUid || "" }],
+      };
+    });
+
+    if (decided.length === 0) {
+      throw new Error("This request is no longer pending — the company may have withdrawn or changed it.");
+    }
+
     const anyApproved = deptSelections.some(e => e.status === "approved");
+    // Withdrawn entries don't count either way when deciding the account status.
+    const active = deptSelections.filter(e => e.status !== "withdrawn");
+    const allRejected = active.length > 0 && active.every(e => e.status === "rejected");
+
     transaction.update(companyRef, {
       deptSelections,
-      // Only flip the account-level status to "rejected" once every
-      // Department the company registered under has rejected them, and
-      // only if the account hadn't already been approved into good
-      // standing by some other Department (see note above — don't clobber
-      // "approved"/"suspended"/"blocked" set elsewhere).
-      ...(data.status === "pending" && allRejected && !anyApproved ? { status: "rejected" } : {}),
+      // Account-level status only ever moves FORWARD out of "pending" here —
+      // "approved"/"suspended"/"blocked" set elsewhere are never clobbered
+      // (see applyCompanyEnforcement below).
+      ...(decision === "approved" && data.status === "pending" && anyApproved ? { status: "approved" } : {}),
+      ...(decision === "rejected" && data.status === "pending" && allRejected && !anyApproved ? { status: "rejected" } : {}),
     });
+
+    const labels = decided.map(e => [e.department, e.program].filter(Boolean).join(" — ")).join(", ");
+    transaction.set(doc(collection(db, "notifications")), {
+      recipientId:   companyId,
+      recipientRole: "company",
+      type:          decision === "approved" ? "affiliation_approved" : "affiliation_rejected",
+      title:         decision === "approved" ? "Course approved" : "Course declined",
+      message:       decision === "approved"
+        ? `The coordinator approved ${labels}. You can now select ${decided.length > 1 ? "them" : "it"} when creating or editing OJT posts.`
+        : `The coordinator declined ${labels}. You can contact the coordinator for details.`,
+      coordinatorUid: coordinatorUid || null,
+      read:          false,
+      createdAt:     serverTimestamp(),
+    });
+
+    return { decided: decided.map(e => ({ department: e.department, program: e.program || "" })) };
   });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1209,6 +1249,40 @@ export const createStudentAccount = async (studentData, createdByUid) => {
  * @param {string} email
  * @throws Error with user-friendly message
  */
+/**
+ * Coordinator edits a student's account (CoordinatorStudentsAcccountScreen).
+ * Runs server-side (functions/index.js → updateStudentAccount) because a change
+ * to the name, Student ID or department also resets the student's DEFAULT
+ * password, which only the Admin SDK can do. Age and personal email are the
+ * student's own and are never changed here.
+ *
+ * @returns {Promise<{ ok: boolean, fullName: string, passwordReset: boolean, newPassword: string|null }>}
+ */
+export const updateStudentAccountByCoordinator = async ({ studentUid, updates, collegeAbbr }) => {
+  try {
+    const res = await httpsCallable(functions, "updateStudentAccount")({ studentUid, updates, collegeAbbr });
+    return res.data;
+  } catch (err) {
+    // A bare "internal" (no message from our function) almost always means the
+    // request never reached updateStudentAccount: it isn't deployed yet, it
+    // was deployed to a different region than functions in ./firebase
+    // (asia-southeast1), or the network blocked it. Errors raised by the
+    // function itself always carry a readable message.
+    const code = String(err?.code || "");
+    const msg  = String(err?.message || "").trim();
+    if (!msg || msg.toLowerCase() === "internal" || code === "functions/not-found") {
+      throw new Error(
+        "Couldn't reach the server to save this student. Make sure the updateStudentAccount Cloud Function " +
+        "is deployed (firebase deploy --only functions:updateStudentAccount), then try again."
+      );
+    }
+    if (code === "functions/unavailable" || code === "functions/deadline-exceeded") {
+      throw new Error("No connection to the server. Check your internet connection, then try again.");
+    }
+    throw new Error(msg);
+  }
+};
+
 export const changePassword = async (currentPassword, newPassword, collectionName, uid, email) => {
   const user = auth.currentUser;
 

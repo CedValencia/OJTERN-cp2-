@@ -4,7 +4,7 @@ import blackUserIcon from "../icons/blackuser.png";
 
 // Firebase
 import { db }                          from "./firebase";
-import { createStudentAccount, generateStudentPassword, logActivity } from "./AuthService";
+import { createStudentAccount, generateStudentPassword, logActivity, updateStudentAccountByCoordinator } from "./AuthService";
 import { useDepartmentsPrograms }      from "./departmentsPrograms";
 import {
   collection, query, where,
@@ -955,10 +955,22 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
     if (validators.middleInitial(middleInitial.value)) return false;
     if (validators.suffix(suffix.value)) return false;
     if (validators.sex(sex.value)) return false;
-    if (validators.age(age.value)) return false;
+    // Age is the student's own field (set on their Personal Information), so
+    // it's never validated or changed from here.
     if (!program) return false;
     return true;
   };
+
+  // Changing any of these rebuilds the DEFAULT password (see
+  // generateStudentPassword), so the student is signed out and must log in
+  // again with the updated Student ID + new default password.
+  const credentialsChanged = !isCreate && (
+    firstName.value.trim().toLowerCase() !== String(initial.firstName || "").trim().toLowerCase() ||
+    lastName.value.trim().toLowerCase()  !== String(initial.lastName  || "").trim().toLowerCase() ||
+    studentId.value.trim()               !== String(initial.studentId || "").trim() ||
+    String(college || "").trim().toLowerCase() !== String(initial.college || "").trim().toLowerCase()
+  );
+  const [confirmCredentialChange, setConfirmCredentialChange] = useState(false);
 
   // handleSubmit — passes form data up; parent handles Firebase
   const handleSubmit = async () => {
@@ -991,9 +1003,12 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
         batch: normalizeBatch(batch.value) || batch.value.trim(),
         studentId: studentId.value, lastName: lastName.value,
         middleInitial: middleInitial.value, firstName: firstName.value,
-        suffix: suffix.value, college, program, specialization: "",
+        suffix: suffix.value, college, program,
+        // A different program invalidates its old specialization; otherwise
+        // whatever is on file stays as it is.
+        ...(program !== (initial.program || "") ? { specialization: "" } : {}),
         yearSection: yearSection.value, sex: sex.value,
-        age: age.value,
+        // No `age` — it's the student's own field (Personal Information).
         // Sinasadyang WALANG `email` dito. Sa create, si createStudentAccount
         // na ang gumagawa ng `<studentId>@pending.student` na placeholder at
         // nagtatakda ng hasRealEmail:false. Sa edit naman, isinasalin ng
@@ -1007,6 +1022,14 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
     } finally {
       setSaving(false);
     }
+  };
+
+  // Edit → Save: asks first when the change will reset the default password.
+  const requestSave = () => {
+    touchAll();
+    if (!isValid()) return;
+    if (credentialsChanged) { setConfirmCredentialChange(true); return; }
+    handleSubmit();
   };
 
   const locked = readOnly && !isEditing;
@@ -1200,6 +1223,13 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
                   profile), so a coordinator never types it here. */}
               <StyledInput value={age.value} onChange={onAgeChange} disabled hasError={!!age.error} />
               <FieldError msg={age.error} />
+
+              {/* Set by the student in their Personal Information — read-only here. */}
+              <StyledInput value={age.value} onChange={onAgeChange} disabled hasError={false} />
+              {isEditing && readOnly && (
+                <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, marginTop: "4px" }}>Set by the student</p>
+              )}
+
             </div>
             <div>
               <FieldLabel>Batch</FieldLabel>
@@ -1224,10 +1254,46 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
             </div>
           )}
 
+          {readOnly && isEditing && credentialsChanged && (
+            <p style={{ fontFamily: font.ui, ...type.helper, color: "#8a5a00", background: "#FFF3D6", border: "1px solid #F0D48A", borderRadius: radius.card, padding: "10px 14px", marginTop: space.md, lineHeight: 1.5 }}>
+              Changing the name, Student ID, or department resets this student's default password to the one shown above.
+              They'll be signed out, then log in with the updated Student ID and new default password, set a new password,
+              and review their personal information. Their applications and messages stay as they are.
+            </p>
+          )}
+
           {submitError && (
             <p style={{ fontFamily: font.ui, ...type.helper, color: danger, marginTop: space.md }}>{submitError}</p>
           )}
         </div>
+
+        {readOnly && (
+          <div className="sa-modal-footer">
+            {isEditing ? (
+              <>
+                <button onClick={onClose} disabled={saving} style={ghostBtn}>Cancel</button>
+                <button onClick={requestSave} disabled={saving} style={{ ...primaryBtn, opacity: saving ? 0.6 : 1, cursor: saving ? "not-allowed" : "pointer" }}>
+                  {saving ? "Saving…" : "Save changes"}
+                </button>
+              </>
+            ) : (
+              <>
+                <button onClick={onClose} style={ghostBtn}>Close</button>
+                <button id="sa-modal-edit" onClick={() => setIsEditing(true)} style={primaryBtn}>Edit</button>
+              </>
+            )}
+          </div>
+        )}
+
+        {confirmCredentialChange && (
+          <Dialog
+            title="Reset this student's password?"
+            body={`Saving signs the student out and resets their password to: ${(firstName.value && lastName.value && studentId.value && college) ? generateStudentPassword(firstName.value, lastName.value, studentId.value, departments[college]?.abbr || college) : "—"}. Give them their updated Student ID and this password so they can log in again.`}
+          >
+            <button onClick={() => setConfirmCredentialChange(false)} style={ghostBtn}>Cancel</button>
+            <button onClick={() => { setConfirmCredentialChange(false); handleSubmit(); }} style={primaryBtn}>Save and reset</button>
+          </Dialog>
+        )}
 
         {!readOnly && (
           <div className="sa-modal-footer">
@@ -1428,7 +1494,7 @@ const ImportModal = ({ onClose, onImport, coordinatorColleges = [], departments 
               </div>
             ) : (
               <>
-                <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke={inkFaint} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginBottom: space.sm }}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke={inkFaint} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ display: "block", margin: `0 auto ${space.sm}` }}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                 <p style={{ fontFamily: font.ui, ...type.body, color: inkBody, marginBottom: "4px" }}>Drop your Excel file here, or click to browse</p>
                 <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted }}>.xlsx or .xls, up to 10MB</p>
               </>
@@ -1953,15 +2019,31 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
   };
 
   // ── Save (edit) — updates Firestore doc ───────────────────────────────────
+  // Saved through the updateStudentAccount Cloud Function (AuthService →
+  // updateStudentAccountByCoordinator): it keeps Student IDs unique, never
+  // touches the student's own age/email, and — when the name, Student ID or
+  // department changes — resets the default password and signs the student
+  // out. Errors are thrown back so the form shows them.
+  const [credentialResetInfo, setCredentialResetInfo] = useState(null);
   const handleSave = async (form) => {
-    const fullName = `${form.firstName} ${form.middleInitial ? form.middleInitial.replace(/\.$/, "") + ". " : ""}${form.lastName}${isRealSuffix(form.suffix) ? " " + form.suffix : ""}`;
-    await updateDoc(doc(db, "students", viewingStudent.id), {
-      ...form,
-      fullName,
-      updatedAt: serverTimestamp(),
+    const result = await updateStudentAccountByCoordinator({
+      studentUid:  viewingStudent.id,
+      updates:     form,
+      collegeAbbr: departments[form.college]?.abbr || form.college,
     });
-    logActivity(coordinatorUid, "student_edited", `Edited student account for ${fullName}`, { targetId: viewingStudent.id, targetName: fullName }).catch(err => console.error("Failed to log activity:", err));
+    const fullName = result?.fullName || `${form.firstName} ${form.lastName}`;
+    logActivity(
+      coordinatorUid,
+      result?.passwordReset ? "student_edited_password_reset" : "student_edited",
+      `Edited student account for ${fullName}${result?.passwordReset ? " (default password reset)" : ""}`,
+      { targetId: viewingStudent.id, targetName: fullName }
+    ).catch(err => console.error("Failed to log activity:", err));
     setViewingStudent(null);
+    if (result?.passwordReset) {
+      setCredentialResetInfo({ fullName, studentId: form.studentId, password: result.newPassword });
+    } else if (result?.authMissing) {
+      setCredentialResetInfo({ fullName, studentId: form.studentId, authMissing: true });
+    }
   };
 
   // ── Archive / restore ─────────────────────────────────────────────────────
@@ -2212,7 +2294,7 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
 
         {/* Active / Archived — archiving never deletes anything, so both pools
             stay in Firestore and a student can be moved back at any time. */}
-        <div role="tablist" aria-label="Student pool" style={{ display: "flex", gap: "6px", marginBottom: space.md, flexWrap: "wrap" }}>
+        <div id="sa-view-tabs" role="tablist" aria-label="Student pool" style={{ display: "flex", gap: "6px", marginBottom: space.md, flexWrap: "wrap" }}>
           {[
             { key: "active",   label: "Active Students",   count: activeStudents.length },
             { key: "archived", label: "Archived Students", count: archivedStudents.length },
@@ -2225,7 +2307,7 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
                 aria-selected={on}
                 onClick={() => { setViewTab(t.key); setFilters(prev => ({ ...prev, batch: "" })); exitSelectMode(); }}
                 style={{
-                  border: `1px solid ${on ? ink : line}`, background: on ? ink : surface,
+                  border: `1px solid ${on ? panel : line}`, background: on ? panel : surface,
                   color: on ? color.white : inkBody, borderRadius: radius.pill,
                   padding: "7px 16px", cursor: "pointer", fontFamily: font.ui, ...type.control,
                   display: "inline-flex", alignItems: "center", gap: "8px", maxWidth: "100%",
@@ -2329,6 +2411,18 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
       {showNewModal    && <StudentForm coordinatorColleges={normalizedCoordinatorColleges} departments={departments} onClose={() => setShowNewModal(false)} onSubmit={handleCreate} submitLabel="Create account" />}
       {viewingStudent  && <StudentForm initial={viewingStudent} readOnly coordinatorColleges={normalizedCoordinatorColleges} departments={departments} onClose={() => setViewingStudent(null)} onSubmit={handleSave} />}
       {showImportModal && <ImportModal coordinatorColleges={normalizedCoordinatorColleges} departments={departments} onClose={() => setShowImportModal(false)} onImport={handleImport} />}
+
+      {/* ── Default password was reset by an edit ── */}
+      {credentialResetInfo && (
+        <Dialog
+          title={credentialResetInfo.authMissing ? "Saved — no login account found" : "Student account updated"}
+          body={credentialResetInfo.authMissing
+            ? `${credentialResetInfo.fullName}'s details were saved, but this student has no login account, so there was no password to reset. If they should be able to log in, delete this record and create the account again from New student.`
+            : `${credentialResetInfo.fullName} was signed out. They can now log in with Student ID ${credentialResetInfo.studentId} and the default password ${credentialResetInfo.password || "(see the student's record)"}, then set a new password.`}
+        >
+          <button onClick={() => setCredentialResetInfo(null)} style={primaryBtn}>OK</button>
+        </Dialog>
+      )}
 
       {/* ── Nothing selected for export ── */}
       {exportEmptyWarning && (

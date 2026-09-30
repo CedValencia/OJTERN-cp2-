@@ -3,6 +3,7 @@ import { doc, onSnapshot, updateDoc, collection, getDocs, query, where, setDoc, 
 import { getAuth } from "firebase/auth";
 import { db } from "./firebase";
 import { changePassword, requestCompanyEmailChange } from "./AuthService";
+import { buildNextDeptSelections, analyzeAffiliationImpact, commitCompanyProfileWithAffiliations, isActiveAffiliation, pairLabel as affPairLabel } from "./affiliationService";
 import { color, font, type, space, radius, shadow, ease } from "./theme";
 
 import PersonalAccountProfile from "../icons/personalaccountprofile.png";
@@ -4295,22 +4296,37 @@ const PersonalInfoScreen = ({ onBack, user, onEditingChange }) => {
   const pairKey   = (d) => `${d.department || d.college || ""}||${d.program || ""}`;
   const pairLabel = (d) => [d.department || d.college, d.program].filter(Boolean).join(" — ");
 
+  // Uses the same transition rules as the actual save (affiliationService),
+  // so the dialog always describes exactly what will be written. Withdrawn
+  // entries count as "not offered" — re-adding one shows up under Adding.
   const courseChanges = () => {
-    const before = deptSelectionsRef.current.filter(d => d.department);
-    const after  = courseSelections.filter(s => s.college).map(s => ({ department: s.college, program: s.program || "" }));
-    const beforeKeys = new Set(before.map(pairKey));
-    const afterKeys  = new Set(after.map(pairKey));
+    const { next, added, withdrawn } = buildNextDeptSelections(deptSelectionsRef.current, courseSelections);
     return {
-      added:     after.filter(d => !beforeKeys.has(pairKey(d))).map(pairLabel),
-      removed:   before.filter(d => !afterKeys.has(pairKey(d))).map(pairLabel),
-      remaining: after.length,
+      next,
+      added:     added.map(d => affPairLabel(d.department, d.program)),
+      removed:   withdrawn.map(d => affPairLabel(d.department, d.program)),
+      remaining: next.filter(isActiveAffiliation).length,
+      impact:    null,
     };
   };
 
-  const requestSave = () => {
+  const requestSave = async () => {
     const changes = courseChanges();
     if (changes.added.length === 0 && changes.removed.length === 0) { handleSave(); return; }
     setCourseChangeConfirm(changes);
+    // When something is withdrawn, look up which posts and applications it
+    // touches and show the numbers in the dialog before anything is saved.
+    if (changes.removed.length > 0) {
+      const uid = user?.uid || getAuth().currentUser?.uid;
+      if (!uid) return;
+      try {
+        const { summary } = await analyzeAffiliationImpact(uid, changes.next);
+        setCourseChangeConfirm(prev => prev ? { ...prev, impact: summary } : prev);
+      } catch (err) {
+        console.error("Failed to preview course removal impact:", err);
+        setCourseChangeConfirm(prev => prev ? { ...prev, impact: { error: true } } : prev);
+      }
+    }
   };
 
   const handleSave = async () => {
@@ -4372,46 +4388,27 @@ const PersonalInfoScreen = ({ onBack, user, onEditingChange }) => {
         isManual: resolvedGeoRef.current.isManual,
       };
 
-      // Translate this screen's courseSelections ({ college, program,
-      // specialization }) into the deptSelections shape CoordinatorCompanyListScreen
-      // actually reads ({ department, program, status }) — these are two
-      // separate Firestore fields, so editing courseSelections alone never
-      // reached the coordinator's list. A college/program pair that already
-      // existed (matched by department+program) keeps whatever status a
-      // coordinator already gave it (pending/approved/rejected); anything
-      // new goes in as "pending" so it lands under "Companies in Review".
-      // Pairs the company removed here are dropped from deptSelections too —
-      // if they're no longer offering that college/program, it shouldn't
-      // stay listed (or stay approved) under it.
-      const newDeptSelections = courseSelections
-        .filter(s => s.college)
-        .map(s => {
-          const existing = deptSelectionsRef.current.find(
-            d => d.department === s.college && (d.program || "") === (s.program || "")
-          );
-          return {
-            department: s.college,
-            program: s.program || "",
-            status: existing ? existing.status : "pending",
-          };
-        });
+      // Affiliation changes follow OJTern's workflow rules (see
+      // affiliationService.js): new or re-added programs go to the matching
+      // coordinator as "pending"; removed programs become "withdrawn" (never
+      // deleted); posts lose targets that are no longer approved (and close
+      // if none remain); existing applications are kept and only flagged; and
+      // the company, affected students and coordinators are notified. The
+      // profile, posts, applications and notifications are written in ONE
+      // batch, so a failure can't leave half-updated records behind.
+      const { next: nextDeptSelections, added, withdrawn } =
+        buildNextDeptSelections(deptSelectionsRef.current, courseSelections, uid);
 
-      await updateDoc(doc(db, "companies", uid), {
+      await commitCompanyProfileWithAffiliations({
+        companyId: uid,
+        companyName,
+        nextDeptSelections,
+        added,
+        withdrawn,
         // `email` intentionally excluded — see handleSave/saveNonEmailFields split above.
-        // `departments` is a flat string[] mirror of newDeptSelections' department
-        // names — Firestore can't query the nested deptSelections array-of-maps by
-        // sub-field, so CoordinatorCompanyListScreen's array-contains-any query
-        // narrows by this flat field instead. Must stay in sync with deptSelections
-        // on every write or a newly added Department silently never reaches that
-        // query, no matter what deptSelections itself says.
-        companyName, industry: trimmedIndustry, courseSelections, deptSelections: newDeptSelections,
-        departments: [...new Set(newDeptSelections.map(s => s.department))],
-        location: savedLocation,
+        companyUpdate: { companyName, industry: trimmedIndustry, courseSelections, location: savedLocation },
+        postSync: { companyName, name: companyName, location: savedLocation, postLocation: newPostLocation, industry: trimmedIndustry },
       });
-      const postsSnap = await getDocs(query(collection(db, "ojt_posts"), where("companyId", "==", uid)));
-      await Promise.all(postsSnap.docs.map(d => updateDoc(d.ref, {
-        companyName, name: companyName, location: savedLocation, postLocation: newPostLocation, industry: trimmedIndustry,
-      })));
       const convsSnap = await getDocs(query(collection(db, "conversations"), where("participants", "array-contains", uid)));
       await Promise.all(convsSnap.docs.map(d => updateDoc(d.ref, { [`participantNames.${uid}`]: companyName })));
       setEditing(false);
@@ -4641,7 +4638,21 @@ const PersonalInfoScreen = ({ onBack, user, onEditingChange }) => {
                   ? `Adding: ${courseChangeConfirm.added.join(", ")}. Each new course needs your coordinator's approval before you can post for it.`
                   : "",
                 courseChangeConfirm.removed.length > 0
-                  ? `Removing: ${courseChangeConfirm.removed.join(", ")}. New posts can no longer include these courses. Your existing posts and the applications already on them stay as they are — you'll be asked to drop the course the next time you edit one of those posts.`
+                  ? `Removing: ${courseChangeConfirm.removed.join(", ")}. These will be marked as withdrawn and removed from your posts right away, so students from these courses will no longer see or apply to them. Applications already submitted stay on record with their current status.`
+                  : "",
+                courseChangeConfirm.removed.length > 0
+                  ? (!courseChangeConfirm.impact
+                      ? "Checking your posts and applications…"
+                      : courseChangeConfirm.impact.error
+                        ? "We couldn't check which posts are affected right now, but the rules above still apply."
+                        : [
+                            courseChangeConfirm.impact.postsAffected
+                              ? `${courseChangeConfirm.impact.postsAffected} post${courseChangeConfirm.impact.postsAffected > 1 ? "s" : ""} will be updated${courseChangeConfirm.impact.postsClosing ? ` (${courseChangeConfirm.impact.postsClosing} will close because no approved course would be left)` : ""}.`
+                              : "None of your posts are affected.",
+                            courseChangeConfirm.impact.applications
+                              ? `${courseChangeConfirm.impact.applications} open application${courseChangeConfirm.impact.applications > 1 ? "s" : ""} will need follow-up with the coordinator${courseChangeConfirm.impact.accepted ? `, including ${courseChangeConfirm.impact.accepted} accepted student${courseChangeConfirm.impact.accepted > 1 ? "s" : ""}` : ""}. The students and their coordinator will be notified.`
+                              : "",
+                          ].filter(Boolean).join(" "))
                   : "",
                 courseChangeConfirm.remaining === 0
                   ? "You'd be left with no accepted courses, so you won't be able to create any posts until you add one back."

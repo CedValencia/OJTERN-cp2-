@@ -2,6 +2,8 @@ import React, { useState, useRef, useEffect } from "react";
 import reportIcon from "../icons/report.png";
 import { collection, onSnapshot, query, where, addDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "./firebase";
+import { useEligibleOjtPosts } from "./useEligibleOjtPosts";
+import { normalizeScope } from "./affiliationService";
 import { color, font, type, space, radius, shadow, ease } from "./theme";
 
 // ── Design tokens, aliased for this screen ────────────────────────────────────
@@ -256,18 +258,9 @@ export const ALL_COMPANIES = [];
 
 // ── Hook: fetch live OJT posts from Firestore ─────────────────────────────────
 const useOjtPosts = () => {
-  const [posts, setPosts] = useState([]);
-  const [loading, setLoading] = useState(true);
-  useEffect(() => {
-    const q = query(collection(db, "ojt_posts"), where("disabled", "==", false));
-    const unsub = onSnapshot(q, snap => {
-      const loaded = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      loaded.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
-      setPosts(loaded);
-      setLoading(false);
-    }, () => setLoading(false));
-    return () => unsub();
-  }, []);
+  // Live posts, trimmed to programs the company is still APPROVED for — a
+  // withdrawn program's post never reaches this screen. See useEligibleOjtPosts.js.
+  const { posts, loading } = useEligibleOjtPosts();
   return { posts, loading };
 };
 
@@ -873,7 +866,11 @@ const FilterPanel = ({ selectedIndustries, setSelectedIndustries, citySearch, se
 
 // ── Company Card ───────────────────────────────────────────────────────────────
 const CompanyCard = ({ company, onViewProfile }) => {
-  const isActive = company.disabled === false || company.active !== false;
+  // Was `disabled === false || active !== false`, which is true for almost any
+  // post (a disabled post without an `active` field still passed). Both
+  // conditions must hold. Expired posts stay viewable for coordinators — they
+  // don't apply, and still need to see what their students applied to.
+  const isActive = company.disabled !== true && company.active !== false;
   const displayName = company.companyName || company.name || "Unnamed company";
   const displayIndustry = industriesOf(company).join(", ") || "—";
   const displayLocation = typeof company.location === "object"
@@ -1031,7 +1028,10 @@ const CoordinatorFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onM
     return companies.filter(c =>
       getPostScopes(c).some(p =>
         assignedScopes.some(s =>
-          p.department === s.department && (!s.program || !p.program || p.program === s.program)
+          // Normalised like the student screen (dash/spacing/case drift) so a
+          // coordinator and their students always see the same posts.
+          normalizeScope(p.department) === normalizeScope(s.department) &&
+          (!normalizeScope(s.program) || !normalizeScope(p.program) || normalizeScope(p.program) === normalizeScope(s.program))
         )
       )
     );

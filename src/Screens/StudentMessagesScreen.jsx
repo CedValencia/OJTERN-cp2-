@@ -1,5 +1,7 @@
 import React, { useState, useRef, useEffect, useLayoutEffect } from "react";
 import blackUserIcon from "../icons/blackuser.png";
+import pdfIcon from "../icons/pdf.png";
+import imgIcon from "../icons/img.png";
 import { useChat } from "./useChat";
 import { uploadFilesToFolder, uploadFileToFolder } from "./CloudinaryService";
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
@@ -305,22 +307,25 @@ const ReportModal = ({ company, onClose, onSubmit }) => {
   const [step, setStep]                 = useState(1);
   const [selected, setSelected]         = useState(null);
   const [description, setDescription]   = useState("");
-  const [attachedFile, setAttachedFile] = useState(null);
+  const [attachedFiles, setAttachedFiles] = useState([]); // [{ name, type, file (raw) }]
   const [infoMsg, setInfoMsg]           = useState(null);
   const fileRef = useRef();
 
   const handleFile = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const allowed = ["image/png", "application/pdf"];
-    if (!allowed.includes(file.type)) { setInfoMsg("That file type isn't supported. Attach a PNG or a PDF."); return; }
-    if (file.size > 10 * 1024 * 1024) { setInfoMsg("That file is over 10MB. Attach a smaller one."); return; }
-    setAttachedFile({ name: file.name, type: file.type, url: URL.createObjectURL(file), file });
+    const picked = Array.from(e.target.files || []);
+    e.target.value = "";
+    if (!picked.length) return;
+    if (picked.some(f => !["image/png", "application/pdf"].includes(f.type))) { setInfoMsg("That file type isn't supported. Attach PNG or PDF files only."); return; }
+    const MAX_TOTAL = 10 * 1024 * 1024; // 10MB combined
+    const current = attachedFiles.reduce((sum, a) => sum + (a.file?.size || 0), 0);
+    const added   = picked.reduce((sum, f) => sum + f.size, 0);
+    if (current + added > MAX_TOTAL) { setInfoMsg("Your files can't add up to more than 10MB in total."); return; }
+    setAttachedFiles(prev => [...prev, ...picked.map(file => ({ name: file.name, type: file.type, file }))]);
   };
 
   const handleSubmit = () => {
     if (!description.trim()) { setInfoMsg("Add a description of what happened."); return; }
-    if (!attachedFile)       { setInfoMsg("Attach a file that supports your report."); return; }
+    if (attachedFiles.length === 0)       { setInfoMsg("Attach a file that supports your report."); return; }
     onSubmit({
       company: company.name,
       companyId: company.id || "",
@@ -333,7 +338,8 @@ const ReportModal = ({ company, onClose, onSubmit }) => {
       concern: selected?.label || "Others",
       date: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
       description,
-      attachedFile,
+      attachedFile: attachedFiles[0] || null,
+      attachedFiles,
     });
     onClose();
   };
@@ -402,30 +408,26 @@ const ReportModal = ({ company, onClose, onSubmit }) => {
               />
               </div>
               <div id="sreport-evidence">
-              <p style={{ fontFamily: font.ui, ...type.label, color: ink, marginBottom: space.xs }}>Attach evidence</p>
-              <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, marginBottom: space.sm }}>PNG or PDF, up to 10MB.</p>
-              <input ref={fileRef} type="file" accept=".png,.pdf" style={{ display: "none" }} onChange={handleFile} />
-              {!attachedFile ? (
-                <button onClick={() => fileRef.current.click()} style={{ display: "flex", alignItems: "center", gap: space.sm, background: color.wine800, border: `1px dashed ${color.wine400}`, borderRadius: radius.card, padding: "12px 18px", cursor: "pointer", fontFamily: font.ui, ...type.control, color: ink }}>
-                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={inkMuted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
-                  </svg>
-                  Choose a file
-                </button>
-              ) : (
-                <div style={{ display: "flex", alignItems: "center", gap: "10px", background: color.wine800, border: `1px solid ${line}`, padding: "10px 14px", borderRadius: radius.card }}>
-                  {attachedFile.type.startsWith("image/") ? (
-                    <img src={attachedFile.url} alt="Attachment preview" style={{ width: "44px", height: "44px", objectFit: "cover", borderRadius: "10px" }} />
-                  ) : (
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={inkMuted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                      <polyline points="14 2 14 8 20 8"/>
-                    </svg>
-                  )}
-                  <span style={{ fontFamily: font.ui, ...type.helper, color: inkBody, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{attachedFile.name}</span>
-                  <button onClick={() => setAttachedFile(null)} aria-label="Remove file" style={{ marginLeft: "auto", background: "none", border: "none", cursor: "pointer", color: inkMuted, fontSize: "0.95rem" }}>✕</button>
+              <p style={{ fontFamily: font.ui, ...type.label, color: ink, marginBottom: "4px" }}>Attach evidence</p>
+              <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, marginBottom: "10px" }}>PNG or PDF, up to 10MB in total. You can attach more than one file.</p>
+              <input ref={fileRef} type="file" accept=".png,.pdf" multiple style={{ display: "none" }} onChange={handleFile} />
+              {attachedFiles.length > 0 && (
+                <div style={{ maxHeight: "132px", overflowY: "auto", overflowX: "hidden", padding: "8px 8px 2px 0", display: "flex", flexWrap: "wrap", gap: "10px", alignContent: "flex-start", marginBottom: "10px" }}>
+                  {attachedFiles.map((a, idx) => (
+                    <div key={idx} style={{ position: "relative", width: "84px", display: "flex", flexDirection: "column", alignItems: "center", gap: "4px" }}>
+                      <img src={/^image\//i.test(a.type || "") ? imgIcon : pdfIcon} alt="" style={{ width: "52px", height: "60px", objectFit: "contain", display: "block" }} />
+                      <span title={a.name} style={{ fontFamily: font.ui, fontSize: "0.68rem", color: inkBody, textAlign: "center", wordBreak: "break-all", maxWidth: "84px", lineHeight: 1.3 }}>{a.name}</span>
+                      <button onClick={() => setAttachedFiles(prev => prev.filter((_, i) => i !== idx))} aria-label={`Remove ${a.name}`} style={{ position: "absolute", top: "-6px", right: "6px", width: "20px", height: "20px", borderRadius: "50%", background: color.wine800, border: `1px solid ${line}`, cursor: "pointer", color: inkMuted, fontSize: "0.85rem", lineHeight: 1, padding: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>&times;</button>
+                    </div>
+                  ))}
                 </div>
               )}
+              <button onClick={() => fileRef.current.click()} style={{ display: "flex", alignItems: "center", gap: "10px", background: color.wine800, border: `1px dashed ${color.wine400}`, borderRadius: radius.card, padding: "12px 18px", cursor: "pointer", fontFamily: font.ui, ...type.control, color: ink }}>
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={inkMuted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+                </svg>
+                {attachedFiles.length > 0 ? "Add more files" : "Choose files"}
+              </button>
               </div>
             </>
           )}
@@ -1154,10 +1156,13 @@ const StudentMessagesScreen = ({
 
   const handleReport = async (report) => {
     try {
-      let uploadedFile = null;
-      if (report.attachedFile?.file) {
-        uploadedFile = await uploadFileToFolder(report.attachedFile.file, "report_attachments");
-      }
+      const rawFiles = report.attachedFiles || (report.attachedFile ? [report.attachedFile] : []);
+      const uploadedFiles = await Promise.all(
+        rawFiles.filter(a => a?.file).map(async (a) => {
+          const up = await uploadFileToFolder(a.file, "report_attachments");
+          return { name: up.name, url: up.url, type: a.type };
+        })
+      );
       await addDoc(collection(db, "reports"), {
         company:      report.company,
         companyId:    report.companyId || "",
@@ -1167,7 +1172,8 @@ const StudentMessagesScreen = ({
         concern:      report.concern,
         date:         report.date,
         description:  report.description,
-        attachedFile: uploadedFile ? { name: uploadedFile.name, url: uploadedFile.url, type: report.attachedFile.type } : null,
+        attachedFile:  uploadedFiles[0] || null, // first file, kept for older readers
+        attachedFiles: uploadedFiles,
         status:       "pending",
         reporterId:   user?.uid || "",
         reporterName: user?.fullName || user?.name || user?.displayName || "",

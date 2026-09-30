@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { changePassword, logOut, getUserProfile } from "./AuthService";
 import { collection, query, where, orderBy, limit, onSnapshot, doc, getDoc, setDoc, updateDoc, getDocs } from "firebase/firestore";
 import { db } from "./firebase";
+import { normalizeScope, AFFILIATION_STATUS } from "./affiliationService";
 import { PersonalInfoScreen, ResponsiveStyles } from "./CoordinatorAccountProfileScreen";
 import { useUnreadCount } from "./useChat";
 import { color, font, ease, ACCENT_THEMES, ACCENT_THEME_ORDER, getSavedAccentThemeId, saveAccentThemeId, getAccentThemeVars, getThemedAsset } from "./theme";
@@ -34,6 +35,7 @@ import blueUserIcon          from "../icons/blueuser.png";
 import yellowUserIcon        from "../icons/yellowuser.png";
 import pinkUserIcon          from "../icons/pinkuser.png";
 import violetUserIcon        from "../icons/violetuser.png";
+import greyUserIcon          from "../icons/greyuser.png";
 import redCompanyProfileIcon    from "../icons/redcompanyprofile.png";
 import blueCompanyProfileIcon   from "../icons/bluecompanyprofile.png";
 import yellowCompanyProfileIcon from "../icons/yellowcompanyprofile.png";
@@ -73,6 +75,7 @@ const USER_ICON_BY_THEME = {
   violet:  violetUserIcon,
   pink:    pinkUserIcon,
   yellow:  yellowUserIcon,
+  grey:    greyUserIcon,
 };
 const COMPANY_PROFILE_ICON_BY_THEME = {
   default: blackCompanyProfileIcon,
@@ -1262,6 +1265,13 @@ const HELP_STEPS_BY_NAV = {
       },
     },
     {
+      element: "#sa-view-tabs",
+      popover: {
+        title: "Active & Archived Students",
+        description: "Switch between Active Students and Archived Students. Archiving only hides an account from the active list -- nothing is deleted, and you can Restore it anytime from the Archived tab. The number beside each tab is how many students it holds.",
+      },
+    },
+    {
       element: "#sa-toolbar-select",
       popover: {
         title: "Select & Delete",
@@ -1759,6 +1769,13 @@ const HELP_STEPS_BY_NAV = {
   // `studentlist` above since the modal covers the list once it's open.
   // Set via CoordinatorStudentListScreen's onViewingStudentChange.
   studentlistmodal: [
+    {
+      element: "#sl-modal-container",
+      popover: {
+        title: "Placement",
+        description: "This window shows one student's placement -- who they are, the companies they applied to, and their details. Use the X at the top right to close it and go back to the list.",
+      },
+    },
     {
       element: "#sl-modal-name",
       popover: {
@@ -2695,14 +2712,94 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
     return unsub;
   }, [coordinatorIndustries]);
 
+  // ── OJTern affiliation workflow notifications ─────────────────────────────
+  // The coordinator's own Department/Program scope. A scope with no program
+  // covers the whole department — same rule as the Company List.
+  const myAffiliationScopes = React.useMemo(
+    () => (coordinatorProfile?.deptSelections || [])
+      .filter(s => s?.department)
+      .map(s => ({ department: s.department, program: s.program || "" })),
+    [coordinatorProfile?.deptSelections]
+  );
+  const inMyScope = React.useCallback((department, program) =>
+    myAffiliationScopes.some(s =>
+      normalizeScope(s.department) === normalizeScope(department) &&
+      (!normalizeScope(s.program) || !normalizeScope(program) || normalizeScope(s.program) === normalizeScope(program))
+    ), [myAffiliationScopes]);
+
+  // (1) Companies by DEPARTMENT (not industry) — one item per program entry in
+  //     this coordinator's scope, so "company added CBA" reaches CBA's
+  //     coordinator. Withdrawn entries are covered by (2) instead.
+  const [deptCompanies, setDeptCompanies] = useState([]);
+  const scopeDeptKey = [...new Set(myAffiliationScopes.map(s => s.department))].sort().join("|");
+  useEffect(() => {
+    const depts = scopeDeptKey ? scopeDeptKey.split("|").slice(0, 30) : [];
+    if (depts.length === 0) { setDeptCompanies([]); return; }
+    const q = query(collection(db, "companies"), where("departments", "array-contains-any", depts));
+    const unsub = onSnapshot(q, (snap) => {
+      setDeptCompanies(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    }, (err) => console.error("Failed to load department companies for notifications:", err));
+    return unsub;
+  }, [scopeDeptKey]);
+
+  // (2) Notifications written for coordinators by the company/student side
+  //     (program withdrawn, accepted student withdrew). They're addressed by
+  //     department/program because the sender never knows a coordinator's uid,
+  //     so they're matched to this coordinator's scope here.
+  const [coordinatorNotices, setCoordinatorNotices] = useState([]);
+  useEffect(() => {
+    if (!user?.uid) return;
+    const q = query(collection(db, "notifications"), where("recipientRole", "==", "coordinator"));
+    const unsub = onSnapshot(q, (snap) => {
+      setCoordinatorNotices(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    }, (err) => console.error("Failed to load coordinator notifications (check the notifications read rule):", err));
+    return unsub;
+  }, [user?.uid]);
+
   const coordinatorNotifications = React.useMemo(() => {
-    const fromCompanies = scopedCompanies.map(c => ({
-      id: `company_${c.id}`,
-      message: `${c.companyName || c.name || "A company"} registered and is awaiting review.`,
-      createdAt: c.createdAt,
-      kind: "company",
-      companyId: c.id,
-    }));
+    const programLabel = (dept, prog) => [dept, prog].filter(Boolean).join(" — ");
+    const fromCompanies = myAffiliationScopes.length > 0
+      ? deptCompanies.flatMap(c => {
+          if (c.status === "suspended" || c.status === "blocked") return [];
+          const name = c.companyName || c.name || "A company";
+          return (c.deptSelections || [])
+            .filter(e => e?.department && e.status !== AFFILIATION_STATUS.WITHDRAWN && inMyScope(e.department, e.program))
+            .map(e => ({
+              id: `company_${c.id}_${normalizeScope(e.department)}_${normalizeScope(e.program)}`,
+              message: e.status === AFFILIATION_STATUS.PENDING
+                ? `${name} wants to accept ${programLabel(e.department, e.program)} students and is awaiting your review.`
+                : `${name} requested ${programLabel(e.department, e.program)} (${e.status}).`,
+              // requestedAt is set whenever the program is (re-)added, so a
+              // re-added program surfaces again as a new item.
+              createdAt: e.requestedAt || c.createdAt,
+              kind: "company",
+              companyId: c.id,
+            }));
+        })
+      // No department assigned yet → keep the old industry-based list.
+      : scopedCompanies.map(c => ({
+          id: `company_${c.id}`,
+          message: `${c.companyName || c.name || "A company"} registered and is awaiting review.`,
+          createdAt: c.createdAt,
+          kind: "company",
+          companyId: c.id,
+        }));
+    const fromNotices = coordinatorNotices
+      .filter(n => inMyScope(n.department, n.program))
+      .map(n => ({
+        id: `notice_${n.id}`,
+        message: n.message || "Update from a company.",
+        createdAt: n.createdAt,
+        // Any student withdrawal opens that student's Placement modal; only an
+        // ACCEPTED one is marked ⚑ (see `important`).
+        kind: (n.type === "accepted_application_withdrawn" || n.type === "application_withdrawn" || n.type === "application_accepted") ? "student_followup" : "affiliation",
+        important: n.type === "accepted_application_withdrawn" || n.type === "application_accepted" || (n.openApplications || 0) > 0,
+        companyId: n.companyId,
+        // Older notices used `studentId`; newer ones use `applicantStudentId`
+        // so they don't also land in the student's own bell.
+        studentId: n.applicantStudentId || n.studentId,
+        openApplications: n.openApplications || 0,
+      }));
     const fromReports = scopedReports.map(r => ({
       id: `report_${r.id}`,
       message: `New report submitted for ${r.company}.`,
@@ -2710,10 +2807,10 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
       kind: "report",
       reportId: r.id,
     }));
-    return [...fromCompanies, ...fromReports]
+    return [...fromCompanies, ...fromNotices, ...fromReports]
       .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0))
       .slice(0, 30);
-  }, [scopedCompanies, scopedReports]);
+  }, [scopedCompanies, scopedReports, deptCompanies, coordinatorNotices, myAffiliationScopes, inMyScope]);
 
   const [showNotifDropdown, setShowNotifDropdown]                = useState(false);
   const [lastSeenNotifAt, setLastSeenNotifAt]                    = useState(0);
@@ -2770,6 +2867,8 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
   // modal (Student List) — switch the "?" tour to their own steps.
   const [studentImportModalOpen, setStudentImportModalOpen]   = useState(false);
   const [studentListModalOpen, setStudentListModalOpen]       = useState(false);
+  // Set by a follow-up notification so Student List opens on "Needs Follow-up".
+  const [studentListStatusFilter, setStudentListStatusFilter] = useState("");
   // Company List: "list" | "registered" | "review" — which profile (if any)
   // is open, so the "?" tour matches it. Set via its onViewChange.
   const [companyListSubView, setCompanyListSubView]           = useState("list");
@@ -2999,7 +3098,7 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
 
   useEffect(() => {
     if (activeNav !== "studentsaccount") { setStudentAccountModalOpen(false); setStudentImportModalOpen(false); }
-    if (activeNav !== "studentlist") setStudentListModalOpen(false);
+    if (activeNav !== "studentlist") { setStudentListModalOpen(false); setStudentListStatusFilter(""); }
     if (activeNav !== "companylist") setCompanyListSubView("list");
     if (activeNav !== "messages") setMessagesSubView("list");
     if (activeNav !== "accountprofile") setProfileSubView("main");
@@ -3029,6 +3128,14 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
       const report = scopedReports.find(r => r.id === n.reportId);
       navigate("reportcompany");
       if (report) setViewingReport(report);
+    } else if (n.kind === "student_followup" && n.studentId) {
+      // Opens that student's Placement modal directly.
+      setPlacementTargetStudentId(n.studentId);
+      navigate("studentlist");
+    } else if (n.kind === "affiliation") {
+      // Affected students are flagged "⚑ Follow-up" in the Student List.
+      setStudentListStatusFilter(n.openApplications > 0 ? "Needs Follow-up" : "");
+      navigate("studentlist");
     }
   };
 
@@ -3094,6 +3201,7 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
         userIcon={themedUserIcon}
         viewIcon={themedViewIcon}
         onViewingStudentChange={setStudentListModalOpen}
+        initialStatusFilter={studentListStatusFilter}
       />
     );
 
@@ -3269,7 +3377,10 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
                           onClick={() => handleNotificationClick(n)}
                           style={{ padding: "10px 14px", borderBottom: `1px solid ${hairline}`, fontFamily: uiFont, cursor: "pointer" }}
                         >
-                          <p style={{ margin: 0, fontSize: "0.82rem", color: inkText, lineHeight: 1.4 }}>{n.message}</p>
+                          <p style={{ margin: 0, fontSize: "0.82rem", color: inkText, lineHeight: 1.4 }}>
+                            {n.important && <span style={{ color: "#B7791F", fontWeight: 700 }}>⚑ </span>}
+                            {n.message}
+                          </p>
                           <p style={{ margin: "4px 0 0", fontSize: "0.68rem", color: inkMuted }}>{formatActivityTime(n.createdAt)}</p>
                         </div>
                       ))
