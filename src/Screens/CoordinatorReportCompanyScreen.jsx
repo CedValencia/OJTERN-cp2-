@@ -2,6 +2,9 @@ import React, { useState, useEffect } from "react";
 import { doc, updateDoc, getDoc, onSnapshot, serverTimestamp } from "firebase/firestore";
 import { db } from "./firebase";
 import { color, font, type, space, radius, shadow, ease } from "./theme";
+import pdfIcon from "../icons/pdf.png";
+import imgIcon from "../icons/img.png";
+import downloadIcon from "../icons/download.png";
 import {
   logActivity,
   applyCompanyEnforcement,
@@ -182,6 +185,12 @@ const ResponsiveStyles = () => (
       box-shadow: 0 20px 50px rgba(0, 0, 0, 0.25) !important;
     }
 
+    /* Report Detail modal only: fixed size. The header and footer stay put and
+       only .rc-modal-body scrolls when the content doesn't fit. */
+    .rc-modal-inner.rc-detail-inner {
+      height: min(520px, 80vh) !important;
+    }
+
     .rc-modal-header {
       flex: 0 0 auto !important;
       min-height: 60px !important;
@@ -237,12 +246,21 @@ const ResponsiveStyles = () => (
     .rc-modal-inner > div:last-child {
       flex: 0 0 auto !important;
     }
+    /* Action History has no footer, so its scrolling body IS the last child. */
+    .rc-modal-inner.rc-ah-inner > div:last-child {
+      flex: 1 1 auto !important;
+      min-height: 0 !important;
+    }
 
     @media (max-width: 560px) {
       .rc-modal-inner {
         width: calc(100vw - 72px) !important;
         max-height: 68vh !important;
         border-radius: 14px !important;
+      }
+
+      .rc-modal-inner.rc-detail-inner {
+        height: 68vh !important;
       }
 
       .rc-modal-header {
@@ -541,16 +559,12 @@ const ActionHistoryModal = ({ open, onClose, loading, history, error }) => {
       display: "flex", alignItems: "center", justifyContent: "center",
       zIndex: 1300, padding: "16px",
     }}>
-      <div style={{
-        background: color.white, borderRadius: "18px", width: "100%", maxWidth: "460px",
-        maxHeight: "80vh", display: "flex", flexDirection: "column", overflow: "hidden",
-        boxShadow: "0 24px 70px rgba(0,0,0,0.35)",
-      }}>
-        <div style={{ background: color.white, borderBottom: `1px solid ${line}`, padding: "16px 22px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+      <div className="rc-modal-inner rc-ah-inner">
+        <div className="rc-modal-header">
           <span style={{ fontFamily: font.ui, fontSize: "1.3rem", color: ink }}>Action History</span>
           <button onClick={onClose} style={{ background: lineSoft, border: `1px solid ${line}`, borderRadius: "50%", width: "26px", height: "26px", cursor: "pointer", fontSize: "0.9rem", color: ink }}>✕</button>
         </div>
-        <div style={{ padding: "16px 20px", overflowY: "auto", flex: 1 }}>
+        <div className="rc-modal-body">
           {loading && <p style={{ fontFamily: font.ui, fontSize: "0.85rem", color: inkFaint, textAlign: "center", padding: "20px" }}>Loading…</p>}
           {!loading && error && (
             <p role="alert" style={{ fontFamily: font.ui, fontSize: "0.85rem", color: color.danger, textAlign: "center", padding: "20px", lineHeight: 1.5 }}>{error}</p>
@@ -676,10 +690,11 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid, coordinator
 
   if (!report) return null;
 
-  const file    = report.attachedFile;
-  const allowed = isAllowedType(file);
-  const isImage = allowed && file.type === "image/png";
-  const isPdf   = allowed && file.type === "application/pdf";
+  // New reports carry attachedFiles[]; older ones only have a single attachedFile.
+  const files = (Array.isArray(report.attachedFiles) && report.attachedFiles.length > 0)
+    ? report.attachedFiles
+    : (report.attachedFile ? [report.attachedFile] : []);
+  const unsupportedCount = files.filter(f => !isAllowedType(f)).length;
 
   const badge = REPORT_STATUS_BADGE[status] || REPORT_STATUS_BADGE.pending;
   // Suspend and Block act on a COMPANY account (applyCompanyEnforcement), so
@@ -910,7 +925,7 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid, coordinator
         display: "flex", alignItems: "center", justifyContent: "center",
         zIndex: 1000, padding: "16px",
       }}>
-        <div className="rc-modal-inner">
+        <div className="rc-modal-inner rc-detail-inner">
           <div className="rc-modal-header">
             <span style={{
               display: "flex", alignItems: "center", gap: "8px",
@@ -982,71 +997,41 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid, coordinator
             </div>
             </div>
 
-            {file && (
+            {files.length > 0 && (
               <div id="rc-detail-attachment">
                 <p style={{ fontFamily: font.ui, fontSize: "0.9rem", fontWeight: 700, marginBottom: "10px" }}>
-                  Attached File:
+                  {files.length > 1 ? `Attached Files (${files.length}):` : "Attached File:"}
                 </p>
-                {!allowed && (
+                {unsupportedCount > 0 && (
                   <div style={{
                     background: lineSoft, border: `1px solid ${red}`,
-                    borderRadius: "8px", padding: "12px 14px",
+                    borderRadius: "8px", padding: "12px 14px", marginBottom: "10px",
                     fontFamily: font.ui, fontSize: "0.82rem", color: red,
                   }}>
-                    Unsupported file type. Only PNG images and PDF files can be previewed or downloaded.
+                    {unsupportedCount === files.length ? "Unsupported file type" : `${unsupportedCount} file(s) have an unsupported type`}. Only PNG images and PDF files can be previewed or downloaded.
                   </div>
                 )}
-                {isImage && (
-                  <div>
-                    <div
-                      onClick={() => setLightbox(true)}
-                      style={{ position: "relative", display: "inline-block", cursor: "zoom-in", marginBottom: "10px" }}
-                    >
-                      <img
-                        src={file.url} alt="attachment"
-                        style={{ maxWidth: "100%", borderRadius: "8px", border: `1px solid ${line}`, display: "block" }}
-                      />
-                      <div
-                        style={{
-                          position: "absolute", inset: 0, borderRadius: "8px",
-                          background: "rgba(0,0,0,0.22)",
-                          display: "flex", alignItems: "center", justifyContent: "center",
-                          opacity: 0, transition: "opacity 0.15s",
-                        }}
-                        onMouseEnter={e => e.currentTarget.style.opacity = "1"}
-                        onMouseLeave={e => e.currentTarget.style.opacity = "0"}
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "14px", maxHeight: "150px", overflowY: "auto", overflowX: "hidden", padding: "8px 14px 4px 0", marginBottom: "10px" }}>
+                  {files.filter(isAllowedType).map((f, idx) => {
+                    const img = f.type === "image/png";
+                    return (
+                      <button
+                        key={idx}
+                        onClick={() => (img ? setLightbox(f) : handleDownload(f))}
+                        title={img ? `View ${f.name}` : `Download ${f.name}`}
+                        style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", gap: "6px", background: "none", border: "none", cursor: "pointer", padding: 0, width: "96px" }}
                       >
-                        <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <circle cx="11" cy="11" r="8"/>
-                          <line x1="21" y1="21" x2="16.65" y2="16.65"/>
-                          <line x1="11" y1="8" x2="11" y2="14"/>
-                          <line x1="8" y1="11" x2="14" y2="11"/>
-                        </svg>
-                      </div>
-                    </div>
-                    <button onClick={() => handleDownload(file)} style={downloadBtnStyle}>
-                      <DownloadIcon /> Download Image
-                    </button>
-                  </div>
-                )}
-                {isPdf && (
-                  <div>
-                    <div style={{
-                      display: "flex", alignItems: "center", gap: "10px",
-                      background: lineSoft, padding: "10px 14px",
-                      borderRadius: "8px", marginBottom: "10px",
-                      width: "100%", minWidth: 0, boxSizing: "border-box",
-                    }}>
-                      <PdfIcon />
-                      <span style={{ fontFamily: font.ui, fontSize: "0.82rem", color: inkBody, flex: "1 1 0%", minWidth: 0, maxWidth: "100%", wordBreak: "break-all", overflowWrap: "anywhere" }}>
-                        {file.name}
-                      </span>
-                    </div>
-                    <button onClick={() => handleDownload(file)} style={downloadBtnStyle}>
-                      <DownloadIcon /> Download PDF
-                    </button>
-                  </div>
-                )}
+                        <div style={{ position: "relative", display: "inline-block", lineHeight: 0 }}>
+                          <img src={img ? imgIcon : pdfIcon} alt={img ? "Image" : "PDF"} style={{ width: "62px", height: "auto", objectFit: "contain", display: "block" }} />
+                          <img src={downloadIcon} alt="Download" style={{ position: "absolute", top: "-4px", right: "-10px", width: "20px", height: "20px", objectFit: "contain" }} />
+                        </div>
+                        <span style={{ fontFamily: font.ui, fontSize: "0.7rem", color: inkBody, textAlign: "center", wordBreak: "break-all", maxWidth: "96px", lineHeight: 1.3 }}>
+                          {f.name}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             )}
             {status !== "pending" && savedAction && (
@@ -1078,7 +1063,8 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid, coordinator
                       color: ink, textDecoration: "none", background: lineSoft, overflowWrap: "anywhere",
                     }}
                   >
-                    📎 {response.attachedFile.name || "View proof"}
+                    <img src={/\.(png|jpe?g|gif|webp)$/i.test(response.attachedFile.name || "") || /^image\//i.test(response.attachedFile.type || "") ? imgIcon : pdfIcon} alt="" style={{ width: "18px", height: "22px", objectFit: "contain", flexShrink: 0 }} />
+                    {response.attachedFile.name || "View proof"}
                   </a>
                 )}
                 {response.submittedAt && (
@@ -1168,8 +1154,8 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid, coordinator
         </div>
       </div>
 
-      {lightbox && isImage && (
-        <ImageLightbox src={file.url} name={file.name} onClose={() => setLightbox(false)} />
+      {lightbox && lightbox.url && (
+        <ImageLightbox src={lightbox.url} name={lightbox.name} onClose={() => setLightbox(false)} />
       )}
 
       {resolvingPanel && (
@@ -1586,7 +1572,7 @@ const CoordinatorReportCompanyScreen = ({ reports = [], otherReports = [], onVie
                 aria-selected={on}
                 onClick={() => setTab(t.key)}
                 style={{
-                  border: `1px solid ${on ? ink : line}`, background: on ? ink : color.white,
+                  border: `1px solid ${on ? panel : line}`, background: on ? panel : color.white,
                   color: on ? color.white : inkBody, borderRadius: "999px",
                   padding: "7px 16px", cursor: "pointer", fontFamily: font.ui,
                   fontSize: "0.8rem", fontWeight: 600,

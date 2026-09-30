@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useLayoutEffect } from "react";
-import { collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, query, where, serverTimestamp } from "firebase/firestore";
+import { collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, query, where, getDocs, serverTimestamp, writeBatch } from "firebase/firestore";
 import { db } from "./firebase";
+import { isPairApproved, restoreApplicationsForPost } from "./affiliationService";
 import { color, font } from "./theme";
 
 const MAPBOX_TOKEN = "pk.eyJ1IjoibWFraWlpaS0iLCJhIjoiY21wbTgybHVmMmc1ZzJycTFuZXRlb3NoNCJ9.FIpjF2lKTHkbU1e6qrL_Pw";
@@ -43,6 +44,16 @@ const ResponsiveStyles = () => (
     @media (max-width: 480px) {
       .post-modal-inner {
         max-height: 80dvh;
+      }
+    }
+    /* Mobile: same container size as CoordinatorReportCompanyScreen's report modal.
+       !important because the container carries inline maxHeight / borderRadius. */
+    @media (max-width: 560px) {
+      .post-modal-inner {
+        width: calc(100vw - 72px) !important;
+        max-width: none !important;
+        max-height: 68vh !important;
+        border-radius: 14px !important;
       }
     }
 
@@ -957,7 +968,7 @@ const SavedSuccessModal = ({ onClose }) => (
 );
 
 // ── Generic confirm-action modal (used for Delete / Disable / Enable) ─────────
-const ConfirmActionModal = ({ title, message, confirmLabel, danger = false, onCancel, onConfirm }) => (
+const ConfirmActionModal = ({ title, message, confirmLabel, danger = false, onCancel, onConfirm, hideCancel = false }) => (
   <div className="post-confirm-overlay">
     <div style={{ background: "#fff", borderRadius: "18px", maxWidth: "360px", width: "90%", padding: "26px 22px", boxShadow: "0 8px 40px rgba(0,0,0,0.35)", textAlign: "center" }}>
       <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.4rem", color: inkDeep, margin: "0 0 10px" }}>{title}</p>
@@ -965,9 +976,11 @@ const ConfirmActionModal = ({ title, message, confirmLabel, danger = false, onCa
         {message}
       </p>
       <div style={{ display: "flex", justifyContent: "center", gap: "10px" }}>
+        {!hideCancel && (
         <button onClick={onCancel} style={{ padding: "9px 22px", borderRadius: "22px", background: "#e6e6e6", color: "#333", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.85rem", cursor: "pointer" }}>
           Cancel
         </button>
+        )}
         <button onClick={onConfirm} style={{ padding: "9px 22px", borderRadius: "22px", background: danger ? red : inkDeep, color: "white", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.85rem", cursor: "pointer" }}>
           {confirmLabel}
         </button>
@@ -996,8 +1009,10 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile, onMo
   // approved, so a revoked approval can't linger on an old post.
   const approvedDeptSelections = (companyProfile?.deptSelections || [])
     .filter(s => s.status === "approved" && s.department);
+  // Shared rule (affiliationService): tolerant of dash/spacing/case drift, and
+  // a department-level approval covers every program under it.
   const isApproved = (college, program) =>
-    approvedDeptSelections.some(s => s.department === college && s.program === program);
+    isPairApproved(approvedDeptSelections, college, program);
   const defaultCourseSelections = approvedDeptSelections.map(s => ({ college: s.department, program: s.program, specialization: "", slot: 1 }));
 
   // Courses this post was created with that the company no longer accepts (or
@@ -1389,7 +1404,7 @@ const menuItemStyle = {
 //                        this wins even if the post is also disabled)
 //   disabled (not expired) → Enable only
 //   enabled            → View, Disable, Delete
-const ThreeDotMenu = ({ isDisabled, isExpired, onView, onToggleDisable, onDelete, open, onOpenChange }) => {
+const ThreeDotMenu = ({ isDisabled, isExpired, onView, onToggleDisable, onDelete, onEdit, open, onOpenChange }) => {
   const wrapRef = useRef(null);
 
   useEffect(() => {
@@ -1424,7 +1439,13 @@ const ThreeDotMenu = ({ isDisabled, isExpired, onView, onToggleDisable, onDelete
           {isExpired ? (
             <button onClick={() => { setOpen(false); onDelete(); }}         style={{ ...menuItemStyle, color: red, fontWeight: "700" }}>Delete</button>
           ) : isDisabled ? (
-            <button onClick={() => { setOpen(false); onToggleDisable(); }}  style={menuItemStyle}>Enable</button>
+            <>
+              <button onClick={() => { setOpen(false); onToggleDisable(); }}  style={menuItemStyle}>Enable</button>
+              {/* A post closed because its programs were withdrawn needs an
+                  approved program picked before it can be enabled again. */}
+              {onEdit && <button onClick={() => { setOpen(false); onEdit(); }} style={menuItemStyle}>Edit</button>}
+              <button onClick={() => { setOpen(false); onDelete(); }}         style={{ ...menuItemStyle, color: red, fontWeight: "700" }}>Delete</button>
+            </>
           ) : (
             <>
               <button onClick={() => { setOpen(false); onView(); }}           style={menuItemStyle}>View</button>
@@ -1495,6 +1516,38 @@ const PostOJTContent = ({ user, openPostId, onPostOpened, onViewChange }) => {
     return () => unsub();
   }, [user?.uid]);
 
+  // Live count of applications per post. A post that students have applied
+  // to is ARCHIVED instead of deleted, so their Recent Applications, the
+  // coordinator's Student List and the application history stay intact.
+  const [appCountByPost, setAppCountByPost] = useState({});
+  useEffect(() => {
+    if (!user?.uid) return;
+    const q = query(collection(db, "applications"), where("companyId", "==", user.uid));
+    const unsub = onSnapshot(q, snap => {
+      const counts = {};
+      snap.docs.forEach(d => {
+        const pid = d.data().postId;
+        if (pid) counts[pid] = (counts[pid] || 0) + 1;
+      });
+      setAppCountByPost(counts);
+    }, err => console.error("Failed to load application counts:", err));
+    return () => unsub();
+  }, [user?.uid]);
+
+  // Targets on a post that are still backed by an APPROVED affiliation.
+  const approvedTargetsOf = (post) => {
+    const approved = (companyProfile?.deptSelections || []).filter(s => s.status === "approved");
+    const targets = Array.isArray(post.courseSelections) && post.courseSelections.length
+      ? post.courseSelections
+      : (post.departments || []).map(d => ({ college: d, program: "" }));
+    return targets.filter(t => t?.college && isPairApproved(approved, t.college, t.program));
+  };
+  const hasAnyApprovedProgram = (companyProfile?.deptSelections || []).some(s => s.status === "approved");
+
+  const activePosts   = posts.filter(p => !p.archived);
+  const archivedPosts = posts.filter(p => p.archived);
+  const [showArchived, setShowArchived] = useState(false);
+
   const handleSave = async (formData) => {
     if (!user?.uid) return;
     // Flat college-name array derived from courseSelections — lets
@@ -1526,29 +1579,156 @@ const PostOJTContent = ({ user, openPostId, onPostOpened, onViewChange }) => {
         industry: companyProfile.industry || user.industry || "",
         updatedAt: serverTimestamp(),
       });
+      // If a previously withdrawn (and now re-approved) program was put back
+      // on this post, the applications flagged by that withdrawal become
+      // active again. Runs after the post save; a failure here never undoes it.
+      try {
+        await restoreApplicationsForPost({
+          companyId:        user.uid,
+          companyName:      companyProfile.companyName || user.companyName || "",
+          postId:           modal.post.id,
+          courseSelections: formData.courseSelections || [],
+          deptSelections:   companyProfile.deptSelections || [],
+        });
+      } catch (err) {
+        console.error("Post saved, but restoring earlier applications failed:", err);
+      }
     }
   };
 
   const toggleDisable = async (id) => {
     const post = posts.find(p => p.id === id);
-    if (post) await updateDoc(doc(db, "ojt_posts", id), { disabled: !post.disabled });
+    if (!post) return;
+    if (post.disabled) {
+      // Re-check at write time — approvals can change while the dialog is open.
+      if (approvedTargetsOf(post).length === 0) {
+        setConfirmAction({ type: "blocked", post });
+        return;
+      }
+      await updateDoc(doc(db, "ojt_posts", id), {
+        disabled: false, autoDisabledReason: null, autoDisabledAt: null, updatedAt: serverTimestamp(),
+      });
+    } else {
+      await updateDoc(doc(db, "ojt_posts", id), { disabled: true, updatedAt: serverTimestamp() });
+    }
+  };
+
+  // Tells the people with a stake in a closed post, grouped so nobody gets
+  // one notice per application:
+  //   • each student with an OPEN or ACCEPTED application (declined and
+  //     withdrawn ones have nothing left to happen, so they're skipped);
+  //   • one informational notice per program for coordinators (no ⚑ — the
+  //     applications stay active; nothing is lost).
+  const OPEN_STATUSES = ["Pending", "In Review", "To Interview"];
+  const notifyPostClosed = async (postId, apps) => {
+    const companyName = companyProfile.companyName || user.companyName || "The company";
+    const relevant = apps.filter(a => OPEN_STATUSES.includes(a.status || "Pending") || a.status === "Accepted");
+    if (relevant.length === 0) return;
+    const batch = writeBatch(db);
+
+    const byStudent = new Map();
+    relevant.forEach(a => {
+      if (!a.studentId) return;
+      const list = byStudent.get(a.studentId) || [];
+      list.push(a);
+      byStudent.set(a.studentId, list);
+    });
+    byStudent.forEach((list, studentId) => {
+      const anyOpen = list.some(a => OPEN_STATUSES.includes(a.status || "Pending"));
+      batch.set(doc(collection(db, "notifications")), {
+        studentId,
+        type:          "post_closed",
+        companyId:     user.uid,
+        companyName,
+        postId,
+        applicationId: list[0].id,
+        message: anyOpen
+          ? `${companyName} closed the post you applied to. Your application is still active and the company can still update your status.`
+          : `${companyName} closed the post you were accepted for. Your placement and application stay on record.`,
+        read:          false,
+        createdAt:     serverTimestamp(),
+      });
+    });
+
+    const byProgram = new Map();
+    relevant.forEach(a => {
+      const key = `${a.college || ""}||${a.program || ""}`;
+      const entry = byProgram.get(key) || { college: a.college || "", program: a.program || "", students: new Set(), open: 0, accepted: 0 };
+      if (a.studentId) entry.students.add(a.studentId);
+      if (a.status === "Accepted") entry.accepted += 1; else entry.open += 1;
+      byProgram.set(key, entry);
+    });
+    byProgram.forEach(e => {
+      const n = e.students.size || (e.open + e.accepted);
+      const parts = [];
+      if (e.open) parts.push(`${e.open} still open`);
+      if (e.accepted) parts.push(`${e.accepted} accepted`);
+      batch.set(doc(collection(db, "notifications")), {
+        recipientRole:    "coordinator",
+        department:       e.college,
+        program:          e.program,
+        type:             "post_closed",
+        companyId:        user.uid,
+        companyName,
+        postId,
+        openApplications: 0,   // informational — no ⚑ follow-up
+        message:          `${companyName} closed a post. ${n} of your student${n > 1 ? "s" : ""} applied there (${parts.join(", ")}); ${n > 1 ? "their applications stay" : "the application stays"} active with the company.`,
+        readBy:           [],
+        createdAt:        serverTimestamp(),
+      });
+    });
+
+    await batch.commit();
   };
 
   const deletePost = async (id) => {
+    // Re-count at confirm time instead of trusting the live counter alone.
+    const snap = await getDocs(query(
+      collection(db, "applications"),
+      where("companyId", "==", user.uid),
+      where("postId", "==", id),
+    ));
+    if (snap.size > 0) {
+      await updateDoc(doc(db, "ojt_posts", id), {
+        archived: true,
+        disabled: true,           // keeps it out of both Find Company screens (they query disabled == false)
+        archivedAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+      // Best-effort: the archive above is already saved.
+      notifyPostClosed(id, snap.docs.map(d => ({ id: d.id, ...d.data() })))
+        .catch(err => console.error("Post archived, but notifying students/coordinators failed:", err));
+      return;
+    }
     await deleteDoc(doc(db, "ojt_posts", id));
   };
 
   // Opens the confirm modal for a Delete/Disable/Enable request instead of
   // acting immediately — the actual write only happens once the user confirms.
-  const requestToggleDisable = (post) => setConfirmAction({ type: post.disabled ? "enable" : "disable", post });
-  const requestDelete        = (post) => setConfirmAction({ type: "delete", post });
+  const requestToggleDisable = (post) => {
+    if (post.disabled && approvedTargetsOf(post).length === 0) {
+      setConfirmAction({ type: "blocked", post });
+      return;
+    }
+    setConfirmAction({ type: post.disabled ? "enable" : "disable", post });
+  };
+  const requestDelete = (post) =>
+    setConfirmAction({ type: (appCountByPost[post.id] || 0) > 0 ? "archive" : "delete", post });
 
   const runConfirmedAction = async () => {
     if (!confirmAction) return;
     const { type, post } = confirmAction;
     setConfirmAction(null);
-    if (type === "delete") await deletePost(post.id);
-    else await toggleDisable(post.id);
+    try {
+      if (type === "blocked") {
+        if (hasAnyApprovedProgram) openView(post);  // pick an approved program, save, then Enable
+        return;
+      }
+      if (type === "delete" || type === "archive") await deletePost(post.id);
+      else await toggleDisable(post.id);
+    } catch (err) {
+      console.error(`Failed to ${type} post:`, err);
+    }
   };
 
   return (
@@ -1571,10 +1751,12 @@ const PostOJTContent = ({ user, openPostId, onPostOpened, onViewChange }) => {
 
         <hr style={{ border: "none", borderTop: "2px solid #aaa", marginBottom: "16px" }} />
 
-        {posts.length > 0 ? (
+        {activePosts.length > 0 ? (
           <div id="cpost-list" className="post-grid">
-            {posts.map(post => {
+            {activePosts.map(post => {
               const expired = isPostExpired(post);
+              // Wait for the company profile before judging, so the badge doesn't flash on load.
+              const noApprovedTargets = !!companyProfile?.deptSelections && approvedTargetsOf(post).length === 0;
               return (
                 <div
                   key={post.id}
@@ -1605,6 +1787,11 @@ const PostOJTContent = ({ user, openPostId, onPostOpened, onViewChange }) => {
                           Expired
                         </span>
                       )}
+                      {post.disabled && noApprovedTargets && (
+                        <span style={{ background: "#6b6b6b", color: "white", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.62rem", padding: "2px 8px", borderRadius: "10px", whiteSpace: "nowrap", marginBottom: "4px" }}>
+                          No approved course
+                        </span>
+                      )}
                     </div>
                     <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.78rem", margin: 0, color: "#888" }}>
                       {post.industry || post.subtitle || (post.courseSelections?.[0] ? post.courseSelections[0].college : "OJT Post")}
@@ -1619,6 +1806,7 @@ const PostOJTContent = ({ user, openPostId, onPostOpened, onViewChange }) => {
                       onView={() => openView(post)}
                       onToggleDisable={() => requestToggleDisable(post)}
                       onDelete={() => requestDelete(post)}
+                      onEdit={post.disabled && noApprovedTargets && hasAnyApprovedProgram ? () => openView(post) : undefined}
                     />
                   </div>
                 </div>
@@ -1628,6 +1816,34 @@ const PostOJTContent = ({ user, openPostId, onPostOpened, onViewChange }) => {
         ) : (
           <div id="cpost-list" style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "80px" }}>
             <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "1rem", color: "#aaa" }}>No posts yet.</p>
+          </div>
+        )}
+
+        {/* Archived = removed by the company after students had applied. Read-only
+            here; its applicants are still managed from the Applicants screen. */}
+        {archivedPosts.length > 0 && (
+          <div style={{ marginTop: "18px" }}>
+            <button
+              onClick={() => setShowArchived(v => !v)}
+              style={{ background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.85rem", color: "#555" }}
+            >
+              {showArchived ? "▾" : "▸"} Archived posts ({archivedPosts.length})
+            </button>
+            {showArchived && (
+              <div className="post-grid" style={{ marginTop: "10px" }}>
+                {archivedPosts.map(post => (
+                  <div key={post.id} style={{ background: "#cfcfcf", borderRadius: "14px", padding: "14px 16px", opacity: 0.8, minWidth: 0 }}>
+                    <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(0.9rem, 2.5vw, 1.1rem)", margin: "0 0 4px", color: "#555", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {post.companyName || post.company || "Unnamed Company"}
+                    </p>
+                    <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.75rem", margin: 0, color: "#666" }}>
+                      {(post.courseSelections || []).map(s => [s.college, s.program].filter(Boolean).join(" — ")).join(", ") || post.industry || "OJT Post"}
+                      {" · "}{appCountByPost[post.id] || 0} application{(appCountByPost[post.id] || 0) === 1 ? "" : "s"} kept
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -1648,22 +1864,33 @@ const PostOJTContent = ({ user, openPostId, onPostOpened, onViewChange }) => {
         <ConfirmActionModal
           title={
             confirmAction.type === "delete"  ? "Delete this post?" :
+            confirmAction.type === "archive" ? "Archive this post?" :
             confirmAction.type === "disable" ? "Disable this post?" :
+            confirmAction.type === "blocked" ? "Can't enable this post yet" :
                                                 "Enable this post?"
           }
           message={
             confirmAction.type === "delete"
               ? "This post will be permanently removed and can't be recovered. Are you sure you want to delete it?"
+              : confirmAction.type === "archive"
+              ? `${appCountByPost[confirmAction.post.id] || 0} student${(appCountByPost[confirmAction.post.id] || 0) === 1 ? " has" : "s have"} applied to this post, so it will be archived instead of deleted. It disappears from Find Company and stops accepting applications, but the existing applications and their history are kept. This can't be undone.`
               : confirmAction.type === "disable"
               ? "Students won't be able to see or apply to this post while it's disabled. You can enable it again anytime."
-              : "This post will become visible to students again. Continue?"
+              : confirmAction.type === "blocked"
+              ? (hasAnyApprovedProgram
+                  ? "None of the courses on this post are approved for your company anymore. Edit the post, choose at least one approved course, save it, then enable it again."
+                  : "Your company has no approved course right now. Once a coordinator approves one of your courses in Account Profile, you can add it to this post and enable it.")
+              : `This post will become visible again to students of: ${approvedTargetsOf(confirmAction.post).map(t => [t.college, t.program].filter(Boolean).join(" — ")).join(", ")}. Continue?`
           }
           confirmLabel={
             confirmAction.type === "delete"  ? "Delete"  :
+            confirmAction.type === "archive" ? "Archive" :
             confirmAction.type === "disable" ? "Disable" :
+            confirmAction.type === "blocked" ? (hasAnyApprovedProgram ? "Edit post" : "OK") :
                                                 "Enable"
           }
-          danger={confirmAction.type === "delete"}
+          hideCancel={confirmAction.type === "blocked" && !hasAnyApprovedProgram}
+          danger={confirmAction.type === "delete" || confirmAction.type === "archive"}
           onCancel={() => setConfirmAction(null)}
           onConfirm={runConfirmedAction}
         />

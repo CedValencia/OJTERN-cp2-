@@ -434,10 +434,10 @@ This is an automated message from OJTern.
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
-// APPLICATION STATUS EMAIL — notifies a student by email whenever a company
-// changes their application status (Pending / In Review / To Interview /
-// Accepted / Declined — the actual statuses this system uses; see
-// STATUS_COLORS in CompanyApplicantsScreen.jsx).
+// APPLICATION STATUS EMAIL — notifies a student by email whenever their
+// application status changes (Pending / In Review / To Interview / Accepted /
+// Declined set by the company, plus Withdrawn set by the student themselves;
+// see STATUS_COLORS in CompanyApplicantsScreen.jsx).
 //
 // Server-side trigger, same shape as sendApprovalEmail/sendRejectionEmail
 // above, for the same reason: the actual status write happens from the
@@ -457,6 +457,17 @@ This is an automated message from OJTern.
 // (see the added `newStatus === current?.status` check in
 // CompanyApplicantsScreen.jsx), but this is the check that can't be
 // bypassed by calling updateDoc() directly.
+//
+// This same guard also keeps the OJTern affiliation workflow quiet: the
+// `affiliationWithdrawn` flag (company withdrew the student's program) and
+// `slotReturned` (slot given back after an accepted student withdrew) never
+// change `status`, so neither sends an email.
+//
+// "Withdrawn" is the one status set by the STUDENT, not the company
+// (StudentApplicationScreen.jsx → Withdraw). It gets a confirmation written
+// in the student's own voice ("You withdrew…") instead of the usual
+// "your application has been updated" wording, which would read as if the
+// company had done something to them.
 exports.sendApplicationStatusEmail = onDocumentUpdated(
   { document: "applications/{applicationId}", region: "asia-southeast1", secrets: [resendApiKey] },
   async (event) => {
@@ -506,6 +517,15 @@ exports.sendApplicationStatusEmail = onDocumentUpdated(
 
     const companyName = newData.companyName || "the company";
     const newStatus    = newData.status;
+    const isWithdrawn  = newStatus === "Withdrawn";
+    // Reason picked in the student's Withdraw popup (StudentApplicationScreen.jsx).
+    // Escaped because the details are free text typed by the student.
+    const escapeHtml = (v) => String(v || "")
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+    const withdrawalReasonText = isWithdrawn
+      ? escapeHtml([newData.withdrawalReason, newData.withdrawalReasonDetails].map(v => String(v || "").trim()).filter(Boolean).join(" — "))
+      : "";
 
     // Same colors CompanyApplicantsScreen.jsx uses for the status badge in
     // the app, so the email visually matches what the student would see
@@ -518,6 +538,7 @@ exports.sendApplicationStatusEmail = onDocumentUpdated(
       "Pending":      "#6B6B6B",
       "In Review":    "#3D3D3D",
       "To Interview": "#3D3D3D",
+      "Withdrawn":    "#6B6B6B",
     };
     const badgeColor = STATUS_BADGE_COLOR[newStatus] || "#111111";
 
@@ -531,8 +552,20 @@ exports.sendApplicationStatusEmail = onDocumentUpdated(
       "To Interview": `Your application to ${companyName} has moved to the interview stage. Please log in to OJTern to view interview details and any next steps.`,
       "Accepted":     `Congratulations! Your application has been accepted by ${companyName}. Please log in to OJTern to view the details and next steps.`,
       "Declined":     `Your application status has been updated. Unfortunately, your application to ${companyName} was not selected at this time. We encourage you to explore other opportunities available on OJTern.`,
+      "Withdrawn":    `This confirms that you withdrew your application to ${companyName}${oldData.status ? ` (it was ${oldData.status})` : ""}.${withdrawalReasonText ? ` Reason you gave: ${withdrawalReasonText}.` : ""} It stays on record for you, the company, and your OJT coordinator, and you can apply to the same post again while it's still open. If you didn't do this, contact your OJT coordinator.`,
     };
     const statusMessage = STATUS_EMAIL_MESSAGE[newStatus] || `Your application to ${companyName} has been updated to "${newStatus}".`;
+
+    // Intro line + subject/heading: in the student's own voice for a
+    // withdrawal, "updated" wording for everything the company changes.
+    const introHtml = isWithdrawn
+      ? `You withdrew your application to <strong>${companyName}</strong>.`
+      : `Your application to <strong>${companyName}</strong> has been updated.`;
+    const introText = isWithdrawn
+      ? `You withdrew your application to ${companyName}.`
+      : `Your application to ${companyName} has been updated.`;
+    const heading = isWithdrawn ? "Application Withdrawn" : "Application Status Update";
+    const subject = isWithdrawn ? "Application Withdrawn — OJTern" : "Application Status Update — OJTern";
 
     const currentYear = new Date().getFullYear();
     const loginUrl = "https://ojtern.com/signin";
@@ -544,7 +577,7 @@ exports.sendApplicationStatusEmail = onDocumentUpdated(
       <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>Application Status Update — OJTern</title>
+        <title>${heading} — OJTern</title>
       </head>
       <body style="margin:0; padding:0; background:#f0f0f0; font-family:Arial, Helvetica, sans-serif;">
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f0f0f0; padding:24px 12px;">
@@ -572,12 +605,12 @@ exports.sendApplicationStatusEmail = onDocumentUpdated(
                 <!-- Body -->
                 <tr>
                   <td style="padding:32px 28px 8px;">
-                    <h1 style="margin:0 0 18px; font-size:20px; color:#1a1a1a;">Application Status Update</h1>
+                    <h1 style="margin:0 0 18px; font-size:20px; color:#1a1a1a;">${heading}</h1>
                     <p style="margin:0 0 16px; font-size:15px; color:#333; line-height:1.6;">
                       Hello, <strong>${studentName}</strong>,
                     </p>
                     <p style="margin:0 0 20px; font-size:15px; color:#333; line-height:1.6;">
-                      Your application to <strong>${companyName}</strong> has been updated.
+                      ${introHtml}
                     </p>
 
                     <!-- Status badge -->
@@ -624,11 +657,11 @@ exports.sendApplicationStatusEmail = onDocumentUpdated(
       </html>
     `;
 
-    const text = `Application Status Update — OJTern
+    const text = `${heading} — OJTern
 
 Hello, ${studentName},
 
-Your application to ${companyName} has been updated.
+${introText}
 
 New Status: ${newStatus}
 
@@ -644,7 +677,7 @@ This is an automated message from OJTern.
 © ${currentYear} OJTern. All rights reserved.`;
 
     try {
-      await sendMail({ to: studentEmail, subject: "Application Status Update — OJTern", html, text });
+      await sendMail({ to: studentEmail, subject, html, text });
       console.log(`Application status email sent to ${studentEmail} (${oldData.status} → ${newStatus})`);
     } catch (error) {
       // Per spec: a failed email must never roll back the already-saved
@@ -1261,6 +1294,198 @@ OJTern Team`;
     }
   }
 );
+
+// ─────────────────────────────────────────────────────────────────────────────
+// COORDINATOR EDITS A STUDENT ACCOUNT
+//
+// Called from CoordinatorStudentsAcccountScreen (Edit → Save). Runs with Admin
+// SDK because changing a student's name / Student ID / department also changes
+// their DEFAULT password (generateStudentPassword in AuthService.js), and only
+// the Admin SDK can set another user's password.
+//
+//   • Only an ACTIVE coordinator may call it.
+//   • Only coordinator-owned fields are written. Age and the personal email
+//     belong to the student and are never touched here.
+//   • Student ID stays unique.
+//   • If firstName / lastName / studentId / college changed:
+//       – the Auth password is reset to the new default password,
+//       – every session is revoked (the app also signs the student out live,
+//         see credentialsResetAt in StudentDashboardScreen),
+//       – passwordChanged → false, so the next login asks for a new password;
+//       – a student who had ALREADY finished setup gets mustReviewProfile, so
+//         they re-check Personal Information once, and returningAccountReset,
+//         so the first-visit auto help tours don't replay. A student who never
+//         logged in yet keeps the normal first-login experience.
+//   • The same account stays: applications, messages and everything else are
+//     untouched. Already-submitted applications keep their own copy of the
+//     student's details, so they don't change.
+// ─────────────────────────────────────────────────────────────────────────────
+const COORDINATOR_EDITABLE_STUDENT_FIELDS = [
+  "studentId", "lastName", "middleInitial", "firstName", "suffix",
+  "college", "program", "specialization", "yearSection", "sex", "batch",
+];
+
+const generateStudentPasswordServer = (firstName, lastName, studentId, collegeAbbr) => {
+  const firstInitial = String(firstName || "").trim()[0].toUpperCase();
+  const cleanLast    = String(lastName || "").trim().toLowerCase().replace(/\s+/g, "");
+  const last3        = String(studentId || "").trim().replace(/\D/g, "").slice(-3);
+  const cleanCollege = String(collegeAbbr || "").trim().toLowerCase().replace(/\s+/g, "");
+  return `${firstInitial}${cleanLast}${last3}.${cleanCollege}`;
+};
+
+const isRealSuffixServer = (v) => !!v && !["none", "n/a"].includes(String(v).trim().toLowerCase());
+const sameText = (a, b) => String(a || "").trim().toLowerCase() === String(b || "").trim().toLowerCase();
+
+// Wrapper: anything that isn't already an HttpsError is logged with its real
+// cause and returned WITH a readable message. A bare throw would reach the
+// app as just "internal", which says nothing about what actually failed.
+exports.updateStudentAccount = onCall({ region: "asia-southeast1" }, async (request) => {
+  try {
+    return await updateStudentAccountImpl(request);
+  } catch (err) {
+    if (err instanceof HttpsError) throw err;
+    console.error("updateStudentAccount: UNHANDLED failure", {
+      studentUid: request.data && request.data.studentUid,
+      code: err && err.code,
+      message: err && err.message,
+      stack: err && err.stack,
+    });
+    throw new HttpsError("internal", `Couldn't save the student's information: ${(err && err.message) || err}`);
+  }
+});
+
+const updateStudentAccountImpl = async (request) => {
+  const callerUid = request.auth && request.auth.uid;
+  if (!callerUid) throw new HttpsError("unauthenticated", "Please sign in again.");
+
+  const db = getFirestore();
+  const coordSnap = await db.collection("coordinators").doc(callerUid).get();
+  const coord = coordSnap.exists ? coordSnap.data() : null;
+  if (!coord || coord.role !== "coordinator" || coord.status !== "active") {
+    throw new HttpsError("permission-denied", "Only an active coordinator can edit student accounts.");
+  }
+
+  const { studentUid, updates = {}, collegeAbbr = "" } = request.data || {};
+  if (!studentUid || typeof updates !== "object") {
+    throw new HttpsError("invalid-argument", "Missing student or changes.");
+  }
+
+  const studentRef  = db.collection("students").doc(studentUid);
+  const studentSnap = await studentRef.get();
+  if (!studentSnap.exists) throw new HttpsError("not-found", "Student account not found.");
+  const before = studentSnap.data();
+
+  // Whitelist + trim. Anything else (age, personalEmail, email, flags…) is ignored.
+  const clean = {};
+  for (const key of COORDINATOR_EDITABLE_STUDENT_FIELDS) {
+    if (updates[key] === undefined) continue;
+    clean[key] = String(updates[key] == null ? "" : updates[key]).trim();
+  }
+  const next = { ...before, ...clean };
+
+  if (!next.studentId) throw new HttpsError("invalid-argument", "Student ID is required.");
+  if (!next.firstName || !next.lastName) throw new HttpsError("invalid-argument", "First and last name are required.");
+  if (!next.college) throw new HttpsError("invalid-argument", "Department is required.");
+
+  if (!sameText(next.studentId, before.studentId)) {
+    const dup = await db.collection("students").where("studentId", "==", next.studentId).get();
+    if (dup.docs.some(d => d.id !== studentUid)) {
+      throw new HttpsError("already-exists", `Student ID "${next.studentId}" is already registered to another student.`);
+    }
+  }
+
+  const credentialsChanged =
+    !sameText(next.firstName, before.firstName) ||
+    !sameText(next.lastName, before.lastName) ||
+    String(next.studentId).trim() !== String(before.studentId || "").trim() ||
+    !sameText(next.college, before.college);
+
+  const mi = String(next.middleInitial || "").trim();
+  const fullName = `${next.firstName} ${mi ? mi.replace(/\.$/, "") + ". " : ""}${next.lastName}${isRealSuffixServer(next.suffix) ? " " + next.suffix : ""}`;
+
+  const docUpdate = {
+    ...clean,
+    fullName,
+    updatedAt: FieldValue.serverTimestamp(),
+    updatedBy: callerUid,
+  };
+
+  let newPassword = null;
+  let authMissing = false;
+  if (credentialsChanged) {
+    newPassword = generateStudentPasswordServer(next.firstName, next.lastName, next.studentId, collegeAbbr || next.college);
+    // Password first: if this fails nothing else has changed yet.
+    try {
+      await getAuth().updateUser(studentUid, { password: newPassword });
+    } catch (err) {
+      console.error(`updateStudentAccount: updateUser failed for ${studentUid}:`, err);
+      if (err && err.code === "auth/user-not-found") {
+        // A student record with no login account (test data, a manual add, or
+        // a deleted Auth user). The details are still saved; there's simply no
+        // password to reset, and the coordinator is told so.
+        authMissing = true;
+      } else if (err && (err.code === "auth/insufficient-permission" || /permission/i.test(String(err.message)))) {
+        throw new HttpsError("permission-denied",
+          "The server isn't allowed to change student passwords. Give the Cloud Functions service account the \"Firebase Authentication Admin\" role, then try again.");
+      } else if (err && err.code === "auth/invalid-password") {
+        throw new HttpsError("invalid-argument",
+          "The new default password isn't valid (it must be at least 6 characters). Check the name and Student ID.");
+      } else {
+        throw new HttpsError("internal", `Couldn't reset the student's password: ${(err && err.message) || err}`);
+      }
+    }
+  }
+  if (credentialsChanged && !authMissing) {
+    const hadFinishedSetup = before.passwordChanged === true;
+    Object.assign(docUpdate, {
+      passwordChanged:       false,
+      passwordChangedAt:     null,
+      credentialsResetAt:    FieldValue.serverTimestamp(),
+      credentialsResetBy:    callerUid,
+      mustReviewProfile:     hadFinishedSetup,
+      returningAccountReset: hadFinishedSetup || before.returningAccountReset === true,
+    });
+  }
+
+  await studentRef.update(docUpdate);
+
+  if (credentialsChanged && !authMissing) {
+    // Ends every existing session at its next token refresh; the app signs the
+    // student out immediately via the credentialsResetAt listener.
+    await getAuth().revokeRefreshTokens(studentUid).catch(err =>
+      console.error(`Failed to revoke sessions for student ${studentUid}:`, err));
+
+    const changed = [];
+    if (!sameText(next.firstName, before.firstName) || !sameText(next.lastName, before.lastName)) changed.push("name");
+    if (String(next.studentId).trim() !== String(before.studentId || "").trim()) changed.push("Student ID");
+    if (!sameText(next.college, before.college)) changed.push("department");
+    await db.collection("notifications").add({
+      studentId: studentUid,
+      type:      "account_credentials_updated",
+      message:   `Your coordinator updated your ${changed.join(", ")}. Your password was reset to your new default password — please set a new one and review your personal information.`,
+      read:      false,
+      createdAt: FieldValue.serverTimestamp(),
+    }).catch(err => console.error("Failed to notify student about account update:", err));
+  }
+
+  // Keep the student's name current in their chat threads.
+  if (!sameText(fullName, before.fullName)) {
+    try {
+      const convs = await db.collection("conversations").where("participants", "array-contains", studentUid).get();
+      await Promise.all(convs.docs.map(d => d.ref.update({ [`participantNames.${studentUid}`]: fullName })));
+    } catch (err) {
+      console.error(`Failed to update chat names for student ${studentUid}:`, err);
+    }
+  }
+
+  return {
+    ok: true,
+    fullName,
+    passwordReset: credentialsChanged && !authMissing,
+    newPassword: authMissing ? null : newPassword,
+    authMissing,
+  };
+};
 
 // Called from the Accept Invitation screen to fetch invite details for
 // display (type, fromName, toEmail, deptSelections) — token-validated

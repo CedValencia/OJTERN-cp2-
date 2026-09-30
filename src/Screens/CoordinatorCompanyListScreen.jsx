@@ -2,9 +2,11 @@ import React, { useState, useRef, useEffect } from "react";
 
   import downloadIcon from "../icons/download.png";
   import pdfIcon      from "../icons/pdf.png";
+  import imgIcon      from "../icons/img.png";
 
   import { db }                                            from "./firebase";
   import { approveCompanyDepartment, rejectCompanyDepartment, logActivity } from "./AuthService";
+  import { restoreApplicationsOnClosedPosts } from "./affiliationService";
   import { collection, doc, query, where, onSnapshot }     from "firebase/firestore";
 import { color, font, type, space, radius, shadow, ease } from "./theme";
 
@@ -2511,7 +2513,7 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
             {isPdf ? (
               <img src={pdfIcon} alt="PDF" style={{ width: "62px", height: "auto", objectFit: "contain", display: "block" }} />
             ) : (
-              <img src={url} alt={fileName} style={{ width: "62px", height: "74px", objectFit: "cover", borderRadius: "6px", display: "block" }} />
+              <img src={imgIcon} alt="Image" style={{ width: "62px", height: "auto", objectFit: "contain", display: "block" }} />
             )}
             <img
               src={downloadIcon}
@@ -2840,7 +2842,7 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
     );
   };
 
-  const CompanyProfileView = ({ company, onBack, onAccept, onDeny }) => {
+  const CompanyProfileView = ({ company, onBack, onAccept, onDeny, canReview = false }) => {
     const [confirmingAction, setConfirmingAction] = useState(null); // "accept" | "decline" | null
     const [working, setWorking] = useState(false);
     const [declineHover, setDeclineHover] = useState(false);
@@ -2918,8 +2920,10 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
                 <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "clamp(0.82rem, 2vw, 0.95rem)", color: "#222", fontWeight: 700, marginBottom: "6px" }}>Department / Program:</p>
                 <div style={{ display: "flex", flexDirection: "column", gap: "5px" }}>
                   {company.deptSelections.map((s, i) => {
-                    const badgeColor = s.status === "approved" ? "#2a7a2a" : s.status === "rejected" ? darkRed : "#a67c00";
-                    const badgeLabel = s.status === "approved" ? "Approved" : s.status === "rejected" ? "Rejected" : "Pending";
+                    // "withdrawn" = the company removed this program itself. The
+                    // entry is kept (never deleted) so its history stays visible.
+                    const badgeColor = s.status === "approved" ? "#2a7a2a" : s.status === "rejected" ? darkRed : s.status === "withdrawn" ? "#8a8a8a" : "#a67c00";
+                    const badgeLabel = s.status === "approved" ? "Approved" : s.status === "rejected" ? "Rejected" : s.status === "withdrawn" ? "Withdrawn" : "Pending";
                     return (
                       <div key={i} style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
                         <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "clamp(0.8rem, 2vw, 0.88rem)", color: "#444", margin: 0 }}>
@@ -2963,7 +2967,7 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
           <div id="clprofile-docs" style={{ marginBottom: "16px", width: "fit-content", maxWidth: "100%" }}>
             <p style={{ fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "clamp(0.95rem, 2.5vw, 1.1rem)", color: "#111", marginBottom: "14px" }}>Verification Documents:</p>
             {company.verificationDocs && company.verificationDocs.length > 0 ? (
-              <div style={{ display: "flex", flexWrap: "wrap", gap: "16px" }}>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "16px", maxHeight: "190px", overflowY: "auto", overflowX: "hidden", padding: "8px 14px 4px 0", alignContent: "flex-start" }}>
                 {company.verificationDocs.map((url, i) => (
                   <DocThumbnail key={i} url={url} index={i} />
                 ))}
@@ -2974,7 +2978,9 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
           </div>
 
           {/* Accept / Decline buttons (review only) */}
-          {company.deptSelections?.some(d => d.status === "pending") && (
+          {/* Only when THIS coordinator's own program entry is pending — another
+              department's pending entry is not theirs to accept or decline. */}
+          {canReview && (
             <div className="clist-action-row" style={{ borderTop: `1px solid ${color.wine700}` }}>
               {/* Inner wrapper carries the tour id so the "Accept or Decline"
                   highlight hugs just the two buttons, not the full-width row. */}
@@ -3183,6 +3189,9 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
         department: s.department || "",
         program:    s.program || "",
         status:     s.status || "pending",
+        withdrawnAt: s.withdrawnAt || null,
+        previousStatus: s.previousStatus || "",
+        history:    Array.isArray(s.history) ? s.history : [],
       }));
     }
     if (Array.isArray(d.departments) && d.departments.length) {
@@ -3229,14 +3238,35 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
   // match; Program only has to match when the coordinator has picked a
   // specific one. Returns the FIRST match — a coordinator's own deptSelections
   // shouldn't have duplicate Departments, so this is unambiguous in practice.
+  //
+  // Withdrawn entries (programs the company removed itself) are skipped: they
+  // stay in the company document for history but are never acted on and never
+  // put the company in this coordinator's active lists. When several entries
+  // match (e.g. a coordinator scoped to a whole Department and a company with
+  // two Programs under it), a pending one wins so it can be reviewed.
+  const scopeKey = (v) => String(v || "").replace(/[\u2010-\u2015]/g, "-").replace(/\s+/g, " ").trim().toLowerCase();
+  const findMatchingEntries = (companyDeptSelections, coordinatorDeptSelections) =>
+    (companyDeptSelections || []).filter(c =>
+      c.status !== "withdrawn" &&
+      coordinatorDeptSelections.some(
+        s => s.department && scopeKey(c.department) === scopeKey(s.department) && (!s.program || scopeKey(c.program) === scopeKey(s.program))
+      )
+    );
+  // Withdrawn entries within this coordinator's scope — for the read-only
+  // "Withdrawn" history section only; never acted on.
+  const findWithdrawnEntries = (companyDeptSelections, coordinatorDeptSelections) =>
+    (companyDeptSelections || []).filter(c =>
+      c.status === "withdrawn" &&
+      coordinatorDeptSelections.some(
+        s => s.department && scopeKey(c.department) === scopeKey(s.department) && (!s.program || scopeKey(c.program) === scopeKey(s.program))
+      )
+    );
   const findMatchingEntry = (companyDeptSelections, coordinatorDeptSelections) => {
-    for (const c of companyDeptSelections) {
-      const scope = coordinatorDeptSelections.find(
-        s => s.department && c.department === s.department && (!s.program || c.program === s.program)
-      );
-      if (scope) return c;
-    }
-    return null;
+    const matches = findMatchingEntries(companyDeptSelections, coordinatorDeptSelections);
+    return matches.find(m => m.status === "pending")
+        || matches.find(m => m.status === "approved")
+        || matches[0]
+        || null;
   };
 
   // A company is visible to a coordinator if, for ANY of the company's
@@ -3253,6 +3283,11 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
     const [cameFromDashboard, setCameFromDashboard]   = useState(false);
     const [registeredList, setRegisteredList]         = useState([]);
     const [reviewList, setReviewList]                 = useState([]);
+    // Read-only history: companies that WITHDREW one of this coordinator's
+    // programs. Each item carries only the withdrawn entries in this scope.
+    const [withdrawnFromActive, setWithdrawnFromActive]   = useState([]);
+    const [withdrawnFromHistory, setWithdrawnFromHistory] = useState([]);
+    const [showWithdrawn, setShowWithdrawn]               = useState(false);
     // The coordinator's OWN current Department/Program assignment — this is
     // what the Company List is scoped to. It's kept live (onSnapshot, not a
     // one-time fetch) so editing it in Account Profile > Personal Information
@@ -3330,26 +3365,57 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
       const unsub = onSnapshot(companiesQ, snap => {
         const pending  = [];
         const approved = [];
+        const withdrawn = [];
         snap.docs.map(mapDoc).forEach(c => {
+          // A company can still be active for one program and have withdrawn
+          // another in this coordinator's scope — record that for history.
+          const w = findWithdrawnEntries(c.deptSelections, coordinatorDeptSelections);
+          if (w.length) withdrawn.push({ ...c, withdrawnEntries: w });
           // Suspended/blocked accounts are an account-wide disciplinary state
           // (see applyCompanyEnforcement in AuthService.js) — hide them from
           // both lists here regardless of any individual Department's
           // approval, same as before this per-department change.
           if (c.status === "suspended" || c.status === "blocked") return;
-          const entry = findMatchingEntry(c.deptSelections, coordinatorDeptSelections);
-          if (!entry) return;
-          if (entry.status === "pending")  pending.push(c);
-          if (entry.status === "approved") approved.push(c);
-          // entry.status === "rejected" → this coordinator already acted;
-          // don't show it in either list, matching the old behavior where a
-          // rejected company disappeared from both.
+          const entries = findMatchingEntries(c.deptSelections, coordinatorDeptSelections);
+          if (entries.length === 0) return; // none, or only withdrawn → not in active lists
+          // Per-program: a company can be Approved for one of this
+          // coordinator's programs and Pending for another it just added.
+          if (entries.some(e => e.status === "pending"))  pending.push(c);
+          if (entries.some(e => e.status === "approved")) approved.push(c);
+          // "rejected" only → this coordinator already acted; hidden from both
+          // lists, same as before.
         });
         setReviewList(pending);
         setRegisteredList(approved);
+        setWithdrawnFromActive(withdrawn);
       });
 
-      return () => unsub();
+      // Second listener for companies that no longer have ANY active program in
+      // these departments (so they're gone from `departments`). They're found
+      // via `affiliationDepartments`, which keeps withdrawn departments too.
+      const historyQ = query(
+        collection(db, "companies"),
+        where("affiliationDepartments", "array-contains-any", deptNames)
+      );
+      const unsubHistory = onSnapshot(historyQ, snap => {
+        const withdrawn = [];
+        snap.docs.map(mapDoc).forEach(c => {
+          const w = findWithdrawnEntries(c.deptSelections, coordinatorDeptSelections);
+          if (w.length) withdrawn.push({ ...c, withdrawnEntries: w });
+        });
+        setWithdrawnFromHistory(withdrawn);
+      }, err => console.error("Failed to load withdrawn company history:", err));
+
+      return () => { unsub(); unsubHistory(); };
     }, [loadingProfile, coordinatorDeptSelections]);
+
+    // Both sources merged, one row per company, newest withdrawal first.
+    const withdrawnList = React.useMemo(() => {
+      const byId = new Map();
+      [...withdrawnFromActive, ...withdrawnFromHistory].forEach(c => byId.set(c.id, c));
+      const latest = (c) => Math.max(0, ...c.withdrawnEntries.map(e => e.withdrawnAt?.seconds || 0));
+      return [...byId.values()].sort((a, b) => latest(b) - latest(a));
+    }, [withdrawnFromActive, withdrawnFromHistory]);
 
     // ── Deep-link: jump straight to a company's profile when arriving here
     //    with a specific initialCompanyId (e.g. from the dashboard's Recent
@@ -3405,6 +3471,7 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
 
     const filteredRegistered = applyFilter(registeredList);
     const filteredReview     = applyFilter(reviewList);
+    const filteredWithdrawn  = applyFilter(withdrawnList);
 
     // Industry filter options: derived from whatever companies are actually
     // in view (not from the coordinator's profile — Industry is company
@@ -3418,20 +3485,33 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
     // Which of the company's Departments THIS coordinator is actually acting
     // on — needed so approve/reject only ever touches their own entry, never
     // some other Department the same company also registered under.
-    const matchingDepartment = (company) =>
-      findMatchingEntry(company.deptSelections, coordinatorDeptSelections)?.department;
+    // Returns the exact entry (department AND program) — a pending one first.
+    const matchingEntry = (company) =>
+      findMatchingEntry(company.deptSelections, coordinatorDeptSelections);
+    const entryLabel = (e) => [e.department, e.program].filter(Boolean).join(" — ");
 
     // ── Accept: approve THIS coordinator's Department entry only ─────────────
     const handleAccept = async (id) => {
       const company = reviewList.find(c => c.id === id);
       if (!company) return;
-      const department = matchingDepartment(company);
-      if (!department) return;
+      const entry = matchingEntry(company);
+      if (!entry || entry.status !== "pending") return;
       try {
-        await approveCompanyDepartment(id, coordinatorUid, department);
-        logActivity(coordinatorUid, "company_approved", `Approved ${company.name} (${department})`, { targetId: id, targetName: company.name }).catch(err => console.error("Failed to log activity:", err));
-        showToast(`${company.name} has been accepted.`, "#2a7a2a");
+        // Department AND program, so only this exact entry is approved.
+        await approveCompanyDepartment(id, coordinatorUid, entry.department, entry.program || "");
+        logActivity(coordinatorUid, "company_approved", `Approved ${company.name} (${entryLabel(entry)})`, { targetId: id, targetName: company.name }).catch(err => console.error("Failed to log activity:", err));
+        showToast(`${company.name} has been accepted for ${entryLabel(entry)}.`, "#2a7a2a");
         setView("list");
+        // Re-approval of a program the company had withdrawn: applications on
+        // its EXPIRED or ARCHIVED posts (which can't be edited, so the company
+        // can never re-select the program there) are restored now. Open posts
+        // still need the company to put the program back on the post.
+        // Best-effort — the approval above is already saved.
+        restoreApplicationsOnClosedPosts({
+          companyId: id,
+          companyName: company.name,
+          approvedEntries: [{ department: entry.department, program: entry.program || "" }],
+        }).catch(err => console.error("Approved, but restoring applications on closed posts failed:", err));
       } catch (err) {
         showToast(`Failed to accept: ${err.message}`, darkRed);
       }
@@ -3441,12 +3521,12 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
     const handleDeny = async (id) => {
       const company = reviewList.find(c => c.id === id);
       if (!company) return;
-      const department = matchingDepartment(company);
-      if (!department) return;
+      const entry = matchingEntry(company);
+      if (!entry || entry.status !== "pending") return;
       try {
-        await rejectCompanyDepartment(id, coordinatorUid, department);
-        logActivity(coordinatorUid, "company_declined", `Declined ${company.name} (${department})`, { targetId: id, targetName: company.name }).catch(err => console.error("Failed to log activity:", err));
-        showToast(`${company.name} has been declined.`, darkRed);
+        await rejectCompanyDepartment(id, coordinatorUid, entry.department, entry.program || "");
+        logActivity(coordinatorUid, "company_declined", `Declined ${company.name} (${entryLabel(entry)})`, { targetId: id, targetName: company.name }).catch(err => console.error("Failed to log activity:", err));
+        showToast(`${company.name} has been declined for ${entryLabel(entry)}.`, darkRed);
         setView("list");
       } catch (err) {
         showToast(`Failed to decline: ${err.message}`, darkRed);
@@ -3497,6 +3577,7 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
           <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "white", position: "relative" }}>
             <CompanyProfileView
               company={selectedCompany}
+              canReview={findMatchingEntries(selectedCompany.deptSelections, coordinatorDeptSelections).some(e => e.status === "pending")}
               onBack={() => {
                 if (cameFromDashboard) {
                   onBackToOrigin?.();
@@ -3704,6 +3785,47 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
                 <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#aaa", padding: "20px 0" }}>No companies in review match your filters.</p>
               )}
             </div>
+
+            {/* Withdrawn — read-only history. The company removed one of this
+                coordinator's programs itself; nothing here can be accepted or
+                declined. Collapsed by default so the active lists stay first. */}
+            {withdrawnList.length > 0 && (
+              <>
+                <hr style={{ border: "none", borderTop: "1.5px solid #ddd", margin: "32px 0" }} />
+                <div id="clist-withdrawn-section">
+                  <div onClick={() => setShowWithdrawn(v => !v)} style={{ cursor: "pointer" }} role="button" aria-expanded={showWithdrawn}>
+                    <SectionHeader title={`${showWithdrawn ? "▾" : "▸"} Withdrawn`} count={filteredWithdrawn.length} />
+                  </div>
+                  {showWithdrawn && (
+                    filteredWithdrawn.length > 0 ? (
+                      <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginTop: "8px" }}>
+                        {filteredWithdrawn.map(c => (
+                          <div
+                            key={c.id}
+                            onClick={() => { setSelectedCompany(c); setView("profile"); setCameFromDashboard(false); }}
+                            style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", background: color.wine800, border: `1px solid ${color.wine700}`, borderRadius: radius.card, padding: "12px 16px", cursor: "pointer", opacity: 0.85 }}
+                          >
+                            <div style={{ minWidth: 0, flex: "1 1 220px" }}>
+                              <p style={{ fontFamily: font.ui, fontWeight: 600, fontSize: "0.95rem", color: color.ink, margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name || "Unnamed company"}</p>
+                              {c.withdrawnEntries.map((e, i) => (
+                                <p key={i} style={{ fontFamily: font.ui, ...type.helper, color: color.inkMuted, margin: "3px 0 0" }}>
+                                  {[e.department, e.program].filter(Boolean).join(" — ")}
+                                  {e.withdrawnAt?.seconds ? ` · withdrawn ${new Date(e.withdrawnAt.seconds * 1000).toLocaleDateString("en-PH", { year: "numeric", month: "short", day: "numeric" })}` : ""}
+                                  {e.previousStatus ? ` · was ${e.previousStatus}` : ""}
+                                </p>
+                              ))}
+                            </div>
+                            <span style={{ fontFamily: font.ui, fontSize: "0.7rem", fontWeight: 700, color: "white", background: "#8a8a8a", borderRadius: "10px", padding: "2px 10px", flexShrink: 0 }}>Withdrawn</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#aaa", padding: "20px 0" }}>No withdrawn companies match your filters.</p>
+                    )
+                  )}
+                </div>
+              </>
+            )}
           </div>
 
           {toast && (

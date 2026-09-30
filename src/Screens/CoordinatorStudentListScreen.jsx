@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
-import { collection, onSnapshot, query, where, getDocs } from "firebase/firestore";
-import { db } from "./firebase";
+import { collection, onSnapshot, query, where, getDocs, doc, updateDoc, addDoc, serverTimestamp } from "firebase/firestore";
+import { db, auth } from "./firebase";
+import { usePostsByIds, getPostClosure, formatPostDate } from "./useEligibleOjtPosts";
 import { useDepartmentsPrograms } from "./departmentsPrograms";
 import blackUserIcon from "../icons/blackuser.png";
 import blackViewIcon from "../icons/blackview.png"; // default/fallback — the themed icon itself comes in via the viewIcon prop
@@ -43,14 +44,38 @@ const STATUS_COLORS = {
   "Pending":     { bg: color.wine400, color: ink },
   "In Review":   { bg: color.warning, color: color.white },
   "To Interview":{ bg: color.info,    color: color.white },
+  "Withdrawn":   { bg: "#6B6B6B",     color: color.white },   // cancelled by the student; record kept
 };
+
+// ── Follow-up rules (OJTern affiliation workflow) ────────────────────────────
+// An application needs the coordinator's attention when:
+//   • the company withdrew the student's program while the application was
+//     still open or already accepted (status is NOT changed automatically), or
+//   • the student withdrew from a placement that was already ACCEPTED.
+const CLOSED_STATUSES = ["Declined", "Withdrawn"];
+const needsPlacementReview = (app) =>
+  !!app && app.status === "Accepted" && app.placementReviewRequired === true && !app.coordinatorReviewedAt;
+const followUpReason = (app) => {
+  if (!app) return null;
+  if (needsPlacementReview(app)) return "New placement — review the company and post";
+  if (app.status === "Withdrawn" && app.statusBeforeWithdrawal === "Accepted") {
+    return "Student withdrew from an accepted placement";
+  }
+  if (app.affiliationWithdrawn && !CLOSED_STATUSES.includes(app.status)) {
+    return app.status === "Accepted"
+      ? "Accepted, but the company withdrew this program"
+      : "Company withdrew this program — application still open";
+  }
+  return null;
+};
+const needsFollowUp = (apps) => (apps || []).some(a => !!followUpReason(a));
 
 // When a student has more than one application, this decides which one
 // "represents" them at a glance (list row badge) — most-advanced/most-
 // relevant status wins, rather than whichever doc Firestore happened to
 // return first. Declined only wins if every single application was
 // declined (see matchesStatusFilter below).
-const STATUS_PRIORITY = ["Accepted", "To Interview", "In Review", "Pending", "Declined"];
+const STATUS_PRIORITY = ["Accepted", "To Interview", "In Review", "Pending", "Declined", "Withdrawn"];
 
 // Full name, assembled the same way everywhere it appears — the list row, the
 // placement modal, and the PDF export. Kept in one place so a name can never
@@ -78,6 +103,7 @@ const matchesStatusFilter = (apps, filterValue) => {
   if (filterValue === "Accepted") return apps.some(a => a.status === "Accepted");
   if (filterValue === "In Progress") return apps.some(a => ["Pending", "In Review", "To Interview"].includes(a.status));
   if (filterValue === "All Declined") return apps.every(a => a.status === "Declined");
+  if (filterValue === "Needs Follow-up") return needsFollowUp(apps);
   return true;
 };
 
@@ -91,7 +117,7 @@ const EXPORT_HEADER = ["Student Name", "Student ID", "College", "Program", "Year
 // from the export. Students with no applications still get one row, so the
 // export and the on-screen count always agree.
 //
-const buildExportRows = (students, applicationsByStudent, companies) =>
+const buildExportRows = (students, applicationsByStudent, companies, postsById = {}) =>
   students.flatMap(student => {
     const base = [
       getFullName(student),
@@ -106,7 +132,18 @@ const buildExportRows = (students, applicationsByStudent, companies) =>
 
     return apps.map(app => {
       const company = companies.find(c => c.id === app.companyId);
-      return [...base, company?.name || "Unknown company", app.status || ""];
+      const notes = [];
+      if (app.status === "Withdrawn" && app.statusBeforeWithdrawal) notes.push(`was ${app.statusBeforeWithdrawal}`);
+      if (app.status === "Withdrawn" && app.withdrawalReason) notes.push(`reason: ${app.withdrawalReason}`);
+      const closure = getPostClosure(app.postId, postsById);
+      if (closure && app.status !== "Withdrawn") notes.push(closure.label.toLowerCase());
+      if (app.affiliationWithdrawn) notes.push("program affiliation withdrawn");
+      else if (app.affiliationRestoredAt) notes.push("program affiliation withdrawn, then restored");
+      return [
+        ...base,
+        company?.name || app.companyName || "Unknown company",
+        `${app.status || ""}${notes.length ? ` (${notes.join("; ")})` : ""}`,
+      ];
     });
   });
 
@@ -305,7 +342,7 @@ const ResponsiveStyles = () => (
       background: ${surface};
       border: 1px solid ${line};
       border-radius: ${radius.panel};
-      width: 420px;
+      width: 660px;
       max-width: calc(100vw - 32px);
       max-height: 80vh;
       display: flex;
@@ -429,15 +466,148 @@ const StudentAvatar = ({ size = 42, userIcon: themedUserIcon = blackUserIcon }) 
   />
 );
 
-const PlacementModal = ({ student, onClose, onNavigateToCompany, companies, onMessageStudent, userIcon: themedUserIcon = blackUserIcon }) => {
+// ── Post as applied (read-only) ─────────────────────────────────────────────
+// Opens for ANY application, whatever happened to the post: shows the live
+// post when it still exists (expired, disabled or closed included — with a
+// label, never an Apply button), otherwise the snapshot saved at apply time.
+const PostRecordModal = ({ app, livePost, company, onClose }) => {
+  // livePost: undefined = still loading, null = post no longer exists.
+  const closure = livePost === undefined ? null : getPostClosure(app.postId, { [app.postId]: livePost });
+  const usingSnapshot = !livePost && !!app.postSnapshot;
+  const post = livePost || app.postSnapshot || null;
+  const label = livePost === undefined && !app.postSnapshot
+    ? "Loading post…"
+    : !livePost && !app.postSnapshot
+    ? "This post is no longer available and no copy was saved (applied before snapshots existed)."
+    : usingSnapshot
+      ? (livePost === null ? "The company removed this post. Showing the copy saved when the student applied." : "Showing the copy saved when the student applied.")
+      : closure
+        ? `${closure.detail} Shown for review only.`
+        : livePost?.disabled
+          ? "The company has disabled this post. Shown for review only."
+          : "";
+  const lines = (v) => String(v || "").split(/\n+/).map(x => x.trim()).filter(Boolean);
+  const Section = ({ title, value }) => {
+    const items = Array.isArray(value) ? value.filter(Boolean) : lines(value);
+    if (items.length === 0) return null;
+    return (
+      <div style={{ marginTop: "14px" }}>
+        <p style={{ fontFamily: font.ui, ...type.label, color: ink, marginBottom: "4px" }}>{title}</p>
+        {items.map((t, i) => <p key={i} style={{ fontFamily: font.ui, ...type.helper, color: inkBody, lineHeight: 1.5, margin: "2px 0" }}>{t}</p>)}
+      </div>
+    );
+  };
+  const address = post?.postLocation?.address || post?.address || "";
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(10,10,10,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1100, padding: "clamp(16px, 5vw, 24px)" }}>
+      <div className="sp-modal-inner">
+        <div className="sp-modal-header">
+          <h2 style={{ fontFamily: font.ui, fontSize: "clamp(1.05rem, 4vw, 1.25rem)", fontWeight: 600, color: ink }}>Post as applied</h2>
+          <button onClick={onClose} aria-label="Close" style={{ background: lineSoft, border: `1px solid ${line}`, borderRadius: "50%", width: "30px", height: "30px", color: inkMuted, cursor: "pointer", flexShrink: 0 }}>✕</button>
+        </div>
+        <div className="sp-modal-body">
+          {label && (
+            <p style={{ fontFamily: font.ui, fontSize: "0.78rem", color: "#444", background: "#F2F2F2", border: "1px solid #E0E0E0", borderRadius: "10px", padding: "8px 12px", margin: "0 0 12px", lineHeight: 1.45 }}>{label}</p>
+          )}
+          <p style={{ fontFamily: font.ui, fontSize: "1.05rem", fontWeight: 600, color: ink, margin: 0 }}>
+            {post?.companyName || company?.name || app.companyName || "Unknown company"}
+          </p>
+          <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, margin: "2px 0 0" }}>
+            {[post?.industry || company?.industry, address].filter(Boolean).join(" · ") || "—"}
+          </p>
+          {post && (
+            <>
+              <Section title="Description" value={post.description} />
+              <Section title="Requirements" value={post.requirements} />
+              <Section title="Skills required" value={post.skillsRequired} />
+              <Section title="Benefits" value={post.benefits} />
+              <Section title="Working hours" value={post.workingHoursList} />
+              <Section title="Programs and slots" value={(post.courseSelections || []).map(s => `${[s.college, s.program].filter(Boolean).join(" — ")}${s.slot ? ` · ${s.slot} slot${s.slot > 1 ? "s" : ""}` : ""}`)} />
+              <Section title="Contact" value={[post.contactEmail, post.phone && post.phone.trim() !== "+63" ? post.phone : ""].filter(Boolean)} />
+              {post.expirationDate && <Section title="Expiration" value={formatPostDate(post.expirationDate)} />}
+            </>
+          )}
+          {/* Company details straight from the company's own profile, so the
+              coordinator can review the company even when it's no longer in
+              their active Company List (e.g. a withdrawn program). */}
+          {company && (
+            <div style={{ marginTop: "18px", padding: "12px 14px", background: color.wine800, border: `1px solid ${line}`, borderRadius: radius.card }}>
+              <p style={{ fontFamily: font.ui, ...type.label, color: ink, marginBottom: "4px" }}>Company</p>
+              {[
+                ["Name", company.companyName || company.name],
+                ["Industry", Array.isArray(company.industry) ? company.industry.join(", ") : company.industry],
+                ["Email", company.email],
+                ["Location", [company.location?.street, company.location?.barangay, company.location?.city, company.location?.province].filter(Boolean).join(", ")],
+                ["Account", company.status],
+              ].filter(([, v]) => v).map(([k, v]) => (
+                <p key={k} style={{ fontFamily: font.ui, ...type.helper, color: inkBody, margin: "2px 0" }}><span style={{ fontWeight: 600 }}>{k}:</span> {v}</p>
+              ))}
+              {Array.isArray(company.verificationDocs) && company.verificationDocs.length > 0 && (
+                <p style={{ fontFamily: font.ui, ...type.helper, color: inkBody, margin: "6px 0 0" }}>
+                  <span style={{ fontWeight: 600 }}>Verification documents:</span>{" "}
+                  {company.verificationDocs.map((url, i) => (
+                    <a key={i} href={url} target="_blank" rel="noopener noreferrer" style={{ color: ink, marginRight: "8px" }}>Document {i + 1}</a>
+                  ))}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const PlacementModal = ({ student, onClose, onNavigateToCompany, companies, onMessageStudent, userIcon: themedUserIcon = blackUserIcon, postsById = {} }) => {
   const [applications, setApplications] = useState([]);
+  const [viewingPostApp, setViewingPostApp] = useState(null);
+  const [reviewingId, setReviewingId] = useState(null);
+
+  // Coordinator confirms they reviewed an accepted placement (clears ⚑).
+  const markReviewed = async (app) => {
+    const appId = app.id;
+    setReviewingId(appId);
+    try {
+      await updateDoc(doc(db, "applications", appId), {
+        coordinatorReviewedAt: serverTimestamp(),
+        coordinatorReviewedBy: auth.currentUser?.uid || "",
+      });
+    } catch (err) {
+      console.error("Failed to mark placement as reviewed:", err);
+      setReviewingId(null);
+      return;
+    }
+    // Let the student know their coordinator has seen the placement.
+    // Best-effort: the review above is already saved.
+    if (app.studentId) {
+      const companyName = companies.find(c => c.id === app.companyId)?.name || app.companyName || "the company";
+      addDoc(collection(db, "notifications"), {
+        studentId:     app.studentId,
+        type:          "placement_reviewed",
+        applicationId: appId,
+        companyId:     app.companyId || "",
+        companyName,
+        message:       `Your OJT coordinator reviewed your placement at ${companyName}.`,
+        read:          false,
+        createdAt:     serverTimestamp(),
+      }).catch(err => console.error("Placement reviewed, but notifying the student failed:", err));
+    }
+    setReviewingId(null);
+  };
 
   useEffect(() => {
     if (!student?.id) return;
     const q = query(collection(db, "applications"), where("studentId", "==", student.id));
-    getDocs(q).then(snap => {
-      setApplications(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    });
+    // Live, so a withdrawal (by the company or the student) shows up while open.
+    const unsub = onSnapshot(q, snap => {
+      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      // Follow-up items first, then newest.
+      list.sort((a, b) =>
+        (followUpReason(b) ? 1 : 0) - (followUpReason(a) ? 1 : 0) ||
+        (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+      setApplications(list);
+    }, err => console.error("Failed to load student applications:", err));
+    return () => unsub();
   }, [student?.id]);
 
   const fullName = getFullName(student);
@@ -454,8 +624,16 @@ const PlacementModal = ({ student, onClose, onNavigateToCompany, companies, onMe
   };
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(10,10,10,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: space.md }}>
-      <div className="sp-modal-inner">
+    <div style={{ position: "fixed", inset: 0, background: "rgba(10,10,10,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: "clamp(16px, 5vw, 24px)" }}>
+      {viewingPostApp && (
+        <PostRecordModal
+          app={viewingPostApp}
+          livePost={viewingPostApp.postId && viewingPostApp.postId in postsById ? (postsById[viewingPostApp.postId] || null) : undefined}
+          company={companies.find(c => c.id === viewingPostApp.companyId)}
+          onClose={() => setViewingPostApp(null)}
+        />
+      )}
+      <div id="sl-modal-container" className="sp-modal-inner">
         <div className="sp-modal-header">
           <h2 style={{ fontFamily: font.ui, fontSize: "clamp(1.125rem, 4vw, 1.375rem)", fontWeight: 600, letterSpacing: "-0.01em", color: ink }}>Placement</h2>
           <button onClick={onClose} aria-label="Close" style={{ background: lineSoft, border: `1px solid ${line}`, borderRadius: "50%", width: "30px", height: "30px", color: inkMuted, fontSize: "0.9rem", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>✕</button>
@@ -500,24 +678,74 @@ const PlacementModal = ({ student, onClose, onNavigateToCompany, companies, onMe
                 {applications.map(app => {
                   const appCompany = companies.find(c => c.id === app.companyId);
                   const sc = STATUS_COLORS[app.status] || { bg: color.wine400, color: ink };
+                  const reason = followUpReason(app);
+                  const notices = [];
+                  const closure = getPostClosure(app.postId, postsById);
+                  if (closure && app.status !== "Withdrawn") {
+                    notices.push(`${closure.detail}${["Pending", "In Review", "To Interview"].includes(app.status) ? " Application still open with the company." : ""}`);
+                  }
+                  if (app.affiliationWithdrawn) {
+                    notices.push(`Program affiliation withdrawn${app.affiliationWithdrawnLabel ? ` (${app.affiliationWithdrawnLabel})` : ""}${app.affiliationWithdrawnAt?.seconds ? ` on ${new Date(app.affiliationWithdrawnAt.seconds * 1000).toLocaleDateString()}` : ""}`);
+                  }
+                  if (!app.affiliationWithdrawn && app.affiliationRestoredAt?.seconds) {
+                    notices.push(`Program affiliation withdrawn${app.affiliationWithdrawnAt?.seconds ? ` on ${new Date(app.affiliationWithdrawnAt.seconds * 1000).toLocaleDateString()}` : ""} and restored on ${new Date(app.affiliationRestoredAt.seconds * 1000).toLocaleDateString()}`);
+                  }
+                  if (app.status === "Withdrawn") {
+                    notices.push(`Withdrawn by the student${app.withdrawnAt?.seconds ? ` on ${new Date(app.withdrawnAt.seconds * 1000).toLocaleDateString()}` : ""}${app.statusBeforeWithdrawal ? ` — was ${app.statusBeforeWithdrawal}` : ""}${app.withdrawalReason ? ` · Reason: ${[app.withdrawalReason, app.withdrawalReasonDetails].filter(Boolean).join(" — ")}` : ""}`);
+                  }
                   return (
-                    <div key={app.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px", background: color.wine800, border: `1px solid ${line}`, borderRadius: radius.card, padding: "10px 14px" }}>
+                    <div key={app.id} style={{ background: color.wine800, border: `1px solid ${reason ? "#F0D48A" : line}`, borderRadius: radius.card, padding: "10px 14px" }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px" }}>
                       <span style={{ fontFamily: font.ui, ...type.helper, color: inkBody, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {appCompany?.name || "Unknown company"}
+                        {/* The company name saved on the application keeps the record
+                            readable even if the company is no longer in this list. */}
+                        {appCompany?.name || app.companyName || "Unknown company"}
                       </span>
                       <div style={{ display: "flex", alignItems: "center", gap: "12px", flexShrink: 0 }}>
                         <span style={{ background: sc.bg, color: sc.color, borderRadius: radius.pill, padding: "3px 11px", fontFamily: font.ui, fontSize: "0.75rem", fontWeight: 500 }}>
                           {app.status}
                         </span>
-                        {appCompany && (
-                          <span
-                            onClick={() => handleVisitCompany(appCompany.id)}
-                            style={{ fontFamily: font.ui, ...type.helper, fontWeight: 500, color: ink, cursor: "pointer", whiteSpace: "nowrap", textDecoration: "underline", textUnderlineOffset: "3px" }}
-                          >
-                            View post
-                          </span>
-                        )}
+                        {/* Always available — works for expired, closed or deleted posts. */}
+                        <span
+                          onClick={() => setViewingPostApp(app)}
+                          style={{ fontFamily: font.ui, ...type.helper, fontWeight: 500, color: ink, cursor: "pointer", whiteSpace: "nowrap", textDecoration: "underline", textUnderlineOffset: "3px" }}
+                        >
+                          View post
+                        </span>
                       </div>
+                    </div>
+                    {notices.length > 0 && (
+                      <p style={{ fontFamily: font.ui, fontSize: "0.72rem", color: inkMuted, margin: "6px 0 0", lineHeight: 1.4 }}>
+                        {notices.join(" · ")}
+                      </p>
+                    )}
+                    {reason && (
+                      <p style={{ fontFamily: font.ui, fontSize: "0.72rem", fontWeight: 600, color: "#8a5a00", background: "#FFF3D6", border: "1px solid #F0D48A", borderRadius: "8px", padding: "4px 8px", margin: "6px 0 0", display: "inline-block" }}>
+                        ⚑ Follow-up needed: {reason}
+                      </p>
+                    )}
+                    {needsPlacementReview(app) && (
+                      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "8px" }}>
+                        <button
+                          onClick={() => setViewingPostApp(app)}
+                          style={{ background: color.white, color: ink, border: `1px solid ${line}`, borderRadius: radius.pill, padding: "5px 14px", cursor: "pointer", fontFamily: font.ui, fontSize: "0.75rem", fontWeight: 600 }}
+                        >
+                          Review post
+                        </button>
+                        <button
+                          onClick={() => markReviewed(app)}
+                          disabled={reviewingId === app.id}
+                          style={{ background: panel, color: onPanel, border: "none", borderRadius: radius.pill, padding: "5px 14px", cursor: reviewingId === app.id ? "not-allowed" : "pointer", opacity: reviewingId === app.id ? 0.7 : 1, fontFamily: font.ui, fontSize: "0.75rem", fontWeight: 600 }}
+                        >
+                          {reviewingId === app.id ? "Saving…" : "Mark as reviewed"}
+                        </button>
+                      </div>
+                    )}
+                    {app.status === "Accepted" && app.coordinatorReviewedAt?.seconds && (
+                      <p style={{ fontFamily: font.ui, fontSize: "0.72rem", color: "#2a7a2a", margin: "6px 0 0" }}>
+                        ✓ Placement reviewed on {new Date(app.coordinatorReviewedAt.seconds * 1000).toLocaleDateString()}
+                      </p>
+                    )}
                     </div>
                   );
                 })}
@@ -741,7 +969,7 @@ const useCollegeVariants = (coordinatorColleges) => {
   }, [coordinatorColleges, departments, departmentNames]);
 };
 
-const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany, onMessageStudent, initialViewingStudentId, onClearInitialViewingStudent, userIcon: themedUserIcon = blackUserIcon, viewIcon: themedViewIcon = blackViewIcon, onViewingStudentChange }) => {
+const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany, onMessageStudent, initialViewingStudentId, onClearInitialViewingStudent, userIcon: themedUserIcon = blackUserIcon, viewIcon: themedViewIcon = blackViewIcon, onViewingStudentChange, initialStatusFilter = "" }) => {
   const [search, setSearch]                 = useState("");
   const [viewingStudent, setViewingStudent] = useState(null);
   // Lets the dashboard's "?" help button and auto-tour switch to
@@ -751,7 +979,11 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
   const [showFilter, setShowFilter]         = useState(false);
   const [showExport, setShowExport]         = useState(false);
   const [exportingPdf, setExportingPdf]     = useState(false);
-  const [filters, setFilters]               = useState({ college: "", program: "", specialization: "", sex: "", section: "", status: "", batch: "" });
+  const [filters, setFilters]               = useState({ college: "", program: "", specialization: "", sex: "", section: "", status: initialStatusFilter || "", batch: "" });
+  // A dashboard notification can open this list pre-filtered (e.g. "Needs Follow-up").
+  useEffect(() => {
+    if (initialStatusFilter) setFilters(p => ({ ...p, status: initialStatusFilter }));
+  }, [initialStatusFilter]);
 
   const filterRef = useRef(null);
   const exportRef = useRef(null);
@@ -759,6 +991,8 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
   const [companies, setCompanies]   = useState([]);
   const [loadingStudents, setLoadingStudents] = useState(true);
   const [applicationsByStudent, setApplicationsByStudent] = useState({});
+  // Live post status (expired / closed / removed) behind every application.
+  const postsById = usePostsByIds(Object.values(applicationsByStudent).flat().map(a => a.postId));
 
   const collegeVariants = useCollegeVariants(coordinatorColleges);
   // FIX: `collegeVariants` can be a fresh array reference on every render
@@ -916,7 +1150,7 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
     setShowExport(false);
     setExportingPdf(true);
     try {
-      const rows = buildExportRows(filtered, applicationsByStudent, companies);
+      const rows = buildExportRows(filtered, applicationsByStudent, companies, postsById);
       const blob = await buildStudentPdf({
         rows,
         scope: describeExportScope(filters, search),
@@ -964,6 +1198,14 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
           </p>
         </div>
         <div className="sp-row-actions">
+        {needsFollowUp(applicationsByStudent[student.id]) && (
+          <span
+            title={(applicationsByStudent[student.id] || []).map(followUpReason).filter(Boolean).join("\n")}
+            style={{ background: "#FFF3D6", color: "#8a5a00", border: "1px solid #F0D48A", borderRadius: radius.pill, padding: "3px 10px", fontFamily: font.ui, fontSize: "0.72rem", fontWeight: 600, flexShrink: 0, whiteSpace: "nowrap" }}
+          >
+            ⚑ Follow-up
+          </span>
+        )}
         {sc ? (
           <span style={{ background: sc.bg, color: sc.color, borderRadius: radius.pill, padding: "3px 11px", fontFamily: font.ui, fontSize: "0.75rem", fontWeight: 500, flexShrink: 0 }}>
             {best.status}
@@ -1092,7 +1334,7 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
 
         {/* Status chips */}
         <div id="sl-status-chips" style={{ display: "flex", gap: space.sm, alignItems: "center", flexWrap: "wrap", marginBottom: space.md, width: "fit-content", maxWidth: "100%" }}>
-          {["All", "Accepted", "In Progress", "All Declined", "No Applications yet"].map((statusOption) => {
+          {["All", "Accepted", "In Progress", "All Declined", "Needs Follow-up", "No Applications yet"].map((statusOption) => {
             const isActive = statusOption === "All" ? filters.status === "" : filters.status === statusOption;
             // Each option keeps the colour of the status it represents, so the
             // chips and the row badges read as the same language.
@@ -1100,6 +1342,7 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
               statusOption === "Accepted"            ? "#358D5E" :
               statusOption === "In Progress"         ? "#CCC929" :
               statusOption === "All Declined"        ? "#FF0000" :
+              statusOption === "Needs Follow-up"     ? "#B7791F" :
               statusOption === "No Applications yet" ? "#A9A9A9" : panel;
             const activeText = statusOption === "All" ? onPanel : color.white;
 
@@ -1177,6 +1420,7 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
           student={viewingStudent}
           userIcon={themedUserIcon}
           companies={companies}
+          postsById={postsById}
           onClose={() => setViewingStudent(null)}
           onNavigateToCompany={(companyId, studentId) => {
             setViewingStudent(null);

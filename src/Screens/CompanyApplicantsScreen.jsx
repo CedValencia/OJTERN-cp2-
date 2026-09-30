@@ -14,6 +14,7 @@ import accountProfileIcon from "../icons/accountprofile.png";
 import aboutIcon          from "../icons/about.png";
 import downloadIcon       from "../icons/download.png";
 import pdfIcon            from "../icons/pdf.png";
+import imgIcon            from "../icons/img.png";
 import viewIcon           from "../icons/view.png";
 import reportIcon         from "../icons/report.png";
 
@@ -106,7 +107,13 @@ const STATUS_COLORS = {
   "Pending":      { bg: "#CCC929", color: ink },
   "In Review":    { bg: "#353A8D", color: color.white },
   "To Interview": { bg: "#7C2889", color: color.white },
+  // Set by the STUDENT (they cancelled the application). Never selectable
+  // here, so it's not in STATUS_OPTIONS — the company can only view it.
+  "Withdrawn":    { bg: "#6B6B6B", color: color.white },
 };
+
+// Statuses after which the company can no longer change anything.
+const LOCKED_STATUSES = ["Accepted", "Declined", "Withdrawn"];
 
 // Forward-only progression order. "Declined" isn't part of the sequence since
 // an applicant can be declined from any non-final stage.
@@ -250,9 +257,9 @@ const ResponsiveStyles = () => (
       background: ${surface};
       border: 1px solid ${line};
       border-radius: 18px;
-      width: min(460px, calc(100vw - 48px));
-      max-width: 100%;
-      max-height: 62vh;
+      width: 660px;
+      max-width: calc(100vw - 32px);
+      max-height: 80vh;
       overflow: hidden;
       display: flex;
       flex-direction: column;
@@ -261,7 +268,7 @@ const ResponsiveStyles = () => (
     @media (max-width: 560px) {
       .ca-modal-inner {
         width: calc(100vw - 72px);
-        max-height: 46vh;
+        max-height: 60vh;
         border-radius: 14px;
       }
     }
@@ -309,24 +316,38 @@ const ResponsiveStyles = () => (
       margin-bottom: 14px;
     }
 
-    /* File + status row: stack on small screens */
-    .ca-file-status-row {
+    /* Attached files: fixed-height scroll area so many files never push the footer around */
+    .ca-files-scroll {
+      max-height: 118px;
+      overflow-y: auto;
+      overflow-x: hidden;
+      padding: 8px 8px 2px 0;   /* room for the download badge that sticks out at the top-right */
       display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
       flex-wrap: wrap;
-      gap: 16px;
+      gap: 10px;
+      align-content: flex-start;
     }
+    .ca-files-scroll::-webkit-scrollbar { width: 6px; }
+    .ca-files-scroll::-webkit-scrollbar-thumb { background: ${line}; border-radius: 3px; }
 
-    /* Status block: align right on desktop, left on mobile */
-    .ca-status-block {
+    /* Footer: pinned below the scrolling body (Status + Message + Report) */
+    .ca-modal-footer {
+      flex-shrink: 0;
+      border-top: 1px solid ${line};
+      background: ${surface};
+      padding: 12px 20px 14px;
       display: flex;
       flex-direction: column;
       align-items: flex-end;
       gap: 10px;
     }
-    @media (max-width: 480px) {
-      .ca-status-block { align-items: flex-start; }
+    @media (max-width: 560px) {
+      .ca-modal-footer { padding: 10px 14px 12px; gap: 8px; }
+    }
+    .ca-footer-note {
+      max-height: 56px;
+      overflow-y: auto;
+      text-align: right;
     }
 
     /* ── Status description popup ── */
@@ -427,7 +448,7 @@ const StudentAvatar = ({ size = 42 }) => (
 );
 
 // ── StatusDropdown ─────────────────────────────────────────────────────────────
-const StatusDropdown = ({ status, onChange, open, setOpen, locked = false, disabledOptions = [] }) => {
+const StatusDropdown = ({ status, onChange, open, setOpen, locked = false, disabledOptions = [], dropUp = false }) => {
   const ref = useRef(null);
   const current = STATUS_COLORS[status] || { bg: color.wine400, color: ink };
 
@@ -462,7 +483,7 @@ const StatusDropdown = ({ status, onChange, open, setOpen, locked = false, disab
       )}
       {open && !locked && (
         <div style={{
-          position: "absolute", top: "calc(100% + 6px)", right: 0,
+          position: "absolute", ...(dropUp ? { bottom: "calc(100% + 6px)" } : { top: "calc(100% + 6px)" }), right: 0,
           background: surface, border: `1px solid ${line}`, borderRadius: radius.card, padding: "8px",
           zIndex: 9999, display: "flex", flexDirection: "column", gap: "4px",
           minWidth: "130px", boxShadow: shadow.panel,
@@ -505,7 +526,8 @@ const StatusDropdown = ({ status, onChange, open, setOpen, locked = false, disab
 };
 
 const AttachedFileChip = ({ file }) => {
-  const isPng = /\.png$/i.test(file.name || "");
+  // Images (PNG/JPG/etc.) get the img icon; anything else (PDF) gets the pdf icon.
+  const isImage = /\.(png|jpe?g|gif|webp)$/i.test(file.name || "") || /^image\//i.test(file.type || "");
   const [downloading, setDownloading] = useState(false);
 
   // NOTE: We deliberately avoid Cloudinary's `fl_attachment:<filename>` URL
@@ -544,7 +566,7 @@ const AttachedFileChip = ({ file }) => {
       style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", gap: "4px", cursor: downloading ? "wait" : "pointer", opacity: downloading ? 0.6 : 1, userSelect: "none" }}
     >
       <div style={{ position: "relative", width: "68px", height: "78px" }}>
-        <img src={pdfIcon} alt={isPng ? "PNG" : "PDF"} style={{ position: "absolute", top: 0, left: 0, width: "68px", height: "78px", objectFit: "contain", zIndex: 1 }} />
+        <img src={isImage ? imgIcon : pdfIcon} alt={isImage ? "Image" : "PDF"} style={{ position: "absolute", top: 0, left: 0, width: "68px", height: "78px", objectFit: "contain", zIndex: 1 }} />
         <img src={downloadIcon} alt="Download" style={{ position: "absolute", top: "-6px", right: "-6px", width: "24px", height: "24px", objectFit: "contain", zIndex: 2 }} />
       </div>
       <span style={{ fontFamily: font.ui, fontSize: "0.7rem", color: inkMuted, textAlign: "center", wordBreak: "break-all", maxWidth: "80px", lineHeight: 1.3, marginTop: "4px" }}>
@@ -610,19 +632,22 @@ const ReportApplicantModal = ({ applicant, reporter, onClose, onSubmitted }) => 
   const [step, setStep]                 = useState(1);
   const [selected, setSelected]         = useState(null);
   const [description, setDescription]   = useState("");
-  const [attachedFile, setAttachedFile] = useState(null); // { name, type, url (local preview), file (raw) }
+  const [attachedFiles, setAttachedFiles] = useState([]); // [{ name, type, file (raw) }]
   const [submitting, setSubmitting]     = useState(false);
   const [submitError, setSubmitError]   = useState("");
   const [alertMsg, setAlertMsg]         = useState("");
   const fileRef = useRef();
 
   const handleFile = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    if (!["image/png", "application/pdf"].includes(file.type)) { setAlertMsg("That file type isn't supported. Attach a PNG or a PDF."); return; }
-    const MAX_SIZE = 10 * 1024 * 1024; // 10MB
-    if (file.size > MAX_SIZE) { setAlertMsg("That file is over 10MB. Attach a smaller one."); return; }
-    setAttachedFile({ name: file.name, type: file.type, url: URL.createObjectURL(file), file });
+    const picked = Array.from(e.target.files || []);
+    e.target.value = "";
+    if (!picked.length) return;
+    if (picked.some(f => !["image/png", "application/pdf"].includes(f.type))) { setAlertMsg("That file type isn't supported. Attach PNG or PDF files only."); return; }
+    const MAX_TOTAL = 10 * 1024 * 1024; // 10MB combined
+    const current = attachedFiles.reduce((sum, a) => sum + (a.file?.size || 0), 0);
+    const added   = picked.reduce((sum, f) => sum + f.size, 0);
+    if (current + added > MAX_TOTAL) { setAlertMsg("Your files can't add up to more than 10MB in total."); return; }
+    setAttachedFiles(prev => [...prev, ...picked.map(file => ({ name: file.name, type: file.type, file }))]);
   };
 
   const uploadToCloudinary = async (file) => {
@@ -644,14 +669,11 @@ const ReportApplicantModal = ({ applicant, reporter, onClose, onSubmitted }) => 
     // company can only ever file against a student.
     if (!isReportableApplicant(applicant)) { setAlertMsg("Only student applicants can be reported from this screen."); return; }
     if (!description.trim()) { setAlertMsg("Add a description of what happened."); return; }
-    if (!attachedFile)       { setAlertMsg("Attach a file that supports your report."); return; }
+    if (attachedFiles.length === 0)       { setAlertMsg("Attach a file that supports your report."); return; }
     setSubmitting(true);
     setSubmitError("");
     try {
-      let fileData = null;
-      if (attachedFile?.file) {
-        fileData = await uploadToCloudinary(attachedFile.file);
-      }
+      const filesData = await Promise.all(attachedFiles.map(a => uploadToCloudinary(a.file)));
 
       const reportDoc = {
         // `applicant.id` is the applications document id, so the student's own
@@ -662,7 +684,8 @@ const ReportApplicantModal = ({ applicant, reporter, onClose, onSubmitted }) => 
         reportedRole:   "student",
         concern:        selected?.label || "Others",
         description,
-        attachedFile:   fileData,
+        attachedFile:   filesData[0] || null, // first file, kept for older readers
+        attachedFiles:  filesData,
         reportedBy:     reporter?.uid || "",
         reporterName:   applicant.companyName || reporter?.companyName || reporter?.name || "Unknown",
         reporterRole:   "company",
@@ -672,7 +695,7 @@ const ReportApplicantModal = ({ applicant, reporter, onClose, onSubmitted }) => 
       };
 
       await addDoc(collection(db, "reports"), reportDoc);
-      onSubmitted?.({ ...reportDoc, attachedFile: fileData || attachedFile });
+      onSubmitted?.({ ...reportDoc, attachedFile: filesData[0] || null, attachedFiles: filesData });
       onClose();
     } catch (err) {
       setSubmitError(err.message || "The report didn't send. Try again.");
@@ -745,29 +768,25 @@ const ReportApplicantModal = ({ applicant, reporter, onClose, onSubmitted }) => 
               </div>
               <div id="creport-evidence">
               <p style={{ fontFamily: font.ui, ...type.label, color: ink, marginBottom: "4px" }}>Attach evidence</p>
-              <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, marginBottom: "10px" }}>PNG or PDF, up to 10MB.</p>
-              <input ref={fileRef} type="file" accept=".png,.pdf" style={{ display: "none" }} onChange={handleFile} />
-              {!attachedFile ? (
-                <button onClick={() => fileRef.current.click()} style={{ display: "flex", alignItems: "center", gap: "10px", background: color.wine800, border: `1px dashed ${color.wine400}`, borderRadius: radius.card, padding: "12px 18px", cursor: "pointer", fontFamily: font.ui, ...type.control, color: ink }}>
-                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={inkMuted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
-                  </svg>
-                  Choose a file
-                </button>
-              ) : (
-                <div style={{ display: "flex", alignItems: "center", gap: "10px", background: color.wine800, border: `1px solid ${line}`, padding: "10px 14px", borderRadius: radius.card }}>
-                  {attachedFile.type.startsWith("image/") ? (
-                    <img src={attachedFile.url} alt="Attachment preview" style={{ width: "44px", height: "44px", objectFit: "cover", borderRadius: "10px" }} />
-                  ) : (
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={inkMuted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                      <polyline points="14 2 14 8 20 8"/>
-                    </svg>
-                  )}
-                  <span style={{ fontFamily: font.ui, ...type.helper, color: inkBody, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{attachedFile.name}</span>
-                  <button onClick={() => setAttachedFile(null)} aria-label="Remove file" style={{ marginLeft: "auto", background: "none", border: "none", cursor: "pointer", color: inkMuted, fontSize: "0.95rem" }}>✕</button>
+              <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, marginBottom: "10px" }}>PNG or PDF, up to 10MB in total. You can attach more than one file.</p>
+              <input ref={fileRef} type="file" accept=".png,.pdf" multiple style={{ display: "none" }} onChange={handleFile} />
+              {attachedFiles.length > 0 && (
+                <div style={{ maxHeight: "132px", overflowY: "auto", overflowX: "hidden", padding: "8px 8px 2px 0", display: "flex", flexWrap: "wrap", gap: "10px", alignContent: "flex-start", marginBottom: "10px" }}>
+                  {attachedFiles.map((a, idx) => (
+                    <div key={idx} style={{ position: "relative", width: "84px", display: "flex", flexDirection: "column", alignItems: "center", gap: "4px" }}>
+                      <img src={/^image\//i.test(a.type || "") ? imgIcon : pdfIcon} alt="" style={{ width: "52px", height: "60px", objectFit: "contain", display: "block" }} />
+                      <span title={a.name} style={{ fontFamily: font.ui, fontSize: "0.68rem", color: inkBody, textAlign: "center", wordBreak: "break-all", maxWidth: "84px", lineHeight: 1.3 }}>{a.name}</span>
+                      <button onClick={() => setAttachedFiles(prev => prev.filter((_, i) => i !== idx))} aria-label={`Remove ${a.name}`} style={{ position: "absolute", top: "-6px", right: "6px", width: "20px", height: "20px", borderRadius: "50%", background: color.wine800, border: `1px solid ${line}`, cursor: "pointer", color: inkMuted, fontSize: "0.85rem", lineHeight: 1, padding: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>&times;</button>
+                    </div>
+                  ))}
                 </div>
               )}
+              <button onClick={() => fileRef.current.click()} style={{ display: "flex", alignItems: "center", gap: "10px", background: color.wine800, border: `1px dashed ${color.wine400}`, borderRadius: radius.card, padding: "12px 18px", cursor: "pointer", fontFamily: font.ui, ...type.control, color: ink }}>
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={inkMuted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+                </svg>
+                {attachedFiles.length > 0 ? "Add more files" : "Choose files"}
+              </button>
               </div>
             </>
           )}
@@ -878,7 +897,7 @@ const PersonalDetailsModal = ({ applicant, onClose, onStatusChange, onMessage, u
 
   return (
     <>
-      <div style={{ position: "fixed", inset: 0, background: "rgba(10,10,10,0.50)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: "16px" }}>
+      <div style={{ position: "fixed", inset: 0, background: "rgba(10,10,10,0.50)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: "clamp(16px, 5vw, 24px)" }}>
         <div className="ca-modal-inner">
 
           {/* Header */}
@@ -933,90 +952,100 @@ const PersonalDetailsModal = ({ applicant, onClose, onStatusChange, onMessage, u
 
             <hr style={{ border: "none", borderTop: `1px solid ${line}`, margin: "16px 0" }} />
 
-            {/* File + Status */}
-            <div className="ca-file-status-row">
-              <div id="cappd-files">
-                <FieldLabel>Attached File</FieldLabel>
-                {applicant.attachedFiles && applicant.attachedFiles.length > 0
-                  ? <div style={{ display: "flex", flexWrap: "wrap", gap: "10px" }}>
-                      {applicant.attachedFiles.map((file, idx) => <AttachedFileChip key={idx} file={file} />)}
-                    </div>
-                  : <span style={{ fontFamily: font.ui, ...type.helper, color: inkFaint, fontStyle: "italic" }}>No file attached</span>
-                }
-              </div>
+            {/* Attached files — own scroll area */}
+            <div id="cappd-files">
+              <FieldLabel>Attached File</FieldLabel>
+              {applicant.attachedFiles && applicant.attachedFiles.length > 0
+                ? <div className="ca-files-scroll">
+                    {applicant.attachedFiles.map((file, idx) => <AttachedFileChip key={idx} file={file} />)}
+                  </div>
+                : <span style={{ fontFamily: font.ui, ...type.helper, color: inkFaint, fontStyle: "italic" }}>No file attached</span>
+              }
+            </div>
+          </div>
 
-              <div className="ca-status-block">
-                <div id="cappd-status" style={{ display: "flex", alignItems: "center", gap: "10px", width: "fit-content", maxWidth: "100%" }}>
-                  <FieldLabel style={{ margin: 0 }}>Status:</FieldLabel>
-                  <StatusDropdown
-                    status={applicant.status}
-                    onChange={(next) => { if (next !== applicant.status) setPendingStatus(next); }}
-                    open={dropdownOpen}
-                    setOpen={setDropdownOpen}
-                    locked={applicant.status === "Accepted" || applicant.status === "Declined"}
-                    disabledOptions={getDisabledStatusOptions(applicant.status)}
-                  />
-                </div>
+          {/* Footer — stays put, never scrolls with the body */}
+          <div className="ca-modal-footer">
+            <div id="cappd-status" style={{ display: "flex", alignItems: "center", gap: "10px", width: "fit-content", maxWidth: "100%" }}>
+              <FieldLabel style={{ margin: 0 }}>Status:</FieldLabel>
+              <StatusDropdown
+                status={applicant.status}
+                onChange={(next) => { if (next !== applicant.status) setPendingStatus(next); }}
+                open={dropdownOpen}
+                setOpen={setDropdownOpen}
+                locked={LOCKED_STATUSES.includes(applicant.status)}
+                disabledOptions={getDisabledStatusOptions(applicant.status)}
+                dropUp
+              />
+            </div>
+
+            <div id="cappd-actions" style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap", justifyContent: "flex-end", maxWidth: "100%" }}>
+              <button
+                onClick={() => { if (canMessage) onMessage(applicant); }}
+                disabled={!canMessage}
+                aria-disabled={!canMessage}
+                title={canMessage ? "" : "Move this applicant to In Review before sending a message."}
+                style={{
+                  display: "flex", alignItems: "center", gap: "8px",
+                  background: panel, border: "none", borderRadius: radius.pill,
+                  padding: "9px 18px", cursor: canMessage ? "pointer" : "not-allowed",
+                  color: onPanel, opacity: canMessage ? 1 : 0.45,
+                  fontFamily: font.ui, ...type.control,
+                  transition: `background 220ms ${ease}`,
+                }}
+                onMouseEnter={e => { if (canMessage) e.currentTarget.style.background = panelDeep; }}
+                onMouseLeave={e => { if (canMessage) e.currentTarget.style.background = panel; }}
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                </svg>
+                Message
+              </button>
+
+              {canReport && (
+                <button
+                  onClick={() => setShowReport(true)}
+                  title="Report this applicant"
+                  style={{
+                    display: "flex", alignItems: "center", gap: "8px",
+                    background: "transparent", border: `1px solid ${line}`, borderRadius: radius.pill,
+                    padding: "8px 16px", cursor: "pointer", color: inkBody,
+                    fontFamily: font.ui, ...type.control,
+                    transition: `background 220ms ${ease}`,
+                  }}
+                  onMouseEnter={e => (e.currentTarget.style.background = color.wine800)}
+                  onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+                >
+                  <img src={reportIcon} alt="" style={{ width: "16px", height: "16px", objectFit: "contain", opacity: 0.75 }} />
+                  Report
+                </button>
+              )}
+            </div>
+
+            {(applicant.status === "Accepted" || applicant.status === "Declined" || applicant.status === "Withdrawn" || !canMessage) && (
+              <div className="ca-footer-note">
                 {(applicant.status === "Accepted" || applicant.status === "Declined") && (
                   <span style={{ fontFamily: font.ui, ...type.helper, color: inkFaint, fontStyle: "italic" }}>
                     This applicant has been {applicant.status.toLowerCase()}. Status is locked and can no longer be changed.
                   </span>
                 )}
-
-                {dropdownOpen && (
-                  <div style={{ height: DROPDOWN_HEIGHT, flexShrink: 0 }} aria-hidden="true" />
+                {applicant.status === "Withdrawn" && (
+                  <span style={{ fontFamily: font.ui, ...type.helper, color: inkFaint, fontStyle: "italic" }}>
+                    The student withdrew this application
+                    {applicant.withdrawnAt?.seconds ? ` on ${new Date(applicant.withdrawnAt.seconds * 1000).toLocaleDateString()}` : ""}
+                    {applicant.statusBeforeWithdrawal ? ` (it was ${applicant.statusBeforeWithdrawal})` : ""}.
+                    {applicant.withdrawalReason ? ` Reason: ${[applicant.withdrawalReason, applicant.withdrawalReasonDetails].filter(Boolean).join(" — ")}.` : ""}
+                    {" "}It's kept on record and can no longer be changed.
+                    {applicant.statusBeforeWithdrawal === "Accepted" ? " The slot has been returned to your post." : ""}
+                  </span>
                 )}
-
-                <div id="cappd-actions" style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap", width: "fit-content", maxWidth: "100%" }}>
-                <button
-                  onClick={() => { if (canMessage) onMessage(applicant); }}
-                  disabled={!canMessage}
-                  aria-disabled={!canMessage}
-                  title={canMessage ? "" : "Move this applicant to In Review before sending a message."}
-                  style={{
-                    display: "flex", alignItems: "center", gap: "8px",
-                    background: panel, border: "none", borderRadius: radius.pill,
-                    padding: "9px 18px", cursor: canMessage ? "pointer" : "not-allowed",
-                    color: onPanel, opacity: canMessage ? 1 : 0.45,
-                    fontFamily: font.ui, ...type.control,
-                    transition: `background 220ms ${ease}`,
-                  }}
-                  onMouseEnter={e => { if (canMessage) e.currentTarget.style.background = panelDeep; }}
-                  onMouseLeave={e => { if (canMessage) e.currentTarget.style.background = panel; }}
-                >
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-                  </svg>
-                  Message
-                </button>
-
-                {canReport && (
-                  <button
-                    onClick={() => setShowReport(true)}
-                    title="Report this applicant"
-                    style={{
-                      display: "flex", alignItems: "center", gap: "8px",
-                      background: "transparent", border: `1px solid ${line}`, borderRadius: radius.pill,
-                      padding: "8px 16px", cursor: "pointer", color: inkBody,
-                      fontFamily: font.ui, ...type.control,
-                      transition: `background 220ms ${ease}`,
-                    }}
-                    onMouseEnter={e => (e.currentTarget.style.background = color.wine800)}
-                    onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
-                  >
-                    <img src={reportIcon} alt="" style={{ width: "16px", height: "16px", objectFit: "contain", opacity: 0.75 }} />
-                    Report
-                  </button>
-                )}
-                </div>
-
                 {!canMessage && (
                   <span style={{ fontFamily: font.ui, ...type.helper, color: inkFaint, fontStyle: "italic" }}>
                     Set the status to In Review before you can message this applicant.
                   </span>
                 )}
               </div>
-            </div>
+            )}
           </div>
         </div>
       </div>
@@ -1195,6 +1224,28 @@ const CompanyApplicantsScreen = ({ embedded = false, onNavigateToMessages, user,
     }, err => console.error("Applicants fetch error:", err));
     return () => unsub();
   }, [user?.uid]);
+
+  // Give the slot back when an ACCEPTED student withdraws. The student marks
+  // the application `slotReturned: false`; the company owns the post, so this
+  // screen performs the post write. A transaction re-checks the flag first, so
+  // the slot is returned exactly once even with two tabs open.
+  useEffect(() => {
+    const pendingReturns = applicants.filter(a =>
+      a.status === "Withdrawn" && a.statusBeforeWithdrawal === "Accepted" && a.slotReturned === false && a.postId
+    );
+    pendingReturns.forEach(a => {
+      runTransaction(db, async (tx) => {
+        const appRef  = doc(db, "applications", a.id);
+        const postRef = doc(db, "ojt_posts", a.postId);
+        const [appSnap, postSnap] = await Promise.all([tx.get(appRef), tx.get(postRef)]);
+        if (!appSnap.exists() || appSnap.data().slotReturned !== false) return;
+        if (postSnap.exists()) {
+          tx.update(postRef, { slot: (postSnap.data().slot ?? 0) + 1 });
+        }
+        tx.update(appRef, { slotReturned: true, slotReturnedAt: serverTimestamp() });
+      }).catch(err => console.error("Failed to return slot for withdrawn applicant:", err));
+    });
+  }, [applicants]);
   const [search, setSearch]                     = useState("");
   const [viewingApplicant, setViewingApplicant] = useState(null);
   const [detailSub, setDetailSub]               = useState("detail");
@@ -1278,8 +1329,8 @@ const CompanyApplicantsScreen = ({ embedded = false, onNavigateToMessages, user,
     if (current?.status === newStatus) {
       return;
     }
-    // Accepted/Declined are final — no further changes.
-    if (current?.status === "Accepted" || current?.status === "Declined") {
+    // Accepted/Declined/Withdrawn are final — no further changes.
+    if (LOCKED_STATUSES.includes(current?.status)) {
       console.warn(`Blocked status change: applicant already ${current.status}.`);
       return;
     }
@@ -1296,7 +1347,32 @@ const CompanyApplicantsScreen = ({ embedded = false, onNavigateToMessages, user,
     if (viewingApplicant?.id === id) setViewingApplicant(prev => ({ ...prev, status: newStatus, statusNote: note }));
     // Persist to Firestore
     try {
-      await updateDoc(doc(db, "applications", id), { status: newStatus, statusNote: note });
+      await updateDoc(doc(db, "applications", id), {
+        status: newStatus,
+        statusNote: note,
+        // Accepted placements must be reviewed by the student's coordinator
+        // (⚑ Review placement in their Student List until marked reviewed).
+        ...(newStatus === "Accepted" ? { placementReviewRequired: true, acceptedAt: serverTimestamp() } : {}),
+      });
+
+      if (newStatus === "Accepted") {
+        // Best-effort: the acceptance above is already saved.
+        const studentName = [current?.firstName, current?.lastName].filter(Boolean).join(" ") || current?.studentName || "A student";
+        addDoc(collection(db, "notifications"), {
+          recipientRole:      "coordinator",
+          department:         current?.college || "",
+          program:            current?.program || "",
+          type:               "application_accepted",
+          applicantStudentId: current?.studentId || "",   // NOT studentId — keeps it out of the student's bell
+          studentName,
+          companyId:          current?.companyId || "",
+          companyName:        current?.companyName || "",
+          applicationId:      id,
+          message:            `${studentName} was ACCEPTED by ${current?.companyName || "a company"}. Please review the placement.`,
+          readBy:             [],
+          createdAt:          serverTimestamp(),
+        }).catch(err => console.error("Accepted, but notifying the coordinator failed:", err));
+      }
 
       // When a student is accepted, the specific post they applied to has
       // one fewer open slot. Uses a transaction (not a plain increment) so
@@ -1400,7 +1476,7 @@ const CompanyApplicantsScreen = ({ embedded = false, onNavigateToMessages, user,
 
       {/* Status chips */}
       <div id="capp-status-chips" style={{ display: "flex", gap: space.sm, alignItems: "center", flexWrap: "wrap", marginBottom: space.md }}>
-        {["All", "Accepted", "Declined", "Pending", "In Review", "To Interview"].map((statusOption) => {
+        {["All", "Accepted", "Declined", "Pending", "In Review", "To Interview", "Withdrawn"].map((statusOption) => {
           const isActive = statusOption === "All" ? filters.status === "" : filters.status === statusOption;
           // Each option keeps the colour of the status it represents, so the
           // chips and the row badges read as the same language.

@@ -35,6 +35,7 @@ import blueUserIcon          from "../icons/blueuser.png";
 import yellowUserIcon        from "../icons/yellowuser.png";
 import pinkUserIcon          from "../icons/pinkuser.png";
 import violetUserIcon        from "../icons/violetuser.png";
+import greyUserIcon          from "../icons/greyuser.png";
 import redCompanyProfileIcon    from "../icons/redcompanyprofile.png";
 import blueCompanyProfileIcon   from "../icons/bluecompanyprofile.png";
 import yellowCompanyProfileIcon from "../icons/yellowcompanyprofile.png";
@@ -71,6 +72,7 @@ const USER_ICON_BY_THEME = {
   violet:  violetUserIcon,
   pink:    pinkUserIcon,
   yellow:  yellowUserIcon,
+  grey:    greyUserIcon,
 };
 const COMPANY_PROFILE_ICON_BY_THEME = {
   default: blackCompanyProfileIcon,
@@ -156,6 +158,11 @@ const computeSetupStage = (data = {}, authUser = null) => {
   const changedAtMs  = typeof data.passwordChangedAt?.toMillis === "function" ? data.passwordChangedAt.toMillis() : null;
   const signedInAtMs = authUser?.metadata?.lastSignInTime ? Date.parse(authUser.metadata.lastSignInTime) : null;
   if (changedAtMs && signedInAtMs && signedInAtMs < changedAtMs) return "relogin";
+
+  // A coordinator changed this student's name / Student ID / department (see
+  // updateStudentAccount in functions/index.js): the student re-checks their
+  // Personal Information once before the dashboard opens again.
+  if (data.mustReviewProfile === true) return "personal";
 
   // Personal information: a recovery email, plus every profile field the
   // coordinator's import didn't supply (program, sex, age, ...). Existing
@@ -2310,7 +2317,13 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
       where("studentId", "==", user.uid)
     );
     const unsub = onSnapshot(q, snap => {
-      const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const docs = snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        // Older withdrawal notices addressed to the company (recipientId) or
+        // coordinators (recipientRole) also carried the student's studentId,
+        // so they appeared here as "<your name> withdrew their application".
+        // Only notices actually meant for the student are shown.
+        .filter(n => !n.recipientId && n.recipientRole !== "coordinator");
       docs.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
       setNotifications(docs);
     }, (err) => {
@@ -2383,6 +2396,7 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
     RESPONDABLE_ACTIONS.includes(String(n?.action || "").trim()) && !!n?.reportId;
   const [seenTours, setSeenTours]               = useState(null);
   const [seenToursLoaded, setSeenToursLoaded]   = useState(false);
+  const [isReturningReset, setIsReturningReset] = useState(false);
 
   // Step 1 — Set new password
   const [currentPass, setCurrentPass]           = useState("");
@@ -2413,7 +2427,11 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
       // stage na hindi "done" (existing/returning account), hindi kailanman
       // magkakaroon ng `seenTours` field — kaya manual "?" button lang, walang
       // auto-tour.
-      if (stage !== "done" && !data.seenTours) {
+      // A returning student whose details were reset by a coordinator goes
+      // through password + personal info again, but it is NOT a first visit:
+      // no auto help tours, and the theme they picked stays.
+      setIsReturningReset(data.returningAccountReset === true);
+      if (stage !== "done" && !data.seenTours && data.returningAccountReset !== true) {
         setDoc(doc(db, "students", uid), { seenTours: {} }, { merge: true }).catch((err) =>
           console.error("Failed to initialize onboarding tour tracking:", err)
         );
@@ -2451,19 +2469,45 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
   // "personal" clears the moment PersonalInfoScreen saves.
   const passwordTourFired = useRef(false);
   useEffect(() => {
-    if (setupStage !== "password" || passwordTourFired.current) return;
+    if (setupStage !== "password" || passwordTourFired.current || isReturningReset) return;
     passwordTourFired.current = true;
     const t = setTimeout(() => runTour(STUDENT_CHANGE_PASSWORD_STEPS), AUTO_TOUR_DELAY_MS);
     return () => clearTimeout(t);
-  }, [setupStage]);
+  }, [setupStage, isReturningReset]);
 
   const editInfoTourFired = useRef(false);
   useEffect(() => {
-    if (setupStage !== "personal" || editInfoTourFired.current) return;
+    if (setupStage !== "personal" || editInfoTourFired.current || isReturningReset) return;
     editInfoTourFired.current = true;
     const t = setTimeout(() => runTour(STUDENT_EDIT_INFO_STEPS), AUTO_TOUR_DELAY_MS);
     return () => clearTimeout(t);
-  }, [setupStage]);
+  }, [setupStage, isReturningReset]);
+
+  // Signs the student out the moment a coordinator resets their account
+  // (credentialsResetAt newer than this session's sign-in). The server also
+  // revokes their sessions, but that only bites at the next token refresh.
+  // The sign-in screen then explains what happened (see SignInScreen).
+  const resetLogoutFired = useRef(false);
+  useEffect(() => {
+    if (!user?.uid) return;
+    const unsub = onSnapshot(doc(db, "students", user.uid), (snap) => {
+      const d = snap.data() || {};
+      const resetMs  = typeof d.credentialsResetAt?.toMillis === "function" ? d.credentialsResetAt.toMillis() : null;
+      const signedIn = getAuth().currentUser?.metadata?.lastSignInTime;
+      const signedInMs = signedIn ? Date.parse(signedIn) : null;
+      if (!resetMs || !signedInMs || signedInMs >= resetMs || resetLogoutFired.current) return;
+      resetLogoutFired.current = true;
+      try {
+        sessionStorage.setItem("ojtern.signInNotice", JSON.stringify({
+          role: "student",
+          message: "Your coordinator updated your account details. Log in with your updated Student ID and the default password your coordinator gave you, then set a new password.",
+        }));
+      } catch { /* storage unavailable — the sign-in still works */ }
+      logOut().catch(err => console.error("Logout after account reset failed:", err)).finally(() => onLogout?.());
+    }, (err) => console.error("Failed to watch account status:", err));
+    return () => unsub();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.uid]);
 
   // Child screens get the freshly saved personal email even before the parent
   // reloads the profile (e.g. to pre-fill the application form).
@@ -2727,6 +2771,7 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
     if (activeNav === "coordinators") return (
       <StudentCoordinatorsScreen
         embedded
+        userIcon={themedUserIcon}
         user={effectiveUser}
         onViewChange={setScreenSubView}
         onNavigateToMessages={(contact) => { setPendingContact(contact); navigate("messages"); }}

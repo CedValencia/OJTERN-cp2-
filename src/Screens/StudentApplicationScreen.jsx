@@ -1,9 +1,14 @@
 import React, { useState, useRef, useEffect } from "react";
 import { collection, addDoc, serverTimestamp, onSnapshot, query, where, doc, getDoc, updateDoc, deleteDoc, getDocs } from "firebase/firestore";
 import { db } from "./firebase";
+import { isStudentEligibleForPost } from "./affiliationService";
+import { usePostsByIds, getPostClosure } from "./useEligibleOjtPosts";
 import { uploadFilesToFolder } from "./CloudinaryService";
 import blackCompanyProfileIcon from "../icons/blackcompanyprofile.png";
 import { color, font, type, space, radius, shadow, ease } from "./theme";
+import pdfIcon      from "../icons/pdf.png";
+import imgIcon      from "../icons/img.png";
+import downloadIcon from "../icons/download.png";
 
 // ─── COLORS ───────────────────────────────────────────────────────────────────
 const darkRed = "#590101";
@@ -11,7 +16,12 @@ const red = "#8B0000";
 
 // ── Application status colors — kept consistent with CompanyApplicantsScreen's
 //    STATUS_COLORS (bg-only here since the row badge already sets its own text color).
-const APP_STATUS_COLORS = { "Pending": "#CCC929", "In Review": "#353A8D", "To Interview": "#7C2889", "Accepted": "#358D5E", "Declined": "#FF0000" };
+const APP_STATUS_COLORS = { "Pending": "#CCC929", "In Review": "#353A8D", "To Interview": "#7C2889", "Accepted": "#358D5E", "Declined": "#FF0000", "Withdrawn": "#6B6B6B" };
+
+// "Withdrawn" = the student cancelled this application themselves. It replaces
+// deleting: the record stays for the student, company and coordinator, is
+// read-only for everyone, and doesn't block re-applying to the same post.
+const WITHDRAWN = "Withdrawn";
 const black = "#000000";
 
 // ── Design tokens, aliased the same way as CoordinatorStudentListScreen so
@@ -38,6 +48,7 @@ const STATUS_COLORS = {
   "Pending":      { bg: "#CCC929", color: ink },
   "In Review":    { bg: "#353A8D", color: color.white },
   "To Interview": { bg: "#7C2889", color: color.white },
+  "Withdrawn":    { bg: "#6B6B6B", color: color.white },
 };
 
 // TODO: Replace with real application data from backend
@@ -2336,18 +2347,23 @@ const ResponsiveStyles = () => (
     .sa-list-area {
       display: flex;
       flex-direction: column;
-      gap: ${space.sm};
+      gap: 10px;
     }
     .sa-app-row {
       background: ${surface};
       border: 1px solid ${line};
-      border-radius: ${radius.pill};
+      border-radius: ${radius.card};
+      padding: 14px 20px;
+      min-width: 0;
       box-shadow: ${shadow.input};
       transition: border-color 200ms ${ease}, box-shadow 200ms ${ease};
     }
     .sa-app-row:hover {
       border-color: ${color.hoverBorder};
-      box-shadow: 0 8px 22px rgba(10,10,10,0.08);
+      box-shadow: 0 6px 20px rgba(10,10,10,0.08);
+    }
+    @media (max-width: 560px) {
+      .sa-app-row { padding: 12px 14px; }
     }
     .sa-list-wrapper :focus-visible {
       outline: none;
@@ -2433,7 +2449,8 @@ const ResponsiveStyles = () => (
       background: #FFFFFF;
       border-radius: 18px;
       overflow: hidden;
-      width: min(460px, calc(100vw - 48px));
+      width: 660px;
+      max-width: calc(100vw - 32px);
       max-height: 80vh;
       display: flex;
       flex-direction: column;
@@ -2498,6 +2515,21 @@ const ResponsiveStyles = () => (
     @media (max-width: 560px) {
       .sa-view-modal-body { padding: 14px; }
     }
+
+    /* Attached files: fixed-height scroll area so lots of files never push the
+       footer buttons around (apply form + view application) */
+    .sa-files-scroll {
+      max-height: 132px;
+      overflow-y: auto;
+      overflow-x: hidden;
+      padding: 8px 8px 2px 0;   /* room for the remove / download badge at the top-right */
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-content: flex-start;
+    }
+    .sa-files-scroll::-webkit-scrollbar { width: 6px; }
+    .sa-files-scroll::-webkit-scrollbar-thumb { background: ${line}; border-radius: 3px; }
 
     /* ── Modal body ── */
     .sa-modal-body {
@@ -2643,6 +2675,14 @@ const ResponsiveStyles = () => (
       box-shadow: ${shadow.panel};
       padding: 28px 26px 22px;
       text-align: center;
+    }
+    /* Desktop only: same container size as CoordinatorStudentsAcccountScreen's student modal. */
+    @media (min-width: 561px) {
+      .sa-confirm-inner {
+        width: 660px;
+        max-width: calc(100vw - 32px);
+        max-height: 80vh !important;
+      }
     }
 
     /* ── Success confirmation popup — same card language as the modal ── */
@@ -2918,25 +2958,36 @@ const MultiFileUpload = ({ attachedFiles, onAdd, onRemove, disabled }) => {
   return (
     <div>
       <input ref={fileRef} type="file" accept=".pdf,.png" multiple style={{ display: "none" }} onChange={handlePick} />
-      <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", alignItems: "center" }}>
-        {(attachedFiles || []).map((f, idx) => {
-          const isUploaded = !!f.url;
-          const fileName = f.name || "file";
-          const isPng = isUploaded ? /\.png$/i.test(fileName) : f.type === "image/png";
-          const icon = isPng
-            ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={red} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-            : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={red} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>;
-          return (
-            <div key={idx} style={{ display: "flex", alignItems: "center", gap: "6px", background: "white", padding: "6px 12px", borderRadius: "20px", boxShadow: "inset 0 1px 3px rgba(0,0,0,0.08)", maxWidth: "200px" }}>
-              {icon}
-              {isUploaded
-                ? <a href={f.url} target="_blank" rel="noopener noreferrer" style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.74rem", color: "#555", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textDecoration: "underline" }}>{fileName}</a>
-                : <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.74rem", color: "#555", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fileName}</span>
-              }
-              {!disabled && <button onClick={() => onRemove(idx)} style={{ background: "none", border: "none", cursor: "pointer", color: "#aaa", fontSize: "0.9rem", padding: 0, lineHeight: 1, flexShrink: 0 }}>✕</button>}
-            </div>
-          );
-        })}
+      {(attachedFiles || []).length > 0 && (
+        <div className="sa-files-scroll">
+          {(attachedFiles || []).map((f, idx) => {
+            const isUploaded = !!f.url;
+            const fileName = f.name || "file";
+            const isImage = /\.(png|jpe?g|gif|webp)$/i.test(fileName) || /^image\//i.test(f.type || "");
+            const nameStyle = { fontFamily: "'Kufam', sans-serif", fontSize: "0.68rem", color: "#555", textAlign: "center", wordBreak: "break-all", maxWidth: "84px", lineHeight: 1.3 };
+            const tile = (
+              <div style={{ position: "relative", width: "52px", height: "60px" }}>
+                <img src={isImage ? imgIcon : pdfIcon} alt={isImage ? "Image" : "PDF"} style={{ width: "52px", height: "60px", objectFit: "contain", display: "block" }} />
+                {disabled && isUploaded && (
+                  <img src={downloadIcon} alt="Download" style={{ position: "absolute", top: "-6px", right: "-6px", width: "20px", height: "20px", objectFit: "contain" }} />
+                )}
+              </div>
+            );
+            return (
+              <div key={idx} style={{ position: "relative", width: "84px", display: "flex", flexDirection: "column", alignItems: "center", gap: "4px" }}>
+                {isUploaded
+                  ? <a href={f.url} target="_blank" rel="noopener noreferrer" title={fileName} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "4px", textDecoration: "none" }}>{tile}<span style={nameStyle}>{fileName}</span></a>
+                  : <>{tile}<span style={nameStyle}>{fileName}</span></>
+                }
+                {!disabled && (
+                  <button onClick={() => onRemove(idx)} aria-label={`Remove ${fileName}`} style={{ position: "absolute", top: "-6px", right: "6px", width: "20px", height: "20px", borderRadius: "50%", background: "white", border: "1px solid rgba(0,0,0,0.15)", cursor: "pointer", color: "#666", fontSize: "0.8rem", lineHeight: 1, padding: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>&times;</button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", alignItems: "center", marginTop: (attachedFiles || []).length > 0 ? "8px" : 0 }}>
         {!disabled && (
           <div onClick={() => fileRef.current.click()} style={{ width: "56px", height: "56px", background: "white", borderRadius: "14px", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", cursor: "pointer", gap: "3px", border: `1.5px dashed ${darkRed}`, boxShadow: "inset 0 1px 3px rgba(0,0,0,0.08)" }}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={darkRed} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
@@ -3013,21 +3064,29 @@ const useApplicationForm = (initial) => {
     setMajorTouched(true); setMessageTouched(true); setFilesTouched(true);
   };
 
+  // Name, sex, college, program, major and email come from the student's
+  // account (read-only in the form), so they're not validated as input here —
+  // a student can't fix them in this form anyway. Only what the student types
+  // (location, contact, message, files) can block submitting.
   const isValid = () => {
-    if (appValidators.firstName(firstName.value))     return false;
-    if (appValidators.middleInitial(middleInitial.value)) return false;
-    if (appValidators.lastName(lastName.value))       return false;
-    if (appValidators.suffix(suffix.value))           return false;
-    if (appValidators.sex(sex.value))                 return false;
     if (!region)                                      return false;
-    if (!college)                                     return false;
-    if (!program)                                     return false;
-    if (majorOptions.length > 0 && !major)            return false;
     if (appValidators.contact(contact.value))         return false;
-    if (appValidators.email(email.value))             return false;
     if (appValidators.message(message))               return false;
     if (!attachedFiles || attachedFiles.length === 0) return false;
     return true;
+  };
+
+  // Fills the account-owned fields from the live student profile.
+  const setProfile = (p = {}) => {
+    firstName.forceValue(p.firstName || "");
+    middleInitial.forceValue(p.middleInitial || "");
+    lastName.forceValue(p.lastName || "");
+    suffix.forceValue(p.suffix || "");
+    sex.forceValue(p.sex || "");
+    email.forceValue(p.email || "");
+    setCollege(p.college || "");
+    setProgram(p.program || "");
+    setMajor(p.major || "");
   };
 
   const getFormData = () => ({
@@ -3047,44 +3106,52 @@ const useApplicationForm = (initial) => {
     message, handleMessageChange, messageError,
     attachedFiles, handleFilesAdd, handleFilesRemove, filesError,
     handleLocationChange, handleCollegeChange, handleProgramChange, handleContactChange,
-    touchAll, isValid, getFormData,
+    touchAll, isValid, getFormData, setProfile,
   };
 };
 
 // ─── SHARED FORM FIELDS (used in both Apply + View modals) ───────────────────
 const FormFields = ({ f, locked = false }) => {
+  // Account-owned fields (name, sex, college, program, major, email) always
+  // come from the student's profile and are never typed here — both when
+  // applying and when editing a submitted application. Only location,
+  // contact number, message and attachments are the student's input.
+  const acct = true;
   const [infoMsg, setInfoMsg] = useState(null);
   return (
   <>
+    <p style={{ fontFamily: font.ui, fontSize: "0.75rem", color: "#666", background: "#F2F2F2", border: "1px solid #E0E0E0", borderRadius: "10px", padding: "8px 12px", margin: "0 0 12px", lineHeight: 1.45 }}>
+      Your name, sex, college, program and email come from your student account. To change your email, update it in Personal Information; for anything else, ask your OJT coordinator.
+    </p>
     {/* Name */}
     <div id="sform-name" className="sa-name-grid">
       <div>
         <FieldLabel>First Name:</FieldLabel>
-        <StyledInput value={f.firstName.value} onChange={(v) => f.firstName.onChange(v.replace(/[^A-Za-zÑñ\s\-]/g, ""))} placeholder="First Name" disabled={locked} hasError={!locked && f.firstName.hasError} />
-        <FieldError msg={!locked ? f.firstName.error : ""} />
+        <StyledInput value={f.firstName.value} onChange={(v) => f.firstName.onChange(v.replace(/[^A-Za-zÑñ\s\-]/g, ""))} placeholder="First Name" disabled={acct} hasError={false} />
+        
       </div>
       <div>
         <FieldLabel>M. I.:</FieldLabel>
-        <StyledInput value={f.middleInitial.value} onChange={(v) => f.middleInitial.onChange(v.replace(/[^A-Za-z.\/]/g, "").toUpperCase().slice(0, 3))} placeholder="M. or N/A" disabled={locked} hasError={!locked && f.middleInitial.hasError} />
-        <FieldError msg={!locked ? f.middleInitial.error : ""} />
+        <StyledInput value={f.middleInitial.value} onChange={(v) => f.middleInitial.onChange(v.replace(/[^A-Za-z.\/]/g, "").toUpperCase().slice(0, 3))} placeholder="M. or N/A" disabled={acct} hasError={false} />
+        
       </div>
       <div>
         <FieldLabel>Last Name:</FieldLabel>
-        <StyledInput value={f.lastName.value} onChange={(v) => f.lastName.onChange(v.replace(/[^A-Za-zÑñ\s\-]/g, ""))} placeholder="Last Name" disabled={locked} hasError={!locked && f.lastName.hasError} />
-        <FieldError msg={!locked ? f.lastName.error : ""} />
+        <StyledInput value={f.lastName.value} onChange={(v) => f.lastName.onChange(v.replace(/[^A-Za-zÑñ\s\-]/g, ""))} placeholder="Last Name" disabled={acct} hasError={false} />
+        
       </div>
       <div>
         <FieldLabel>Suffix:</FieldLabel>
-        <StyledSelect value={f.suffix.value} onChange={(v) => f.suffix.onChange(v)} options={SUFFIX_OPTIONS} placeholder="Select Suffix" disabled={locked} hasError={!locked && f.suffix.hasError} />
-        <FieldError msg={!locked ? f.suffix.error : ""} />
+        <StyledSelect value={f.suffix.value} onChange={(v) => f.suffix.onChange(v)} options={SUFFIX_OPTIONS} placeholder="Select Suffix" disabled={acct} hasError={false} />
+        
       </div>
     </div>
 
     {/* Sex */}
     <div id="sform-sex" className="sa-sex-wrap">
       <FieldLabel>Sex:</FieldLabel>
-      <StyledSelect value={f.sex.value} onChange={(v) => f.sex.onChange(v)} options={["Male","Female"]} placeholder="Select Sex" disabled={locked} hasError={!locked && f.sex.hasError} />
-      <FieldError msg={!locked ? f.sex.error : ""} />
+      <StyledSelect value={f.sex.value} onChange={(v) => f.sex.onChange(v)} options={["Male","Female"]} placeholder="Select Sex" disabled={acct} hasError={false} />
+      
     </div>
 
     {/* Location */}
@@ -3097,18 +3164,18 @@ const FormFields = ({ f, locked = false }) => {
     <div id="sform-college" className="sa-college-grid">
       <div>
         <FieldLabel>College:</FieldLabel>
-        <StyledSelect value={f.college} onChange={f.handleCollegeChange} options={COLLEGES.map(c => c.name)} placeholder="Select College" disabled={locked} hasError={!locked && !!f.collegeError} />
-        <FieldError msg={!locked ? f.collegeError : ""} />
+        <StyledSelect value={f.college} onChange={f.handleCollegeChange} options={COLLEGES.map(c => c.name)} placeholder="Select College" disabled={acct} hasError={false} />
+        
       </div>
       <div>
         <FieldLabel>Program:</FieldLabel>
-        <StyledSelect value={f.program} onChange={f.handleProgramChange} options={f.programOptions} placeholder="Select Program" disabled={locked || !f.college} hasError={!locked && !!f.programError} />
-        <FieldError msg={!locked ? f.programError : ""} />
+        <StyledSelect value={f.program} onChange={f.handleProgramChange} options={f.programOptions} placeholder="Select Program" disabled={acct} hasError={false} />
+        
       </div>
       <div>
         <FieldLabel>Major:</FieldLabel>
-        <StyledSelect value={f.major} onChange={f.handleMajorChange} options={f.majorOptions} placeholder={f.majorOptions.length === 0 ? "N/A" : "Select Major"} disabled={locked || !f.program || f.majorOptions.length === 0} hasError={!locked && !!f.majorError} />
-        <FieldError msg={!locked ? f.majorError : ""} />
+        <StyledSelect value={f.major} onChange={f.handleMajorChange} options={f.majorOptions} placeholder={f.majorOptions.length === 0 ? "N/A" : "Select Major"} disabled={acct} hasError={false} />
+        
       </div>
     </div>
 
@@ -3121,8 +3188,8 @@ const FormFields = ({ f, locked = false }) => {
       </div>
       <div>
         <FieldLabel>Email Address:</FieldLabel>
-        <StyledInput value={f.email.value} onChange={(v) => f.email.onChange(v)} type="email" placeholder="student@gmail.com" disabled={locked} hasError={!locked && f.email.hasError} />
-        <FieldError msg={!locked ? f.email.error : ""} />
+        <StyledInput value={f.email.value} onChange={(v) => f.email.onChange(v)} type="email" placeholder="student@gmail.com" disabled={acct} hasError={false} />
+        
       </div>
     </div>
 
@@ -3266,6 +3333,34 @@ export const ApplyModal = ({ company, onClose, onSuccessClose, onSubmit, user })
     barangay:      user?.location?.barangay || "",
   });
 
+  // Account-owned fields follow the student's CURRENT profile, live: an email
+  // changed in Personal Information, or a name/department a coordinator just
+  // corrected, shows up here right away. What gets submitted is a copy, so
+  // applications already in Recent Applications keep the details they were
+  // sent with.
+  const setProfileRef = useRef(f.setProfile);
+  setProfileRef.current = f.setProfile;
+  useEffect(() => {
+    if (!user?.uid) return;
+    const unsub = onSnapshot(doc(db, "students", user.uid), (snap) => {
+      if (!snap.exists()) return;
+      const d = snap.data();
+      setProfileRef.current({
+        firstName:     d.firstName || "",
+        middleInitial: d.middleInitial || "",
+        lastName:      d.lastName || "",
+        suffix:        d.suffix || "",
+        sex:           d.sex || "",
+        email:         d.personalEmail || "",
+        college:       COLLEGE_ABBR_MAP[d.college] || d.college || "",
+        program:       PROGRAM_ABBR_MAP[d.program] || d.program || "",
+        major:         d.specialization || "",
+      });
+    }, (err) => console.error("Failed to load student profile for the application form:", err));
+    return () => unsub();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.uid]);
+
   const [showSuccess, setShowSuccess] = useState(false);
   const [submitError, setSubmitError] = useState("");
   const [submitting, setSubmitting]   = useState(false);
@@ -3295,7 +3390,8 @@ export const ApplyModal = ({ company, onClose, onSuccessClose, onSubmit, user })
           where("postId", "==", targetPostId)
         );
         const snap = await getDocs(dupQ);
-        if (!cancelled) setAlreadyApplied(!snap.empty);
+        // A withdrawn application doesn't count — the student may re-apply.
+        if (!cancelled) setAlreadyApplied(snap.docs.some(d => d.data().status !== WITHDRAWN));
       } catch (err) {
         console.error("Failed to check existing application:", err);
       } finally {
@@ -3312,17 +3408,49 @@ export const ApplyModal = ({ company, onClose, onSuccessClose, onSubmit, user })
   // `company` here is an ojt_posts document (targetPostId above is that post's
   // id), so the post's own expiry/disabled state is checked alongside the
   // company's standing.
-  const loadAvailability = async () => {
+  //
+  // Program eligibility: the student's college/program must still be an
+  // APPROVED target of this post (the company may have withdrawn it since the
+  // student opened Find Company). Checked against the student's profile and,
+  // on submit, the college/program typed into the form too — so neither an
+  // out-of-date screen nor editing the form can get around it.
+  const eligibilityCandidates = (formCollege, formProgram) => {
+    const colleges = [user?.college, COLLEGE_ABBR_MAP[user?.college], formCollege].filter(Boolean);
+    const programs = [user?.program, PROGRAM_ABBR_MAP[user?.program], formProgram].filter(Boolean);
+    if (programs.length === 0) programs.push("");
+    return colleges.flatMap(c => programs.map(pr => [c, pr]));
+  };
+
+  const loadAvailability = async (formCollege, formProgram) => {
+    let postData = null;
     if (targetPostId) {
       const postSnap = await getDoc(doc(db, "ojt_posts", targetPostId));
       if (postSnap.exists()) {
-        const postResult = postAvailability(postSnap.data());
+        postData = postSnap.data();
+        const postResult = postAvailability(postData);
         if (!postResult.ok) return postResult;
       }
     }
     if (!targetCompanyId) return { ok: true };
     const snap = await getDoc(doc(db, "companies", targetCompanyId));
-    return companyAvailability(snap.exists() ? snap.data() : null);
+    const companyData = snap.exists() ? snap.data() : null;
+    const companyResult = companyAvailability(companyData);
+    if (!companyResult.ok) return companyResult;
+
+    const candidates = eligibilityCandidates(formCollege, formProgram);
+    // No college on file at all → the form's own required-field check handles it.
+    if (postData && candidates.length > 0) {
+      const eligible = candidates.some(([c, pr]) => isStudentEligibleForPost(postData, companyData, c, pr));
+      if (!eligible) {
+        const programName = formProgram || PROGRAM_ABBR_MAP[user?.program] || user?.program || "your program";
+        return {
+          ok: false,
+          title: "Not Open to Your Program",
+          message: `This post isn't accepting applications from ${programName}. The company may no longer be affiliated with your program. Try another company.`,
+        };
+      }
+    }
+    return { ok: true };
   };
 
   useEffect(() => {
@@ -3348,6 +3476,10 @@ export const ApplyModal = ({ company, onClose, onSuccessClose, onSubmit, user })
       return;
     }
     f.touchAll();
+    if (!f.getFormData().email) {
+      setSubmitError("Add your email in Personal Information first — it's used on your application.");
+      return;
+    }
     if (!f.isValid()) {
       setSubmitError("Please complete all required fields before submitting.");
       return;
@@ -3363,7 +3495,7 @@ export const ApplyModal = ({ company, onClose, onSuccessClose, onSubmit, user })
         where("postId", "==", targetPostId)
       );
       const dupSnap = await getDocs(dupQ);
-      if (!dupSnap.empty) {
+      if (dupSnap.docs.some(d => d.data().status !== WITHDRAWN)) {
         setAlreadyApplied(true);
         setSubmitError("You've already applied to this post.");
         setSubmitting(false);
@@ -3372,7 +3504,8 @@ export const ApplyModal = ({ company, onClose, onSuccessClose, onSubmit, user })
 
       // Re-check the company right before writing: it may have been suspended
       // or blocked while this form was open.
-      const availability = await loadAvailability();
+      const { college: formCollege, program: formProgram } = f.getFormData();
+      const availability = await loadAvailability(formCollege, formProgram);
       if (!availability.ok) {
         setUnavailable({ title: availability.title, message: availability.message });
         setSubmitting(false);
@@ -3393,6 +3526,24 @@ export const ApplyModal = ({ company, onClose, onSuccessClose, onSubmit, user })
         companyId:   company?.companyId || company?.id || "",
         companyName: company?.name    || company?.companyName || "",
         status:      "Pending",
+        // Copy of the post exactly as the student saw it when applying. The
+        // coordinator's "View post" falls back to this when the live post is
+        // deleted, and it shows what was applied to even if the company edits
+        // the post later.
+        postSnapshot: {
+          companyName:      company?.companyName || company?.name || "",
+          industry:         company?.industry || "",
+          description:      company?.description || "",
+          requirements:     company?.requirements || "",
+          skillsRequired:   company?.skillsRequired || "",
+          benefits:         company?.benefits || "",
+          workingHoursList: Array.isArray(company?.workingHoursList) ? company.workingHoursList : [],
+          contactEmail:     company?.contactEmail || "",
+          phone:            company?.phone || "",
+          address:          company?.postLocation?.address || "",
+          courseSelections: Array.isArray(company?.courseSelections) ? company.courseSelections : [],
+          expirationDate:   company?.expirationDate || "",
+        },
         createdAt:   serverTimestamp(),
       });
       onSubmit?.({ ...formData, attachedFiles: uploadedFiles, company: company?.name });
@@ -3491,7 +3642,7 @@ export const ApplyModal = ({ company, onClose, onSuccessClose, onSubmit, user })
 };
 
 // ─── VIEW APPLICATION MODAL ───────────────────────────────────────────────────
-const ViewApplicationModal = ({ application, onClose, onSave, onEditingChange }) => {
+const ViewApplicationModal = ({ application, onClose, onSave, onEditingChange, postClosure = null }) => {
   const [isEditing, setIsEditing] = useState(false);
   useEffect(() => { onEditingChange?.(isEditing); }, [isEditing]);
   useEffect(() => () => onEditingChange?.(false), []);
@@ -3532,6 +3683,7 @@ const ViewApplicationModal = ({ application, onClose, onSave, onEditingChange })
     "Declined":    "#FF0000",
     "Pending":     "#CCC929",
     "To Interview":"#7C2889",
+    "Withdrawn":   "#6B6B6B",
   };
   const statusColor = STATUS_COLOR_MAP[application.status] || "#aaa";
   const fullName = application.data.lastName && application.data.firstName
@@ -3541,12 +3693,14 @@ const ViewApplicationModal = ({ application, onClose, onSave, onEditingChange })
   // Students can only edit their application while it's still Pending —
   // once a coordinator/company has moved it to "In Review" (or beyond),
   // it's locked from further edits.
-  const canEdit = (application.status || "Pending") === "Pending";
+  // Also locked once the company withdraws the program: the application must
+  // keep the original college/program it was submitted under.
+  const canEdit = (application.status || "Pending") === "Pending" && !application.affiliationWithdrawn;
   // "Still in progress" (Pending, In Review, To Interview) keeps a white
   // footer, same as a still-pending report in CoordinatorReportCompanyScreen.
   // Once the outcome is final (Accepted / Declined), the footer switches to
   // black — same logic/treatment as a resolved report's footer there.
-  const isFinalized = application.status === "Accepted" || application.status === "Declined";
+  const isFinalized = application.status === "Accepted" || application.status === "Declined" || application.status === WITHDRAWN;
 
   // If the status flips away from Pending (e.g. a coordinator marks it "In
   // Review") while the student is mid-edit, kick them out of edit mode.
@@ -3570,6 +3724,35 @@ const ViewApplicationModal = ({ application, onClose, onSave, onEditingChange })
           </div>
         </div>
 
+        {application.status === "Accepted" && application.coordinatorReviewedAt?.seconds && (
+          <div role="note" style={{ margin: "12px 18px 0", padding: "8px 14px", borderRadius: "10px", background: "#EAF6EE", border: "1px solid #BFE3CB", fontFamily: font.ui, fontSize: "0.78rem", lineHeight: 1.45, color: "#1f5e36" }}>
+            ✓ Your OJT coordinator reviewed this placement on {new Date(application.coordinatorReviewedAt.seconds * 1000).toLocaleDateString()}.
+          </div>
+        )}
+        {postClosure && application.status !== WITHDRAWN && (
+          <div role="note" style={{ margin: "12px 18px 0", padding: "8px 14px", borderRadius: "10px", background: "#F2F2F2", border: "1px solid #E0E0E0", fontFamily: font.ui, fontSize: "0.78rem", lineHeight: 1.45, color: "#444" }}>
+            <strong>{postClosure.label}.</strong>{" "}{postClosure.detail}{" "}
+            {["Pending", "In Review", "To Interview"].includes(application.status)
+              ? "It no longer accepts new applications, but your application stays active and the company can still update it."
+              : "Your application stays on record with its current status."}
+          </div>
+        )}
+        {!application.affiliationWithdrawn && application.affiliationRestoredAt?.seconds && (
+          <div role="note" style={{ margin: "12px 18px 0", padding: "8px 14px", borderRadius: "10px", background: "#F2F2F2", border: "1px solid #E0E0E0", fontFamily: font.ui, fontSize: "0.78rem", lineHeight: 1.45, color: "#555" }}>
+            Program affiliation was withdrawn
+            {application.affiliationWithdrawnAt?.seconds ? ` on ${new Date(application.affiliationWithdrawnAt.seconds * 1000).toLocaleDateString()}` : ""}
+            {" "}and restored on {new Date(application.affiliationRestoredAt.seconds * 1000).toLocaleDateString()}. Your application is active again.
+          </div>
+        )}
+        {application.affiliationWithdrawn && (
+          <div role="status" style={{ margin: "12px 18px 0", padding: "10px 14px", borderRadius: "10px", background: "#FFF3D6", border: "1px solid #F0D48A", fontFamily: font.ui, fontSize: "0.82rem", lineHeight: 1.45, color: "#5c3d00" }}>
+            <strong>Program affiliation withdrawn.</strong>{" "}
+            {application.company || "The company"} is no longer accepting{application.affiliationWithdrawnLabel ? ` ${application.affiliationWithdrawnLabel}` : " your program"} for OJT
+            {application.affiliationWithdrawnAt?.seconds ? ` (since ${new Date(application.affiliationWithdrawnAt.seconds * 1000).toLocaleDateString()})` : ""}.
+            {" "}Your application stays on record with its current status ({application.status}). Please coordinate with your OJT coordinator about next steps.
+          </div>
+        )}
+
         {/* Status Progress Tracker */}
           <div
             className="sa-view-modal-body"
@@ -3591,7 +3774,9 @@ const ViewApplicationModal = ({ application, onClose, onSave, onEditingChange })
 
               const doneColor = "#358D5E";
               const currentStatus = application.status || "Pending";
-              const isDeclined = currentStatus === "Declined";
+              const isWithdrawn = currentStatus === WITHDRAWN;
+              const isDeclined = currentStatus === "Declined" || isWithdrawn; // both end the tracker
+              const closedColor = isWithdrawn ? "#6B6B6B" : "#FF0000";
               const currentIdx = STATUS_STEPS.indexOf(currentStatus);
 
               return (
@@ -3629,7 +3814,7 @@ const ViewApplicationModal = ({ application, onClose, onSave, onEditingChange })
                         padding: "9px 14px",
                         background: "white",
                         borderRadius: "20px",
-                        border: `1px solid #FF0000`,
+                        border: `1px solid ${closedColor}`,
                         boxSizing: "border-box"
                       }}
                     >
@@ -3638,7 +3823,7 @@ const ViewApplicationModal = ({ application, onClose, onSave, onEditingChange })
                         height="16"
                         viewBox="0 0 24 24"
                         fill="none"
-                        stroke="#FF0000"
+                        stroke={closedColor}
                         strokeWidth="2.5"
                         strokeLinecap="round"
                         strokeLinejoin="round"
@@ -3652,11 +3837,13 @@ const ViewApplicationModal = ({ application, onClose, onSave, onEditingChange })
                         style={{
                           fontFamily: font.ui,
                           fontSize: "0.82rem",
-                          color: "#FF0000",
+                          color: closedColor,
                           fontWeight: 700
                         }}
                       >
-                        Application Declined
+                        {isWithdrawn
+                          ? `Application Withdrawn${application.statusBeforeWithdrawal ? ` (was ${application.statusBeforeWithdrawal})` : ""}${application.withdrawalReason ? ` · Reason: ${[application.withdrawalReason, application.withdrawalReasonDetails].filter(Boolean).join(" — ")}` : ""}`
+                          : "Application Declined"}
                       </span>
                     </div>
                   ) : (
@@ -3821,22 +4008,95 @@ const ViewApplicationModal = ({ application, onClose, onSave, onEditingChange })
 };
 
 // ─── DELETE CONFIRMATION POPUP ────────────────────────────────────────────────
-const DeleteConfirmPopup = ({ companyName, onCancel, onConfirm, deleting }) => (
+// Reasons a student can give when withdrawing. Shared with the company and
+// the coordinator (the popup says so), and kept on the application record.
+const WITHDRAW_REASONS = [
+  "Accepted another OJT offer",
+  "Schedule conflict",
+  "Location or travel distance",
+  "Personal or family reasons",
+  "Health reasons",
+  "Changed career interest",
+  "Concern about the company",
+  "Other",
+];
+const WITHDRAW_DETAILS_MAX = 500;
+
+const DeleteConfirmPopup = ({ companyName, status, onCancel, onConfirm, deleting }) => {
+  const [reason, setReason]   = useState("");
+  const [details, setDetails] = useState("");
+  const [touched, setTouched] = useState(false);
+  // A reason is always required; "Other" also needs a short explanation.
+  const detailsRequired = reason === "Other";
+  const reasonError  = touched && !reason ? "Please choose a reason." : "";
+  const detailsError = touched && detailsRequired && !details.trim() ? "Please tell us a little more." : "";
+  const canSubmit = !!reason && (!detailsRequired || !!details.trim());
+
+  const submit = () => {
+    setTouched(true);
+    if (!canSubmit || deleting) return;
+    onConfirm({ reason, details: details.trim() });
+  };
+
+  return (
   <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1200, padding: "16px" }}>
-    <div className="sa-confirm-inner">
-      <div style={{ width: "56px", height: "56px", borderRadius: "50%", background: "#c62828", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 14px" }}>
+    <div className="sa-confirm-inner" style={{ maxHeight: "90vh", overflowY: "auto" }}>
+      <div style={{ width: "56px", height: "56px", borderRadius: "50%", background: panel, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 14px" }}>
         <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-          <polyline points="3 6 5 6 21 6"/>
-          <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
-          <path d="M10 11v6"/><path d="M14 11v6"/>
-          <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+          <path d="M9 14L4 9l5-5"/>
+          <path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>
         </svg>
       </div>
-      <h3 style={{ fontFamily: font.ui, fontWeight: 700, fontSize: "1.2rem", color: darkRed, marginBottom: "6px" }}>Delete Application?</h3>
-      <p style={{ fontFamily: font.ui, fontSize: "0.85rem", color: inkMuted, marginBottom: "22px", lineHeight: 1.5 }}>
-        This will permanently delete your application to{" "}
-        <strong style={{ color: darkRed }}>{companyName}</strong>. This action cannot be undone.
+      <h3 style={{ fontFamily: font.ui, fontWeight: 700, fontSize: "1.2rem", color: panel, marginBottom: "6px" }}>Withdraw Application?</h3>
+      <p style={{ fontFamily: font.ui, fontSize: "0.85rem", color: inkMuted, marginBottom: "14px", lineHeight: 1.5 }}>
+        Your application to{" "}
+        <strong style={{ color: panel }}>{companyName}</strong> will be marked as Withdrawn.
+        The company and your coordinator will still see it on record. This can't be undone,
+        but you can apply to the same post again while it's open.
       </p>
+      {status === "Accepted" && (
+        <p style={{ fontFamily: font.ui, fontSize: "0.8rem", color: "#5c3d00", background: "#FFF3D6", border: "1px solid #F0D48A", borderRadius: "10px", padding: "8px 12px", marginBottom: "14px", lineHeight: 1.45 }}>
+          You were already <strong>accepted</strong> here. Your coordinator will be notified so they can follow up with you.
+        </p>
+      )}
+
+      <div style={{ textAlign: "left", marginBottom: "18px" }}>
+        <label htmlFor="withdraw-reason" style={{ display: "block", fontFamily: font.ui, fontSize: "0.8rem", fontWeight: 700, color: "#222", marginBottom: "6px" }}>
+          Reason for withdrawing <span style={{ color: "#c62828" }}>*</span>
+        </label>
+        <select
+          id="withdraw-reason"
+          value={reason}
+          onChange={e => setReason(e.target.value)}
+          disabled={deleting}
+          style={{ width: "100%", padding: "9px 12px", borderRadius: "10px", border: `1px solid ${reasonError ? "#c62828" : line}`, fontFamily: font.ui, fontSize: "0.85rem", background: color.white, color: "#111" }}
+        >
+          <option value="">Choose a reason…</option>
+          {WITHDRAW_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
+        </select>
+        {reasonError && <p style={{ fontFamily: font.ui, fontSize: "0.75rem", color: "#c62828", margin: "4px 0 0" }}>{reasonError}</p>}
+
+        <label htmlFor="withdraw-details" style={{ display: "block", fontFamily: font.ui, fontSize: "0.8rem", fontWeight: 700, color: "#222", margin: "12px 0 6px" }}>
+          Details {detailsRequired ? <span style={{ color: "#c62828" }}>*</span> : <span style={{ fontWeight: 400, color: inkMuted }}>(optional)</span>}
+        </label>
+        <textarea
+          id="withdraw-details"
+          value={details}
+          onChange={e => setDetails(e.target.value.slice(0, WITHDRAW_DETAILS_MAX))}
+          disabled={deleting}
+          rows={3}
+          placeholder={detailsRequired ? "Please explain briefly." : "Anything you'd like the company and your coordinator to know."}
+          style={{ width: "100%", boxSizing: "border-box", padding: "9px 12px", borderRadius: "10px", border: `1px solid ${detailsError ? "#c62828" : line}`, fontFamily: font.ui, fontSize: "0.85rem", resize: "vertical" }}
+        />
+        <div style={{ display: "flex", justifyContent: "space-between", gap: "8px" }}>
+          <p style={{ fontFamily: font.ui, fontSize: "0.75rem", color: "#c62828", margin: "4px 0 0" }}>{detailsError}</p>
+          <p style={{ fontFamily: font.ui, fontSize: "0.72rem", color: inkMuted, margin: "4px 0 0", flexShrink: 0 }}>{details.length}/{WITHDRAW_DETAILS_MAX}</p>
+        </div>
+        <p style={{ fontFamily: font.ui, fontSize: "0.74rem", color: inkMuted, margin: "6px 0 0", lineHeight: 1.4 }}>
+          Your reason will be shared with {companyName || "the company"} and your OJT coordinator.
+        </p>
+      </div>
+
       <div style={{ display: "flex", justifyContent: "center", gap: "10px" }}>
         <button
           onClick={onCancel}
@@ -3847,32 +4107,33 @@ const DeleteConfirmPopup = ({ companyName, onCancel, onConfirm, deleting }) => (
             fontSize: "0.82rem", fontWeight: 600, cursor: deleting ? "not-allowed" : "pointer", opacity: deleting ? 0.7 : 1,
             transition: `background 160ms ${ease}, color 160ms ${ease}`,
           }}
-          onMouseEnter={e => { if (!deleting) { e.currentTarget.style.background = "#111111"; e.currentTarget.style.color = "#ffffff"; } }}
+          onMouseEnter={e => { if (!deleting) { e.currentTarget.style.background = panel; e.currentTarget.style.color = "#ffffff"; } }}
           onMouseLeave={e => { e.currentTarget.style.background = color.white; e.currentTarget.style.color = "#111111"; }}
         >
           CANCEL
         </button>
         <button
-          onClick={onConfirm}
+          onClick={submit}
           disabled={deleting}
           style={{
             padding: "9px 22px", borderRadius: "22px", background: color.white,
             color: "#c62828", border: "1px solid #c62828", fontFamily: font.ui,
-            fontSize: "0.82rem", fontWeight: 600, cursor: deleting ? "not-allowed" : "pointer", opacity: deleting ? 0.7 : 1,
+            fontSize: "0.82rem", fontWeight: 600, cursor: deleting ? "not-allowed" : "pointer", opacity: deleting ? 0.7 : (canSubmit ? 1 : 0.6),
             transition: `background 160ms ${ease}, color 160ms ${ease}`,
           }}
-          onMouseEnter={e => { if (!deleting) { e.currentTarget.style.background = "#c62828"; e.currentTarget.style.color = "#ffffff"; } }}
+          onMouseEnter={e => { if (!deleting && canSubmit) { e.currentTarget.style.background = "#c62828"; e.currentTarget.style.color = "#ffffff"; } }}
           onMouseLeave={e => { e.currentTarget.style.background = color.white; e.currentTarget.style.color = "#c62828"; }}
         >
-          {deleting ? "DELETING..." : "DELETE"}
+          {deleting ? "WITHDRAWING..." : "WITHDRAW"}
         </button>
       </div>
     </div>
   </div>
-);
+  );
+};
 
 // ─── APPLICATION ROW ──────────────────────────────────────────────────────────
-const ApplicationRow = ({ application, onView, onDelete, companyProfileIcon: themedCompanyIcon = blackCompanyProfileIcon }) => {
+const ApplicationRow = ({ application, onView, onDelete, companyProfileIcon: themedCompanyIcon = blackCompanyProfileIcon, postClosure = null }) => {
   const [showMenu, setShowMenu] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -3884,9 +4145,9 @@ const ApplicationRow = ({ application, onView, onDelete, companyProfileIcon: the
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  const handleConfirmDelete = async () => {
+  const handleConfirmDelete = async (withdrawal) => {
     setDeleting(true);
-    await onDelete(application.id);
+    await onDelete(application.id, withdrawal);
     setDeleting(false);
     setConfirming(false);
   };
@@ -3898,7 +4159,7 @@ const ApplicationRow = ({ application, onView, onDelete, companyProfileIcon: the
     <>
       <div
         className="sa-app-row"
-        style={{ padding: "10px 20px 10px 18px", display: "flex", alignItems: "center", gap: "14px", cursor: "pointer", position: "relative" }}
+        style={{ display: "flex", alignItems: "center", gap: "14px", cursor: "pointer", position: "relative" }}
         onClick={() => onView(application)}
       >
         {/* Raised white chip behind the icon — same look as CompanyAvatar on the dashboards */}
@@ -3918,6 +4179,30 @@ const ApplicationRow = ({ application, onView, onDelete, companyProfileIcon: the
               <span style={meta}>Applied {new Date(application.createdAt.seconds * 1000).toLocaleDateString()}</span>
             </div>
           )}
+          {/* Post expired/closed — independent of any affiliation change. The
+              application keeps its own status; this only says the post itself
+              is no longer open. Not shown on applications the student withdrew. */}
+          {postClosure && application.status !== WITHDRAWN && (
+            <div style={{ marginTop: "4px" }}>
+              <span style={{ fontFamily: font.ui, fontSize: "0.7rem", fontWeight: 600, color: "#555", background: "#EDEDED", border: "1px solid #D6D6D6", borderRadius: radius.pill, padding: "1px 8px", whiteSpace: "nowrap" }}>
+                {postClosure.label}
+              </span>
+              {/* Reassure the student right in the list: the post closing does
+                  NOT end their application while it's still in progress. */}
+              <p style={{ fontFamily: font.ui, fontSize: "0.72rem", color: inkMuted, margin: "3px 0 0", lineHeight: 1.4, whiteSpace: "normal" }}>
+                {["Pending", "In Review", "To Interview"].includes(application.status)
+                  ? "Your application is still active — the company can still update your status."
+                  : "Your application stays on record."}
+              </p>
+            </div>
+          )}
+          {application.affiliationWithdrawn && (
+            <div style={{ marginTop: "4px" }}>
+              <span style={{ fontFamily: font.ui, fontSize: "0.7rem", fontWeight: 600, color: "#8a5a00", background: "#FFF3D6", border: "1px solid #F0D48A", borderRadius: radius.pill, padding: "1px 8px", whiteSpace: "nowrap" }}>
+                Program affiliation withdrawn
+              </span>
+            </div>
+          )}
         </div>
         <span style={{ background: sc.bg, color: sc.color, borderRadius: radius.pill, padding: "3px 11px", fontFamily: font.ui, fontSize: "0.75rem", fontWeight: 500, flexShrink: 0, whiteSpace: "nowrap" }}>
           {application.status}
@@ -3930,6 +4215,10 @@ const ApplicationRow = ({ application, onView, onDelete, companyProfileIcon: the
                 style={{ width: "100%", border: "none", background: "transparent", padding: "9px 14px", textAlign: "left", cursor: "pointer", fontFamily: font.ui, ...type.helper, fontWeight: 500, color: ink }}
                 onMouseEnter={e => e.currentTarget.style.background = color.hoverWash}
                 onMouseLeave={e => e.currentTarget.style.background = "transparent"}>View</button>
+              {/* Withdraw replaces Delete — records are never removed. Not offered
+                  once the application is already Withdrawn or Declined. */}
+              {application.status !== WITHDRAWN && application.status !== "Declined" && (
+              <>
               <div style={{ height: "1px", background: line, margin: "0 8px" }} />
               <button
                 onClick={() => { setConfirming(true); setShowMenu(false); }}
@@ -3937,8 +4226,10 @@ const ApplicationRow = ({ application, onView, onDelete, companyProfileIcon: the
                 onMouseEnter={e => e.currentTarget.style.background = color.hoverWash}
                 onMouseLeave={e => e.currentTarget.style.background = "transparent"}
               >
-                Delete
+                Withdraw
               </button>
+              </>
+              )}
             </div>
           )}
         </div>
@@ -3947,6 +4238,7 @@ const ApplicationRow = ({ application, onView, onDelete, companyProfileIcon: the
       {confirming && (
         <DeleteConfirmPopup
           companyName={application.company}
+          status={application.status}
           deleting={deleting}
           onCancel={() => setConfirming(false)}
           onConfirm={handleConfirmDelete}
@@ -3964,6 +4256,8 @@ const StudentApplicationScreen = ({ initialCompany, onModalClose, user, openAppl
   const [viewingApplication, setViewingApplication] = useState(null);
   const [viewKey, setViewKey]                   = useState(0);
   const [applications, setApplications]         = useState([]);
+  // Live post status (expired / closed / removed) for every application.
+  const postsById = usePostsByIds(applications.map(a => a.postId));
   const [statusFilter, setStatusFilter]         = useState("All");
   // Tells the Dashboard which part of Applications is showing, so its "?"
   // help button (and first-visit auto-tour) runs the matching steps:
@@ -3984,6 +4278,10 @@ const StudentApplicationScreen = ({ initialCompany, onModalClose, user, openAppl
         const raw = d.data();
         const {
           companyId, companyName, status, createdAt, studentId, studentName,
+          affiliationWithdrawn, affiliationWithdrawnAt, affiliationWithdrawnLabel, affiliationRestoredAt,
+          statusBeforeWithdrawal, withdrawnAt, withdrawnBy, slotReturned,
+          withdrawalReason, withdrawalReasonDetails,
+          coordinatorReviewedAt, coordinatorReviewedBy, placementReviewRequired,
           ...formData
         } = raw;
         return {
@@ -3992,6 +4290,22 @@ const StudentApplicationScreen = ({ initialCompany, onModalClose, user, openAppl
           companyId: companyId || "",
           status: status || "Pending",
           createdAt: createdAt || null,
+          // Set when the company withdrew this student's program after they
+          // applied. The application itself — status, history, messages — is
+          // unchanged; the student just sees a notice.
+          affiliationWithdrawn: affiliationWithdrawn === true,
+          affiliationWithdrawnAt: affiliationWithdrawnAt || null,
+          affiliationWithdrawnLabel: affiliationWithdrawnLabel || "",
+          // Set when the company later put the program back on this post:
+          // the warning is gone, only a neutral history note remains.
+          affiliationRestoredAt: affiliationRestoredAt || null,
+          statusBeforeWithdrawal: statusBeforeWithdrawal || "",
+          withdrawalReason: withdrawalReason || "",
+          // Set when the student's OJT coordinator reviewed this accepted placement.
+          coordinatorReviewedAt: coordinatorReviewedAt || null,
+          withdrawalReasonDetails: withdrawalReasonDetails || "",
+          withdrawnAt: withdrawnAt || null,
+          postId: raw.postId || "",
           data: formData,
         };
       });
@@ -4014,7 +4328,7 @@ const StudentApplicationScreen = ({ initialCompany, onModalClose, user, openAppl
 
   const filteredApplications = applications.filter(app =>
     app.company.toLowerCase().includes(search.toLowerCase()) &&
-    (statusFilter === "All" || app.status === statusFilter)
+    (statusFilter === "All" ? app.status !== WITHDRAWN : app.status === statusFilter)
   );
 
   // Auto-open a specific application's details when navigated here with a
@@ -4042,13 +4356,92 @@ const StudentApplicationScreen = ({ initialCompany, onModalClose, user, openAppl
   // reads from this exact same "applications" collection via onSnapshot, removing
   // it here automatically removes it from the company's Applicants list too —
   // no separate sync step needed.
-  const handleDelete = async (id) => {
+  // Withdraw instead of delete (OJTern rule: records are preserved). The
+  // application keeps all its data; only its status changes, with what stage
+  // it was at, so the company and coordinator can still see and follow up.
+  // If it was Accepted, `slotReturned: false` tells the company's Applicants
+  // screen to give the slot back (the company owns the post, so it does that
+  // write — see CompanyApplicantsScreen).
+  const handleDelete = async (id, withdrawal = {}) => {
+    const app = applications.find(a => a.id === id);
+    if (!app || app.status === WITHDRAWN) return;
+    const previous = app.status || "Pending";
+    const reason  = String(withdrawal.reason || "").trim();
+    const details = String(withdrawal.details || "").trim();
+    const reasonText = [reason, details].filter(Boolean).join(" — ");
     try {
-      await deleteDoc(doc(db, "applications", id));
+      await updateDoc(doc(db, "applications", id), {
+        status: WITHDRAWN,
+        statusBeforeWithdrawal: previous,
+        withdrawnAt: serverTimestamp(),
+        withdrawnBy: "student",
+        withdrawalReason: reason,
+        withdrawalReasonDetails: details,
+        ...(previous === "Accepted" ? { slotReturned: false } : {}),
+      });
     } catch (err) {
-      console.error("Failed to delete application:", err);
+      console.error("Failed to withdraw application:", err);
+      return;
     }
-    if (viewingApplication?.id === id) setViewingApplication(null);
+
+    // Notifications are best-effort: the withdrawal above already succeeded,
+    // so a notification error must not undo or block it.
+    //
+    // IMPORTANT: only the student's OWN notice carries `studentId`. The student
+    // dashboard's bell reads every notification where studentId == their uid,
+    // so putting studentId on the company's or coordinator's copy made those
+    // show up in the student's bell too ("Ced Valencia withdrew their
+    // application"). Those copies use `applicantStudentId` instead.
+    const studentName = [app.data?.firstName, app.data?.lastName].filter(Boolean).join(" ") || "A student";
+    const postTitle = app.data?.jobTitle || app.data?.postTitle || "";
+    const wasAccepted = previous === "Accepted";
+    const writeNotice = (data) =>
+      addDoc(collection(db, "notifications"), { ...data, createdAt: serverTimestamp() })
+        .catch(err => console.error("Application withdrawn, but a notification failed:", err));
+
+    await Promise.all([
+      // 1) Student — their own confirmation, in their own voice.
+      writeNotice({
+        studentId:     user?.uid || "",
+        type:          "application_withdrawn_self",
+        applicationId: id,
+        companyName:   app.company || "",
+        message:       `You withdrew your application to ${app.company || "the company"}.${reasonText ? ` Reason: ${reasonText}` : ""}`,
+        read:          false,
+      }),
+      // 2) Company.
+      app.companyId ? writeNotice({
+        recipientId:        app.companyId,
+        type:               "application_withdrawn",
+        title:              "Application withdrawn",
+        message:            `${studentName} withdrew their application${postTitle ? ` for ${postTitle}` : ""}${previous !== "Pending" ? ` (was ${previous})` : ""}.${reasonText ? ` Reason: ${reasonText}` : ""}`,
+        applicationId:      id,
+        applicantStudentId: user?.uid || "",
+        withdrawalReason:        reason,
+        withdrawalReasonDetails: details,
+        read:               false,
+      }) : null,
+      // 3) Coordinator — EVERY withdrawal now. Only an Accepted one is urgent
+      //    (⚑ + "Needs Follow-up"); the rest are informational.
+      writeNotice({
+        recipientRole:      "coordinator",
+        department:         app.data?.college || user?.college || "",
+        program:            app.data?.program || user?.program || "",
+        type:               wasAccepted ? "accepted_application_withdrawn" : "application_withdrawn",
+        applicantStudentId: user?.uid || "",
+        studentName,
+        companyId:          app.companyId || "",
+        companyName:        app.company || "",
+        applicationId:      id,
+        previousStatus:     previous,
+        message:            wasAccepted
+          ? `${studentName} withdrew from an ACCEPTED OJT placement at ${app.company || "a company"}.${reasonText ? ` Reason: ${reasonText}.` : ""} Please follow up.`
+          : `${studentName} withdrew their ${previous} application to ${app.company || "a company"}.${reasonText ? ` Reason: ${reasonText}.` : ""}`,
+        withdrawalReason:        reason,
+        withdrawalReasonDetails: details,
+        readBy:             [],
+      }),
+    ]);
   };
 
   return (
@@ -4084,7 +4477,7 @@ const StudentApplicationScreen = ({ initialCompany, onModalClose, user, openAppl
 
         {/* Status chips — same shape as CoordinatorStudentListScreen's status row */}
         <div style={{ display: "flex", gap: space.sm, alignItems: "center", flexWrap: "wrap", marginBottom: space.md }} id="sapp-status-chips">
-          {["All", "Accepted", "Declined", "Pending", "In Review", "To Interview"].map((statusOption) => {
+          {["All", "Accepted", "Declined", "Pending", "In Review", "To Interview", WITHDRAWN].map((statusOption) => {
             const isActive = statusOption === "All" ? statusFilter === "All" : statusFilter === statusOption;
             const statusColor = statusOption === "All" ? ink : (STATUS_COLORS[statusOption]?.bg || color.wine400);
             const activeText = statusOption === "All" ? color.white : (STATUS_COLORS[statusOption]?.color || ink);
@@ -4124,7 +4517,7 @@ const StudentApplicationScreen = ({ initialCompany, onModalClose, user, openAppl
         ) : filteredApplications.length > 0 ? (
           <div className="sa-list-area" id="sapp-list">
             {filteredApplications.map(application => (
-              <ApplicationRow key={application.id} application={application} onView={handleView} onDelete={handleDelete} companyProfileIcon={themedCompanyIcon} />
+              <ApplicationRow key={application.id} application={application} onView={handleView} onDelete={handleDelete} companyProfileIcon={themedCompanyIcon} postClosure={getPostClosure(application.postId, postsById)} />
             ))}
             <p style={{ textAlign: "center", fontFamily: font.ui, ...type.helper, color: inkFaint, padding: "16px 0 0" }}>
               No more recent applications!
@@ -4151,6 +4544,7 @@ const StudentApplicationScreen = ({ initialCompany, onModalClose, user, openAppl
           onClose={() => setViewingApplication(null)}
           onSave={handleSave}
           onEditingChange={setViewEditing}
+          postClosure={getPostClosure(viewingApplication.postId, postsById)}
         />
       )}
       {showApply && (

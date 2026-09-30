@@ -782,20 +782,17 @@ const PersonalInfoScreen = ({ onBack, user, setupMode = false, onSetupComplete, 
         inUse.code = "email-in-use";
         throw inUse;
       }
+      // Only what the STUDENT owns is written: age (and program when the
+      // coordinator's import left it blank). Name, Student ID, department,
+      // section and sex are the coordinator's — and are edited from the
+      // coordinator's Student Accounts screen. Writing the whole form here
+      // could overwrite a coordinator's newer correction with a stale copy.
       const profileUpdate = {
-        // studentId intentionally omitted — no longer editable from this screen.
-        // email intentionally omitted — AuthService.signIn resolves it by Student ID,
-        // so letting students edit it here would lock them out of their account.
-        lastName:       form.lastName,
-        middleInitial:  form.middleInitial,
-        firstName:      form.firstName,
-        suffix:         form.suffix,
-        fullName: form.firstName + " " + (form.middleInitial ? form.middleInitial + " " : "") + form.lastName + (form.suffix && form.suffix !== "None" ? " " + form.suffix : ""),
-        college:        form.collegeCode,
-        program:        form.programCode,
-        yearSection:    form.yearSection,
-        sex:            form.sex,
-        age:            Number(form.age),
+        age:               Number(form.age),
+        ...(canEditField("programCode") ? { program: form.programCode } : {}),
+        // Clears the one-time "review your information" step after a
+        // coordinator reset (see computeSetupStage in StudentDashboardScreen).
+        mustReviewProfile: false,
       };
 
       await runTransaction(db, async (tx) => {
