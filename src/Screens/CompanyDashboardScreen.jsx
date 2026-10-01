@@ -835,6 +835,7 @@ const COMPANY_SUBVIEW_TOUR_KEYS = {
   createpost:     { create: "postcreate", view: "postview", edit: "postedit" },
   applicants:     { detail: "applicantdetail", status: "applicantstatus", report: "applicantreport" },
   messages:       { chat: "messageschat", report: "messagesreport" },
+  coordinators:   { details: "coordinatordetails" },
   accountprofile: { personalInfo: "accprofilepersonal", personalInfoEdit: "accprofilepersonaledit", terms: "accprofileterms", privacy: "accprofileprivacy", reset: "accprofilereset" },
 };
 
@@ -920,7 +921,21 @@ const HELP_STEPS_BY_NAV = {
     },
     {
       element: firstListItem(["#ccoord-list article"], "#ccoord-list"),
-      popover: { title: "Coordinator List", description: "Each card is one coordinator, grouped by college. Use it to see their programs and email, or message them." },
+      popover: { title: "Coordinator List", description: "Each card is one coordinator, grouped by college. Coordinators of a college or program you've withdrawn stay here, labeled \"Previously affiliated\", so you can still contact them. Tap a card to see their details." },
+    },
+  ],
+  coordinatordetails: [
+    {
+      element: "#ccoord-details-dept",
+      popover: { title: "Department & Program", description: "The college and programs this coordinator handles." },
+    },
+    {
+      element: "#ccoord-details-email",
+      popover: { title: "Email Address", description: "Tap the email to write to them directly from your mail app." },
+    },
+    {
+      element: "#ccoord-details-message",
+      popover: { title: "Message", description: "Opens a chat with this coordinator in your Messages." },
     },
   ],
   // ── Sub-views & modals (set via each screen's onViewChange; see tourKey) ──
@@ -2366,6 +2381,7 @@ const CompanyDashboardScreen = ({ user, onLogout, onAuthStateChange }) => {
             embedded
             user={user}
             onNavigateToMessages={handleNavigateToMessages}
+            onViewChange={setScreenSubView}
           />
         );
       case "about":

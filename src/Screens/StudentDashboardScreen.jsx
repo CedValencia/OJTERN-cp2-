@@ -1060,7 +1060,7 @@ const HELP_STEPS_BY_STUDENT_NAV = {
       element: firstListItem(["#scoord-list article"], "#scoord-list"),
       popover: {
         title: "Your Coordinators",
-        description: "Coordinators are grouped by college. Tap any card to see their details, email, or to message them.",
+        description: "Coordinators are grouped by college. \"Your coordinator\" handles your current program and major; if your program or major was changed, your former one stays here as \"Previous coordinator\". Tap any card to see their details, email, or to message them.",
       },
     },
   ],

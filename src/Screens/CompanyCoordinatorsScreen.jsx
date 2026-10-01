@@ -317,7 +317,7 @@ const CoordinatorDetailsModal = ({ coordinator, onClose, onMessage, canMessage }
         </div>
 
         <div style={{ padding: "16px 18px", display: "grid", gap: "14px" }}>
-          <div>
+          <div id="ccoord-details-dept">
             <p style={rowLabel}>Department</p>
             <p style={rowValue}>{departments.length > 0 ? departments.join(", ") : "Unassigned"}</p>
           </div>
@@ -325,7 +325,7 @@ const CoordinatorDetailsModal = ({ coordinator, onClose, onMessage, canMessage }
             <p style={rowLabel}>Program</p>
             <p style={rowValue}>{programs.length > 0 ? programs.join(", ") : "—"}</p>
           </div>
-          <div>
+          <div id="ccoord-details-email">
             <p style={rowLabel}>Email address</p>
             {coordinator.email ? (
               <a href={`mailto:${coordinator.email}`} style={{ ...rowValue, display: "block", color: color.ink, textDecoration: "underline" }}>
@@ -350,6 +350,7 @@ const CoordinatorDetailsModal = ({ coordinator, onClose, onMessage, canMessage }
           </button>
           {canMessage && (
             <button
+              id="ccoord-details-message"
               onClick={() => onMessage(coordinator)}
               style={{
                 background: "#000000", color: color.white, border: "1px solid #000000",
@@ -369,7 +370,7 @@ const CoordinatorDetailsModal = ({ coordinator, onClose, onMessage, canMessage }
 };
 
 // ── Main CompanyCoordinatorsScreen ────────────────────────────────────────────
-const CompanyCoordinatorsScreen = ({ embedded, user, onNavigateToMessages }) => {
+const CompanyCoordinatorsScreen = ({ embedded, user, onNavigateToMessages, onViewChange }) => {
   const isMobile = useIsMobile();
   // Coordinator icon size — same as the chat-list icon in CompanyMessagesScreen.
   const avatarSize = isMobile ? 46 : 48;
@@ -387,6 +388,12 @@ const CompanyCoordinatorsScreen = ({ embedded, user, onNavigateToMessages }) => 
   const [showFilter, setShowFilter] = useState(false);
   // Coordinator whose details window is open (null = closed).
   const [selectedCoordinator, setSelectedCoordinator] = useState(null);
+
+  // List vs. open details window → Dashboard's "?" help button / auto-tour
+  // (same as StudentCoordinatorsScreen).
+  const subView = selectedCoordinator ? "details" : "list";
+  useEffect(() => { onViewChange?.(subView); }, [subView]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => onViewChange?.("list"), []);        // eslint-disable-line react-hooks/exhaustive-deps
   const [filterCollege, setFilterCollege] = useState("");
   const [filterProgram, setFilterProgram] = useState("");
   const filterRef = useRef(null);
@@ -570,6 +577,7 @@ const CompanyCoordinatorsScreen = ({ embedded, user, onNavigateToMessages }) => 
 
         <div style={{ display: "flex", alignItems: "center", gap: "8px", width: isMobile ? "100%" : "auto" }}>
           <div
+            id="ccoord-search-bar"
             style={{
               flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: "9px",
               background: color.wine900, border: `1px solid ${border}`,
@@ -603,6 +611,7 @@ const CompanyCoordinatorsScreen = ({ embedded, user, onNavigateToMessages }) => 
 
           <div ref={filterRef} style={{ position: "relative", flexShrink: 0 }}>
             <button
+              id="ccoord-filter-btn"
               onClick={() => setShowFilter(v => !v)}
               aria-label="Filter coordinators"
               aria-expanded={showFilter}
@@ -645,7 +654,7 @@ const CompanyCoordinatorsScreen = ({ embedded, user, onNavigateToMessages }) => 
         </div>
       </header>
 
-      <main style={{ flex: 1, minHeight: 0, overflowY: "auto", overflowX: "hidden", padding: isMobile ? "18px 16px 28px" : "24px 32px 36px" }}>
+      <main id="ccoord-list" style={{ flex: 1, minHeight: 0, overflowY: "auto", overflowX: "hidden", padding: isMobile ? "18px 16px 28px" : "24px 32px 36px" }}>
         {!loading && scoped.length > 0 && (
           <div style={{
             display: "flex", alignItems: "center", justifyContent: "space-between",

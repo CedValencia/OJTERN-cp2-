@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
-import { collection, addDoc, serverTimestamp, onSnapshot, query, where, doc, getDoc, updateDoc, deleteDoc, getDocs } from "firebase/firestore";
+import { collection, addDoc, serverTimestamp, onSnapshot, query, where, doc, getDoc, updateDoc, deleteDoc, getDocs, writeBatch } from "firebase/firestore";
 import { db } from "./firebase";
 import { isStudentEligibleForPost } from "./affiliationService";
 import { usePostsByIds, getPostClosure } from "./useEligibleOjtPosts";
@@ -3633,8 +3633,10 @@ export const ApplyModal = ({ company, onClose, onSuccessClose, onSubmit, user })
 };
 
 // ─── VIEW APPLICATION MODAL ───────────────────────────────────────────────────
-const ViewApplicationModal = ({ application, onClose, onSave, onEditingChange, postClosure = null }) => {
+const ViewApplicationModal = ({ application, onClose, onSave, onEditingChange, postClosure = null, canConfirmPlacement = false, otherAccepted = [], onConfirmPlacement }) => {
   const [isEditing, setIsEditing] = useState(false);
+  const [confirmingPlacement, setConfirmingPlacement] = useState(false);
+  const [placementBusy, setPlacementBusy] = useState(false);
   useEffect(() => { onEditingChange?.(isEditing); }, [isEditing]);
   useEffect(() => () => onEditingChange?.(false), []);
   const f = useApplicationForm(application.data);
@@ -3742,6 +3744,38 @@ const ViewApplicationModal = ({ application, onClose, onSave, onEditingChange, p
             {application.affiliationWithdrawnAt?.seconds ? ` (since ${new Date(application.affiliationWithdrawnAt.seconds * 1000).toLocaleDateString()})` : ""}.
             {" "}Your application stays on record with its current status ({application.status}). Please coordinate with your OJT coordinator about next steps.
           </div>
+        )}
+
+        {application.status === "Accepted" && application.placementConfirmed && (
+          <div role="note" style={{ margin: "12px 18px 0", padding: "8px 14px", borderRadius: "10px", background: "#EAF6EE", border: "1px solid #BFE3CB", fontFamily: font.ui, fontSize: "0.8rem", lineHeight: 1.45, color: "#1f5e36" }}>
+            <strong>✓ Confirmed placement.</strong> {application.company} is your OJT placement
+            {application.placementConfirmedAt?.seconds ? ` (confirmed ${new Date(application.placementConfirmedAt.seconds * 1000).toLocaleDateString()})` : ""}.
+          </div>
+        )}
+        {canConfirmPlacement && application.status === "Accepted" && !application.placementConfirmed && (
+          <div style={{ margin: "12px 18px 0", padding: "12px 14px", borderRadius: "10px", background: "#F4FAF6", border: "1px solid #BFE3CB", fontFamily: font.ui, fontSize: "0.82rem", lineHeight: 1.45, color: "#1f3d2a", textAlign: "center" }}>
+            You were accepted by <strong>{application.company}</strong>. Is this where you want to have your OJT?
+            <div style={{ marginTop: "10px" }}>
+              <button onClick={() => setConfirmingPlacement(true)}
+                style={{ padding: "8px 18px", borderRadius: "22px", background: "#2a7a2a", color: "#ffffff", border: "none", fontFamily: font.ui, fontSize: "0.8rem", fontWeight: 600, cursor: "pointer" }}>
+                Confirm as my OJT placement
+              </button>
+            </div>
+          </div>
+        )}
+        {confirmingPlacement && (
+          <ConfirmPlacementPopup
+            companyName={application.company}
+            otherAccepted={otherAccepted}
+            confirming={placementBusy}
+            onCancel={() => setConfirmingPlacement(false)}
+            onConfirm={async () => {
+              setPlacementBusy(true);
+              await onConfirmPlacement?.(application.id);
+              setPlacementBusy(false);
+              setConfirmingPlacement(false);
+            }}
+          />
         )}
 
         {/* Status Progress Tracker */}
@@ -4013,6 +4047,49 @@ const WITHDRAW_REASONS = [
 ];
 const WITHDRAW_DETAILS_MAX = 500;
 
+// ── Confirm placement ─────────────────────────────────────────────────────────
+// A student can be accepted by more than one company; they choose ONE as their
+// OJT placement. Confirming withdraws their other ACCEPTED applications (reason
+// "Accepted another OJT offer"), which returns those companies' slots. It
+// can't be undone by the student — a change goes through their coordinator.
+const ConfirmPlacementPopup = ({ companyName, otherAccepted = [], onCancel, onConfirm, confirming }) => (
+  <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1250, padding: "16px" }}>
+    <div className="sa-confirm-inner" style={{ maxHeight: "90vh", overflowY: "auto" }}>
+      <div style={{ width: "56px", height: "56px", borderRadius: "50%", background: "#2a7a2a", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 14px" }}>
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
+      </div>
+      <h3 style={{ fontFamily: font.ui, fontWeight: 700, fontSize: "1.2rem", color: "#1a1a1a", marginBottom: "6px" }}>Confirm your OJT placement?</h3>
+      <p style={{ fontFamily: font.ui, fontSize: "0.85rem", color: inkMuted, marginBottom: "12px", lineHeight: 1.5 }}>
+        <strong style={{ color: "#1a1a1a" }}>{companyName}</strong> will be your OJT placement, and your coordinator will be notified to review it.
+      </p>
+      {otherAccepted.length > 0 && (
+        <p style={{ fontFamily: font.ui, fontSize: "0.8rem", color: "#5c3d00", background: "#FFF3D6", border: "1px solid #F0D48A", borderRadius: "10px", padding: "8px 12px", marginBottom: "12px", lineHeight: 1.45, textAlign: "left" }}>
+          Your other accepted application{otherAccepted.length > 1 ? "s" : ""} ({otherAccepted.join(", ")}) will be withdrawn with the reason “Accepted another OJT offer”, and {otherAccepted.length > 1 ? "those companies" : "that company"} will be notified.
+        </p>
+      )}
+      <p style={{ fontFamily: font.ui, fontSize: "0.78rem", color: "#c62828", marginBottom: "20px", lineHeight: 1.45 }}>
+        This can't be undone. If you need to change it later, talk to your OJT coordinator.
+      </p>
+      <div style={{ display: "flex", justifyContent: "center", gap: "10px" }}>
+        <button onClick={onCancel} disabled={confirming}
+          style={{ padding: "9px 22px", borderRadius: "22px", background: color.white, color: "#111111", border: `1px solid ${line}`, fontFamily: font.ui, fontSize: "0.82rem", fontWeight: 600, cursor: confirming ? "not-allowed" : "pointer", opacity: confirming ? 0.7 : 1 }}>
+          CANCEL
+        </button>
+        <button onClick={onConfirm} disabled={confirming}
+          style={{ padding: "9px 22px", borderRadius: "22px", background: "#2a7a2a", color: "#ffffff", border: "1px solid #2a7a2a", fontFamily: font.ui, fontSize: "0.82rem", fontWeight: 600, cursor: confirming ? "not-allowed" : "pointer", opacity: confirming ? 0.7 : 1 }}>
+          {confirming ? "CONFIRMING..." : "CONFIRM"}
+        </button>
+      </div>
+    </div>
+  </div>
+);
+
+const ConfirmedPlacementBadge = () => (
+  <span style={{ fontFamily: font.ui, fontSize: "0.7rem", fontWeight: 600, color: "#1f5e36", background: "#EAF6EE", border: "1px solid #BFE3CB", borderRadius: radius.pill, padding: "1px 8px", whiteSpace: "nowrap" }}>
+    ✓ Confirmed placement
+  </span>
+);
+
 const DeleteConfirmPopup = ({ companyName, status, onCancel, onConfirm, deleting }) => {
   const [reason, setReason]   = useState("");
   const [details, setDetails] = useState("");
@@ -4124,8 +4201,10 @@ const DeleteConfirmPopup = ({ companyName, status, onCancel, onConfirm, deleting
 };
 
 // ─── APPLICATION ROW ──────────────────────────────────────────────────────────
-const ApplicationRow = ({ application, onView, onDelete, companyProfileIcon: themedCompanyIcon = blackCompanyProfileIcon, postClosure = null }) => {
+const ApplicationRow = ({ application, onView, onDelete, companyProfileIcon: themedCompanyIcon = blackCompanyProfileIcon, postClosure = null, canConfirmPlacement = false, otherAccepted = [], onConfirmPlacement }) => {
   const [showMenu, setShowMenu] = useState(false);
+  const [confirmingPlacement, setConfirmingPlacement] = useState(false);
+  const [placementBusy, setPlacementBusy] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const menuRef = useRef(null);
@@ -4194,6 +4273,9 @@ const ApplicationRow = ({ application, onView, onDelete, companyProfileIcon: the
               </span>
             </div>
           )}
+          {application.status === "Accepted" && application.placementConfirmed && (
+            <div style={{ marginTop: "4px" }}><ConfirmedPlacementBadge /></div>
+          )}
         </div>
         <span style={{ background: sc.bg, color: sc.color, borderRadius: radius.pill, padding: "3px 11px", fontFamily: font.ui, fontSize: "0.75rem", fontWeight: 500, flexShrink: 0, whiteSpace: "nowrap" }}>
           {application.status}
@@ -4206,9 +4288,20 @@ const ApplicationRow = ({ application, onView, onDelete, companyProfileIcon: the
                 style={{ width: "100%", border: "none", background: "transparent", padding: "9px 14px", textAlign: "left", cursor: "pointer", fontFamily: font.ui, ...type.helper, fontWeight: 500, color: ink }}
                 onMouseEnter={e => e.currentTarget.style.background = color.hoverWash}
                 onMouseLeave={e => e.currentTarget.style.background = "transparent"}>View</button>
+              {canConfirmPlacement && application.status === "Accepted" && !application.placementConfirmed && (
+                <>
+                <div style={{ height: "1px", background: line, margin: "0 8px" }} />
+                <button onClick={() => { setConfirmingPlacement(true); setShowMenu(false); }}
+                  style={{ width: "100%", border: "none", background: "transparent", padding: "9px 14px", textAlign: "left", cursor: "pointer", fontFamily: font.ui, ...type.helper, fontWeight: 600, color: "#2a7a2a", whiteSpace: "nowrap" }}
+                  onMouseEnter={e => e.currentTarget.style.background = color.hoverWash}
+                  onMouseLeave={e => e.currentTarget.style.background = "transparent"}>Confirm as my OJT placement</button>
+                </>
+              )}
               {/* Withdraw replaces Delete — records are never removed. Not offered
                   once the application is already Withdrawn or Declined. */}
-              {application.status !== WITHDRAWN && application.status !== "Declined" && (
+              {/* A confirmed placement can't be withdrawn by the student either —
+                  changes go through the coordinator. */}
+              {application.status !== WITHDRAWN && application.status !== "Declined" && !(application.status === "Accepted" && application.placementConfirmed) && (
               <>
               <div style={{ height: "1px", background: line, margin: "0 8px" }} />
               <button
@@ -4226,6 +4319,20 @@ const ApplicationRow = ({ application, onView, onDelete, companyProfileIcon: the
         </div>
       </div>
 
+      {confirmingPlacement && (
+        <ConfirmPlacementPopup
+          companyName={application.company}
+          otherAccepted={otherAccepted}
+          confirming={placementBusy}
+          onCancel={() => setConfirmingPlacement(false)}
+          onConfirm={async () => {
+            setPlacementBusy(true);
+            await onConfirmPlacement?.(application.id);
+            setPlacementBusy(false);
+            setConfirmingPlacement(false);
+          }}
+        />
+      )}
       {confirming && (
         <DeleteConfirmPopup
           companyName={application.company}
@@ -4273,6 +4380,7 @@ const StudentApplicationScreen = ({ initialCompany, onModalClose, user, openAppl
           statusBeforeWithdrawal, withdrawnAt, withdrawnBy, slotReturned,
           withdrawalReason, withdrawalReasonDetails,
           coordinatorReviewedAt, coordinatorReviewedBy, placementReviewRequired,
+          placementConfirmed, placementConfirmedAt, autoWithdrawnByConfirmation,
           ...formData
         } = raw;
         return {
@@ -4294,6 +4402,9 @@ const StudentApplicationScreen = ({ initialCompany, onModalClose, user, openAppl
           withdrawalReason: withdrawalReason || "",
           // Set when the student's OJT coordinator reviewed this accepted placement.
           coordinatorReviewedAt: coordinatorReviewedAt || null,
+          // The student chose this Accepted application as their OJT placement.
+          placementConfirmed: placementConfirmed === true,
+          placementConfirmedAt: placementConfirmedAt || null,
           withdrawalReasonDetails: withdrawalReasonDetails || "",
           withdrawnAt: withdrawnAt || null,
           postId: raw.postId || "",
@@ -4353,6 +4464,83 @@ const StudentApplicationScreen = ({ initialCompany, onModalClose, user, openAppl
   // If it was Accepted, `slotReturned: false` tells the company's Applicants
   // screen to give the slot back (the company owns the post, so it does that
   // write — see CompanyApplicantsScreen).
+  // ── Confirm placement ───────────────────────────────────────────────────
+  // One confirmed placement per student. Confirming:
+  //   • marks this application placementConfirmed (+ starts the coordinator's
+  //     placement review, ⚑ in their Student List),
+  //   • withdraws every OTHER Accepted application in the same batch (reason
+  //     "Accepted another OJT offer"; slotReturned:false lets each company's
+  //     Applicants screen give its slot back),
+  //   • then notifies the student, the chosen company, the other companies and
+  //     the coordinator (best-effort — the batch above is already saved).
+  const hasConfirmedPlacement = applications.some(a => a.status === "Accepted" && a.placementConfirmed);
+  const acceptedApps = applications.filter(a => a.status === "Accepted");
+  const otherAcceptedNames = (id) => acceptedApps.filter(a => a.id !== id).map(a => a.company || "a company");
+
+  const handleConfirmPlacement = async (id) => {
+    const chosen = applications.find(a => a.id === id);
+    if (!chosen || chosen.status !== "Accepted" || hasConfirmedPlacement) return;
+    const others = acceptedApps.filter(a => a.id !== id);
+    const reasonDetails = `Confirmed ${chosen.company || "another company"} as my OJT placement.`;
+    try {
+      const batch = writeBatch(db);
+      batch.update(doc(db, "applications", id), {
+        placementConfirmed:      true,
+        placementConfirmedAt:    serverTimestamp(),
+        placementReviewRequired: true,
+      });
+      others.forEach(o => batch.update(doc(db, "applications", o.id), {
+        status:                      WITHDRAWN,
+        statusBeforeWithdrawal:      "Accepted",
+        withdrawnAt:                 serverTimestamp(),
+        withdrawnBy:                 "student",
+        withdrawalReason:            "Accepted another OJT offer",
+        withdrawalReasonDetails:     reasonDetails,
+        slotReturned:                false,
+        autoWithdrawnByConfirmation: true,
+      }));
+      await batch.commit();
+    } catch (err) {
+      console.error("Failed to confirm placement:", err);
+      return;
+    }
+
+    const studentName = [chosen.data?.firstName, chosen.data?.lastName].filter(Boolean).join(" ") || "A student";
+    const otherList = others.map(o => o.company || "a company").join(", ");
+    const notices = [
+      // Student
+      {
+        studentId: user?.uid || "", type: "placement_confirmed_self", applicationId: id, companyName: chosen.company || "",
+        message: `You confirmed ${chosen.company || "the company"} as your OJT placement.${others.length ? ` Your other accepted application${others.length > 1 ? "s" : ""} (${otherList}) ${others.length > 1 ? "were" : "was"} withdrawn.` : ""} Your coordinator will review your placement.`,
+        read: false,
+      },
+      // Chosen company
+      chosen.companyId && {
+        recipientId: chosen.companyId, type: "placement_confirmed", title: "Placement confirmed",
+        message: `${studentName} confirmed your company as their OJT placement.`, applicationId: id, applicantStudentId: user?.uid || "", read: false,
+      },
+      // Other companies
+      ...others.filter(o => o.companyId).map(o => ({
+        recipientId: o.companyId, type: "application_withdrawn", title: "Application withdrawn",
+        message: `${studentName} withdrew their application (was Accepted). Reason: Accepted another OJT offer.`,
+        applicationId: o.id, applicantStudentId: user?.uid || "",
+        withdrawalReason: "Accepted another OJT offer", withdrawalReasonDetails: reasonDetails, read: false,
+      })),
+      // Coordinator — urgent: review the placement
+      {
+        recipientRole: "coordinator", department: chosen.data?.college || user?.college || "", program: chosen.data?.program || user?.program || "",
+        type: "placement_confirmed", applicantStudentId: user?.uid || "", studentName,
+        companyId: chosen.companyId || "", companyName: chosen.company || "", applicationId: id,
+        message: `${studentName} confirmed ${chosen.company || "a company"} as their OJT placement.${others.length ? ` Other accepted application${others.length > 1 ? "s" : ""} withdrawn: ${otherList}.` : ""} Please review the placement.`,
+        readBy: [],
+      },
+    ].filter(Boolean);
+    await Promise.all(notices.map(n =>
+      addDoc(collection(db, "notifications"), { ...n, createdAt: serverTimestamp() })
+        .catch(err => console.error("Placement confirmed, but a notification failed:", err))
+    ));
+  };
+
   const handleDelete = async (id, withdrawal = {}) => {
     const app = applications.find(a => a.id === id);
     if (!app || app.status === WITHDRAWN) return;
@@ -4508,7 +4696,7 @@ const StudentApplicationScreen = ({ initialCompany, onModalClose, user, openAppl
         ) : filteredApplications.length > 0 ? (
           <div className="sa-list-area" id="sapp-list">
             {filteredApplications.map(application => (
-              <ApplicationRow key={application.id} application={application} onView={handleView} onDelete={handleDelete} companyProfileIcon={themedCompanyIcon} postClosure={getPostClosure(application.postId, postsById)} />
+              <ApplicationRow key={application.id} application={application} onView={handleView} onDelete={handleDelete} companyProfileIcon={themedCompanyIcon} postClosure={getPostClosure(application.postId, postsById)} canConfirmPlacement={!hasConfirmedPlacement} otherAccepted={otherAcceptedNames(application.id)} onConfirmPlacement={handleConfirmPlacement} />
             ))}
             <p style={{ textAlign: "center", fontFamily: font.ui, ...type.helper, color: inkFaint, padding: "16px 0 0" }}>
               No more recent applications!
@@ -4536,6 +4724,9 @@ const StudentApplicationScreen = ({ initialCompany, onModalClose, user, openAppl
           onSave={handleSave}
           onEditingChange={setViewEditing}
           postClosure={getPostClosure(viewingApplication.postId, postsById)}
+          canConfirmPlacement={!hasConfirmedPlacement}
+          otherAccepted={otherAcceptedNames(viewingApplication.id)}
+          onConfirmPlacement={handleConfirmPlacement}
         />
       )}
       {showApply && (

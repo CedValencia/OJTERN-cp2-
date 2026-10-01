@@ -1029,6 +1029,13 @@ const PersonalDetailsModal = ({ applicant, onClose, onStatusChange, onMessage, u
                     This applicant has been {applicant.status.toLowerCase()}. Status is locked and can no longer be changed.
                   </span>
                 )}
+                {applicant.status === "Accepted" && (
+                  <span style={{ fontFamily: font.ui, ...type.helper, color: applicant.placementConfirmed ? "#2a7a2a" : inkFaint, fontStyle: applicant.placementConfirmed ? "normal" : "italic", fontWeight: applicant.placementConfirmed ? 600 : 400 }}>
+                    {applicant.placementConfirmed
+                      ? `✓ Confirmed by the student as their OJT placement${applicant.placementConfirmedAt?.seconds ? ` on ${new Date(applicant.placementConfirmedAt.seconds * 1000).toLocaleDateString()}` : ""}.`
+                      : "Waiting for the student to confirm this as their OJT placement."}
+                  </span>
+                )}
                 {applicant.status === "Withdrawn" && (
                   <span style={{ fontFamily: font.ui, ...type.helper, color: inkFaint, fontStyle: "italic" }}>
                     The student withdrew this application
@@ -1350,9 +1357,10 @@ const CompanyApplicantsScreen = ({ embedded = false, onNavigateToMessages, user,
       await updateDoc(doc(db, "applications", id), {
         status: newStatus,
         statusNote: note,
-        // Accepted placements must be reviewed by the student's coordinator
-        // (⚑ Review placement in their Student List until marked reviewed).
-        ...(newStatus === "Accepted" ? { placementReviewRequired: true, acceptedAt: serverTimestamp() } : {}),
+        // The coordinator's placement review starts once the STUDENT confirms
+        // this as their OJT placement (StudentApplicationScreen → Confirm),
+        // since a student may be accepted by more than one company.
+        ...(newStatus === "Accepted" ? { acceptedAt: serverTimestamp() } : {}),
       });
 
       if (newStatus === "Accepted") {
@@ -1368,7 +1376,7 @@ const CompanyApplicantsScreen = ({ embedded = false, onNavigateToMessages, user,
           companyId:          current?.companyId || "",
           companyName:        current?.companyName || "",
           applicationId:      id,
-          message:            `${studentName} was ACCEPTED by ${current?.companyName || "a company"}. Please review the placement.`,
+          message:            `${studentName} was accepted by ${current?.companyName || "a company"}. Waiting for the student to confirm it as their OJT placement.`,
           readBy:             [],
           createdAt:          serverTimestamp(),
         }).catch(err => console.error("Accepted, but notifying the coordinator failed:", err));
@@ -1395,7 +1403,8 @@ const CompanyApplicantsScreen = ({ embedded = false, onNavigateToMessages, user,
       // Notify the student about this status change
       if (current?.studentId) {
         const statusText = STATUS_NOTIF_TEXT[newStatus] || `is now ${newStatus.toLowerCase()}`;
-        const baseMessage = `Your application on ${current.companyName || "the company"} ${statusText}.`;
+        const baseMessage = `Your application on ${current.companyName || "the company"} ${statusText}.`
+          + (newStatus === "Accepted" ? " If this is where you want to have your OJT, confirm it in Recent Applications." : "");
         await addDoc(collection(db, "notifications"), {
           studentId:     current.studentId,
           message:       note ? `${baseMessage} Message from the company: "${note}"` : baseMessage,
@@ -1532,6 +1541,11 @@ const CompanyApplicantsScreen = ({ embedded = false, onNavigateToMessages, user,
                     <span style={{ background: sc.bg, color: sc.color, borderRadius: radius.pill, padding: "2px 10px", fontFamily: font.ui, fontSize: "0.72rem", fontWeight: 500, whiteSpace: "nowrap", flexShrink: 0 }}>
                       {applicant.status}
                     </span>
+                    {applicant.status === "Accepted" && applicant.placementConfirmed && (
+                      <span style={{ background: "#EAF6EE", color: "#1f5e36", border: "1px solid #BFE3CB", borderRadius: radius.pill, padding: "1px 8px", fontFamily: font.ui, fontSize: "0.68rem", fontWeight: 600, whiteSpace: "nowrap", flexShrink: 0 }}>
+                        ✓ Confirmed
+                      </span>
+                    )}
                     <span className="ca-row-program" style={{ color: color.wine400, fontSize: "0.7rem", flexShrink: 0 }}>·</span>
                     <span className="ca-row-program" style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
                       {applicant.program}

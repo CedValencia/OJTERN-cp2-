@@ -53,11 +53,15 @@ const STATUS_COLORS = {
 //     still open or already accepted (status is NOT changed automatically), or
 //   • the student withdrew from a placement that was already ACCEPTED.
 const CLOSED_STATUSES = ["Declined", "Withdrawn"];
+// The coordinator reviews a placement once the STUDENT has confirmed it (a
+// student may be accepted by several companies and picks one).
 const needsPlacementReview = (app) =>
-  !!app && app.status === "Accepted" && app.placementReviewRequired === true && !app.coordinatorReviewedAt;
+  !!app && app.status === "Accepted" && app.placementConfirmed === true && !app.coordinatorReviewedAt;
+const awaitingConfirmation = (app) =>
+  !!app && app.status === "Accepted" && app.placementConfirmed !== true;
 const followUpReason = (app) => {
   if (!app) return null;
-  if (needsPlacementReview(app)) return "New placement — review the company and post";
+  if (needsPlacementReview(app)) return "Confirmed placement — review the company and post";
   if (app.status === "Withdrawn" && app.statusBeforeWithdrawal === "Accepted") {
     return "Student withdrew from an accepted placement";
   }
@@ -66,6 +70,7 @@ const followUpReason = (app) => {
       ? "Accepted, but the company withdrew this program"
       : "Company withdrew this program — application still open";
   }
+  if (awaitingConfirmation(app)) return "Accepted — waiting for the student to confirm their placement";
   return null;
 };
 const needsFollowUp = (apps) => (apps || []).some(a => !!followUpReason(a));
@@ -110,6 +115,79 @@ const matchesStatusFilter = (apps, filterValue) => {
 // ── Export ────────────────────────────────────────────────────────────────────
 
 const EXPORT_HEADER = ["Student Name", "Student ID", "College", "Program", "Year & Section", "Placement", "Status"];
+
+// Three export modes (chosen from the Export menu):
+//   "final"   → Final placements: only students with an Accepted application,
+//               one row each — the company they'll be deployed to once they
+//               confirmed it, or every accepted company marked "not yet
+//               confirmed by student".
+//   "status"  → Placement status: every student, one row — the placement, or
+//               "No placement yet" with their current progress.
+//   "history" → Full application history: one row per application.
+const EXPORT_MODES = {
+  final:   { title: "Final OJT Placements",    unit: "placement",          header: ["Student Name", "Student ID", "College", "Program", "Year & Section", "Company (Deployment)", "Accepted / Confirmed", "Reviewed by Coordinator"] },
+  status:  { title: "Student Placement Status", unit: "student",           header: ["Student Name", "Student ID", "College", "Program", "Year & Section", "Placement", "Status"] },
+  history: { title: "Student Application History", unit: "application record", header: EXPORT_HEADER },
+};
+
+const fmtTs = (ts) => (ts?.seconds ? new Date(ts.seconds * 1000).toLocaleDateString() : "");
+const companyNameOf = (app, companies) => companies.find(c => c.id === app.companyId)?.name || app.companyName || "Unknown company";
+const placementNotes = (app, postsById) => {
+  const notes = [];
+  const closure = getPostClosure(app.postId, postsById);
+  if (closure) notes.push(closure.label.toLowerCase());
+  if (app.affiliationWithdrawn) notes.push("program affiliation withdrawn");
+  return notes;
+};
+const studentBase = (student) => [
+  getFullName(student), student.studentId || "", student.college || "", student.program || "", student.yearSection || "",
+];
+
+const buildFinalPlacementRows = (students, applicationsByStudent, companies, postsById = {}) =>
+  students.flatMap(student => {
+    const accepted = (applicationsByStudent[student.id] || []).filter(a => a.status === "Accepted");
+    if (accepted.length === 0) return [];
+    const confirmed = accepted.find(a => a.placementConfirmed === true);
+    if (confirmed) {
+      const notes = placementNotes(confirmed, postsById);
+      return [[
+        ...studentBase(student),
+        `${companyNameOf(confirmed, companies)}${notes.length ? ` (${notes.join("; ")})` : ""}`,
+        `Accepted ${fmtTs(confirmed.acceptedAt) || ""} · Confirmed ${fmtTs(confirmed.placementConfirmedAt) || ""}`.replace(/\s+·/g, " ·").trim(),
+        confirmed.coordinatorReviewedAt ? `Reviewed ${fmtTs(confirmed.coordinatorReviewedAt)}` : "Not yet reviewed",
+      ]];
+    }
+    return [[
+      ...studentBase(student),
+      accepted.map(a => companyNameOf(a, companies)).join(", "),
+      accepted.length > 1 ? `Multiple acceptances — not yet confirmed by student` : "Accepted — not yet confirmed by student",
+      "—",
+    ]];
+  });
+
+const STATUS_RANK = { "To Interview": 3, "In Review": 2, "Pending": 1 };
+const buildPlacementStatusRows = (students, applicationsByStudent, companies, postsById = {}) =>
+  students.map(student => {
+    const apps = applicationsByStudent[student.id] || [];
+    const base = studentBase(student);
+    if (apps.length === 0) return [...base, "No placement yet", "No applications yet"];
+    const accepted = apps.filter(a => a.status === "Accepted");
+    const confirmed = accepted.find(a => a.placementConfirmed === true);
+    if (confirmed) {
+      const notes = placementNotes(confirmed, postsById);
+      return [...base, companyNameOf(confirmed, companies), `Confirmed placement${confirmed.coordinatorReviewedAt ? ", reviewed" : ", not yet reviewed"}${notes.length ? ` (${notes.join("; ")})` : ""}`];
+    }
+    if (accepted.length) {
+      return [...base, accepted.map(a => companyNameOf(a, companies)).join(", "), accepted.length > 1 ? "Multiple acceptances — not yet confirmed" : "Accepted — not yet confirmed"];
+    }
+    const active = apps.filter(a => STATUS_RANK[a.status]).sort((a, b) => STATUS_RANK[b.status] - STATUS_RANK[a.status]);
+    if (active.length) {
+      const top = active[0];
+      const more = active.length - 1;
+      return [...base, "No placement yet", `${top.status} at ${companyNameOf(top, companies)}${more ? ` (+${more} other application${more > 1 ? "s" : ""})` : ""}`];
+    }
+    return [...base, "No placement yet", "All applications declined/withdrawn"];
+  });
 
 // One row per APPLICATION, not per student: a student who applied to three
 // companies is genuinely three placement records, and collapsing them to the
@@ -179,7 +257,8 @@ const downloadBlob = (filename, blob) => {
 // deliberate action — loading them eagerly would make every coordinator pay
 // that cost on first paint just so the button exists. Imported on click
 // instead, so the weight lands only on whoever actually exports.
-const buildStudentPdf = async ({ rows, scope, total }) => {
+const buildStudentPdf = async ({ rows, scope, total, mode = "history" }) => {
+  const cfg = EXPORT_MODES[mode] || EXPORT_MODES.history;
   const { jsPDF }     = await import("jspdf");
   const { default: autoTable } = await import("jspdf-autotable");
 
@@ -191,20 +270,20 @@ const buildStudentPdf = async ({ rows, scope, total }) => {
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(16);
-  doc.text("Student Placements", margin, 46);
+  doc.text(cfg.title, margin, 46);
 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(9);
   doc.setTextColor(110);
   doc.text(scope, margin, 62);
   doc.text(
-    `${total} student${total === 1 ? "" : "s"} · ${rows.length} placement record${rows.length === 1 ? "" : "s"} · Generated ${new Date().toLocaleDateString()}`,
+    `${total} student${total === 1 ? "" : "s"} in this list · ${rows.length} ${cfg.unit}${rows.length === 1 ? "" : "s"} · Generated ${new Date().toLocaleDateString()}`,
     margin, 75
   );
   doc.setTextColor(0);
 
   autoTable(doc, {
-    head: [EXPORT_HEADER],
+    head: [cfg.header],
     body: rows,
     startY: 92,
     margin: { left: margin, right: margin, bottom: 46 },
@@ -690,6 +769,11 @@ const PlacementModal = ({ student, onClose, onNavigateToCompany, companies, onMe
                   if (!app.affiliationWithdrawn && app.affiliationRestoredAt?.seconds) {
                     notices.push(`Program affiliation withdrawn${app.affiliationWithdrawnAt?.seconds ? ` on ${new Date(app.affiliationWithdrawnAt.seconds * 1000).toLocaleDateString()}` : ""} and restored on ${new Date(app.affiliationRestoredAt.seconds * 1000).toLocaleDateString()}`);
                   }
+                  if (app.status === "Accepted") {
+                    notices.push(app.placementConfirmed
+                      ? `✓ Confirmed by the student as their OJT placement${app.placementConfirmedAt?.seconds ? ` on ${new Date(app.placementConfirmedAt.seconds * 1000).toLocaleDateString()}` : ""}`
+                      : "Accepted — waiting for the student to confirm it as their OJT placement");
+                  }
                   if (app.status === "Withdrawn") {
                     notices.push(`Withdrawn by the student${app.withdrawnAt?.seconds ? ` on ${new Date(app.withdrawnAt.seconds * 1000).toLocaleDateString()}` : ""}${app.statusBeforeWithdrawal ? ` — was ${app.statusBeforeWithdrawal}` : ""}${app.withdrawalReason ? ` · Reason: ${[app.withdrawalReason, app.withdrawalReasonDetails].filter(Boolean).join(" — ")}` : ""}`);
                   }
@@ -791,7 +875,9 @@ const FilterPanel = ({ filters, setFilters, filterRef, coordinatorColleges = [],
 
   const clearAll = () => {
     setExpandedCollege("");
-    setFilters(prev => ({ ...prev, college: "", program: "", specialization: "", sex: "", section: "" }));
+    // Everything in this panel, batch included. (The status chips above the
+    // list are a separate control and keep their own selection.)
+    setFilters(prev => ({ ...prev, college: "", program: "", specialization: "", sex: "", section: "", batch: "" }));
   };
 
   const toggleSex     = (val) => setFilters(prev => ({ ...prev, sex:     prev.sex     === val ? "" : val }));
@@ -1145,18 +1231,27 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
   // always matches the "N of M" count in the header. Filter first, then export.
   const exportDate = () => new Date().toISOString().slice(0, 10);
 
-  const handleExportPdf = async () => {
+  const handleExportPdf = async (mode = "history") => {
     if (filtered.length === 0 || exportingPdf) return;
     setShowExport(false);
     setExportingPdf(true);
     try {
-      const rows = buildExportRows(filtered, applicationsByStudent, companies, postsById);
+      const builder = mode === "final" ? buildFinalPlacementRows : mode === "status" ? buildPlacementStatusRows : buildExportRows;
+      const rows = builder(filtered, applicationsByStudent, companies, postsById);
+      if (rows.length === 0) {
+        alert(mode === "final"
+          ? "None of the students shown has an accepted placement yet."
+          : "There's nothing to export for the students shown.");
+        return;
+      }
       const blob = await buildStudentPdf({
         rows,
+        mode,
         scope: describeExportScope(filters, search),
         total: filtered.length,
       });
-      downloadBlob(`ojtern-students-${exportDate()}.pdf`, blob);
+      const fileTag = mode === "final" ? "final-placements" : mode === "status" ? "placement-status" : "application-history";
+      downloadBlob(`ojtern-${fileTag}-${exportDate()}.pdf`, blob);
     } catch (err) {
       // The PDF libraries are fetched on click, so this also covers a failed
       // chunk load on a bad connection — silence here would look like a dead
@@ -1292,13 +1387,15 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
                   position: "absolute", top: "48px", right: 0, zIndex: 40,
                   background: color.white, border: `1px solid ${color.wine400}`,
                   borderRadius: radius.card, boxShadow: shadow.panel,
-                  padding: "6px", minWidth: "196px",
+                  padding: "6px", minWidth: "270px",
                 }}>
                   <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, padding: "6px 10px 8px" }}>
                     {filtered.length} of {students.length} students
                   </p>
                   {[
-                    { label: "Export as PDF", hint: "Formatted for printing",   onClick: handleExportPdf },
+                    { label: "Final placements (PDF)",      hint: "Accepted students and where they'll be deployed", onClick: () => handleExportPdf("final") },
+                    { label: "Placement status (PDF)",      hint: "Every student — placed or not yet",               onClick: () => handleExportPdf("status") },
+                    { label: "Full application history (PDF)", hint: "Every application of each student",           onClick: () => handleExportPdf("history") },
                   ].map(({ label, hint, onClick }) => (
                     <button
                       key={label}

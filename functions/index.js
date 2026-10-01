@@ -476,6 +476,11 @@ exports.sendApplicationStatusEmail = onDocumentUpdated(
 
     if (oldData.status === newData.status) return; // nothing actually changed
 
+    // Other accepted applications withdrawn automatically when the student
+    // confirmed their OJT placement: the student already got one in-app
+    // summary, so no separate "You withdrew…" email per application.
+    if (newData.status === "Withdrawn" && newData.autoWithdrawnByConfirmation === true) return;
+
     const studentId = newData.studentId;
     if (!studentId) {
       console.warn(`Application ${event.params.applicationId} has no studentId — skipping status email.`);
@@ -550,7 +555,7 @@ exports.sendApplicationStatusEmail = onDocumentUpdated(
       "Pending":      `Your application to ${companyName} is on file and pending review.`,
       "In Review":    `Your application to ${companyName} is now being reviewed.`,
       "To Interview": `Your application to ${companyName} has moved to the interview stage. Please log in to OJTern to view interview details and any next steps.`,
-      "Accepted":     `Congratulations! Your application has been accepted by ${companyName}. Please log in to OJTern to view the details and next steps.`,
+      "Accepted":     `Congratulations! Your application has been accepted by ${companyName}. If this is where you want to have your OJT, log in to OJTern and confirm it as your OJT placement in Recent Applications.`,
       "Declined":     `Your application status has been updated. Unfortunately, your application to ${companyName} was not selected at this time. We encourage you to explore other opportunities available on OJTern.`,
       "Withdrawn":    `This confirms that you withdrew your application to ${companyName}${oldData.status ? ` (it was ${oldData.status})` : ""}.${withdrawalReasonText ? ` Reason you gave: ${withdrawalReasonText}.` : ""} It stays on record for you, the company, and your OJT coordinator, and you can apply to the same post again while it's still open. If you didn't do this, contact your OJT coordinator.`,
     };

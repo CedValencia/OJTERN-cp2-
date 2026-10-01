@@ -2792,8 +2792,10 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
         createdAt: n.createdAt,
         // Any student withdrawal opens that student's Placement modal; only an
         // ACCEPTED one is marked ⚑ (see `important`).
-        kind: (n.type === "accepted_application_withdrawn" || n.type === "application_withdrawn" || n.type === "application_accepted") ? "student_followup" : "affiliation",
-        important: n.type === "accepted_application_withdrawn" || n.type === "application_accepted" || (n.openApplications || 0) > 0,
+        kind: (n.type === "accepted_application_withdrawn" || n.type === "application_withdrawn" || n.type === "application_accepted" || n.type === "placement_confirmed") ? "student_followup" : "affiliation",
+        // Accepted alone is informational now — the review starts when the
+        // student CONFIRMS the placement (placement_confirmed), which is ⚑.
+        important: n.type === "accepted_application_withdrawn" || n.type === "placement_confirmed" || (n.openApplications || 0) > 0,
         companyId: n.companyId,
         // Older notices used `studentId`; newer ones use `applicantStudentId`
         // so they don't also land in the student's own bell.
