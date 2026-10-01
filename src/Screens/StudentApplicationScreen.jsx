@@ -3413,6 +3413,18 @@ export const ApplyModal = ({ company, onClose, onSuccessClose, onSubmit, user })
   };
 
   const loadAvailability = async (formCollege, formProgram) => {
+    // A confirmed OJT placement ends the student's search — no new applications.
+    if (user?.uid) {
+      const mine = await getDocs(query(collection(db, "applications"), where("studentId", "==", user.uid)));
+      const confirmed = mine.docs.map(d => d.data()).find(a => a.status === "Accepted" && a.placementConfirmed === true);
+      if (confirmed) {
+        return {
+          ok: false,
+          title: "You Already Have an OJT Placement",
+          message: `You already have a confirmed OJT placement at ${confirmed.companyName || "a company"}. If you need to change it, talk to your OJT coordinator.`,
+        };
+      }
+    }
     let postData = null;
     if (targetPostId) {
       const postSnap = await getDoc(doc(db, "ojt_posts", targetPostId));
@@ -4064,7 +4076,7 @@ const ConfirmPlacementPopup = ({ companyName, otherAccepted = [], onCancel, onCo
       </p>
       {otherAccepted.length > 0 && (
         <p style={{ fontFamily: font.ui, fontSize: "0.8rem", color: "#5c3d00", background: "#FFF3D6", border: "1px solid #F0D48A", borderRadius: "10px", padding: "8px 12px", marginBottom: "12px", lineHeight: 1.45, textAlign: "left" }}>
-          Your other accepted application{otherAccepted.length > 1 ? "s" : ""} ({otherAccepted.join(", ")}) will be withdrawn with the reason “Accepted another OJT offer”, and {otherAccepted.length > 1 ? "those companies" : "that company"} will be notified.
+          Your other application{otherAccepted.length > 1 ? "s" : ""} ({otherAccepted.join(", ")}) will be withdrawn with the reason “Accepted another OJT offer”, and {otherAccepted.length > 1 ? "those companies" : "that company"} will be notified. You won't be able to send new applications after confirming.
         </p>
       )}
       <p style={{ fontFamily: font.ui, fontSize: "0.78rem", color: "#c62828", marginBottom: "20px", lineHeight: 1.45 }}>
@@ -4474,13 +4486,17 @@ const StudentApplicationScreen = ({ initialCompany, onModalClose, user, openAppl
   //   • then notifies the student, the chosen company, the other companies and
   //     the coordinator (best-effort — the batch above is already saved).
   const hasConfirmedPlacement = applications.some(a => a.status === "Accepted" && a.placementConfirmed);
-  const acceptedApps = applications.filter(a => a.status === "Accepted");
-  const otherAcceptedNames = (id) => acceptedApps.filter(a => a.id !== id).map(a => a.company || "a company");
+  // Confirming ends the student's OJT search: every OTHER open application
+  // (accepted, pending, in review, to interview) is withdrawn, so no other
+  // company can accept them afterwards.
+  const OPEN_FOR_CONFIRM = ["Accepted", "Pending", "In Review", "To Interview"];
+  const openApps = applications.filter(a => OPEN_FOR_CONFIRM.includes(a.status || "Pending"));
+  const otherAcceptedNames = (id) => openApps.filter(a => a.id !== id).map(a => `${a.company || "a company"}${a.status && a.status !== "Accepted" ? ` (${a.status})` : ""}`);
 
   const handleConfirmPlacement = async (id) => {
     const chosen = applications.find(a => a.id === id);
     if (!chosen || chosen.status !== "Accepted" || hasConfirmedPlacement) return;
-    const others = acceptedApps.filter(a => a.id !== id);
+    const others = openApps.filter(a => a.id !== id);
     const reasonDetails = `Confirmed ${chosen.company || "another company"} as my OJT placement.`;
     try {
       const batch = writeBatch(db);
@@ -4491,12 +4507,13 @@ const StudentApplicationScreen = ({ initialCompany, onModalClose, user, openAppl
       });
       others.forEach(o => batch.update(doc(db, "applications", o.id), {
         status:                      WITHDRAWN,
-        statusBeforeWithdrawal:      "Accepted",
+        statusBeforeWithdrawal:      o.status || "Pending",
         withdrawnAt:                 serverTimestamp(),
         withdrawnBy:                 "student",
         withdrawalReason:            "Accepted another OJT offer",
         withdrawalReasonDetails:     reasonDetails,
-        slotReturned:                false,
+        // Only an accepted application took a slot that must be given back.
+        ...(o.status === "Accepted" ? { slotReturned: false } : {}),
         autoWithdrawnByConfirmation: true,
       }));
       await batch.commit();
@@ -4511,7 +4528,7 @@ const StudentApplicationScreen = ({ initialCompany, onModalClose, user, openAppl
       // Student
       {
         studentId: user?.uid || "", type: "placement_confirmed_self", applicationId: id, companyName: chosen.company || "",
-        message: `You confirmed ${chosen.company || "the company"} as your OJT placement.${others.length ? ` Your other accepted application${others.length > 1 ? "s" : ""} (${otherList}) ${others.length > 1 ? "were" : "was"} withdrawn.` : ""} Your coordinator will review your placement.`,
+        message: `You confirmed ${chosen.company || "the company"} as your OJT placement.${others.length ? ` Your other application${others.length > 1 ? "s" : ""} (${otherList}) ${others.length > 1 ? "were" : "was"} withdrawn.` : ""} Your coordinator will review your placement.`,
         read: false,
       },
       // Chosen company
@@ -4522,7 +4539,7 @@ const StudentApplicationScreen = ({ initialCompany, onModalClose, user, openAppl
       // Other companies
       ...others.filter(o => o.companyId).map(o => ({
         recipientId: o.companyId, type: "application_withdrawn", title: "Application withdrawn",
-        message: `${studentName} withdrew their application (was Accepted). Reason: Accepted another OJT offer.`,
+        message: `${studentName} withdrew their application (was ${o.status || "Pending"}). Reason: Accepted another OJT offer.`,
         applicationId: o.id, applicantStudentId: user?.uid || "",
         withdrawalReason: "Accepted another OJT offer", withdrawalReasonDetails: reasonDetails, read: false,
       })),
@@ -4531,7 +4548,7 @@ const StudentApplicationScreen = ({ initialCompany, onModalClose, user, openAppl
         recipientRole: "coordinator", department: chosen.data?.college || user?.college || "", program: chosen.data?.program || user?.program || "",
         type: "placement_confirmed", applicantStudentId: user?.uid || "", studentName,
         companyId: chosen.companyId || "", companyName: chosen.company || "", applicationId: id,
-        message: `${studentName} confirmed ${chosen.company || "a company"} as their OJT placement.${others.length ? ` Other accepted application${others.length > 1 ? "s" : ""} withdrawn: ${otherList}.` : ""} Please review the placement.`,
+        message: `${studentName} confirmed ${chosen.company || "a company"} as their OJT placement.${others.length ? ` Other application${others.length > 1 ? "s" : ""} withdrawn: ${otherList}.` : ""} Please review the placement.`,
         readBy: [],
       },
     ].filter(Boolean);

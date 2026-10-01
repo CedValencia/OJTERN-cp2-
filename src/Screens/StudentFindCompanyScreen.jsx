@@ -661,7 +661,7 @@ const SectionTitle = ({ children }) => (
 );
 
 // ─── COMPANY PROFILE ──────────────────────────────────────────────────────────
-const CompanyProfile = ({ company, onBack, onReport, onMessageNow, onApplyNow }) => {
+const CompanyProfile = ({ company, onBack, onReport, onMessageNow, onApplyNow, confirmedPlacement = null }) => {
   const loc = company.location || {};
   const locationParts = [loc.street, loc.barangay, loc.city, loc.province, loc.region].filter(Boolean);
   const fullLocation = loc.fullAddress || locationParts.join(", ");
@@ -785,12 +785,15 @@ const CompanyProfile = ({ company, onBack, onReport, onMessageNow, onApplyNow })
       {/* Bottom action bar */}
       <div className="stud-profile-bar" style={{ background: surface, borderTop: `1px solid ${line}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: space.md }}>
         <div className="stud-action-buttons">
+          {/* A confirmed OJT placement ends the search: no new applications. */}
           <button
             id="sprofile-apply-btn"
             className="stud-btn-apply"
-            onClick={onApplyNow}
-            style={{ background: panel, color: onPanel, border: "none", borderRadius: radius.pill, fontFamily: font.ui, ...type.control, cursor: "pointer", boxShadow: shadow.pill, transition: `background 240ms ${ease}`, whiteSpace: "nowrap" }}
-            onMouseEnter={e => (e.currentTarget.style.background = panelDeep)}
+            onClick={confirmedPlacement ? undefined : onApplyNow}
+            disabled={!!confirmedPlacement}
+            title={confirmedPlacement ? `You already have a confirmed OJT placement at ${confirmedPlacement}. If you need to change it, talk to your OJT coordinator.` : undefined}
+            style={{ background: panel, color: onPanel, border: "none", borderRadius: radius.pill, fontFamily: font.ui, ...type.control, cursor: confirmedPlacement ? "not-allowed" : "pointer", opacity: confirmedPlacement ? 0.5 : 1, boxShadow: shadow.pill, transition: `background 240ms ${ease}`, whiteSpace: "nowrap" }}
+            onMouseEnter={e => { if (!confirmedPlacement) e.currentTarget.style.background = panelDeep; }}
             onMouseLeave={e => (e.currentTarget.style.background = panel)}
           >
             Apply Now!
@@ -988,6 +991,19 @@ const CompanyCard = ({ company, onViewProfile }) => {
 // ─── MAIN FIND COMPANY SCREEN ─────────────────────────────────────────────────
 const StudentFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onNavigateToApplications, onMessageNow, onApplyNow, initialCompanyId, onClearInitialCompany, user, onVisitCompany, onViewChange }) => {
   const { posts: companies, loading: postsLoading } = useOjtPosts();
+
+  // The company of the student's confirmed OJT placement, if any — Apply Now
+  // is disabled once the student has confirmed where they'll be deployed.
+  const [confirmedPlacement, setConfirmedPlacement] = useState(null);
+  useEffect(() => {
+    if (!user?.uid) return;
+    const q = query(collection(db, "applications"), where("studentId", "==", user.uid));
+    const unsub = onSnapshot(q, snap => {
+      const c = snap.docs.map(d => d.data()).find(a => a.status === "Accepted" && a.placementConfirmed === true);
+      setConfirmedPlacement(c ? (c.companyName || "a company") : null);
+    }, err => console.error("Failed to check confirmed placement:", err));
+    return () => unsub();
+  }, [user?.uid]);
   const loading = postsLoading || !user; // after a refresh `user` is null for a moment
   const [view, setView] = useState("list");
   const [selectedCompany, setSelectedCompany] = useState(null);
@@ -1129,6 +1145,7 @@ const StudentFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onNavig
           onReport={() => setShowReportModal(true)}
           onMessageNow={() => onMessageNow?.({ ...selectedCompany, fromMessageNow: true })}
           onApplyNow={() => { onApplyNow?.(selectedCompany); setShowApplyModal(true); }}
+          confirmedPlacement={confirmedPlacement}
         />
         {showReportModal && (
           <ReportModal company={selectedCompany} onClose={() => setShowReportModal(false)} onSubmit={handleReportSubmit} reporter={user} />

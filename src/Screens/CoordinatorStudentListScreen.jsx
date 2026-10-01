@@ -57,9 +57,12 @@ const CLOSED_STATUSES = ["Declined", "Withdrawn"];
 // student may be accepted by several companies and picks one).
 const needsPlacementReview = (app) =>
   !!app && app.status === "Accepted" && app.placementConfirmed === true && !app.coordinatorReviewedAt;
-const awaitingConfirmation = (app) =>
-  !!app && app.status === "Accepted" && app.placementConfirmed !== true;
-const followUpReason = (app) => {
+// Only while the student has NOT confirmed any placement yet. An acceptance
+// that arrives after the student already confirmed elsewhere is just noted.
+const confirmedOf = (apps) => (apps || []).find(a => a.status === "Accepted" && a.placementConfirmed === true) || null;
+const awaitingConfirmation = (app, apps = []) =>
+  !!app && app.status === "Accepted" && app.placementConfirmed !== true && !confirmedOf(apps);
+const followUpReason = (app, apps = []) => {
   if (!app) return null;
   if (needsPlacementReview(app)) return "Confirmed placement — review the company and post";
   if (app.status === "Withdrawn" && app.statusBeforeWithdrawal === "Accepted") {
@@ -70,10 +73,10 @@ const followUpReason = (app) => {
       ? "Accepted, but the company withdrew this program"
       : "Company withdrew this program — application still open";
   }
-  if (awaitingConfirmation(app)) return "Accepted — waiting for the student to confirm their placement";
+  if (awaitingConfirmation(app, apps)) return "Accepted — waiting for the student to confirm their placement";
   return null;
 };
-const needsFollowUp = (apps) => (apps || []).some(a => !!followUpReason(a));
+const needsFollowUp = (apps) => (apps || []).some(a => !!followUpReason(a, apps));
 
 // When a student has more than one application, this decides which one
 // "represents" them at a glance (list row badge) — most-advanced/most-
@@ -682,7 +685,7 @@ const PlacementModal = ({ student, onClose, onNavigateToCompany, companies, onMe
       const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       // Follow-up items first, then newest.
       list.sort((a, b) =>
-        (followUpReason(b) ? 1 : 0) - (followUpReason(a) ? 1 : 0) ||
+        (followUpReason(b, list) ? 1 : 0) - (followUpReason(a, list) ? 1 : 0) ||
         (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
       setApplications(list);
     }, err => console.error("Failed to load student applications:", err));
@@ -757,7 +760,7 @@ const PlacementModal = ({ student, onClose, onNavigateToCompany, companies, onMe
                 {applications.map(app => {
                   const appCompany = companies.find(c => c.id === app.companyId);
                   const sc = STATUS_COLORS[app.status] || { bg: color.wine400, color: ink };
-                  const reason = followUpReason(app);
+                  const reason = followUpReason(app, applications);
                   const notices = [];
                   const closure = getPostClosure(app.postId, postsById);
                   if (closure && app.status !== "Withdrawn") {
@@ -770,9 +773,12 @@ const PlacementModal = ({ student, onClose, onNavigateToCompany, companies, onMe
                     notices.push(`Program affiliation withdrawn${app.affiliationWithdrawnAt?.seconds ? ` on ${new Date(app.affiliationWithdrawnAt.seconds * 1000).toLocaleDateString()}` : ""} and restored on ${new Date(app.affiliationRestoredAt.seconds * 1000).toLocaleDateString()}`);
                   }
                   if (app.status === "Accepted") {
+                    const confirmedElsewhere = !app.placementConfirmed && confirmedOf(applications);
                     notices.push(app.placementConfirmed
                       ? `✓ Confirmed by the student as their OJT placement${app.placementConfirmedAt?.seconds ? ` on ${new Date(app.placementConfirmedAt.seconds * 1000).toLocaleDateString()}` : ""}`
-                      : "Accepted — waiting for the student to confirm it as their OJT placement");
+                      : confirmedElsewhere
+                        ? `Accepted — student already has a confirmed placement at ${companies.find(c => c.id === confirmedElsewhere.companyId)?.name || confirmedElsewhere.companyName || "another company"}`
+                        : "Accepted — waiting for the student to confirm it as their OJT placement");
                   }
                   if (app.status === "Withdrawn") {
                     notices.push(`Withdrawn by the student${app.withdrawnAt?.seconds ? ` on ${new Date(app.withdrawnAt.seconds * 1000).toLocaleDateString()}` : ""}${app.statusBeforeWithdrawal ? ` — was ${app.statusBeforeWithdrawal}` : ""}${app.withdrawalReason ? ` · Reason: ${[app.withdrawalReason, app.withdrawalReasonDetails].filter(Boolean).join(" — ")}` : ""}`);
@@ -1295,7 +1301,7 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
         <div className="sp-row-actions">
         {needsFollowUp(applicationsByStudent[student.id]) && (
           <span
-            title={(applicationsByStudent[student.id] || []).map(followUpReason).filter(Boolean).join("\n")}
+            title={(applicationsByStudent[student.id] || []).map((a, _i, all) => followUpReason(a, all)).filter(Boolean).join("\n")}
             style={{ background: "#FFF3D6", color: "#8a5a00", border: "1px solid #F0D48A", borderRadius: radius.pill, padding: "3px 10px", fontFamily: font.ui, fontSize: "0.72rem", fontWeight: 600, flexShrink: 0, whiteSpace: "nowrap" }}
           >
             ⚑ Follow-up
