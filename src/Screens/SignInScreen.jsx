@@ -144,20 +144,6 @@ const SignInScreen = ({ role: roleProp, onRoleChange, onGoSignUp, onSignInCoordi
   // without triggering another render.
   const activationAttempted = useRef(false);
 
-  // Notice left by StudentDashboardScreen when a coordinator reset the
-  // student's account and signed them out (updateStudentAccount).
-  useEffect(() => {
-    try {
-      const raw = sessionStorage.getItem("ojtern.signInNotice");
-      if (!raw) return;
-      sessionStorage.removeItem("ojtern.signInNotice");
-      const notice = JSON.parse(raw);
-      if (notice?.role === "student") { setRole("student"); onRoleChange?.("student"); }
-      if (notice?.message) setVerifyStatus({ ok: true, message: notice.message });
-    } catch { /* ignore a malformed or unavailable notice */ }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   // This screen is the `continueUrl` on the "Activate" button in the company
   // approval email (see functions/index.js sendApprovalEmail). Because this
   // Firebase project has a custom Action URL configured (see AuthService.js —

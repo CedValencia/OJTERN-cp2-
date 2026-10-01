@@ -221,6 +221,42 @@ const departmentNamesOf = (data) => {
   return college ? [college] : [];
 };
 
+// ── Current vs previous coordinator ───────────────────────────────────────────
+// A coordinator handles a Department, optionally narrowed to a Program (and a
+// major/specialization). The student's CURRENT coordinator is the one whose
+// assignment covers the student's program and major now; when a coordinator
+// changes the student's program or major, the former one is kept as
+// "Previous coordinator" (students/{uid}.previousCoordinatorScopes, written by
+// updateStudentAccount) so the student can still contact them.
+const scopeNorm = (v) => String(v || "").replace(/[\u2010-\u2015]/g, "-").replace(/\s+/g, " ").trim().toLowerCase();
+const selectionCovers = (sel, scope) => {
+  if (!sel || !scope) return false;
+  if (scopeNorm(sel.department) !== scopeNorm(scope.department)) return false;
+  if (scopeNorm(sel.program) && scopeNorm(sel.program) !== scopeNorm(scope.program)) return false;
+  const selMajor = sel.specialization || sel.major || "";
+  if (scopeNorm(selMajor) && scopeNorm(selMajor) !== scopeNorm(scope.specialization)) return false;
+  return true;
+};
+const coordinatorRelation = (coord, studentScope) => {
+  if (!studentScope) return null;
+  const sels = Array.isArray(coord.department) ? coord.department : [];
+  if (sels.some(sel => selectionCovers(sel, studentScope.current))) return "current";
+  if ((studentScope.previous || []).some(prev => sels.some(sel => selectionCovers(sel, prev)))) return "previous";
+  return null;
+};
+const RELATION_LABEL = { current: "Your coordinator", previous: "Previous coordinator" };
+const RelationBadge = ({ relation }) => relation ? (
+  <span style={{
+    display: "inline-block", marginLeft: "6px", padding: "1px 8px", borderRadius: "10px", verticalAlign: "middle",
+    fontFamily: font.ui, fontSize: "0.66rem", fontWeight: 700, whiteSpace: "nowrap",
+    color: relation === "current" ? "#ffffff" : "#555555",
+    background: relation === "current" ? "#111111" : "#EDEDED",
+    border: relation === "current" ? "1px solid #111111" : "1px solid #D6D6D6",
+  }}>
+    {RELATION_LABEL[relation]}
+  </span>
+) : null;
+
 // ── CoordinatorDetailsModal ───────────────────────────────────────────────────
 // Opens when a coordinator card is clicked. The card itself only shows the name
 // and program; contact details (email) and the Message action live here.
@@ -270,7 +306,7 @@ const CoordinatorDetailsModal = ({ coordinator, onClose, onMessage, canMessage, 
             <h3 id="coordinator-details-title" style={{ ...type.label, fontSize: "1.05rem", color: color.ink, fontWeight: 650, margin: 0, overflowWrap: "anywhere" }}>
               {coordinator.name}
             </h3>
-            <p style={{ ...type.helper, color: color.inkMuted, margin: "3px 0 0" }}>Coordinator</p>
+            <p style={{ ...type.helper, color: color.inkMuted, margin: "3px 0 0" }}>{RELATION_LABEL[coordinator.relation] || "Coordinator"}</p>
           </div>
           <button
             ref={closeRef}
@@ -351,6 +387,8 @@ const StudentCoordinatorsScreen = ({ embedded, user, onNavigateToMessages, onVie
   // with deptSelections[].department as the fallback shape). null = still loading,
   // [] = the company picked none, so nothing can be matched against.
   const [companyDepartments, setCompanyDepartments] = useState(null);
+  // { current: {department, program, specialization}, previous: [...] }
+  const [studentScope, setStudentScope] = useState(null);
 
   const [showFilter, setShowFilter] = useState(false);
   // Coordinator whose details window is open (null = closed).
@@ -393,6 +431,10 @@ const StudentCoordinatorsScreen = ({ embedded, user, onNavigateToMessages, onVie
       (snap) => {
         const data = snap.exists() ? (snap.data() || {}) : {};
         setCompanyDepartments(departmentNamesOf(data));
+        setStudentScope({
+          current: { department: data.college || "", program: data.program || "", specialization: data.specialization || "" },
+          previous: Array.isArray(data.previousCoordinatorScopes) ? data.previousCoordinatorScopes : [],
+        });
       },
       (err) => {
         // Don't strand the company with an empty screen on a read failure —
@@ -454,9 +496,14 @@ const StudentCoordinatorsScreen = ({ embedded, user, onNavigateToMessages, onVie
   // While the departments are still loading, show nothing rather than briefly
   // flashing the full directory.
   const companyDeptsLower = (companyDepartments || []).map(d => String(d).trim().toLowerCase());
+  const RELATION_ORDER = { current: 0, previous: 1 };
   const scoped = companyDepartments === null
     ? []
-    : coordinators.filter(c => (c.colleges || []).some(col => companyDeptsLower.includes(String(col).trim().toLowerCase())));
+    : coordinators
+        .filter(c => (c.colleges || []).some(col => companyDeptsLower.includes(String(col).trim().toLowerCase())))
+        .map(c => ({ ...c, relation: coordinatorRelation(c, studentScope) }))
+        // Your coordinator first, then the previous one, then the rest.
+        .sort((a, b) => (RELATION_ORDER[a.relation] ?? 2) - (RELATION_ORDER[b.relation] ?? 2) || a.name.localeCompare(b.name));
 
   // One line in the console makes a naming mismatch obvious: if the company's
   // departments and the coordinators' departments are spelled differently,
@@ -748,6 +795,7 @@ const StudentCoordinatorsScreen = ({ embedded, user, onNavigateToMessages, onVie
                       whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
                     }}>
                       {coord.name}
+                      <RelationBadge relation={coord.relation} />
                     </p>
                     <p style={{
                       ...type.helper, color: color.inkMuted, margin: "4px 0 0",

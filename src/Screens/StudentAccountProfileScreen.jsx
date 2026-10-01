@@ -1630,8 +1630,11 @@ const PrivacyScreen = ({ onBack }) => (
 );
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
-const StudentAccountProfileScreen = ({ user, onLogout, viewIcon: themedViewIcon = blackViewIcon, onViewChange }) => {
-  const [view, setView] = useState("main");
+const StudentAccountProfileScreen = ({ user, onLogout, viewIcon: themedViewIcon = blackViewIcon, onViewChange, openPersonalInfoRequest = 0 }) => {
+  const [view, setView] = useState(openPersonalInfoRequest ? "personalInfo" : "main");
+  // Opened from an "account_info_updated" notification (coordinator edited
+  // the student's information) → go straight to Personal Information.
+  useEffect(() => { if (openPersonalInfoRequest) setView("personalInfo"); }, [openPersonalInfoRequest]);
   const [showReset, setShowReset] = useState(false);
   const [profileName, setProfileName] = useState("");
   const [personalEditing, setPersonalEditing] = useState(false);

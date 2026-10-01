@@ -964,11 +964,12 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
   // Changing any of these rebuilds the DEFAULT password (see
   // generateStudentPassword), so the student is signed out and must log in
   // again with the updated Student ID + new default password.
+  // The department can't be edited, so only the name and Student ID can
+  // change the default password.
   const credentialsChanged = !isCreate && (
     firstName.value.trim().toLowerCase() !== String(initial.firstName || "").trim().toLowerCase() ||
     lastName.value.trim().toLowerCase()  !== String(initial.lastName  || "").trim().toLowerCase() ||
-    studentId.value.trim()               !== String(initial.studentId || "").trim() ||
-    String(college || "").trim().toLowerCase() !== String(initial.college || "").trim().toLowerCase()
+    studentId.value.trim()               !== String(initial.studentId || "").trim()
   );
   const [confirmCredentialChange, setConfirmCredentialChange] = useState(false);
 
@@ -1178,7 +1179,10 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
                   full college list. Single department → static label so it
                   can't be changed. Multiple → dropdown, but restricted to
                   just the coordinator's assigned departments. */}
-              {coordinatorColleges.length > 1 && !locked ? (
+              {/* Editing an existing student never changes the department —
+                  only a NEW student can be placed in one of the coordinator's
+                  departments. */}
+              {coordinatorColleges.length > 1 && !readOnly ? (
                 <>
                   <StyledSelect
                     value={college}
@@ -1252,9 +1256,9 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
 
           {readOnly && isEditing && credentialsChanged && (
             <p style={{ fontFamily: font.ui, ...type.helper, color: "#8a5a00", background: "#FFF3D6", border: "1px solid #F0D48A", borderRadius: radius.card, padding: "10px 14px", marginTop: space.md, lineHeight: 1.5 }}>
-              Changing the name, Student ID, or department resets this student's default password to the one shown above.
-              They'll be signed out, then log in with the updated Student ID and new default password, set a new password,
-              and review their personal information. Their applications and messages stay as they are.
+              Changing the name or Student ID changes this student's default password to the one shown above.
+              The student is notified to log out and sign in again with the updated Student ID and new default password,
+              then set a new password. Their applications and messages stay as they are.
             </p>
           )}
 
@@ -1283,11 +1287,11 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
 
         {confirmCredentialChange && (
           <Dialog
-            title="Reset this student's password?"
-            body={`Saving signs the student out and resets their password to: ${(firstName.value && lastName.value && studentId.value && college) ? generateStudentPassword(firstName.value, lastName.value, studentId.value, departments[college]?.abbr || college) : "—"}. Give them their updated Student ID and this password so they can log in again.`}
+            title="Change this student's default password?"
+            body={`Saving changes the student's password to the new default password: ${(firstName.value && lastName.value && studentId.value && college) ? generateStudentPassword(firstName.value, lastName.value, studentId.value, departments[college]?.abbr || college) : "—"}. The student will be notified to log out and sign in again with Student ID ${studentId.value.trim()} and this password, then set a new password. Give them these details.`}
           >
             <button onClick={() => setConfirmCredentialChange(false)} style={ghostBtn}>Cancel</button>
-            <button onClick={() => { setConfirmCredentialChange(false); handleSubmit(); }} style={primaryBtn}>Save and reset</button>
+            <button onClick={() => { setConfirmCredentialChange(false); handleSubmit(); }} style={primaryBtn}>Save changes</button>
           </Dialog>
         )}
 
@@ -2002,12 +2006,20 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
       collegeAbbr: departments[form.college]?.abbr || form.college,
     });
     const fullName = result?.fullName || `${form.firstName} ${form.lastName}`;
-    logActivity(
-      coordinatorUid,
-      result?.passwordReset ? "student_edited_password_reset" : "student_edited",
-      `Edited student account for ${fullName}${result?.passwordReset ? " (default password reset)" : ""}`,
-      { targetId: viewingStudent.id, targetName: fullName }
-    ).catch(err => console.error("Failed to log activity:", err));
+    // Shared activity log: every coordinator of the department sees exactly
+    // what changed — including a program/major change that moves the student
+    // to another coordinator.
+    const changes = Array.isArray(result?.changes) ? result.changes : [];
+    const describe = (c) => `${c.label} from "${c.from || "—"}" to "${c.to || "—"}"`;
+    const moved = changes.some(c => c.field === "program" || c.field === "specialization");
+    if (changes.length) {
+      logActivity(
+        coordinatorUid,
+        result?.passwordReset ? "student_edited_password_reset" : moved ? "student_program_changed" : "student_edited",
+        `Edited student account for ${fullName}: ${changes.map(describe).join("; ")}${result?.passwordReset ? " (default password changed)" : ""}`,
+        { targetId: viewingStudent.id, targetName: fullName, changes }
+      ).catch(err => console.error("Failed to log activity:", err));
+    }
     setViewingStudent(null);
     if (result?.passwordReset) {
       setCredentialResetInfo({ fullName, studentId: form.studentId, password: result.newPassword });
@@ -2388,7 +2400,7 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
           title={credentialResetInfo.authMissing ? "Saved — no login account found" : "Student account updated"}
           body={credentialResetInfo.authMissing
             ? `${credentialResetInfo.fullName}'s details were saved, but this student has no login account, so there was no password to reset. If they should be able to log in, delete this record and create the account again from New student.`
-            : `${credentialResetInfo.fullName} was signed out. They can now log in with Student ID ${credentialResetInfo.studentId} and the default password ${credentialResetInfo.password || "(see the student's record)"}, then set a new password.`}
+            : `${credentialResetInfo.fullName} has been notified to log out and sign in again with Student ID ${credentialResetInfo.studentId} and the new default password ${credentialResetInfo.password || "(see the student's record)"}, then set a new password. Give them these details.`}
         >
           <button onClick={() => setCredentialResetInfo(null)} style={primaryBtn}>OK</button>
         </Dialog>

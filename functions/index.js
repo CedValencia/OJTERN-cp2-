@@ -1299,31 +1299,41 @@ OJTern Team`;
 // COORDINATOR EDITS A STUDENT ACCOUNT
 //
 // Called from CoordinatorStudentsAcccountScreen (Edit → Save). Runs with Admin
-// SDK because changing a student's name / Student ID / department also changes
-// their DEFAULT password (generateStudentPassword in AuthService.js), and only
-// the Admin SDK can set another user's password.
+// SDK because a change to the name or Student ID also changes the student's
+// DEFAULT password (generateStudentPassword in AuthService.js), and only the
+// Admin SDK can set another user's password.
 //
 //   • Only an ACTIVE coordinator may call it.
-//   • Only coordinator-owned fields are written. Age and the personal email
-//     belong to the student and are never touched here.
+//   • Department is locked — it can't be changed (it's also what the default
+//     password's college code comes from, so it never affects the password).
+//     Age and personal email belong to the student and are never touched.
 //   • Student ID stays unique.
-//   • If firstName / lastName / studentId / college changed:
-//       – the Auth password is reset to the new default password,
-//       – every session is revoked (the app also signs the student out live,
-//         see credentialsResetAt in StudentDashboardScreen),
-//       – passwordChanged → false, so the next login asks for a new password;
-//       – a student who had ALREADY finished setup gets mustReviewProfile, so
-//         they re-check Personal Information once, and returningAccountReset,
-//         so the first-visit auto help tours don't replay. A student who never
-//         logged in yet keeps the normal first-login experience.
-//   • The same account stays: applications, messages and everything else are
-//     untouched. Already-submitted applications keep their own copy of the
-//     student's details, so they don't change.
+//   • Name / Student ID changed → the password becomes the NEW default and the
+//     student is notified to log out and sign in again with the updated
+//     Student ID + new default password (no automatic sign-out; the student
+//     logs out when they choose, from the notification). passwordChanged goes
+//     back to false, so after signing in again they set their own password
+//     again. returningAccountReset keeps the first-visit help tours off for a
+//     student who had already finished setup.
+//   • Anything else changed (program, major, section, sex, batch…) → no
+//     password change; the student is notified to check their information.
+//   • Program / major changed → the previous one is kept in
+//     previousCoordinatorScopes, so the student's Coordinators module can keep
+//     showing the former coordinator as "Previous coordinator".
+//   • Same account throughout: applications, messages and records stay, and
+//     already-submitted applications keep their own copy of the details.
+//   • Returns the list of changed fields for the coordinators' activity log.
 // ─────────────────────────────────────────────────────────────────────────────
 const COORDINATOR_EDITABLE_STUDENT_FIELDS = [
   "studentId", "lastName", "middleInitial", "firstName", "suffix",
-  "college", "program", "specialization", "yearSection", "sex", "batch",
+  "program", "specialization", "yearSection", "sex", "batch",
 ];
+
+const STUDENT_FIELD_LABELS = {
+  studentId: "Student ID", lastName: "last name", middleInitial: "middle initial", firstName: "first name",
+  suffix: "suffix", program: "program", specialization: "major", yearSection: "year & section",
+  sex: "sex", batch: "batch",
+};
 
 const generateStudentPasswordServer = (firstName, lastName, studentId, collegeAbbr) => {
   const firstInitial = String(firstName || "").trim()[0].toUpperCase();
@@ -1375,7 +1385,8 @@ const updateStudentAccountImpl = async (request) => {
   if (!studentSnap.exists) throw new HttpsError("not-found", "Student account not found.");
   const before = studentSnap.data();
 
-  // Whitelist + trim. Anything else (age, personalEmail, email, flags…) is ignored.
+  // Whitelist + trim. Department, age, personal email, login email and flags
+  // are ignored even if sent.
   const clean = {};
   for (const key of COORDINATOR_EDITABLE_STUDENT_FIELDS) {
     if (updates[key] === undefined) continue;
@@ -1385,20 +1396,27 @@ const updateStudentAccountImpl = async (request) => {
 
   if (!next.studentId) throw new HttpsError("invalid-argument", "Student ID is required.");
   if (!next.firstName || !next.lastName) throw new HttpsError("invalid-argument", "First and last name are required.");
-  if (!next.college) throw new HttpsError("invalid-argument", "Department is required.");
 
-  if (!sameText(next.studentId, before.studentId)) {
+  if (String(next.studentId).trim() !== String(before.studentId || "").trim()) {
     const dup = await db.collection("students").where("studentId", "==", next.studentId).get();
     if (dup.docs.some(d => d.id !== studentUid)) {
       throw new HttpsError("already-exists", `Student ID "${next.studentId}" is already registered to another student.`);
     }
   }
 
-  const credentialsChanged =
-    !sameText(next.firstName, before.firstName) ||
-    !sameText(next.lastName, before.lastName) ||
-    String(next.studentId).trim() !== String(before.studentId || "").trim() ||
-    !sameText(next.college, before.college);
+  // What actually changed (for the activity log and the student's notice).
+  const changes = COORDINATOR_EDITABLE_STUDENT_FIELDS
+    .filter(k => clean[k] !== undefined && String(clean[k]) !== String(before[k] == null ? "" : before[k]).trim())
+    .map(k => ({ field: k, label: STUDENT_FIELD_LABELS[k] || k, from: String(before[k] == null ? "" : before[k]), to: clean[k] }));
+
+  if (changes.length === 0) {
+    return { ok: true, fullName: before.fullName || "", passwordReset: false, newPassword: null, authMissing: false, changes: [] };
+  }
+
+  // Only the name and Student ID feed the default password now that the
+  // department is locked.
+  const credentialsChanged = changes.some(c => ["firstName", "lastName", "studentId"].includes(c.field));
+  const programChanged     = changes.some(c => ["program", "specialization"].includes(c.field));
 
   const mi = String(next.middleInitial || "").trim();
   const fullName = `${next.firstName} ${mi ? mi.replace(/\.$/, "") + ". " : ""}${next.lastName}${isRealSuffixServer(next.suffix) ? " " + next.suffix : ""}`;
@@ -1409,6 +1427,15 @@ const updateStudentAccountImpl = async (request) => {
     updatedAt: FieldValue.serverTimestamp(),
     updatedBy: callerUid,
   };
+
+  if (programChanged) {
+    docUpdate.previousCoordinatorScopes = FieldValue.arrayUnion({
+      department:     before.college || "",
+      program:        before.program || "",
+      specialization: before.specialization || "",
+      changedAt:      new Date().toISOString(),
+    });
+  }
 
   let newPassword = null;
   let authMissing = false;
@@ -1422,7 +1449,7 @@ const updateStudentAccountImpl = async (request) => {
       if (err && err.code === "auth/user-not-found") {
         // A student record with no login account (test data, a manual add, or
         // a deleted Auth user). The details are still saved; there's simply no
-        // password to reset, and the coordinator is told so.
+        // password to change, and the coordinator is told so.
         authMissing = true;
       } else if (err && (err.code === "auth/insufficient-permission" || /permission/i.test(String(err.message)))) {
         throw new HttpsError("permission-denied",
@@ -1431,7 +1458,7 @@ const updateStudentAccountImpl = async (request) => {
         throw new HttpsError("invalid-argument",
           "The new default password isn't valid (it must be at least 6 characters). Check the name and Student ID.");
       } else {
-        throw new HttpsError("internal", `Couldn't reset the student's password: ${(err && err.message) || err}`);
+        throw new HttpsError("internal", `Couldn't change the student's password: ${(err && err.message) || err}`);
       }
     }
   }
@@ -1442,31 +1469,32 @@ const updateStudentAccountImpl = async (request) => {
       passwordChangedAt:     null,
       credentialsResetAt:    FieldValue.serverTimestamp(),
       credentialsResetBy:    callerUid,
-      mustReviewProfile:     hadFinishedSetup,
       returningAccountReset: hadFinishedSetup || before.returningAccountReset === true,
     });
   }
 
   await studentRef.update(docUpdate);
 
-  if (credentialsChanged && !authMissing) {
-    // Ends every existing session at its next token refresh; the app signs the
-    // student out immediately via the credentialsResetAt listener.
-    await getAuth().revokeRefreshTokens(studentUid).catch(err =>
-      console.error(`Failed to revoke sessions for student ${studentUid}:`, err));
-
-    const changed = [];
-    if (!sameText(next.firstName, before.firstName) || !sameText(next.lastName, before.lastName)) changed.push("name");
-    if (String(next.studentId).trim() !== String(before.studentId || "").trim()) changed.push("Student ID");
-    if (!sameText(next.college, before.college)) changed.push("department");
-    await db.collection("notifications").add({
-      studentId: studentUid,
-      type:      "account_credentials_updated",
-      message:   `Your coordinator updated your ${changed.join(", ")}. Your password was reset to your new default password — please set a new one and review your personal information.`,
-      read:      false,
-      createdAt: FieldValue.serverTimestamp(),
-    }).catch(err => console.error("Failed to notify student about account update:", err));
-  }
+  // The student's notice. Tapping it opens the log out confirmation (name /
+  // Student ID changed) or Personal Information (anything else) — see the
+  // notification click handler in StudentDashboardScreen.
+  const changedList = changes.map(c => c.label).join(", ");
+  const notice = credentialsChanged && !authMissing
+    ? {
+        type:    "account_credentials_updated",
+        message: `Your coordinator changed your information (${changedList}). Please log out and sign in again using your updated Student ID${String(next.studentId).trim() !== String(before.studentId || "").trim() ? ` (${next.studentId})` : ""} and the new default password your coordinator gave you.`,
+      }
+    : {
+        type:    "account_info_updated",
+        message: `Your coordinator updated your information (${changedList}). Check your updated information in Personal Information.`,
+      };
+  await db.collection("notifications").add({
+    studentId:     studentUid,
+    ...notice,
+    changedFields: changes.map(c => c.field),
+    read:          false,
+    createdAt:     FieldValue.serverTimestamp(),
+  }).catch(err => console.error("Failed to notify student about account update:", err));
 
   // Keep the student's name current in their chat threads.
   if (!sameText(fullName, before.fullName)) {
@@ -1484,6 +1512,7 @@ const updateStudentAccountImpl = async (request) => {
     passwordReset: credentialsChanged && !authMissing,
     newPassword: authMissing ? null : newPassword,
     authMissing,
+    changes,
   };
 };
 

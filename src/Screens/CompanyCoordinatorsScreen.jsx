@@ -228,6 +228,32 @@ const departmentNamesOf = (data) => {
   return [...new Set(names)];
 };
 
+// ── Previously affiliated coordinators ───────────────────────────────────────
+// When a company withdraws a college / program, its entry stays in
+// deptSelections with status "withdrawn" (affiliationService.js), so that
+// department's coordinators stay in this list — the company keeps a contact if
+// it accepts students from there again. A coordinator whose matching entries
+// are ALL withdrawn is labeled "Previously affiliated".
+const scopeNorm = (v) => String(v || "").replace(/[\u2010-\u2015]/g, "-").replace(/\s+/g, " ").trim().toLowerCase();
+const overlaps = (coordSel, companyEntry) =>
+  scopeNorm(coordSel?.department) === scopeNorm(companyEntry?.department) &&
+  (!scopeNorm(coordSel?.program) || !scopeNorm(companyEntry?.program) || scopeNorm(coordSel.program) === scopeNorm(companyEntry.program));
+const affiliationRelation = (coord, companyEntries) => {
+  const sels = Array.isArray(coord.department) ? coord.department : [];
+  const matching = (companyEntries || []).filter(e => sels.some(sel => overlaps(sel, e)));
+  if (matching.length === 0) return null;
+  return matching.every(e => e.status === "withdrawn") ? "previous" : null;
+};
+const PreviouslyAffiliatedBadge = () => (
+  <span style={{
+    display: "inline-block", marginLeft: "6px", padding: "1px 8px", borderRadius: "10px", verticalAlign: "middle",
+    fontFamily: font.ui, fontSize: "0.66rem", fontWeight: 700, whiteSpace: "nowrap",
+    color: "#555555", background: "#EDEDED", border: "1px solid #D6D6D6",
+  }}>
+    Previously affiliated
+  </span>
+);
+
 // ── CoordinatorDetailsModal ───────────────────────────────────────────────────
 // Opens when a coordinator card is clicked. The card itself only shows the name
 // and program; contact details (email) and the Message action live here.
@@ -275,7 +301,7 @@ const CoordinatorDetailsModal = ({ coordinator, onClose, onMessage, canMessage }
             <h3 id="coordinator-details-title" style={{ ...type.label, fontSize: "1.05rem", color: color.ink, fontWeight: 650, margin: 0, overflowWrap: "anywhere" }}>
               {coordinator.name}
             </h3>
-            <p style={{ ...type.helper, color: color.inkMuted, margin: "3px 0 0" }}>Coordinator</p>
+            <p style={{ ...type.helper, color: color.inkMuted, margin: "3px 0 0" }}>{coordinator.relation === "previous" ? "Previously affiliated coordinator" : "Coordinator"}</p>
           </div>
           <button
             ref={closeRef}
@@ -355,6 +381,8 @@ const CompanyCoordinatorsScreen = ({ embedded, user, onNavigateToMessages }) => 
   // with deptSelections[].department as the fallback shape). null = still loading,
   // [] = the company picked none, so nothing can be matched against.
   const [companyDepartments, setCompanyDepartments] = useState(null);
+  // The company's own college / program entries, withdrawn ones included.
+  const [companyEntries, setCompanyEntries] = useState([]);
 
   const [showFilter, setShowFilter] = useState(false);
   // Coordinator whose details window is open (null = closed).
@@ -392,6 +420,7 @@ const CompanyCoordinatorsScreen = ({ embedded, user, onNavigateToMessages }) => 
       (snap) => {
         const data = snap.exists() ? (snap.data() || {}) : {};
         setCompanyDepartments(departmentNamesOf(data));
+        setCompanyEntries(Array.isArray(data.deptSelections) ? data.deptSelections : []);
       },
       (err) => {
         // Don't strand the company with an empty screen on a read failure —
@@ -453,7 +482,11 @@ const CompanyCoordinatorsScreen = ({ embedded, user, onNavigateToMessages }) => 
   const companyDeptsLower = (companyDepartments || []).map(d => String(d).trim().toLowerCase());
   const scoped = companyDepartments === null
     ? []
-    : coordinators.filter(c => (c.colleges || []).some(col => companyDeptsLower.includes(String(col).trim().toLowerCase())));
+    : coordinators
+        .filter(c => (c.colleges || []).some(col => companyDeptsLower.includes(String(col).trim().toLowerCase())))
+        .map(c => ({ ...c, relation: affiliationRelation(c, companyEntries) }))
+        // Current affiliations first, previously affiliated after.
+        .sort((a, b) => (a.relation === "previous") - (b.relation === "previous") || a.name.localeCompare(b.name));
 
   // One line in the console makes a naming mismatch obvious: if the company's
   // departments and the coordinators' departments are spelled differently,
@@ -743,6 +776,7 @@ const CompanyCoordinatorsScreen = ({ embedded, user, onNavigateToMessages }) => 
                       whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
                     }}>
                       {coord.name}
+                      {coord.relation === "previous" && <PreviouslyAffiliatedBadge />}
                     </p>
                     <p style={{
                       ...type.helper, color: color.inkMuted, margin: "4px 0 0",

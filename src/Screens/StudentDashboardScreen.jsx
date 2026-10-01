@@ -2261,6 +2261,9 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
 
   const [drawerOpen, setDrawerOpen]             = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  // Set by an "account_info_updated" notification so Account Profile opens
+  // straight on Personal Information (cleared when leaving Account Profile).
+  const [openPersonalInfoRequest, setOpenPersonalInfoRequest] = useState(0);
 
   const handleLogoutClick = () => {
     setDrawerOpen(false);
@@ -2483,31 +2486,9 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
     return () => clearTimeout(t);
   }, [setupStage, isReturningReset]);
 
-  // Signs the student out the moment a coordinator resets their account
-  // (credentialsResetAt newer than this session's sign-in). The server also
-  // revokes their sessions, but that only bites at the next token refresh.
-  // The sign-in screen then explains what happened (see SignInScreen).
-  const resetLogoutFired = useRef(false);
-  useEffect(() => {
-    if (!user?.uid) return;
-    const unsub = onSnapshot(doc(db, "students", user.uid), (snap) => {
-      const d = snap.data() || {};
-      const resetMs  = typeof d.credentialsResetAt?.toMillis === "function" ? d.credentialsResetAt.toMillis() : null;
-      const signedIn = getAuth().currentUser?.metadata?.lastSignInTime;
-      const signedInMs = signedIn ? Date.parse(signedIn) : null;
-      if (!resetMs || !signedInMs || signedInMs >= resetMs || resetLogoutFired.current) return;
-      resetLogoutFired.current = true;
-      try {
-        sessionStorage.setItem("ojtern.signInNotice", JSON.stringify({
-          role: "student",
-          message: "Your coordinator updated your account details. Log in with your updated Student ID and the default password your coordinator gave you, then set a new password.",
-        }));
-      } catch { /* storage unavailable — the sign-in still works */ }
-      logOut().catch(err => console.error("Logout after account reset failed:", err)).finally(() => onLogout?.());
-    }, (err) => console.error("Failed to watch account status:", err));
-    return () => unsub();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.uid]);
+  // No automatic sign-out when a coordinator edits the student's account:
+  // the student is notified instead, and logs out from that notification
+  // (see the notification click handler below).
 
   // Child screens get the freshly saved personal email even before the parent
   // reloads the profile (e.g. to pre-fill the application form).
@@ -2692,6 +2673,7 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
 
   useEffect(() => {
     if (activeNav !== "application") setPendingApplicationId(null);
+    if (activeNav !== "accountprofile") setOpenPersonalInfoRequest(0);
   }, [activeNav]);
 
   const renderContent = () => {
@@ -2778,7 +2760,7 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
       />
     );
 
-    if (activeNav === "accountprofile") return <StudentAccountProfileScreen user={effectiveUser} onLogout={onLogout} viewIcon={themedViewIcon} onViewChange={setScreenSubView} />;
+    if (activeNav === "accountprofile") return <StudentAccountProfileScreen user={effectiveUser} onLogout={onLogout} viewIcon={themedViewIcon} onViewChange={setScreenSubView} openPersonalInfoRequest={openPersonalInfoRequest} />;
     if (activeNav === "about")          return <AboutUsScreen onBack={() => navigate("dashboard")} />;
   };
 
@@ -3040,6 +3022,12 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
                             onClick={() => {
                               setShowNotifDropdown(false);
                               if (canRespondTo(n)) setRespondingTo(n);
+                              // Coordinator changed the name / Student ID → the
+                              // password is now the new default: confirm log out
+                              // so the student signs in again with it.
+                              else if (n.type === "account_credentials_updated") setShowLogoutConfirm(true);
+                              // Other info changed → just show Personal Information.
+                              else if (n.type === "account_info_updated") { setOpenPersonalInfoRequest(Date.now()); navigate("accountprofile"); }
                               else if (n.applicationId) navigate("application", n.applicationId);
                               if (!n.read) {
                                 updateDoc(doc(db, "notifications", n.id), { read: true }).catch(err =>
@@ -3050,7 +3038,7 @@ const StudentDashboardScreen = ({ user, onLogout }) => {
                             style={{
                               padding: "14px 18px",
                               borderTop: `1px solid ${hairline}`,
-                              cursor: n.applicationId || canRespondTo(n) ? "pointer" : "default",
+                              cursor: n.applicationId || canRespondTo(n) || n.type === "account_credentials_updated" || n.type === "account_info_updated" ? "pointer" : "default",
                               background: n.read ? paper : "#F2F2F2",
                             }}
                           >
