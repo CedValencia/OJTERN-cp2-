@@ -264,6 +264,9 @@ const useOjtPosts = () => {
   return { posts, loading };
 };
 
+// Input ceiling for the report form.
+const REPORT_DESCRIPTION_MAX = 1500;
+
 const reportCategories = [
   { label: "Fraud and Scam", description: "Job scams are fraudulent schemes where scammers impersonate employers to steal money, personal information, or coerce victims into fake work activities, but awareness and verification can prevent victimization.", details: ["Fake job postings requiring payment", "Identity theft", "Misrepresentation of company"] },
   { label: "Discrimination", description: "Discrimination in the workplace involves unfair treatment of individuals based on race, gender, age, religion, disability, or other protected characteristics.", details: ["Racial discrimination", "Gender-based bias", "Age discrimination", "Religious intolerance"] },
@@ -546,10 +549,12 @@ const ReportModal = ({ company, onClose, onSubmit, reporter }) => {
               <p style={{ fontFamily: font.ui, ...type.label, color: ink, marginBottom: space.sm }}>Describe what happened</p>
               <textarea
                 value={description}
-                onChange={e => setDescription(e.target.value)}
+                onChange={e => setDescription(e.target.value.slice(0, REPORT_DESCRIPTION_MAX))}
+                maxLength={REPORT_DESCRIPTION_MAX}
                 placeholder="Include dates, names, and anything the review team should see."
                 style={{ width: "100%", minHeight: "112px", border: `1px solid ${line}`, borderRadius: radius.card, padding: "12px 14px", outline: "none", fontFamily: font.ui, ...type.body, resize: "vertical", background: color.wine800, color: ink, marginBottom: space.lg, boxSizing: "border-box" }}
               />
+                <p style={{ fontSize: "0.7rem", color: "#8a8a8a", textAlign: "right", margin: "4px 0 0" }}>{(description || "").length}/{REPORT_DESCRIPTION_MAX}</p>
               <p style={{ fontFamily: font.ui, ...type.label, color: ink, marginBottom: space.xs }}>Attach evidence</p>
               <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, marginBottom: space.sm }}>PNG or PDF, up to 10MB.</p>
               <input ref={fileRef} type="file" accept=".png,.pdf" style={{ display: "none" }} onChange={handleFile} />

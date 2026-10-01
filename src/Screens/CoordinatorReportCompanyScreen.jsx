@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { doc, updateDoc, getDoc, onSnapshot, serverTimestamp } from "firebase/firestore";
+import { doc, updateDoc, getDoc, getDocs, collection, query, where, onSnapshot, serverTimestamp } from "firebase/firestore";
 import { db } from "./firebase";
 import { color, font, type, space, radius, shadow, ease } from "./theme";
 import pdfIcon from "../icons/pdf.png";
@@ -10,6 +10,7 @@ import {
   applyCompanyEnforcement,
   recordCompanyAction,
   notifyCompanyAccount,
+  notifyReporter,
   getCompanyActionHistory,
 } from "./AuthService";
 
@@ -500,6 +501,10 @@ const ImageLightbox = ({ src, name, onClose }) => {
 // Input ceilings. Both the field and the state are capped, so a paste can't
 // slip past maxLength (which only limits typing in some browsers).
 const OTHER_ACTION_MAX     = 500;
+const DISMISS_REASON_MAX   = 500;
+// An "Awaiting correction" report older than this is flagged in the list, so a
+// correction nobody followed up on stops being invisible.
+const CORRECTION_OVERDUE_DAYS = 7;
 const RESOLUTION_NOTES_MAX = 1500;
 
 const STANDARD_ACTIONS = ["Require Correction", "Warning Issued", "Suspend Account", "Others", "Block Account"];
@@ -599,6 +604,13 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid, coordinator
   const [working, setWorking]             = useState(false);
   const [resolvingPanel, setResolvingPanel] = useState(false);
   const [confirmingDismiss, setConfirmingDismiss] = useState(false);
+  const [dismissReason, setDismissReason]         = useState("");
+  const [dismissError, setDismissError]           = useState("");
+  // Other reports about this same company that are still open. Resolving them
+  // together counts as ONE disciplinary action: five students reporting the
+  // same post shouldn't push a company to the 3-action auto-suspension.
+  const [siblingReports, setSiblingReports]       = useState([]);
+  const [applyToAll, setApplyToAll]               = useState(true);
   const [confirmingCorrected, setConfirmingCorrected] = useState(false);
   const [confirmingResolve, setConfirmingResolve] = useState(false);
   const [selectedAction, setSelectedAction] = useState(null);
@@ -630,6 +642,12 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid, coordinator
   const subjectType = String(report?.subjectType || "company").toLowerCase();
   const isCompanySubject = subjectType === "company";
 
+  // A coordinator must not rule on a report about themselves. Those belong to
+  // another coordinator of the same department (or an administrator).
+  const isAboutMe = !!coordinatorUid && (
+    report?.subjectId === coordinatorUid || report?.companyId === coordinatorUid
+  );
+
   useEffect(() => {
     if (!report?.id) return;
     const unsub = onSnapshot(
@@ -639,6 +657,25 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid, coordinator
     );
     return () => unsub();
   }, [report?.id]);
+
+  useEffect(() => {
+    if (!report?.companyId || status !== "pending") { setSiblingReports([]); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const snap = await getDocs(query(collection(db, "reports"), where("companyId", "==", report.companyId)));
+        if (cancelled) return;
+        setSiblingReports(
+          snap.docs
+            .map(d => ({ id: d.id, ...d.data() }))
+            .filter(r => r.id !== report.id && r.status !== "resolved" && r.status !== "dismissed")
+        );
+      } catch (err) {
+        console.error("Failed to load the company's other open reports:", err);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [report?.companyId, report?.id, status]);
   const [enforcementNote, setEnforcementNote] = useState(null);
   const [companyStatus, setCompanyStatus]     = useState(null); // live accountStatus, fetched below
   const [historyOpen, setHistoryOpen]         = useState(false);
@@ -712,13 +749,25 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid, coordinator
 
   const handleDismiss = async () => {
     if (working || status !== "pending") return;
+    const reason = dismissReason.trim();
+    // A dismissal is permanent and goes on the record. Without a reason, nobody
+    // reading this later knows why it was dropped — including the student who
+    // filed it, who now gets told.
+    if (!reason) { setDismissError("Say why this report is being dismissed."); return; }
     setWorking(true);
     try {
       await updateDoc(doc(db, "reports", report.id), {
-        status:      "dismissed",
-        resolvedBy:  coordinatorUid || "",
-        resolvedAt:  serverTimestamp(),
+        status:          "dismissed",
+        dismissalReason: reason,
+        resolvedBy:      coordinatorUid || "",
+        resolvedAt:      serverTimestamp(),
       });
+
+      notifyReporter(report.reportedBy, report.reporterRole, {
+        title: "Your report was reviewed",
+        body: `Your report about ${report.company} was reviewed and closed without action. Reason: ${reason}`,
+        reportId: report.id,
+      }).catch(err => console.error("Failed to notify the reporter:", err));
       logActivity(
         coordinatorUid,
         "report_dismissed",
@@ -865,6 +914,36 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid, coordinator
         });
       } catch (err) {
         console.error("Failed to notify company:", err);
+      }
+
+      // Tell whoever filed it what came of their report.
+      notifyReporter(report.reportedBy, report.reporterRole, {
+        title: "Your report was reviewed",
+        body: `Your report about ${report.company} was reviewed. Action taken: ${finalAction}.`,
+        reportId: report.id,
+      }).catch(err => console.error("Failed to notify the reporter:", err));
+
+      // Close the company's other open reports under this same decision, so a
+      // single incident reported five times counts as one action rather than
+      // five (three would otherwise trigger the automatic suspension).
+      if (applyToAll && siblingReports.length > 0) {
+        await Promise.all(siblingReports.map(r =>
+          updateDoc(doc(db, "reports", r.id), {
+            status:           nextStatus,
+            resolutionAction: finalAction,
+            resolutionNotes:  resolutionNotes.trim(),
+            resolvedBy:       coordinatorUid || "",
+            resolvedAt:       serverTimestamp(),
+            resolvedWith:     report.id,   // the report this decision came from
+          }).catch(err => console.error(`Failed to close sibling report ${r.id}:`, err))
+        ));
+        siblingReports.forEach(r => {
+          notifyReporter(r.reportedBy, r.reporterRole, {
+            title: "Your report was reviewed",
+            body: `Your report about ${report.company} was reviewed alongside other reports about the same company. Action taken: ${finalAction}.`,
+            reportId: r.id,
+          }).catch(err => console.error("Failed to notify the reporter:", err));
+        });
       }
 
       setSavedAction(finalAction);
@@ -1094,7 +1173,11 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid, coordinator
               ? { display: "flex", justifyContent: "flex-end", gap: "10px", padding: "14px 20px", borderTop: `1px solid ${line}` }
               : { display: "flex", justifyContent: "flex-end", padding: "16px 28px", borderTop: `1px solid ${line}`, background: panel }
           }>
-            {status === "pending" ? (
+            {status === "pending" && isAboutMe ? (
+              <p style={{ margin: 0, fontFamily: font.ui, fontSize: "0.8rem", color: onPanelDim, lineHeight: 1.5 }}>
+                This report is about your own account, so another coordinator has to review it.
+              </p>
+            ) : status === "pending" ? (
               <div id="rc-detail-actions" style={{ display: "flex", gap: "10px" }}>
                 <button
                   onClick={() => setConfirmingDismiss(true)}
@@ -1161,6 +1244,9 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid, coordinator
       {resolvingPanel && (
         <ResolveActionModal
           availableActions={availableActions}
+          siblingCount={siblingReports.length}
+          applyToAll={applyToAll}
+          setApplyToAll={setApplyToAll}
           selectedAction={selectedAction}
           setSelectedAction={setSelectedAction}
           otherActionText={otherActionText}
@@ -1189,12 +1275,34 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid, coordinator
       {confirmingDismiss && (
         <ConfirmModal
           title="Dismiss Report?"
-          message="Are you sure you want to dismiss this report? This action cannot be undone."
+          message="This closes the report with no action against the company. It can't be undone, and the reason below is sent to whoever filed it."
           confirmLabel="DISMISS"
           working={working}
-          onCancel={() => setConfirmingDismiss(false)}
+          onCancel={() => { setConfirmingDismiss(false); setDismissError(""); }}
           onConfirm={handleDismiss}
-        />
+        >
+          <div style={{ width: "100%", marginBottom: "4px" }}>
+            <textarea
+              value={dismissReason}
+              onChange={e => { setDismissReason(e.target.value.slice(0, DISMISS_REASON_MAX)); setDismissError(""); }}
+              maxLength={DISMISS_REASON_MAX}
+              placeholder="Why is this being dismissed?"
+              disabled={working}
+              style={{
+                width: "100%", boxSizing: "border-box", minHeight: "90px", resize: "vertical",
+                padding: "10px 12px", borderRadius: "10px",
+                border: `1.5px solid ${dismissError ? color.danger : line}`,
+                fontFamily: font.ui, fontSize: "0.82rem", color: ink, outline: "none", background: color.white,
+              }}
+            />
+            <p style={{ fontSize: "0.7rem", color: "#8a8a8a", textAlign: "right", margin: "4px 0 0" }}>
+              {(dismissReason || "").length}/{DISMISS_REASON_MAX}
+            </p>
+            {dismissError && (
+              <p role="alert" style={{ fontFamily: font.ui, fontSize: "0.72rem", color: color.danger, margin: "2px 0 0" }}>{dismissError}</p>
+            )}
+          </div>
+        </ConfirmModal>
       )}
 
       {confirmingCorrected && (
@@ -1220,7 +1328,7 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid, coordinator
 };
 
 // ── Generic confirm dialog (e.g. "are you sure?") ─────────────────────────────
-const ConfirmModal = ({ title, message, confirmLabel = "CONFIRM", working, onCancel, onConfirm }) => (
+const ConfirmModal = ({ title, message, confirmLabel = "CONFIRM", working, onCancel, onConfirm, children }) => (
   <div style={{
     position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)",
     display: "flex", alignItems: "center", justifyContent: "center",
@@ -1238,6 +1346,7 @@ const ConfirmModal = ({ title, message, confirmLabel = "CONFIRM", working, onCan
         <p style={{ fontFamily: font.ui, fontSize: "0.85rem", color: inkBody, lineHeight: 1.5 }}>
           {message}
         </p>
+        {children}
       </div>
       <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", padding: "14px 20px", borderTop: `1px solid ${line}` }}>
         <button
@@ -1272,6 +1381,7 @@ const ConfirmModal = ({ title, message, confirmLabel = "CONFIRM", working, onCan
 // ── Resolve Action Modal (separate overlay, opened from RESOLVE) ─────────────
 const ResolveActionModal = ({
   availableActions, selectedAction, setSelectedAction,
+  siblingCount = 0, applyToAll = true, setApplyToAll = () => {},
   otherActionText, setOtherActionText,
   resolutionNotes, setResolutionNotes,
   suspensionDays, setSuspensionDays, suspensionDaysError = "",
@@ -1351,6 +1461,7 @@ const ResolveActionModal = ({
                   outline: "none", background: color.white, boxSizing: "border-box",
                 }}
               />
+                <p style={{ fontSize: "0.7rem", color: "#8a8a8a", textAlign: "right", margin: "4px 0 0" }}>{(otherActionText || "").length}/{OTHER_ACTION_MAX}</p>
             </div>
           )}
 
@@ -1398,6 +1509,24 @@ const ResolveActionModal = ({
           <p style={{ fontFamily: font.ui, fontSize: "0.9rem", color: ink, marginBottom: "6px" }}>
             How was this resolved?
           </p>
+          {siblingCount > 0 && (
+            <label style={{
+              display: "flex", alignItems: "flex-start", gap: "8px", marginBottom: "14px",
+              fontFamily: font.ui, fontSize: "0.8rem", color: inkBody, cursor: "pointer", lineHeight: 1.5,
+            }}>
+              <input
+                type="checkbox"
+                checked={applyToAll}
+                onChange={e => setApplyToAll(e.target.checked)}
+                style={{ marginTop: "3px", flexShrink: 0 }}
+              />
+              <span>
+                Apply this decision to the {siblingCount} other open report{siblingCount !== 1 ? "s" : ""} about this company.
+                They close together and count as one action, instead of {siblingCount + 1}.
+              </span>
+            </label>
+          )}
+
           <textarea
             value={resolutionNotes}
             onChange={e => setResolutionNotes(e.target.value.slice(0, RESOLUTION_NOTES_MAX))}
@@ -1411,6 +1540,7 @@ const ResolveActionModal = ({
               boxSizing: "border-box", display: "block",
             }}
           />
+            <p style={{ fontSize: "0.7rem", color: "#8a8a8a", textAlign: "right", margin: "4px 0 0" }}>{(resolutionNotes || "").length}/{RESOLUTION_NOTES_MAX}</p>
           </div>
         </div>
       </div>
@@ -1483,6 +1613,21 @@ const REPORT_STATUS_BADGE = {
   resolved:  { bg: color.success, label: "Resolved" },
   dismissed: { bg: lineSoft, label: "Dismissed" },
 };
+// An "Awaiting correction" report nobody has followed up on.
+const isCorrectionOverdue = (report) => {
+  if (report?.status !== "awaiting_correction") return false;
+  const since = report.resolvedAt?.seconds ? report.resolvedAt.seconds * 1000 : 0;
+  if (!since) return false;
+  return Date.now() - since > CORRECTION_OVERDUE_DAYS * 24 * 60 * 60 * 1000;
+};
+
+const OverdueFlag = () => (
+  <span title={`No correction submitted for over ${CORRECTION_OVERDUE_DAYS} days`} style={{
+    marginLeft: "6px", background: "#F7E9E9", color: darkRed, borderRadius: "999px",
+    padding: "1px 8px", fontFamily: font.ui, fontSize: "0.68rem", fontWeight: 700, whiteSpace: "nowrap",
+  }}>Overdue</span>
+);
+
 const StatusBadge = ({ status }) => {
   const b = REPORT_STATUS_BADGE[status] || REPORT_STATUS_BADGE.pending;
   return (
@@ -1499,7 +1644,7 @@ const StatusBadge = ({ status }) => {
 // longer is a Block, which has no end date. Both the input and the value handed
 // to applyCompanyEnforcement are held to this range.
 const SUSPENSION_MIN_DAYS = 1;
-const SUSPENSION_MAX_DAYS = 31;
+const SUSPENSION_MAX_DAYS = 365;
 const SUSPENSION_DEFAULT_DAYS = 7;
 const clampSuspensionDays = (value) => {
   const n = Math.floor(Number(value));
@@ -1518,8 +1663,36 @@ const CoordinatorReportCompanyScreen = ({ reports = [], otherReports = [], onVie
   // an empty default list reads as "no reports exist", which is exactly the
   // confusion the second tab is meant to prevent.
   const [tab, setTab] = useState(() => (reports.length === 0 && otherReports.length > 0 ? "all" : "mine"));
-  const shown = tab === "all" ? [...reports, ...otherReports] : reports;
+  const [statusFilter, setStatusFilter] = useState("open");
+  const [search, setSearch]             = useState("");
+
+  const inScope = tab === "all" ? [...reports, ...otherReports] : reports;
   const pendingOther = otherReports.filter(r => r.status !== "resolved" && r.status !== "dismissed").length;
+
+  // Default to the work queue — Pending and Awaiting correction — instead of a
+  // single pile where closed reports bury the ones still needing a decision.
+  const isOpenReport = (r) => r.status !== "resolved" && r.status !== "dismissed";
+  const q = search.trim().toLowerCase();
+  const shown = inScope
+    .filter(r => statusFilter === "all"
+      || (statusFilter === "open" && isOpenReport(r))
+      || r.status === statusFilter)
+    .filter(r => !q || [r.company, r.concern, r.subjectName].filter(Boolean)
+      .some(v => String(v).toLowerCase().includes(q)))
+    // Oldest open report first: the one that has waited longest needs a
+    // decision most. Closed ones read better newest-first.
+    .sort((a, b) => {
+      const ao = isOpenReport(a), bo = isOpenReport(b);
+      if (ao !== bo) return ao ? -1 : 1;
+      const at = a.createdAt?.seconds || 0, bt = b.createdAt?.seconds || 0;
+      return ao ? at - bt : bt - at;
+    });
+
+  const statusCounts = {
+    open:      inScope.filter(isOpenReport).length,
+    resolved:  inScope.filter(r => r.status === "resolved").length,
+    dismissed: inScope.filter(r => r.status === "dismissed").length,
+  };
 
   return (
   <>
@@ -1590,6 +1763,49 @@ const CoordinatorReportCompanyScreen = ({ reports = [], otherReports = [], onVie
         </div>
       )}
 
+      {/* Status filter + search. A Report List with no way to separate the work
+          queue from closed cases is just a pile that grows. */}
+      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center", marginBottom: "14px" }}>
+        {[
+          { key: "open",      label: "Needs action", count: statusCounts.open },
+          { key: "resolved",  label: "Resolved",     count: statusCounts.resolved },
+          { key: "dismissed", label: "Dismissed",    count: statusCounts.dismissed },
+          { key: "all",       label: "All",          count: inScope.length },
+        ].map(f => {
+          const on = statusFilter === f.key;
+          return (
+            <button
+              key={f.key}
+              onClick={() => setStatusFilter(f.key)}
+              style={{
+                border: `1px solid ${on ? panel : line}`, background: on ? panel : color.white,
+                color: on ? color.white : inkBody, borderRadius: "999px", padding: "6px 14px",
+                cursor: "pointer", fontFamily: font.ui, fontSize: "0.78rem", fontWeight: 600,
+                display: "inline-flex", alignItems: "center", gap: "7px",
+              }}
+            >
+              {f.label}
+              <span style={{
+                background: on ? "rgba(255,255,255,0.22)" : lineSoft,
+                color: on ? color.white : inkMuted, borderRadius: "999px",
+                padding: "1px 7px", fontSize: "0.7rem", fontWeight: 700,
+              }}>{f.count}</span>
+            </button>
+          );
+        })}
+        <input
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Search company or concern"
+          aria-label="Search reports"
+          style={{
+            marginLeft: "auto", minWidth: "200px", flex: "0 1 260px",
+            padding: "8px 14px", borderRadius: "999px", border: `1px solid ${line}`,
+            fontFamily: font.ui, fontSize: "0.8rem", color: ink, outline: "none", background: color.white,
+          }}
+        />
+      </div>
+
       <div id="rc-report-list">
         {/* ── Desktop: table ── */}
         <div className="rc-table-wrap">
@@ -1609,7 +1825,7 @@ const CoordinatorReportCompanyScreen = ({ reports = [], otherReports = [], onVie
                   <td className="rc-td">{r.concern}</td>
                   <td className="rc-td">{r.date}</td>
                   <td className="rc-td">
-                    <StatusBadge status={r.status || "pending"} />
+                    <StatusBadge status={r.status || "pending"} />{isCorrectionOverdue(r) && <OverdueFlag />}
                   </td>
                   <td className="rc-td">
                     <ViewButton onClick={() => onViewReport && onViewReport(r)} />
@@ -1666,7 +1882,7 @@ const CoordinatorReportCompanyScreen = ({ reports = [], otherReports = [], onVie
               </div>
 
               <div style={{ marginTop: "2px" }}>
-                <StatusBadge status={r.status || "pending"} />
+                <StatusBadge status={r.status || "pending"} />{isCorrectionOverdue(r) && <OverdueFlag />}
               </div>
             </div>
           ))}

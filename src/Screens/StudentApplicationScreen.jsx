@@ -3196,7 +3196,12 @@ const FormFields = ({ f, locked = false }) => {
         disabled={locked}
         style={{ width: "100%", background: locked ? "#e8e8e8" : "white", border: (!locked && f.messageError) ? "1.5px solid #c00" : "none", borderRadius: "16px", padding: "10px 14px", fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", color: "#222", outline: "none", boxShadow: "inset 0 1px 3px rgba(0,0,0,0.08)", resize: "none", minHeight: "90px", lineHeight: 1.6, boxSizing: "border-box", overflowY: "auto" }}
       />
-      <FieldError msg={!locked ? f.messageError : ""} />
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "8px" }}>
+        <div style={{ minWidth: 0 }}><FieldError msg={!locked ? f.messageError : ""} /></div>
+        <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.72rem", color: (f.message || "").length >= APPLICATION_MESSAGE_MAX ? "#c00" : inkMuted, margin: "3px 6px 0 0", flexShrink: 0, marginLeft: "auto" }}>
+          {(f.message || "").length}/{APPLICATION_MESSAGE_MAX}
+        </p>
+      </div>
     </div>
 
     {/* Files */}

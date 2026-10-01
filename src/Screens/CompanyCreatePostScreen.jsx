@@ -1141,6 +1141,7 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile, onMo
                 onChange={e => { set("description", e.target.value); setErrors(p => ({ ...p, description: "" })); }}
                 placeholder="Enter description..." rows={3}
                 style={{ ...(readOnly ? pillTextareaReadonly : pillTextareaStyle), border: errors.description ? "1.5px solid #c00" : "none" }} />
+              <p style={{ fontSize: "0.7rem", color: "#8a8a8a", textAlign: "right", margin: "4px 0 0" }}>{(form.description || "").length}/{POST_DESCRIPTION_MAX}</p>
               <FieldError msg={errors.description} />
               </div>
 
@@ -1150,6 +1151,7 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile, onMo
                 onChange={e => { set("requirements", e.target.value); setErrors(p => ({ ...p, requirements: "" })); }}
                 placeholder="Enter requirements..." rows={2}
                 style={{ ...(readOnly ? pillTextareaReadonly : pillTextareaStyle), border: errors.requirements ? "1.5px solid #c00" : "none" }} />
+              <p style={{ fontSize: "0.7rem", color: "#8a8a8a", textAlign: "right", margin: "4px 0 0" }}>{(form.requirements || "").length}/{POST_LIST_FIELD_MAX}</p>
               <FieldError msg={errors.requirements} />
               </div>
             </div>
@@ -1295,6 +1297,7 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile, onMo
             onChange={e => { set("benefits", e.target.value); setErrors(p => ({ ...p, benefits: "" })); }}
             placeholder="Enter benefits..." rows={2}
             style={{ ...(readOnly ? pillTextareaReadonly : pillTextareaStyle), border: errors.benefits ? "1.5px solid #c00" : "none" }} />
+          <p style={{ fontSize: "0.7rem", color: "#8a8a8a", textAlign: "right", margin: "4px 0 0" }}>{(form.benefits || "").length}/{POST_LIST_FIELD_MAX}</p>
           <FieldError msg={errors.benefits} />
           </div>
 
@@ -1340,6 +1343,7 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile, onMo
             onChange={e => { set("skillsRequired", e.target.value); setErrors(p => ({ ...p, skillsRequired: "" })); }}
             placeholder="Enter required skills..." rows={2}
             style={{ ...(readOnly ? pillTextareaReadonly : pillTextareaStyle), border: errors.skillsRequired ? "1.5px solid #c00" : "none" }} />
+          <p style={{ fontSize: "0.7rem", color: "#8a8a8a", textAlign: "right", margin: "4px 0 0" }}>{(form.skillsRequired || "").length}/{POST_LIST_FIELD_MAX}</p>
           <FieldError msg={errors.skillsRequired} />
           </div>
         </div>

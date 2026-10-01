@@ -161,6 +161,7 @@ const ReportResponseModal = ({ notification, responderId, responderRole, respond
               disabled={saving}
               style={fieldStyle}
             />
+              <p style={{ fontSize: "0.7rem", color: "#8a8a8a", textAlign: "right", margin: "4px 0 0" }}>{(description || "").length}/{RESPONSE_DESCRIPTION_MAX}</p>
           </div>
 
           <div>

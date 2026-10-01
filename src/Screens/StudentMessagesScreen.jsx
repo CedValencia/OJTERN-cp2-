@@ -406,6 +406,7 @@ const ReportModal = ({ company, onClose, onSubmit }) => {
                 placeholder="Include dates, names, and anything the review team should see."
                 style={{ width: "100%", minHeight: "112px", border: `1px solid ${line}`, borderRadius: radius.card, padding: "12px 14px", outline: "none", fontFamily: font.ui, ...type.body, resize: "vertical", background: color.wine800, color: ink, marginBottom: space.lg, boxSizing: "border-box" }}
               />
+                <p style={{ fontSize: "0.7rem", color: "#8a8a8a", textAlign: "right", margin: "4px 0 0" }}>{(description || "").length}/{REPORT_DESCRIPTION_MAX}</p>
               </div>
               <div id="sreport-evidence">
               <p style={{ fontFamily: font.ui, ...type.label, color: ink, marginBottom: "4px" }}>Attach evidence</p>

@@ -449,6 +449,31 @@ const AlertModal = ({ message, onClose }) => (
   </div>
 );
 
+// ── Placement Modal: shown when Apply Now is tapped after a placement is confirmed ──
+const PlacementConfirmedModal = ({ company, onClose }) => (
+  <div className="stud-modal" style={{ position: "fixed", inset: 0, background: "rgba(10,10,10,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2000, padding: space.md }}>
+    <div style={{ background: surface, borderRadius: radius.panel, padding: `${space.xl} ${space.lg}`, textAlign: "center", width: "100%", maxWidth: "380px", border: `1px solid ${line}`, boxShadow: shadow.panel }}>
+      <div style={{ width: "56px", height: "56px", borderRadius: "50%", background: lineSoft, display: "flex", alignItems: "center", justifyContent: "center", margin: `0 auto ${space.md}` }}>
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke={success} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="20 6 9 17 4 12" />
+        </svg>
+      </div>
+      <h3 style={{ fontFamily: font.ui, fontSize: "1.25rem", fontWeight: 600, letterSpacing: "-0.01em", color: ink, marginBottom: space.sm }}>You have been applied</h3>
+      <p style={{ fontFamily: font.ui, ...type.body, color: inkBody, marginBottom: space.lg }}>
+        You already have a confirmed OJT placement at {company}, so you can't apply to other posts. If you need to change it, talk to your OJT coordinator.
+      </p>
+      <button
+        onClick={onClose}
+        style={{ background: panel, color: onPanel, border: "none", borderRadius: radius.pill, padding: "11px 34px", fontFamily: font.ui, ...type.control, cursor: "pointer", transition: `background 240ms ${ease}` }}
+        onMouseEnter={(e) => (e.currentTarget.style.background = panelDeep)}
+        onMouseLeave={(e) => (e.currentTarget.style.background = panel)}
+      >
+        OK
+      </button>
+    </div>
+  </div>
+);
+
 // ─── REPORT MODAL ─────────────────────────────────────────────────────────────
 const ReportModal = ({ company, onClose, onSubmit, reporter }) => {
   const [step, setStep]                 = useState(1);
@@ -587,8 +612,11 @@ const ReportModal = ({ company, onClose, onSubmit, reporter }) => {
                 onChange={e => setDescription(e.target.value.slice(0, REPORT_DESCRIPTION_MAX))}
                 maxLength={REPORT_DESCRIPTION_MAX}
                 placeholder="Include dates, names, and anything the review team should see."
-                style={{ width: "100%", minHeight: "112px", border: `1px solid ${line}`, borderRadius: radius.card, padding: "12px 14px", outline: "none", fontFamily: font.ui, ...type.body, resize: "vertical", background: color.wine800, color: ink, marginBottom: space.lg, boxSizing: "border-box" }}
+                style={{ width: "100%", minHeight: "112px", border: `1px solid ${line}`, borderRadius: radius.card, padding: "12px 14px", outline: "none", fontFamily: font.ui, ...type.body, resize: "vertical", background: color.wine800, color: ink, display: "block", boxSizing: "border-box" }}
               />
+              <p style={{ fontFamily: font.ui, ...type.helper, color: description.length >= REPORT_DESCRIPTION_MAX ? "#c00" : inkMuted, textAlign: "right", margin: `4px 2px ${space.lg} 0` }}>
+                {description.length}/{REPORT_DESCRIPTION_MAX}
+              </p>
               </div>
               <div id="sreport-evidence">
               <p style={{ fontFamily: font.ui, ...type.label, color: ink, marginBottom: "4px" }}>Attach evidence</p>
@@ -661,7 +689,7 @@ const SectionTitle = ({ children }) => (
 );
 
 // ─── COMPANY PROFILE ──────────────────────────────────────────────────────────
-const CompanyProfile = ({ company, onBack, onReport, onMessageNow, onApplyNow, confirmedPlacement = null }) => {
+const CompanyProfile = ({ company, onBack, onReport, onMessageNow, onApplyNow }) => {
   const loc = company.location || {};
   const locationParts = [loc.street, loc.barangay, loc.city, loc.province, loc.region].filter(Boolean);
   const fullLocation = loc.fullAddress || locationParts.join(", ");
@@ -785,15 +813,13 @@ const CompanyProfile = ({ company, onBack, onReport, onMessageNow, onApplyNow, c
       {/* Bottom action bar */}
       <div className="stud-profile-bar" style={{ background: surface, borderTop: `1px solid ${line}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: space.md }}>
         <div className="stud-action-buttons">
-          {/* A confirmed OJT placement ends the search: no new applications. */}
+          {/* With a confirmed placement the click is handled by the parent, which shows a modal instead of the apply form. */}
           <button
             id="sprofile-apply-btn"
             className="stud-btn-apply"
-            onClick={confirmedPlacement ? undefined : onApplyNow}
-            disabled={!!confirmedPlacement}
-            title={confirmedPlacement ? `You already have a confirmed OJT placement at ${confirmedPlacement}. If you need to change it, talk to your OJT coordinator.` : undefined}
-            style={{ background: panel, color: onPanel, border: "none", borderRadius: radius.pill, fontFamily: font.ui, ...type.control, cursor: confirmedPlacement ? "not-allowed" : "pointer", opacity: confirmedPlacement ? 0.5 : 1, boxShadow: shadow.pill, transition: `background 240ms ${ease}`, whiteSpace: "nowrap" }}
-            onMouseEnter={e => { if (!confirmedPlacement) e.currentTarget.style.background = panelDeep; }}
+            onClick={onApplyNow}
+            style={{ background: panel, color: onPanel, border: "none", borderRadius: radius.pill, fontFamily: font.ui, ...type.control, cursor: "pointer", boxShadow: shadow.pill, transition: `background 240ms ${ease}`, whiteSpace: "nowrap" }}
+            onMouseEnter={e => (e.currentTarget.style.background = panelDeep)}
             onMouseLeave={e => (e.currentTarget.style.background = panel)}
           >
             Apply Now!
@@ -993,7 +1019,7 @@ const StudentFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onNavig
   const { posts: companies, loading: postsLoading } = useOjtPosts();
 
   // The company of the student's confirmed OJT placement, if any — Apply Now
-  // is disabled once the student has confirmed where they'll be deployed.
+  // opens an info modal instead of the apply form once the student has confirmed where they'll be deployed.
   const [confirmedPlacement, setConfirmedPlacement] = useState(null);
   useEffect(() => {
     if (!user?.uid) return;
@@ -1014,6 +1040,7 @@ const StudentFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onNavig
   const [selectedIndustries, setSelectedIndustries] = useState([]);
   const [citySearch, setCitySearch] = useState("");
   const [showApplyModal, setShowApplyModal] = useState(false);
+  const [showPlacementModal, setShowPlacementModal] = useState(false);
   const filterRef = useRef(null);
 
   // Tells the Dashboard which part of Find Company is showing, so its "?"
@@ -1144,9 +1171,15 @@ const StudentFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onNavig
           onBack={() => setView("list")}
           onReport={() => setShowReportModal(true)}
           onMessageNow={() => onMessageNow?.({ ...selectedCompany, fromMessageNow: true })}
-          onApplyNow={() => { onApplyNow?.(selectedCompany); setShowApplyModal(true); }}
-          confirmedPlacement={confirmedPlacement}
+          onApplyNow={() => {
+            if (confirmedPlacement) { setShowPlacementModal(true); return; }
+            onApplyNow?.(selectedCompany);
+            setShowApplyModal(true);
+          }}
         />
+        {showPlacementModal && (
+          <PlacementConfirmedModal company={confirmedPlacement} onClose={() => setShowPlacementModal(false)} />
+        )}
         {showReportModal && (
           <ReportModal company={selectedCompany} onClose={() => setShowReportModal(false)} onSubmit={handleReportSubmit} reporter={user} />
         )}

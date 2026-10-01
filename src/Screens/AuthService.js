@@ -792,6 +792,7 @@ const AUTO_SUSPEND_THRESHOLD = 3;
 // Coordinator picks the duration when they suspend someone directly. When the
 // system auto-escalates on its own (no coordinator input at that moment),
 // this is the default length used instead.
+const MAX_SUSPENSION_DAYS = 31;   // longer than a month → Block instead
 const AUTO_SUSPEND_DEFAULT_DAYS = 7;
 
 /**
@@ -835,7 +836,13 @@ export const applyCompanyEnforcement = async (companyId, actionType, coordinator
     } else if (actionType === "Suspend Account") {
       nextStatus = "suspended";
       statusReason = "Suspended following coordinator review.";
-      const days = Number(suspensionDays) > 0 ? Number(suspensionDays) : AUTO_SUSPEND_DEFAULT_DAYS;
+      // Held to 1–31 days here as well as in the Resolve window: a suspension
+      // is a temporary hold, and an absurd value (a pasted 10000000000) would
+      // otherwise become a permanent lockout nobody can undo.
+      const requested = Math.floor(Number(suspensionDays));
+      const days = Number.isFinite(requested) && requested > 0
+        ? Math.min(requested, MAX_SUSPENSION_DAYS)
+        : AUTO_SUSPEND_DEFAULT_DAYS;
       suspendedUntil = Timestamp.fromMillis(Date.now() + days * 24 * 60 * 60 * 1000);
     }
     // "Require Correction", "Warning Issued", and "Others" intentionally do
@@ -1030,6 +1037,31 @@ export const getCompanyActionHistory = async (companyId) => {
  * `recipientId` is the field to query on. Student notifications use
  * `studentId`, which stays as it is so nothing existing breaks.
  */
+/**
+ * Notification for whoever FILED a report — the student (or company) waiting to
+ * hear what came of it. Nothing used to be sent back to them: evidence went in
+ * and nothing came out, which reads as "nobody looked".
+ *
+ * Student notifications are read by `studentId` (StudentDashboardScreen) and
+ * company ones by `recipientId` (CompanyDashboardScreen), so both fields are
+ * written and each dashboard picks up the one it queries.
+ */
+export const notifyReporter = async (reporterId, reporterRole, { title, body, reportId = null }) => {
+  if (!reporterId || !body) return;
+  const isStudent = String(reporterRole || "").toLowerCase() === "student";
+  await addDoc(collection(db, "notifications"), {
+    recipientId:   reporterId,
+    ...(isStudent ? { studentId: reporterId } : {}),
+    recipientRole: isStudent ? "student" : "company",
+    title:         title || "Report update",
+    message:       body,
+    type:          "report_outcome",
+    reportId,
+    read:          false,
+    createdAt:     serverTimestamp(),
+  });
+};
+
 export const notifyCompanyAccount = async (companyId, { title, body, type = "account", reportId = null, coordinatorUid = null, action = null }) => {
   if (!companyId || !body) return;
   await addDoc(collection(db, "notifications"), {
