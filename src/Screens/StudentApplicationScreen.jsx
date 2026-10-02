@@ -3,6 +3,7 @@ import { collection, addDoc, serverTimestamp, onSnapshot, query, where, doc, get
 import { db } from "./firebase";
 import { isStudentEligibleForPost } from "./affiliationService";
 import { usePostsByIds, getPostClosure } from "./useEligibleOjtPosts";
+import { standingOf, STANDING_TONE } from "./accountStanding";
 import { uploadFilesToFolder } from "./CloudinaryService";
 import blackCompanyProfileIcon from "../icons/blackcompanyprofile.png";
 import { color, font, type, space, radius, shadow, ease } from "./theme";
@@ -3263,6 +3264,43 @@ const postAvailability = (data) => {
   return { ok: true };
 };
 
+// Live standing of every company this student applied to, so a suspension or a
+// block shows up on the application without a reload. One listener per company
+// rather than one per application row.
+const useCompanyStandings = (companyIds) => {
+  const [standings, setStandings] = useState({});
+  const key = [...new Set(companyIds.filter(Boolean))].sort().join(",");
+
+  useEffect(() => {
+    const ids = key ? key.split(",") : [];
+    if (ids.length === 0) { setStandings({}); return; }
+    const unsubs = ids.map(id => onSnapshot(
+      doc(db, "companies", id),
+      snap => setStandings(prev => ({ ...prev, [id]: standingOf(snap.exists() ? snap.data() : null, "company") })),
+      err => console.error("Failed to watch company standing:", err)
+    ));
+    return () => unsubs.forEach(u => u());
+  }, [key]);
+
+  return standings;
+};
+
+// A notice shown on the application when the other account can't act on it.
+const StandingNotice = ({ standing, style = {} }) => {
+  if (!standing || standing.isActive) return null;
+  const tone = STANDING_TONE[standing.state] || STANDING_TONE.suspended;
+  return (
+    <div role="status" style={{
+      background: tone.bg, border: `1px solid ${tone.border}`, borderRadius: "12px",
+      padding: "10px 14px", margin: "0 0 10px", ...style,
+    }}>
+      <p style={{ fontFamily: font.ui, fontSize: "0.76rem", color: tone.text, margin: 0, lineHeight: 1.6 }}>
+        {standing.message}
+      </p>
+    </div>
+  );
+};
+
 const companyAvailability = (data) => {
   if (!data) return { ok: false, message: "This company is no longer available. Try another company." };
 
@@ -3650,7 +3688,7 @@ export const ApplyModal = ({ company, onClose, onSuccessClose, onSubmit, user })
 };
 
 // ─── VIEW APPLICATION MODAL ───────────────────────────────────────────────────
-const ViewApplicationModal = ({ application, onClose, onSave, onEditingChange, postClosure = null, canConfirmPlacement = false, otherAccepted = [], onConfirmPlacement }) => {
+const ViewApplicationModal = ({ application, standing, onClose, onSave, onEditingChange, postClosure = null, canConfirmPlacement = false, otherAccepted = [], onConfirmPlacement }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [confirmingPlacement, setConfirmingPlacement] = useState(false);
   const [placementBusy, setPlacementBusy] = useState(false);
@@ -3705,7 +3743,13 @@ const ViewApplicationModal = ({ application, onClose, onSave, onEditingChange, p
   // it's locked from further edits.
   // Also locked once the company withdraws the program: the application must
   // keep the original college/program it was submitted under.
-  const canEdit = (application.status || "Pending") === "Pending" && !application.affiliationWithdrawn;
+  // A suspended or blocked company can't act on this application, so editing it
+  // (or confirming it as a placement) would be pointless — and for a blocked
+  // company, misleading.
+  const companyStanding = standing || { isActive: true, canProceed: true, state: "active", message: "" };
+  const canEdit = (application.status || "Pending") === "Pending"
+    && !application.affiliationWithdrawn
+    && companyStanding.isActive;
   // "Still in progress" (Pending, In Review, To Interview) keeps a white
   // footer, same as a still-pending report in CoordinatorReportCompanyScreen.
   // Once the outcome is final (Accepted / Declined), the footer switches to
@@ -3769,7 +3813,15 @@ const ViewApplicationModal = ({ application, onClose, onSave, onEditingChange, p
             {application.placementConfirmedAt?.seconds ? ` (confirmed ${new Date(application.placementConfirmedAt.seconds * 1000).toLocaleDateString()})` : ""}.
           </div>
         )}
-        {canConfirmPlacement && application.status === "Accepted" && !application.placementConfirmed && (
+        <StandingNotice standing={companyStanding} style={{ margin: "12px 18px 0" }} />
+
+        {!companyStanding.isActive && application.status === "Accepted" && !application.placementConfirmed && (
+          <p style={{ margin: "12px 18px 0", fontFamily: font.ui, fontSize: "0.78rem", color: "#7A5B10", lineHeight: 1.6 }}>
+            You can't confirm this as your OJT placement while this company is {companyStanding.state}.
+          </p>
+        )}
+
+        {companyStanding.isActive && canConfirmPlacement && application.status === "Accepted" && !application.placementConfirmed && (
           <div style={{ margin: "12px 18px 0", padding: "12px 14px", borderRadius: "10px", background: "#F4FAF6", border: "1px solid #BFE3CB", fontFamily: font.ui, fontSize: "0.82rem", lineHeight: 1.45, color: "#1f3d2a", textAlign: "center" }}>
             You were accepted by <strong>{application.company}</strong>. Is this where you want to have your OJT?
             <div style={{ marginTop: "10px" }}>
@@ -4218,7 +4270,8 @@ const DeleteConfirmPopup = ({ companyName, status, onCancel, onConfirm, deleting
 };
 
 // ─── APPLICATION ROW ──────────────────────────────────────────────────────────
-const ApplicationRow = ({ application, onView, onDelete, companyProfileIcon: themedCompanyIcon = blackCompanyProfileIcon, postClosure = null, canConfirmPlacement = false, otherAccepted = [], onConfirmPlacement }) => {
+const ApplicationRow = ({ application, standing, onView, onDelete, companyProfileIcon: themedCompanyIcon = blackCompanyProfileIcon, postClosure = null, canConfirmPlacement = false, otherAccepted = [], onConfirmPlacement }) => {
+  const companyStanding = standing || { isActive: true, canProceed: true, state: "active", message: "" };
   const [showMenu, setShowMenu] = useState(false);
   const [confirmingPlacement, setConfirmingPlacement] = useState(false);
   const [placementBusy, setPlacementBusy] = useState(false);
@@ -4305,7 +4358,7 @@ const ApplicationRow = ({ application, onView, onDelete, companyProfileIcon: the
                 style={{ width: "100%", border: "none", background: "transparent", padding: "9px 14px", textAlign: "left", cursor: "pointer", fontFamily: font.ui, ...type.helper, fontWeight: 500, color: ink }}
                 onMouseEnter={e => e.currentTarget.style.background = color.hoverWash}
                 onMouseLeave={e => e.currentTarget.style.background = "transparent"}>View</button>
-              {canConfirmPlacement && application.status === "Accepted" && !application.placementConfirmed && (
+              {companyStanding.isActive && canConfirmPlacement && application.status === "Accepted" && !application.placementConfirmed && (
                 <>
                 <div style={{ height: "1px", background: line, margin: "0 8px" }} />
                 <button onClick={() => { setConfirmingPlacement(true); setShowMenu(false); }}
@@ -4373,6 +4426,8 @@ const StudentApplicationScreen = ({ initialCompany, onModalClose, user, openAppl
   const [applications, setApplications]         = useState([]);
   // Live post status (expired / closed / removed) for every application.
   const postsById = usePostsByIds(applications.map(a => a.postId));
+  // Standing of each company applied to (suspended / blocked), watched live.
+  const companyStandings = useCompanyStandings(applications.map(a => a.companyId));
   const [statusFilter, setStatusFilter]         = useState("All");
   // Tells the Dashboard which part of Applications is showing, so its "?"
   // help button (and first-visit auto-tour) runs the matching steps:
@@ -4718,7 +4773,7 @@ const StudentApplicationScreen = ({ initialCompany, onModalClose, user, openAppl
         ) : filteredApplications.length > 0 ? (
           <div className="sa-list-area" id="sapp-list">
             {filteredApplications.map(application => (
-              <ApplicationRow key={application.id} application={application} onView={handleView} onDelete={handleDelete} companyProfileIcon={themedCompanyIcon} postClosure={getPostClosure(application.postId, postsById)} canConfirmPlacement={!hasConfirmedPlacement} otherAccepted={otherAcceptedNames(application.id)} onConfirmPlacement={handleConfirmPlacement} />
+              <ApplicationRow key={application.id} application={application} standing={companyStandings[application.companyId]} onView={handleView} onDelete={handleDelete} companyProfileIcon={themedCompanyIcon} postClosure={getPostClosure(application.postId, postsById)} canConfirmPlacement={!hasConfirmedPlacement} otherAccepted={otherAcceptedNames(application.id)} onConfirmPlacement={handleConfirmPlacement} />
             ))}
             <p style={{ textAlign: "center", fontFamily: font.ui, ...type.helper, color: inkFaint, padding: "16px 0 0" }}>
               No more recent applications!
@@ -4742,6 +4797,7 @@ const StudentApplicationScreen = ({ initialCompany, onModalClose, user, openAppl
         <ViewApplicationModal
           key={viewKey}
           application={viewingApplication}
+          standing={companyStandings[viewingApplication.companyId]}
           onClose={() => setViewingApplication(null)}
           onSave={handleSave}
           onEditingChange={setViewEditing}

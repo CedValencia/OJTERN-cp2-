@@ -96,15 +96,18 @@ const EXCEL_COLUMNS = [
 
 // Columns for the bulk-IMPORT template — separate from EXCEL_COLUMNS above,
 // which is only for the 3-column credentials export. Order must match the
-// row[0..6] indices read in ImportModal.parseFile below.
+// row[0..5] indices read in ImportModal.parseFile below.
 // Only what the school's class list already has. Everything else — email,
 // program (when the department offers more than one), and age — the
 // student fills in themselves on first login, in the Edit personal
 // information form that opens before the dashboard. The downloadable
 // template, the header check, and the "Columns, in this order" hint are all
 // derived from this list.
+// Section and Batch are NOT columns: the coordinator types them into the
+// Import modal and they're applied to every row in the file (import is done
+// one section at a time).
 const IMPORT_TEMPLATE_COLUMNS = [
-  "Student ID", "Last Name", "First Name", "Middle Name", "Section", "Department", "Sex", "Batch",
+  "Student ID", "Last Name", "First Name", "Middle Name", "Department", "Sex",
 ];
 
 // ── Batch + archive ──────────────────────────────────────────────────────────
@@ -565,12 +568,12 @@ const downloadTemplateXLSX = () => {
     IMPORT_TEMPLATE_COLUMNS,
     [
       "e.g. 201112345", "e.g. Dela Cruz", "e.g. Juan", "e.g. Santos (or blank)",
-      "e.g. 4-A", "e.g. CCS", "e.g. Male", "e.g. 2026-2027",
+      "e.g. CCS", "e.g. Male",
     ],
   ];
   const ws = XLSX.utils.aoa_to_sheet(rows);
   ws["!cols"] = [
-    { wch: 15 }, { wch: 22 }, { wch: 22 }, { wch: 24 }, { wch: 12 }, { wch: 38 }, { wch: 12 }, { wch: 14 },
+    { wch: 15 }, { wch: 22 }, { wch: 22 }, { wch: 24 }, { wch: 38 }, { wch: 12 },
   ];
   for (let r = 2; r < 200; r++) {
     for (let c = 0; c < IMPORT_TEMPLATE_COLUMNS.length; c++) {
@@ -1331,13 +1334,8 @@ const validateRow = (row, rowIndex, coordinatorColleges = [], departments = {}) 
   else if (!NAME_REGEX.test(row.firstName)) errs.push(`Row ${r}: First Name can only contain letters, spaces, and hyphens`);
   if (row.middleName && !NAME_REGEX.test(row.middleName)) errs.push(`Row ${r}: Middle Name can only contain letters, spaces, and hyphens`);
 
-  if (!row.yearSection) {
-    errs.push(`Row ${r}: Section is required`);
-  } else {
-    const section = normalizeSection(row.yearSection);
-    if (!section) errs.push(`Row ${r}: Section "${row.yearSection}" must be one of: ${YEAR_SECTIONS.join(", ")}`);
-    else row.yearSection = section; // normalize in place, e.g. "A" → "4-A"
-  }
+  // Section and Batch are supplied once for the whole file from the Import
+  // modal (already normalized there), so they're not checked per row.
 
   if (!row.sex) {
     errs.push(`Row ${r}: Sex is required`);
@@ -1345,14 +1343,6 @@ const validateRow = (row, rowIndex, coordinatorColleges = [], departments = {}) 
     const sex = normalizeSex(row.sex);
     if (!sex) errs.push(`Row ${r}: Sex "${row.sex}" must be Male or Female`);
     else row.sex = sex; // normalize in place, e.g. "m" → "Male"
-  }
-
-  if (!row.batch) {
-    errs.push(`Row ${r}: Batch is required (e.g. 2026-2027)`);
-  } else {
-    const batch = normalizeBatch(row.batch);
-    if (!batch) errs.push(`Row ${r}: Batch "${row.batch}" must be an academic year like 2026-2027`);
-    else row.batch = batch; // normalize in place, e.g. "2026" → "2026-2027"
   }
 
   if (!row.college) {
@@ -1379,8 +1369,18 @@ const ImportModal = ({ onClose, onImport, coordinatorColleges = [], departments 
   const [file, setFile] = useState(null);
   const [fileError, setFileError] = useState("");
   const [parsing, setParsing] = useState(false);
-  const [preview, setPreview] = useState(null);
+  // Raw file contents are kept so the preview can be re-checked live whenever
+  // the coordinator edits Section / Batch, without re-uploading the file.
+  const [parsed, setParsed] = useState(null); // { rows, headerErrors, readError } | null
+  const [section, setSection] = useState("");
+  const [batch, setBatch] = useState("");
   const fileRef = useRef();
+
+  const normalizedSection = normalizeSection(section);
+  const normalizedBatch   = normalizeBatch(batch);
+  const sectionError = section && !normalizedSection ? `Section must be one of: ${YEAR_SECTIONS.join(", ")}` : "";
+  const batchError   = batch && !normalizedBatch ? "Batch must be an academic year like 2026-2027" : "";
+  const sectionBatchReady = !!normalizedSection && !!normalizedBatch;
 
   const checkFileType = (f) => {
     const valid = f.name.endsWith(".xlsx") || f.name.endsWith(".xls");
@@ -1390,53 +1390,63 @@ const ImportModal = ({ onClose, onImport, coordinatorColleges = [], departments 
   };
 
   const parseFile = async (f) => {
-    setParsing(true); setPreview(null);
+    setParsing(true); setParsed(null);
     try {
       const ab = await f.arrayBuffer();
       const wb = XLSX.read(ab, { type: "array" });
       const ws = wb.Sheets[wb.SheetNames[0]];
       const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
-      if (rows.length < 2) { setPreview({ valid: [], rowErrors: ["The file has no data rows."], headerErrors: [] }); setParsing(false); return; }
+      if (rows.length < 2) { setParsed({ rows: [], headerErrors: [], readError: "The file has no data rows." }); setParsing(false); return; }
       const headerRow = rows[0].map(h => String(h).trim());
       const headerErrors = [];
       IMPORT_TEMPLATE_COLUMNS.forEach((expected, i) => { if (headerRow[i] !== expected) headerErrors.push(`Column ${i + 1}: expected "${expected}", found "${headerRow[i] || "(empty)"}"`); });
-      if (headerErrors.length > 0) { setPreview({ valid: [], rowErrors: [], headerErrors }); setParsing(false); return; }
-      const rowErrors = []; const valid = [];
-      rows.slice(2).forEach((row, i) => {
-        if (row.every(c => c === "" || c === null || c === undefined)) return;
-        // Extra safety net: skip any row that still looks like the
-        // template's own "e.g. ..." example row.
-        if (String(row[0] ?? "").trim().toLowerCase().startsWith("e.g.")) return;
-        const middleName = String(row[3]||"").trim();
-        const student = {
-          studentId:     String(row[0]||"").trim(),
-          lastName:      String(row[1]||"").trim(),
-          firstName:     String(row[2]||"").trim(),
-          middleName,
-          middleInitial: toMiddleInitial(middleName),
-          yearSection:   String(row[4]||"").trim(),
-          college:       String(row[5]||"").trim(),
-          sex:           String(row[6]||"").trim(),
-          batch:         String(row[7]||"").trim(),
-          // Not in the template — filled in by validateRow (single-program
-          // departments) or by the student on first login.
-          program: "", major: "", specialization: "",
-          age: "",
-          email: "", password: "",
-        };
-        const errs = validateRow(student, i, coordinatorColleges, departments);
-        if (errs.length > 0) rowErrors.push(...errs); else valid.push(student);
-      });
-      setPreview({ valid, rowErrors, headerErrors: [] });
-    } catch (e) { setPreview({ valid: [], rowErrors: ["The file couldn't be read."], headerErrors: [] }); }
+      if (headerErrors.length > 0) { setParsed({ rows: [], headerErrors, readError: "" }); setParsing(false); return; }
+      setParsed({ rows: rows.slice(2), headerErrors: [], readError: "" });
+    } catch (e) { setParsed({ rows: [], headerErrors: [], readError: "The file couldn't be read." }); }
     setParsing(false);
   };
 
+  // Validate the rows against the Section / Batch typed above. Every student
+  // in the file gets exactly that section and batch.
+  const preview = (() => {
+    if (!parsed) return null;
+    if (parsed.headerErrors.length > 0) return { valid: [], rowErrors: [], headerErrors: parsed.headerErrors };
+    if (parsed.readError) return { valid: [], rowErrors: [parsed.readError], headerErrors: [] };
+    const rowErrors = []; const valid = [];
+    parsed.rows.forEach((row, i) => {
+      if (row.every(c => c === "" || c === null || c === undefined)) return;
+      // Extra safety net: skip any row that still looks like the
+      // template's own "e.g. ..." example row.
+      if (String(row[0] ?? "").trim().toLowerCase().startsWith("e.g.")) return;
+      const middleName = String(row[3]||"").trim();
+      const student = {
+        studentId:     String(row[0]||"").trim(),
+        lastName:      String(row[1]||"").trim(),
+        firstName:     String(row[2]||"").trim(),
+        middleName,
+        middleInitial: toMiddleInitial(middleName),
+        // From the Section / Batch textboxes, not the spreadsheet.
+        yearSection:   normalizedSection,
+        batch:         normalizedBatch,
+        college:       String(row[4]||"").trim(),
+        sex:           String(row[5]||"").trim(),
+        // Not in the template — filled in by validateRow (single-program
+        // departments) or by the student on first login.
+        program: "", major: "", specialization: "",
+        age: "",
+        email: "", password: "",
+      };
+      const errs = validateRow(student, i, coordinatorColleges, departments);
+      if (errs.length > 0) rowErrors.push(...errs); else valid.push(student);
+    });
+    return { valid, rowErrors, headerErrors: [] };
+  })();
+
   const handleFile = (f) => { if (!f || !checkFileType(f)) return; setFile(f); parseFile(f); };
   const onDrop = useCallback((e) => { e.preventDefault(); setDragging(false); handleFile(e.dataTransfer.files[0]); }, []);
-  const clearFile = () => { setFile(null); setPreview(null); setFileError(""); };
-  const handleImport = () => { if (!preview || preview.valid.length === 0) return; onImport(preview.valid); onClose(); };
-  const canImport = preview && preview.valid.length > 0;
+  const clearFile = () => { setFile(null); setParsed(null); setFileError(""); };
+  const canImport = sectionBatchReady && preview && preview.valid.length > 0;
+  const handleImport = () => { if (!canImport) return; onImport(preview.valid); onClose(); };
 
   const noticeBox = (borderColor, children) => (
     <div style={{ background: color.wine800, border: `1px solid ${borderColor}`, borderRadius: radius.card, padding: "12px 16px", marginBottom: space.sm }}>
@@ -1453,6 +1463,24 @@ const ImportModal = ({ onClose, onImport, coordinatorColleges = [], departments 
         </div>
 
         <div className="sa-import-body">
+          <div id="sa-import-section-batch" style={{ background: color.wine800, border: `1px solid ${line}`, borderRadius: radius.card, padding: "12px 16px", marginBottom: space.md }}>
+            <p style={{ fontFamily: font.ui, ...type.helper, color: inkBody, lineHeight: 1.6 }}>
+              <strong style={{ color: ink }}>Note:</strong> Students are imported one section at a time. Every student in the file will be given the Section and Batch you enter below.
+            </p>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "0 12px" }}>
+              <div>
+                <FieldLabel>Section</FieldLabel>
+                <StyledInput value={section} onChange={(v) => setSection(v.toUpperCase().replace(/[^A-Z0-9-]/g, "").slice(0, 3))} placeholder="e.g. 4-A" hasError={!!sectionError} />
+                <FieldError msg={sectionError} />
+              </div>
+              <div>
+                <FieldLabel>Batch</FieldLabel>
+                <StyledInput value={batch} onChange={(v) => setBatch(v.replace(/[^\d-]/g, "").slice(0, 9))} placeholder="e.g. 2026-2027" hasError={!!batchError} />
+                <FieldError msg={batchError} />
+              </div>
+            </div>
+          </div>
+
           <div id="sa-import-dropzone" onDrop={onDrop} onDragOver={e => { e.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onClick={() => !file && fileRef.current.click()}
             style={{ border: `1px dashed ${dragging ? ink : color.wine400}`, borderRadius: radius.card, padding: file ? "16px 20px" : "32px 20px", textAlign: "center", background: dragging ? color.wine700 : color.wine800, cursor: file ? "default" : "pointer", transition: `all 180ms ${ease}` }}>
             <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{ display: "none" }} onChange={e => handleFile(e.target.files[0])} />
@@ -1502,9 +1530,11 @@ const ImportModal = ({ onClose, onImport, coordinatorColleges = [], departments 
                   {preview.rowErrors.map((e, i) => <p key={i} style={{ fontFamily: font.ui, ...type.helper, color: inkBody, lineHeight: 1.6 }}>{e}</p>)}
                 </div>
               )}
-              {preview.valid.length > 0 && preview.headerErrors.length === 0 && noticeBox(success, (
-                <p style={{ fontFamily: font.ui, ...type.label, color: success }}>{preview.valid.length} student{preview.valid.length !== 1 ? "s" : ""} ready to import</p>
-              ))}
+              {preview.valid.length > 0 && preview.headerErrors.length === 0 && (sectionBatchReady ? noticeBox(success, (
+                <p style={{ fontFamily: font.ui, ...type.label, color: success }}>{preview.valid.length} student{preview.valid.length !== 1 ? "s" : ""} ready to import into Section {normalizedSection}, Batch {normalizedBatch}</p>
+              )) : noticeBox(warning, (
+                <p style={{ fontFamily: font.ui, ...type.label, color: warning }}>Enter a valid Section and Batch above to continue.</p>
+              )))}
               {preview.valid.length === 0 && preview.headerErrors.length === 0 && preview.rowErrors.length > 0 && noticeBox(danger, (
                 <p style={{ fontFamily: font.ui, ...type.label, color: danger }}>No rows can be imported yet. Fix the issues above and upload again.</p>
               ))}

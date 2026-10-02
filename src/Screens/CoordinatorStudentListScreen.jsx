@@ -6,6 +6,7 @@ import { useDepartmentsPrograms } from "./departmentsPrograms";
 import blackUserIcon from "../icons/blackuser.png";
 import blackViewIcon from "../icons/blackview.png"; // default/fallback — the themed icon itself comes in via the viewIcon prop
 import { color, font, type, space, radius, shadow, ease } from "./theme";
+import { standingOf, STANDING_TONE } from "./accountStanding";
 
 // ── Design tokens, aliased for this screen ────────────────────────────────────
 // Same aliases as CoordinatorFindCompanyScreen so the two screens stay in sync.
@@ -62,8 +63,16 @@ const needsPlacementReview = (app) =>
 const confirmedOf = (apps) => (apps || []).find(a => a.status === "Accepted" && a.placementConfirmed === true) || null;
 const awaitingConfirmation = (app, apps = []) =>
   !!app && app.status === "Accepted" && app.placementConfirmed !== true && !confirmedOf(apps);
-const followUpReason = (app, apps = []) => {
+const followUpReason = (app, apps = [], standings = {}) => {
   if (!app) return null;
+  // A placement whose company has been suspended or blocked is at risk, so it
+  // belongs in Needs Follow-up — the student can't resolve that themselves.
+  const standing = standings[app.companyId];
+  if (standing && !standing.isActive && !CLOSED_STATUSES.includes(app.status)) {
+    return standing.state === "suspended"
+      ? `Company suspended${standing.endDate ? ` until ${standing.endDate}` : ""} — application on hold`
+      : "Company blocked — this application can no longer proceed";
+  }
   if (needsPlacementReview(app)) return "Confirmed placement — review the company and post";
   if (app.status === "Withdrawn" && app.statusBeforeWithdrawal === "Accepted") {
     return "Student withdrew from an accepted placement";
@@ -76,7 +85,7 @@ const followUpReason = (app, apps = []) => {
   if (awaitingConfirmation(app, apps)) return "Accepted — waiting for the student to confirm their placement";
   return null;
 };
-const needsFollowUp = (apps) => (apps || []).some(a => !!followUpReason(a, apps));
+const needsFollowUp = (apps, standings = {}) => (apps || []).some(a => !!followUpReason(a, apps, standings));
 
 // When a student has more than one application, this decides which one
 // "represents" them at a glance (list row badge) — most-advanced/most-
@@ -104,14 +113,14 @@ const getBestApplication = (apps) => {
 // Non-exclusive filter check — a student can match more than one filter
 // at once (e.g. Accepted somewhere AND still has a Pending application
 // elsewhere shows up under both "Accepted" and "In Progress").
-const matchesStatusFilter = (apps, filterValue) => {
+const matchesStatusFilter = (apps, filterValue, standings = {}) => {
   if (!filterValue) return true; // "All"
   if (filterValue === "No Applications yet") return !apps || apps.length === 0;
   if (!apps || apps.length === 0) return false;
   if (filterValue === "Accepted") return apps.some(a => a.status === "Accepted");
   if (filterValue === "In Progress") return apps.some(a => ["Pending", "In Review", "To Interview"].includes(a.status));
   if (filterValue === "All Declined") return apps.every(a => a.status === "Declined");
-  if (filterValue === "Needs Follow-up") return needsFollowUp(apps);
+  if (filterValue === "Needs Follow-up") return needsFollowUp(apps, standings);
   return true;
 };
 
@@ -135,6 +144,14 @@ const EXPORT_MODES = {
 
 const fmtTs = (ts) => (ts?.seconds ? new Date(ts.seconds * 1000).toLocaleDateString() : "");
 const companyNameOf = (app, companies) => companies.find(c => c.id === app.companyId)?.name || app.companyName || "Unknown company";
+
+// companyId -> standing, built from the companies already loaded on this
+// screen, so no extra Firestore listeners are needed.
+const standingsByCompany = (companies = []) => {
+  const map = {};
+  companies.forEach(c => { map[c.id] = standingOf(c, "company"); });
+  return map;
+};
 const placementNotes = (app, postsById) => {
   const notes = [];
   const closure = getPostClosure(app.postId, postsById);
@@ -218,6 +235,12 @@ const buildExportRows = (students, applicationsByStudent, companies, postsById =
       if (app.status === "Withdrawn" && app.withdrawalReason) notes.push(`reason: ${app.withdrawalReason}`);
       const closure = getPostClosure(app.postId, postsById);
       if (closure && app.status !== "Withdrawn") notes.push(closure.label.toLowerCase());
+      const exportStanding = company ? standingOf(company, "company") : null;
+      if (exportStanding && !exportStanding.isActive) {
+        notes.push(exportStanding.state === "suspended"
+          ? `company suspended${exportStanding.endDate ? ` until ${exportStanding.endDate}` : ""}`
+          : "company blocked");
+      }
       if (app.affiliationWithdrawn) notes.push("program affiliation withdrawn");
       else if (app.affiliationRestoredAt) notes.push("program affiliation withdrawn, then restored");
       return [
@@ -641,6 +664,8 @@ const PostRecordModal = ({ app, livePost, company, onClose }) => {
 };
 
 const PlacementModal = ({ student, onClose, onNavigateToCompany, companies, onMessageStudent, userIcon: themedUserIcon = blackUserIcon, postsById = {} }) => {
+  // companyId -> standing, from the companies this modal already receives.
+  const companyStandings = React.useMemo(() => standingsByCompany(companies), [companies]);
   const [applications, setApplications] = useState([]);
   const [viewingPostApp, setViewingPostApp] = useState(null);
   const [reviewingId, setReviewingId] = useState(null);
@@ -685,7 +710,7 @@ const PlacementModal = ({ student, onClose, onNavigateToCompany, companies, onMe
       const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       // Follow-up items first, then newest.
       list.sort((a, b) =>
-        (followUpReason(b, list) ? 1 : 0) - (followUpReason(a, list) ? 1 : 0) ||
+        (followUpReason(b, list, companyStandings) ? 1 : 0) - (followUpReason(a, list, companyStandings) ? 1 : 0) ||
         (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
       setApplications(list);
     }, err => console.error("Failed to load student applications:", err));
@@ -760,8 +785,14 @@ const PlacementModal = ({ student, onClose, onNavigateToCompany, companies, onMe
                 {applications.map(app => {
                   const appCompany = companies.find(c => c.id === app.companyId);
                   const sc = STATUS_COLORS[app.status] || { bg: color.wine400, color: ink };
-                  const reason = followUpReason(app, applications);
+                  const reason = followUpReason(app, applications, companyStandings);
                   const notices = [];
+                  // Company standing first: it explains why an application has
+                  // gone quiet, which the other notices don't.
+                  const appStanding = companyStandings[app.companyId];
+                  if (appStanding && !appStanding.isActive && !CLOSED_STATUSES.includes(app.status)) {
+                    notices.push(appStanding.message);
+                  }
                   const closure = getPostClosure(app.postId, postsById);
                   if (closure && app.status !== "Withdrawn") {
                     notices.push(`${closure.detail}${["Pending", "In Review", "To Interview"].includes(app.status) ? " Application still open with the company." : ""}`);
@@ -1081,6 +1112,8 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
   const exportRef = useRef(null);
   const [students, setStudents]     = useState([]);
   const [companies, setCompanies]   = useState([]);
+  // companyId -> standing (suspended / blocked), from the companies above.
+  const companyStandings = React.useMemo(() => standingsByCompany(companies), [companies]);
   const [loadingStudents, setLoadingStudents] = useState(true);
   const [applicationsByStudent, setApplicationsByStudent] = useState({});
   // Live post status (expired / closed / removed) behind every application.
@@ -1211,7 +1244,7 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
     const matchSpec    = !filters.specialization || s.major === filters.specialization;
 
     // Status filter — non-exclusive, see matchesStatusFilter above.
-    const matchStatus = matchesStatusFilter(applicationsByStudent[s.id], filters.status);
+    const matchStatus = matchesStatusFilter(applicationsByStudent[s.id], filters.status, companyStandings);
 
     const matchBatch = !filters.batch || batchKeyOf(s) === filters.batch;
 
@@ -1299,9 +1332,9 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
           </p>
         </div>
         <div className="sp-row-actions">
-        {needsFollowUp(applicationsByStudent[student.id]) && (
+        {needsFollowUp(applicationsByStudent[student.id], companyStandings) && (
           <span
-            title={(applicationsByStudent[student.id] || []).map((a, _i, all) => followUpReason(a, all)).filter(Boolean).join("\n")}
+            title={(applicationsByStudent[student.id] || []).map((a, _i, all) => followUpReason(a, all, companyStandings)).filter(Boolean).join("\n")}
             style={{ background: "#FFF3D6", color: "#8a5a00", border: "1px solid #F0D48A", borderRadius: radius.pill, padding: "3px 10px", fontFamily: font.ui, fontSize: "0.72rem", fontWeight: 600, flexShrink: 0, whiteSpace: "nowrap" }}
           >
             ⚑ Follow-up

@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from "react";
 import { onAuthStateChanged, signOut } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, onSnapshot } from "firebase/firestore";
 import { useNavigate, useLocation, Routes, Route, Navigate } from "react-router-dom";
 import { auth, db } from "./firebase";
 import { checkAndReactivateCompany } from "./AuthService";
@@ -712,12 +712,16 @@ const SplashScreen = () => {
           // regain access simply by refreshing the page, since this is what
           // restores `currentUser` (and therefore dashboard access) on refresh.
           const badStatuses = ["pending", "rejected", "transferred", "suspended", "blocked"];
-          if (userData && badStatuses.includes(userData.status)) {
+          // Archived students can't sign in (see signIn() in AuthService.js),
+          // so a saved session must not get them back in either — otherwise
+          // refreshing the page would skip the login check entirely.
+          const isArchivedStudent = userData?.role === "student" && userData.isArchived === true;
+          if (userData && (badStatuses.includes(userData.status) || isArchivedStudent)) {
             // Don't leave a live Firebase Auth session sitting around for an
             // account that isn't allowed to use the app right now.
             await signOut(auth).catch(() => {});
           }
-          if (userData && !badStatuses.includes(userData.status)) {
+          if (userData && !badStatuses.includes(userData.status) && !isArchivedStudent) {
             hasRestored.current = true;
             setCurrentUser(userData);
             const onDashboardRoute = ["/coordinator", "/student", "/company"].some(p => location.pathname.startsWith(p));
@@ -741,6 +745,29 @@ const SplashScreen = () => {
     });
     return unsub;
   }, []);
+
+  // ── Archived while logged in → sign out right away ──────────────────────
+  // signIn() and the restore above only check `isArchived` at the moment a
+  // session starts. This watches the student's own doc for as long as they're
+  // logged in, so if a coordinator archives them mid-session they're signed
+  // out immediately instead of at their next login.
+  useEffect(() => {
+    if (currentUser?.role !== "student") return;
+    const uid = auth.currentUser?.uid;
+    if (!uid) return;
+    const unsub = onSnapshot(
+      doc(db, "students", uid),
+      (snap) => {
+        if (!snap.exists() || snap.data().isArchived !== true) return;
+        hasRestored.current = false;
+        signOut(auth).catch(() => {});
+        setCurrentUser(null);
+        navigate("/signin", { replace: true });
+      },
+      (err) => console.warn("[archive-watch] hindi mabasa ang student doc:", err?.code || err)
+    );
+    return unsub;
+  }, [currentUser]);
 
   // Splash → hub. If the URL already points at a form (a refresh mid-sign-up,
   // or a forgot-password link), skip the hub and open straight into the form.

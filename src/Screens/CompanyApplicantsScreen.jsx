@@ -17,6 +17,7 @@ import pdfIcon            from "../icons/pdf.png";
 import imgIcon            from "../icons/img.png";
 import viewIcon           from "../icons/view.png";
 import reportIcon         from "../icons/report.png";
+import { standingOf, STANDING_TONE } from "./accountStanding";
 
 // ── Design tokens, aliased for this screen ────────────────────────────────────
 // Same aliases as CoordinatorStudentListScreen so the two screens stay in sync.
@@ -876,7 +877,10 @@ const StatusDescriptionPopup = ({ status, onClose, onSend }) => {
 };
 
 // ── Personal Details Modal ─────────────────────────────────────────────────────
-const PersonalDetailsModal = ({ applicant, onClose, onStatusChange, onMessage, user, onSubViewChange }) => {
+const PersonalDetailsModal = ({ applicant, standing, onClose, onStatusChange, onMessage, user, onSubViewChange }) => {
+  // A blocked or archived student can't act on the application, so it's shown
+  // as view-only rather than left looking like it can still move along.
+  const studentStanding = standing || { isActive: true, canProceed: true, state: "active", message: "" };
   const locationChips = [applicant.region, applicant.province, applicant.city, applicant.barangay].filter(Boolean);
   const collegeChips  = [applicant.college, applicant.program, applicant.major].filter(Boolean);
   const [pendingStatus, setPendingStatus] = useState(null);
@@ -964,6 +968,8 @@ const PersonalDetailsModal = ({ applicant, onClose, onStatusChange, onMessage, u
             </div>
           </div>
 
+          <StandingNotice standing={studentStanding} style={{ margin: "0 18px 10px" }} />
+
           {/* Footer — stays put, never scrolls with the body */}
           <div className="ca-modal-footer">
             <div id="cappd-status" style={{ display: "flex", alignItems: "center", gap: "10px", width: "fit-content", maxWidth: "100%" }}>
@@ -973,7 +979,7 @@ const PersonalDetailsModal = ({ applicant, onClose, onStatusChange, onMessage, u
                 onChange={(next) => { if (next !== applicant.status) setPendingStatus(next); }}
                 open={dropdownOpen}
                 setOpen={setDropdownOpen}
-                locked={LOCKED_STATUSES.includes(applicant.status)}
+                locked={LOCKED_STATUSES.includes(applicant.status) || !studentStanding.canProceed}
                 disabledOptions={getDisabledStatusOptions(applicant.status)}
                 dropUp
               />
@@ -1214,6 +1220,43 @@ const FilterPanel = ({
 };
 
 // ── Main Screen ────────────────────────────────────────────────────────────────
+// Live standing of each applicant's student account. A blocked student is a
+// disciplinary matter; an archived one has simply stopped being a current
+// student (a graduated batch, say) — different wording, same effect on the
+// application: it can't go anywhere, so it's kept view-only.
+const useStudentStandings = (studentIds) => {
+  const [standings, setStandings] = useState({});
+  const key = [...new Set(studentIds.filter(Boolean))].sort().join(",");
+
+  useEffect(() => {
+    const ids = key ? key.split(",") : [];
+    if (ids.length === 0) { setStandings({}); return; }
+    const unsubs = ids.map(id => onSnapshot(
+      doc(db, "students", id),
+      snap => setStandings(prev => ({ ...prev, [id]: standingOf(snap.exists() ? snap.data() : null, "student") })),
+      err => console.error("Failed to watch student standing:", err)
+    ));
+    return () => unsubs.forEach(u => u());
+  }, [key]);
+
+  return standings;
+};
+
+const StandingNotice = ({ standing, style = {} }) => {
+  if (!standing || standing.isActive) return null;
+  const tone = STANDING_TONE[standing.state] || STANDING_TONE.suspended;
+  return (
+    <div role="status" style={{
+      background: tone.bg, border: `1px solid ${tone.border}`, borderRadius: "12px",
+      padding: "10px 14px", margin: "0 0 10px", ...style,
+    }}>
+      <p style={{ fontFamily: font.ui, fontSize: "0.76rem", color: tone.text, margin: 0, lineHeight: 1.6 }}>
+        {standing.message}
+      </p>
+    </div>
+  );
+};
+
 const CompanyApplicantsScreen = ({ embedded = false, onNavigateToMessages, user, openApplicantId, onApplicantOpened, initialStatusFilter, onStatusFilterApplied , onViewChange }) => {
   const [applicants, setApplicants] = useState([]);
 
@@ -1326,6 +1369,11 @@ const CompanyApplicantsScreen = ({ embedded = false, onNavigateToMessages, user,
     "Declined":      "has been declined",
   };
 
+  // Standing of every applicant's student account, watched live.
+  const studentStandings = useStudentStandings(applicants.map(a => a.studentId));
+  const standingFor = (applicant) =>
+    studentStandings[applicant?.studentId] || { isActive: true, canProceed: true, state: "active", message: "" };
+
   const handleStatusChange = async (id, newStatus, description = "") => {
     const current = applicants.find(a => a.id === id);
     // No actual change — nothing to persist, and importantly nothing that
@@ -1334,6 +1382,12 @@ const CompanyApplicantsScreen = ({ embedded = false, onNavigateToMessages, user,
     // catching it here avoids an unnecessary Firestore write in the first
     // place).
     if (current?.status === newStatus) {
+      return;
+    }
+    // A blocked or archived student can't log in, so the application can't go
+    // anywhere: it stays on record as view-only rather than being moved along.
+    const standing = standingFor(current);
+    if (!standing.canProceed) {
       return;
     }
     // Accepted/Declined/Withdrawn are final — no further changes.
@@ -1577,6 +1631,7 @@ const CompanyApplicantsScreen = ({ embedded = false, onNavigateToMessages, user,
       {viewingApplicant && (
         <PersonalDetailsModal
           applicant={viewingApplicant}
+          standing={standingFor(viewingApplicant)}
           onClose={() => setViewingApplicant(null)}
           onStatusChange={handleStatusChange}
           onMessage={handleMessage}
