@@ -1061,7 +1061,9 @@ const StudentFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onNavig
   useEffect(() => {
     if (initialCompanyId && companies.length > 0) {
       const company = companies.find(c => c.id === initialCompanyId);
-      if (company) { setSelectedCompany(company); setView("profile"); onVisitCompany?.({ id: company.id, name: company.companyName || company.name }); }
+      // An expired post can't be opened, deep link or not (the card is already
+      // "Closed" in the list).
+      if (company && !isPostExpired(company)) { setSelectedCompany(company); setView("profile"); onVisitCompany?.({ id: company.id, name: company.companyName || company.name }); }
       onClearInitialCompany?.();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1290,7 +1292,7 @@ const StudentFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onNavig
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "72px 24px", gap: space.sm, textAlign: "center", background: surface, border: `1px dashed ${color.wine400}`, borderRadius: radius.panel }}>
             <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke={inkFaint} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
             <p style={{ fontFamily: font.ui, fontSize: "1.0625rem", fontWeight: 600, color: ink }}>
-              {!myCollege ? "Your college isn't set yet" : "No posts match this search"}
+              {!myCollege ? "Your college isn't set yet" : "No posts available"}
             </p>
             <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, maxWidth: "44ch" }}>
               {!myCollege

@@ -140,10 +140,11 @@ const ResponsiveStyles = () => (
     /* Post button */
     .post-btn {
       padding: 10px 24px;
-      font-size: 1.3rem;
+      font-size: 1rem;
+      font-weight: 600;
     }
     @media (max-width: 480px) {
-      .post-btn { padding: 8px 16px; font-size: 1rem; }
+      .post-btn { padding: 8px 16px; font-size: 0.9rem; }
     }
 
     /* Modal overlay scroll on small screens */
@@ -181,8 +182,8 @@ const GlobalFonts = () => {
     const style = document.createElement("style");
     style.id = "ojt-font-override";
     style.textContent = `
-      .ojt-field { font-family: 'Kufam', sans-serif !important; }
-      .ojt-field::placeholder { font-family: 'Kufam', sans-serif !important; color: #aaa; }
+      .ojt-field { font-family: ${font.ui} !important; }
+      .ojt-field::placeholder { font-family: ${font.ui} !important; color: #aaa; }
       .ojt-textarea::-webkit-scrollbar { width: 6px; }
       .ojt-textarea::-webkit-scrollbar-track { background: transparent; border-radius: 10px; }
       .ojt-textarea::-webkit-scrollbar-thumb { background: ${inkDeep}; border-radius: 10px; }
@@ -211,7 +212,7 @@ const pillInputStyle = {
   borderRadius: "20px",
   color: "#1a1a1a",
   fontSize: "0.82rem",
-  fontFamily: "'Kufam', sans-serif",
+  fontFamily: font.ui,
   outline: "none",
   boxSizing: "border-box",
   boxShadow: "inset 0 1px 3px rgba(0,0,0,0.08)",
@@ -260,18 +261,18 @@ const pillSelectReadonly = {
 // ── Field Label ───────────────────────────────────────────────────────────────
 const FieldLabel = ({ children }) => (
   <p style={{
-    fontFamily: "'Jersey 25', sans-serif",
-    fontSize: "clamp(1.05rem, 3vw, 1.3rem)",
+    fontFamily: font.ui, fontWeight: 600,
+    fontSize: "clamp(0.95rem, 2.6vw, 1.05rem)",
     color: "black",
     marginBottom: "5px",
-    letterSpacing: "0.03em",
+    letterSpacing: "-0.005em",
     marginTop: "10px",
   }}>{children}</p>
 );
 
 // ── Inline sub-label ──────────────────────────────────────────────────────────
 const inlineLabelStyle = {
-  fontFamily: "'Jua', sans-serif",
+  fontFamily: font.ui,
   fontSize: "clamp(0.85rem, 2.5vw, 1rem)",
   color: inkDeep,
   whiteSpace: "nowrap",
@@ -279,7 +280,7 @@ const inlineLabelStyle = {
 
 // ── Field Error ───────────────────────────────────────────────────────────────
 const FieldError = ({ msg }) => msg
-  ? <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.72rem", color: "#c00", marginTop: "3px", paddingLeft: "6px" }}>{msg}</p>
+  ? <p style={{ fontFamily: font.ui, fontSize: "0.72rem", color: "#c00", marginTop: "3px", paddingLeft: "6px" }}>{msg}</p>
   : null;
 
 // ── Pill Select with arrow ────────────────────────────────────────────────────
@@ -567,7 +568,7 @@ const ApprovedDepartmentPicker = ({ approvedDeptSelections, selections, onChange
 
   if (approvedDeptSelections.length === 0) {
     return (
-      <div style={{ background: "#fff3f3", border: `1.5px solid ${red}`, borderRadius: "14px", padding: "12px 14px", fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", color: darkRed }}>
+      <div style={{ background: "#fff3f3", border: `1.5px solid ${red}`, borderRadius: "14px", padding: "12px 14px", fontFamily: font.ui, fontSize: "0.82rem", color: darkRed }}>
         You don't have any approved department yet. A coordinator needs to approve at least one of your registered departments before you can post here — check your registration status.
       </div>
     );
@@ -594,14 +595,14 @@ const ApprovedDepartmentPicker = ({ approvedDeptSelections, selections, onChange
                 onChange={() => toggle(s.department, s.program)}
                 style={{ width: "17px", height: "17px", accentColor: inkDeep, cursor: readOnly ? "default" : "pointer", flexShrink: 0 }}
               />
-              <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#222", overflow: "hidden", textOverflow: "ellipsis" }}>
+              <span style={{ fontFamily: font.ui, fontSize: "0.85rem", color: "#222", overflow: "hidden", textOverflow: "ellipsis" }}>
                 <span style={{ fontWeight: 700 }}>{s.department}</span>
                 {s.program && <span style={{ color: "#666" }}> — {s.program}</span>}
               </span>
             </label>
             {checked && (
               <div style={{ display: "flex", alignItems: "center", gap: "6px", flexShrink: 0 }}>
-                <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.72rem", color: "#888", whiteSpace: "nowrap" }}>Slots:</span>
+                <span style={{ fontFamily: font.ui, fontSize: "0.72rem", color: "#888", whiteSpace: "nowrap" }}>Slots:</span>
                 <input
                   type="number"
                   min={1}
@@ -611,7 +612,7 @@ const ApprovedDepartmentPicker = ({ approvedDeptSelections, selections, onChange
                   style={{
                     width: "56px", textAlign: "center", padding: "5px 4px",
                     borderRadius: "10px", border: "none",
-                    fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem",
+                    fontFamily: font.ui, fontSize: "0.82rem",
                     boxShadow: "inset 0 1px 3px rgba(0,0,0,0.08)",
                     background: readOnly ? "#e0e0e0" : "white",
                     color: readOnly ? "#555" : "#1a1a1a",
@@ -721,7 +722,7 @@ const WorkingHoursInput = ({ value, onChange, readOnly, hasError }) => {
 
   const timeStyle = { ...(readOnly ? pillInputReadonly : pillInputStyle), colorScheme: "light" };
 
-  const toLabelStyle = { fontFamily: "'Kufam', sans-serif", fontSize: "0.78rem", color: "#888", flexShrink: 0, width: "20px", textAlign: "center" };
+  const toLabelStyle = { fontFamily: font.ui, fontSize: "0.78rem", color: "#888", flexShrink: 0, width: "20px", textAlign: "center" };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
@@ -908,7 +909,7 @@ const MapboxLocationPicker = ({ value, lat, lng, onChange, readOnly }) => {
             <div style={{ position: "absolute", top: "100%", left: 0, right: 0, background: "white", border: "1px solid #ddd", borderRadius: "10px", zIndex: 999, boxShadow: "0 4px 16px rgba(0,0,0,0.12)", overflow: "hidden" }}>
               {suggestions.map((s, i) => (
                 <div key={i} onClick={() => handleSelect(s)}
-                  style={{ padding: "9px 14px", cursor: "pointer", fontSize: "0.82rem", fontFamily: "'Kufam', sans-serif", color: "#222", borderBottom: i < suggestions.length - 1 ? "1px solid #f0f0f0" : "none" }}
+                  style={{ padding: "9px 14px", cursor: "pointer", fontSize: "0.82rem", fontFamily: font.ui, color: "#222", borderBottom: i < suggestions.length - 1 ? "1px solid #f0f0f0" : "none" }}
                   onMouseEnter={e => e.currentTarget.style.background = "#f8f0f0"}
                   onMouseLeave={e => e.currentTarget.style.background = "white"}
                 >
@@ -933,15 +934,15 @@ const MapboxLocationPicker = ({ value, lat, lng, onChange, readOnly }) => {
 const ConfirmDiscardModal = ({ onKeepEditing, onDiscard }) => (
   <div className="post-confirm-overlay">
     <div style={{ background: "#fff", borderRadius: "18px", maxWidth: "360px", width: "90%", padding: "26px 22px", boxShadow: "0 8px 40px rgba(0,0,0,0.35)", textAlign: "center" }}>
-      <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.4rem", color: inkDeep, margin: "0 0 10px" }}>Discard changes?</p>
-      <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem", color: "#333", margin: "0 0 22px", lineHeight: 1.4 }}>
+      <p style={{ fontFamily: font.ui, fontWeight: 600, fontSize: "1.15rem", color: inkDeep, margin: "0 0 10px" }}>Discard changes?</p>
+      <p style={{ fontFamily: font.ui, fontSize: "0.9rem", color: "#333", margin: "0 0 22px", lineHeight: 1.4 }}>
         All your changes will be lost. Are you sure you want to cancel this change?
       </p>
       <div style={{ display: "flex", justifyContent: "center", gap: "10px" }}>
-        <button onClick={onKeepEditing} style={{ padding: "9px 22px", borderRadius: "22px", background: "#e6e6e6", color: "#333", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.85rem", cursor: "pointer" }}>
+        <button onClick={onKeepEditing} style={{ padding: "9px 22px", borderRadius: "22px", background: "#e6e6e6", color: "#333", border: "none", fontFamily: font.ui, fontWeight: 700, fontSize: "0.85rem", cursor: "pointer" }}>
           Keep Editing
         </button>
-        <button onClick={onDiscard} style={{ padding: "9px 22px", borderRadius: "22px", background: inkDeep, color: "white", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.85rem", cursor: "pointer" }}>
+        <button onClick={onDiscard} style={{ padding: "9px 22px", borderRadius: "22px", background: inkDeep, color: "white", border: "none", fontFamily: font.ui, fontWeight: 700, fontSize: "0.85rem", cursor: "pointer" }}>
           Discard
         </button>
       </div>
@@ -956,11 +957,11 @@ const SavedSuccessModal = ({ onClose }) => (
       <div style={{ width: "56px", height: "56px", borderRadius: "50%", background: "#e6f7ec", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 14px", fontSize: "1.8rem", color: "#1f9254" }}>
         ✓
       </div>
-      <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.4rem", color: inkDeep, margin: "0 0 6px" }}>Saved successfully!</p>
-      <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#555", margin: "0 0 20px" }}>
+      <p style={{ fontFamily: font.ui, fontWeight: 600, fontSize: "1.15rem", color: inkDeep, margin: "0 0 6px" }}>Saved successfully!</p>
+      <p style={{ fontFamily: font.ui, fontSize: "0.85rem", color: "#555", margin: "0 0 20px" }}>
         Your post has been updated.
       </p>
-      <button onClick={onClose} style={{ padding: "9px 30px", borderRadius: "22px", background: inkDeep, color: "white", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.85rem", cursor: "pointer" }}>
+      <button onClick={onClose} style={{ padding: "9px 30px", borderRadius: "22px", background: inkDeep, color: "white", border: "none", fontFamily: font.ui, fontWeight: 700, fontSize: "0.85rem", cursor: "pointer" }}>
         OK
       </button>
     </div>
@@ -971,17 +972,17 @@ const SavedSuccessModal = ({ onClose }) => (
 const ConfirmActionModal = ({ title, message, confirmLabel, danger = false, onCancel, onConfirm, hideCancel = false }) => (
   <div className="post-confirm-overlay">
     <div style={{ background: "#fff", borderRadius: "18px", maxWidth: "360px", width: "90%", padding: "26px 22px", boxShadow: "0 8px 40px rgba(0,0,0,0.35)", textAlign: "center" }}>
-      <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.4rem", color: inkDeep, margin: "0 0 10px" }}>{title}</p>
-      <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem", color: "#333", margin: "0 0 22px", lineHeight: 1.4 }}>
+      <p style={{ fontFamily: font.ui, fontWeight: 600, fontSize: "1.15rem", color: inkDeep, margin: "0 0 10px" }}>{title}</p>
+      <p style={{ fontFamily: font.ui, fontSize: "0.9rem", color: "#333", margin: "0 0 22px", lineHeight: 1.4 }}>
         {message}
       </p>
       <div style={{ display: "flex", justifyContent: "center", gap: "10px" }}>
         {!hideCancel && (
-        <button onClick={onCancel} style={{ padding: "9px 22px", borderRadius: "22px", background: "#e6e6e6", color: "#333", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.85rem", cursor: "pointer" }}>
+        <button onClick={onCancel} style={{ padding: "9px 22px", borderRadius: "22px", background: "#e6e6e6", color: "#333", border: "none", fontFamily: font.ui, fontWeight: 700, fontSize: "0.85rem", cursor: "pointer" }}>
           Cancel
         </button>
         )}
-        <button onClick={onConfirm} style={{ padding: "9px 22px", borderRadius: "22px", background: danger ? red : inkDeep, color: "white", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.85rem", cursor: "pointer" }}>
+        <button onClick={onConfirm} style={{ padding: "9px 22px", borderRadius: "22px", background: danger ? red : inkDeep, color: "white", border: "none", fontFamily: font.ui, fontWeight: 700, fontSize: "0.85rem", cursor: "pointer" }}>
           {confirmLabel}
         </button>
       </div>
@@ -1124,7 +1125,7 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile, onMo
 
         {/* Header */}
         <div className="post-modal-header" style={{ background: "#d8d8d8", flexShrink: 0 }}>
-          <h2 id="cpostf-header" style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(1.2rem, 4vw, 1.8rem)", fontWeight: "400", margin: 0, color: inkDeep, width: "fit-content", maxWidth: "100%" }}>
+          <h2 id="cpostf-header" style={{ fontFamily: font.ui, fontWeight: 600, fontSize: "clamp(1.1rem, 3.4vw, 1.45rem)", letterSpacing: "-0.01em", margin: 0, color: inkDeep, width: "fit-content", maxWidth: "100%" }}>
             {post?.companyName || post?.company || user?.companyName || "New Post"}
           </h2>
         </div>
@@ -1164,7 +1165,7 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile, onMo
                   <div style={{ ...pillInputReadonly, marginBottom: "8px", display: "flex", alignItems: "center", boxSizing: "border-box", gap: "8px" }}>
                     <span>📍 {fixedAddress}</span>
                     {profileLoc.isManual && (
-                      <span style={{ background: inkDeep, color: "white", fontFamily: "'Kufam', sans-serif", fontSize: "0.65rem", padding: "2px 8px", borderRadius: "10px", whiteSpace: "nowrap" }}>
+                      <span style={{ background: inkDeep, color: "white", fontFamily: font.ui, fontSize: "0.65rem", padding: "2px 8px", borderRadius: "10px", whiteSpace: "nowrap" }}>
                         
                       </span>
                     )}
@@ -1179,11 +1180,11 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile, onMo
                   />
                 </>
               ) : (
-                <div style={{ background: "#f0e0e0", border: `1px dashed ${darkRed}`, borderRadius: "14px", padding: "14px 16px", fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", color: darkRed }}>
+                <div style={{ background: "#f0e0e0", border: `1px dashed ${darkRed}`, borderRadius: "14px", padding: "14px 16px", fontFamily: font.ui, fontSize: "0.82rem", color: darkRed }}>
                   No location set yet. Please set your company location first.
                 </div>
               )}
-              <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.7rem", color: "#888", margin: "4px 0 0" }}>
+              <p style={{ fontFamily: font.ui, fontSize: "0.7rem", color: "#888", margin: "4px 0 0" }}>
                 This follows your company's location.
               </p>
             </div>
@@ -1217,7 +1218,7 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile, onMo
                           const u = [...form.workingHoursList]; u.splice(idx, 1); set("workingHoursList", u);
                           const we = [...workingHoursErrors]; we.splice(idx, 1); setWorkingHoursErrors(we);
                         }}
-                        style={{ width: "28px", height: "28px", borderRadius: "50%", background: inkDeep, border: "none", color: "white", fontFamily: "'Jua', sans-serif", fontSize: "0.85rem", cursor: "pointer", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
+                        style={{ width: "28px", height: "28px", borderRadius: "50%", background: inkDeep, border: "none", color: "white", fontFamily: font.ui, fontSize: "0.85rem", cursor: "pointer", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
                     )}
                   </div>
                   {workingHoursErrors[idx] && <FieldError msg={workingHoursErrors[idx]} />}
@@ -1225,7 +1226,7 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile, onMo
               ))}
               {!readOnly && (
                 <button type="button" onClick={() => set("workingHoursList", [...form.workingHoursList, ""])}
-                  style={{ background: "none", border: `1.5px dashed ${inkDeep}`, borderRadius: "20px", color: inkDeep, width: "100%", padding: "7px", fontFamily: "'Kufam', sans-serif", fontSize: "0.82rem", cursor: "pointer", fontWeight: 600 }}>
+                  style={{ background: "none", border: `1.5px dashed ${inkDeep}`, borderRadius: "20px", color: inkDeep, width: "100%", padding: "7px", fontFamily: font.ui, fontSize: "0.82rem", cursor: "pointer", fontWeight: 600 }}>
                   + Add Another Working Hours
                 </button>
               )}
@@ -1255,12 +1256,12 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile, onMo
               />
             </div>
             {form.expirationDate && isPostExpired({ expirationDate: form.expirationDate }) && (
-              <span style={{ background: red, color: "white", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.68rem", padding: "3px 10px", borderRadius: "10px", whiteSpace: "nowrap" }}>
+              <span style={{ background: red, color: "white", fontFamily: font.ui, fontWeight: 700, fontSize: "0.68rem", padding: "3px 10px", borderRadius: "10px", whiteSpace: "nowrap" }}>
                 Expired
               </span>
             )}
           </div>
-          <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.7rem", color: "#888", margin: "4px 0 0" }}>
+          <p style={{ fontFamily: font.ui, fontSize: "0.7rem", color: "#888", margin: "4px 0 0" }}>
             Optional. Leave blank if this post should stay open indefinitely. Once this date has passed, students can no longer apply.
           </p>
           <FieldError msg={errors.expirationDate} />
@@ -1320,7 +1321,7 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile, onMo
               background: "#FAF1DD", border: "1px solid #E4CE9B", borderRadius: "14px",
               padding: "12px 14px", marginBottom: "10px",
             }}>
-              <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.78rem", color: "#7A5B10", margin: 0, lineHeight: 1.6 }}>
+              <p style={{ fontFamily: font.ui, fontSize: "0.78rem", color: "#7A5B10", margin: 0, lineHeight: 1.6 }}>
                 {droppedCourseLabels.join(", ")} {droppedCourseLabels.length === 1 ? "is" : "are"} no longer in your accepted courses,
                 so {droppedCourseLabels.length === 1 ? "it has" : "they have"} been removed from this post. Students who already applied keep their applications.
                 To offer {droppedCourseLabels.length === 1 ? "it" : "them"} again, add {droppedCourseLabels.length === 1 ? "it" : "them"} back in Account Profile and wait for coordinator approval.
@@ -1351,12 +1352,12 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile, onMo
         {/* Footer */}
         <div className="post-modal-footer" style={{ background: "#b0b0b0", display: "flex", justifyContent: "flex-end", gap: "10px", borderBottomLeftRadius: "20px", borderBottomRightRadius: "20px", flexShrink: 0 }}>
           <div id="cpostf-footer" style={{ display: "flex", gap: "10px", flexWrap: "wrap", justifyContent: "flex-end" }}>
-          <button onClick={handleCloseClick} style={{ padding: "10px 28px", borderRadius: "24px", background: "#555", color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(0.9rem, 2.5vw, 1.1rem)", cursor: "pointer" }}>Close</button>
+          <button onClick={handleCloseClick} style={{ padding: "10px 28px", borderRadius: "24px", background: "#555", color: "white", border: "none", fontFamily: font.ui, fontWeight: 600, fontSize: "clamp(0.85rem, 2.3vw, 0.95rem)", cursor: "pointer" }}>Close</button>
           {mode === "view" && !isEditing && (
-            <button onClick={() => setIsEditing(true)} style={{ padding: "10px 28px", borderRadius: "24px", background: inkDeep, color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(0.9rem, 2.5vw, 1.1rem)", cursor: "pointer" }}>Edit</button>
+            <button onClick={() => setIsEditing(true)} style={{ padding: "10px 28px", borderRadius: "24px", background: inkDeep, color: "white", border: "none", fontFamily: font.ui, fontWeight: 600, fontSize: "clamp(0.85rem, 2.3vw, 0.95rem)", cursor: "pointer" }}>Edit</button>
           )}
           {isEditing && mode !== "create" && (
-            <button onClick={handleSave} style={{ padding: "10px 28px", borderRadius: "24px", background: inkDeep, color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(0.9rem, 2.5vw, 1.1rem)", cursor: "pointer" }}>Save</button>
+            <button onClick={handleSave} style={{ padding: "10px 28px", borderRadius: "24px", background: inkDeep, color: "white", border: "none", fontFamily: font.ui, fontWeight: 600, fontSize: "clamp(0.85rem, 2.3vw, 0.95rem)", cursor: "pointer" }}>Save</button>
           )}
           {mode === "create" && (
             <button
@@ -1365,8 +1366,8 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile, onMo
               style={{
                 padding: "10px 28px", borderRadius: "24px",
                 background: approvedDeptSelections.length === 0 ? "#999" : inkDeep,
-                color: "white", border: "none", fontFamily: "'Jersey 25', sans-serif",
-                fontSize: "clamp(0.9rem, 2.5vw, 1.1rem)",
+                color: "white", border: "none", fontFamily: font.ui, fontWeight: 600,
+                fontSize: "clamp(0.85rem, 2.3vw, 0.95rem)",
                 cursor: approvedDeptSelections.length === 0 ? "not-allowed" : "pointer",
               }}
             >
@@ -1395,7 +1396,7 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile, onMo
 const menuItemStyle = {
   display: "block", width: "100%", padding: "10px 16px",
   background: "none", border: "none", textAlign: "left",
-  fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem",
+  fontFamily: font.ui, fontSize: "0.9rem",
   cursor: "pointer", color: "#1a1a1a",
 };
 
@@ -1494,8 +1495,8 @@ const PostOJTContent = ({ user, openPostId, onPostOpened, onViewChange }) => {
     if (!openPostId) return;
     const target = posts.find(p => p.id === openPostId);
     if (target) {
-      // A disabled post can't be viewed — clear the target without opening it.
-      if (!target.disabled) openView(target);
+      // A disabled or expired post can't be viewed — clear the target without opening it.
+      if (!target.disabled && !isPostExpired(target)) openView(target);
       onPostOpened?.();
     }
   }, [openPostId, posts, onPostOpened]);
@@ -1707,6 +1708,21 @@ const PostOJTContent = ({ user, openPostId, onPostOpened, onViewChange }) => {
     await deleteDoc(doc(db, "ojt_posts", id));
   };
 
+  // Brings an archived post back into the active list. It comes back DISABLED,
+  // not live: archiving told students and coordinators the post had closed, and
+  // the company's approved courses may have changed since, so going live again
+  // is a separate, deliberate Enable (which re-checks the approved courses).
+  // The applications were never touched by archiving, so there's nothing to restore there.
+  const restorePost = async (id) => {
+    await updateDoc(doc(db, "ojt_posts", id), {
+      archived:   false,
+      archivedAt: null,
+      disabled:   true,
+      updatedAt:  serverTimestamp(),
+    });
+  };
+  const requestRestore = (post) => setConfirmAction({ type: "restore", post });
+
   // Opens the confirm modal for a Delete/Disable/Enable request instead of
   // acting immediately — the actual write only happens once the user confirms.
   const requestToggleDisable = (post) => {
@@ -1729,6 +1745,7 @@ const PostOJTContent = ({ user, openPostId, onPostOpened, onViewChange }) => {
         return;
       }
       if (type === "delete" || type === "archive") await deletePost(post.id);
+      else if (type === "restore") await restorePost(post.id);
       else await toggleDisable(post.id);
     } catch (err) {
       console.error(`Failed to ${type} post:`, err);
@@ -1740,14 +1757,14 @@ const PostOJTContent = ({ user, openPostId, onPostOpened, onViewChange }) => {
       <div style={{ background: "#e0e0e0", borderRadius: "16px", padding: "18px 20px", minHeight: "80vh" }}>
 
         <div className="post-header-row">
-          <h2 style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(1.4rem, 4vw, 2rem)", fontWeight: "400", margin: 0, color: "#1a1a1a" }}>
+          <h2 style={{ fontFamily: font.ui, fontWeight: 600, fontSize: "clamp(1.25rem, 3.6vw, 1.6rem)", letterSpacing: "-0.01em", margin: 0, color: "#1a1a1a" }}>
             Recent Post
           </h2>
           <button
             id="cpost-create-btn"
             className="post-btn"
             onClick={openCreate}
-            style={{ background: inkDeep, color: "white", border: "none", borderRadius: "24px", fontFamily: "'Jersey 25', sans-serif", cursor: "pointer", display: "flex", alignItems: "center", gap: "6px" }}
+            style={{ background: inkDeep, color: "white", border: "none", borderRadius: "24px", fontFamily: font.ui, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: "6px" }}
           >
             Post <span>+</span>
           </button>
@@ -1782,25 +1799,25 @@ const PostOJTContent = ({ user, openPostId, onPostOpened, onViewChange }) => {
                   <div style={{ minWidth: 0 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
                       <p style={{
-                        fontFamily: "'Jersey 25', sans-serif",
-                        fontSize: "clamp(0.9rem, 2.5vw, 1.1rem)",
+                        fontFamily: font.ui, fontWeight: 600,
+                        fontSize: "clamp(0.95rem, 2.5vw, 1.0625rem)",
                         margin: "0 0 4px", color: post.disabled ? "#666" : "#1a1a1a",
-                        fontWeight: "400", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                       }}>
                         {post.companyName || post.company || "Unnamed Company"}
                       </p>
                       {!post.disabled && expired && (
-                        <span style={{ background: red, color: "white", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.62rem", padding: "2px 8px", borderRadius: "10px", whiteSpace: "nowrap", marginBottom: "4px" }}>
+                        <span style={{ background: red, color: "white", fontFamily: font.ui, fontWeight: 700, fontSize: "0.62rem", padding: "2px 8px", borderRadius: "10px", whiteSpace: "nowrap", marginBottom: "4px" }}>
                           Expired
                         </span>
                       )}
                       {post.disabled && noApprovedTargets && (
-                        <span style={{ background: "#6b6b6b", color: "white", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.62rem", padding: "2px 8px", borderRadius: "10px", whiteSpace: "nowrap", marginBottom: "4px" }}>
+                        <span style={{ background: "#6b6b6b", color: "white", fontFamily: font.ui, fontWeight: 700, fontSize: "0.62rem", padding: "2px 8px", borderRadius: "10px", whiteSpace: "nowrap", marginBottom: "4px" }}>
                           No approved course
                         </span>
                       )}
                     </div>
-                    <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.78rem", margin: 0, color: "#888" }}>
+                    <p style={{ fontFamily: font.ui, fontSize: "0.78rem", margin: 0, color: "#888" }}>
                       {post.industry || post.subtitle || (post.courseSelections?.[0] ? post.courseSelections[0].college : "OJT Post")}
                     </p>
                   </div>
@@ -1822,31 +1839,45 @@ const PostOJTContent = ({ user, openPostId, onPostOpened, onViewChange }) => {
           </div>
         ) : (
           <div id="cpost-list" style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "80px" }}>
-            <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "1rem", color: "#aaa" }}>No posts yet.</p>
+            <p style={{ fontFamily: font.ui, fontSize: "1rem", color: "#aaa" }}>No posts yet.</p>
           </div>
         )}
 
-        {/* Archived = removed by the company after students had applied. Read-only
-            here; its applicants are still managed from the Applicants screen. */}
+        {/* Archived = removed by the company after students had applied. Can be restored
+            (comes back disabled); its applicants are still managed from the Applicants screen. */}
         {archivedPosts.length > 0 && (
           <div style={{ marginTop: "18px" }}>
             <button
               onClick={() => setShowArchived(v => !v)}
-              style={{ background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.85rem", color: "#555" }}
+              style={{ background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: font.ui, fontWeight: 700, fontSize: "0.85rem", color: "#555" }}
             >
               {showArchived ? "▾" : "▸"} Archived posts ({archivedPosts.length})
             </button>
             {showArchived && (
               <div className="post-grid" style={{ marginTop: "10px" }}>
                 {archivedPosts.map(post => (
-                  <div key={post.id} style={{ background: "#cfcfcf", borderRadius: "14px", padding: "14px 16px", opacity: 0.8, minWidth: 0 }}>
-                    <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "clamp(0.9rem, 2.5vw, 1.1rem)", margin: "0 0 4px", color: "#555", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  <div key={post.id} style={{ background: "#cfcfcf", borderRadius: "14px", padding: "14px 16px", minWidth: 0, display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px" }}>
+                    <div style={{ opacity: 0.8, minWidth: 0, flex: 1 }}>
+                    <p style={{ fontFamily: font.ui, fontWeight: 600, fontSize: "clamp(0.95rem, 2.5vw, 1.0625rem)", margin: "0 0 4px", color: "#555", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                       {post.companyName || post.company || "Unnamed Company"}
                     </p>
-                    <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.75rem", margin: 0, color: "#666" }}>
+                    <p style={{ fontFamily: font.ui, fontSize: "0.75rem", margin: 0, color: "#666" }}>
                       {(post.courseSelections || []).map(s => [s.college, s.program].filter(Boolean).join(" — ")).join(", ") || post.industry || "OJT Post"}
                       {" · "}{appCountByPost[post.id] || 0} application{(appCountByPost[post.id] || 0) === 1 ? "" : "s"} kept
                     </p>
+                    </div>
+                    {isPostExpired(post) ? (
+                      // An expired post can't be opened, so its date could never be extended --
+                      // restoring it would only bring back something that is closed anyway.
+                      <span style={{ fontFamily: font.ui, fontSize: "0.72rem", color: "#777", flexShrink: 0, textAlign: "right" }}>Expired</span>
+                    ) : (
+                      <button
+                        onClick={() => requestRestore(post)}
+                        style={{ flexShrink: 0, padding: "7px 16px", borderRadius: "20px", background: inkDeep, color: "white", border: "none", fontFamily: font.ui, fontWeight: 600, fontSize: "0.8rem", cursor: "pointer" }}
+                      >
+                        Restore
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>
@@ -1874,6 +1905,7 @@ const PostOJTContent = ({ user, openPostId, onPostOpened, onViewChange }) => {
             confirmAction.type === "archive" ? "Archive this post?" :
             confirmAction.type === "disable" ? "Disable this post?" :
             confirmAction.type === "blocked" ? "Can't enable this post yet" :
+            confirmAction.type === "restore" ? "Restore this post?" :
                                                 "Enable this post?"
           }
           message={
@@ -1881,6 +1913,8 @@ const PostOJTContent = ({ user, openPostId, onPostOpened, onViewChange }) => {
               ? "This post will be permanently removed and can't be recovered. Are you sure you want to delete it?"
               : confirmAction.type === "archive"
               ? `${appCountByPost[confirmAction.post.id] || 0} student${(appCountByPost[confirmAction.post.id] || 0) === 1 ? " has" : "s have"} applied to this post, so it will be archived instead of deleted. It disappears from Find Company and stops accepting applications, but the existing applications and their history are kept. This can't be undone.`
+              : confirmAction.type === "restore"
+              ? "This post goes back to your list as disabled, so students still can't see it. Enable it when you're ready for it to go live again. Its applications were never removed."
               : confirmAction.type === "disable"
               ? "Students won't be able to see or apply to this post while it's disabled. You can enable it again anytime."
               : confirmAction.type === "blocked"
@@ -1894,6 +1928,7 @@ const PostOJTContent = ({ user, openPostId, onPostOpened, onViewChange }) => {
             confirmAction.type === "archive" ? "Archive" :
             confirmAction.type === "disable" ? "Disable" :
             confirmAction.type === "blocked" ? (hasAnyApprovedProgram ? "Edit post" : "OK") :
+            confirmAction.type === "restore" ? "Restore" :
                                                 "Enable"
           }
           hideCancel={confirmAction.type === "blocked" && !hasAnyApprovedProgram}

@@ -873,9 +873,11 @@ const FilterPanel = ({ selectedIndustries, setSelectedIndustries, citySearch, se
 const CompanyCard = ({ company, onViewProfile }) => {
   // Was `disabled === false || active !== false`, which is true for almost any
   // post (a disabled post without an `active` field still passed). Both
-  // conditions must hold. Expired posts stay viewable for coordinators — they
-  // don't apply, and still need to see what their students applied to.
-  const isActive = company.disabled !== true && company.active !== false;
+  // conditions must hold. An expired post is closed for everyone, coordinators
+  // included: the card still shows in the list (with its "Expired" date) but
+  // can't be opened.
+  const postExpired = isPostExpired(company);
+  const isActive = company.disabled !== true && company.active !== false && !postExpired;
   const displayName = company.companyName || company.name || "Unnamed company";
   const displayIndustry = industriesOf(company).join(", ") || "—";
   const displayLocation = typeof company.location === "object"
@@ -890,7 +892,7 @@ const CompanyCard = ({ company, onViewProfile }) => {
 
   // Expiration is worth seeing before opening a post — an expired one can't be
   // applied to. Posts with no expirationDate simply don't show the line.
-  const expired = isPostExpired(company);
+  const expired = postExpired;
   const expiryDate = formatDateStr(company.expirationDate);
 
   const meta = { fontFamily: font.ui, ...type.helper, color: inkMuted };
@@ -931,7 +933,7 @@ const CompanyCard = ({ company, onViewProfile }) => {
           onClick={() => isActive && onViewProfile(company)}
           style={{ fontFamily: font.ui, ...type.helper, fontWeight: 500, color: isActive ? ink : inkFaint, cursor: isActive ? "pointer" : "default", flexShrink: 0 }}
         >
-          View post
+          {postExpired ? "Closed" : "View post"}
         </span>
       </div>
     </div>
@@ -983,7 +985,8 @@ const CoordinatorFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onM
       // wrong post when a company has more than one.
       const company = companies.find(c => c.id === initialCompanyId)
         || companies.find(c => c.companyId === initialCompanyId);
-      if (company) { setSelectedCompany(company); setView("profile"); setDeepLinked(true); onVisitCompany?.({ id: company.id, name: company.companyName || company.name }); }
+      // An expired post can't be opened, deep link or not.
+      if (company && !isPostExpired(company)) { setSelectedCompany(company); setView("profile"); setDeepLinked(true); onVisitCompany?.({ id: company.id, name: company.companyName || company.name }); }
       if (onClearInitialCompany) onClearInitialCompany();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1190,7 +1193,7 @@ const CoordinatorFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onM
         ) : (
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "72px 24px", gap: space.sm, textAlign: "center", background: surface, border: `1px dashed ${color.wine400}`, borderRadius: radius.panel }}>
             <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke={inkFaint} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-            <p style={{ fontFamily: font.ui, fontSize: "1.0625rem", fontWeight: 600, color: ink }}>No posts match this search</p>
+            <p style={{ fontFamily: font.ui, fontSize: "1.0625rem", fontWeight: 600, color: ink }}>No posts available</p>
             <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, maxWidth: "44ch" }}>
               {hasFilter ? "Clear a filter or search a different city to widen the results." : "New posts appear here as companies publish them for your programs."}
             </p>

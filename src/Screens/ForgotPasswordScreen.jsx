@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { resetPassword } from "./AuthService";
+import { resetPassword, requestStudentPasswordReset } from "./AuthService";
 import { color, ease, font } from "./theme";
 
 // ── Hover-swap style for the continue button, mirrored from SignInScreen ────
@@ -56,8 +56,21 @@ const ForgotPasswordScreen = ({ onProceed }) => {
     }
     setSending(true);
     try {
-      await resetPassword(email.trim());
-      onProceed?.(email.trim());
+      const value = email.trim();
+      // Two different lookups, so run both: resetPassword() covers
+      // coordinator/company login emails, requestStudentPasswordReset() covers
+      // a student's personal email. Only one can match a given address, so
+      // nobody gets a duplicate email. Both stay quiet about whether the
+      // address is registered.
+      const results = await Promise.allSettled([
+        resetPassword(value),
+        requestStudentPasswordReset(value),
+      ]);
+      // Only fail when BOTH failed (rate limit, backend unreachable, ...).
+      if (results.every(r => r.status === "rejected")) {
+        throw results[0].reason;
+      }
+      onProceed?.(value);
     } catch (err) {
       setError(err.message || "Failed to send reset email. Please try again.");
     } finally {

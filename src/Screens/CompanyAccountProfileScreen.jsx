@@ -257,15 +257,15 @@ const ResponsiveStyles = () => (
     /* ── Mapbox address preview (Location) ── */
     .cap-map-container {
       width: 100%;
-      height: 170px;
+      height: 320px;
       border-radius: ${radius.card};
       overflow: hidden;
       border: 1px solid ${line};
       position: relative;
       cursor: pointer;
     }
-    @media (max-width: 360px) {
-      .cap-map-container { height: 138px; }
+    @media (max-width: 480px) {
+      .cap-map-container { height: 280px; }
     }
 
     /* Visible keyboard focus on every control in this screen */
@@ -3415,7 +3415,7 @@ const LocationMapPreview = ({ address, initialLat, initialLng, initialIsManual, 
 
   if (mapError) {
     return (
-      <div style={{ width: "100%", height: "170px", background: lineSoft, border: `1px solid ${line}`, borderRadius: radius.card, marginTop: space.sm, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div style={{ width: "100%", maxWidth: "400px", height: "320px", background: lineSoft, border: `1px solid ${line}`, borderRadius: radius.card, marginTop: space.sm, marginLeft: "auto", marginRight: "auto", display: "flex", alignItems: "center", justifyContent: "center" }}>
         <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, textAlign: "center", padding: `0 ${space.md}`, margin: 0 }}>
           Map unavailable. Your address will still be saved.
         </p>
@@ -3425,7 +3425,7 @@ const LocationMapPreview = ({ address, initialLat, initialLng, initialIsManual, 
 
   return (
     <div style={{ marginTop: space.sm }}>
-      <div style={{ position: "relative" }}>
+      <div style={{ position: "relative", width: "100%", maxWidth: "400px", margin: "0 auto" }}>
         <div ref={mapContainerRef} className="cap-map-container" />
         {geocoding && <span style={pillStyle}>Locating…</span>}
         {!geocoding && pinIsManual && <span style={pillStyle}>Pin set manually</span>}
@@ -3466,7 +3466,7 @@ const LocationMapPreview = ({ address, initialLat, initialLng, initialIsManual, 
           />
         )}
       </div>
-      <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, margin: "6px 0 0 2px" }}>
+      <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, margin: "6px 0 0", textAlign: "center" }}>
         Relocated? Click anywhere on the map to drop the pin on your new exact location.
       </p>
     </div>

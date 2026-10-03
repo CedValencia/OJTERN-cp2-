@@ -559,8 +559,11 @@ export const resetPassword = async (email) => {
   }
 
   if (!found) {
-    // Don't leak whether email exists or not — generic message
-    throw new Error("If that email is registered, you'll receive a reset link shortly.");
+    // Don't leak whether the email exists or not. Return quietly instead of
+    // throwing: the caller shows the same generic "check your email" result
+    // either way, and student personal emails (which never match the
+    // Firestore `email` field above) are handled by requestStudentPasswordReset.
+    return;
   }
 
   try {
@@ -582,6 +585,39 @@ export const resetPassword = async (email) => {
       throw new Error("This email is on file as a pending change. Please confirm the verification link sent to it first, then try again.");
     }
     throw new Error("Failed to send reset email. Please try again later.");
+  }
+};
+
+/**
+ * Student password reset by PERSONAL email.
+ *
+ * Students sign in with a Student ID and (for bulk-created accounts) a
+ * system-generated login address nobody can receive mail at, so
+ * resetPassword() above can never find them. This calls the
+ * requestStudentPasswordReset Cloud Function (functions/index.js), which looks
+ * the student up through the studentPersonalEmails/{email} index and mails the
+ * reset link to that personal email.
+ *
+ * The function always answers { sent: true }, whether or not the address
+ * belongs to a student, so this can't be used to discover who is registered.
+ *
+ * @param {string} email — the student's personal email
+ * @returns {Promise<{ sent: boolean }>}
+ */
+export const requestStudentPasswordReset = async (email) => {
+  const call = httpsCallable(functions, "requestStudentPasswordReset");
+  try {
+    const { data } = await call({ email: email.trim().toLowerCase() });
+    return data;
+  } catch (err) {
+    // Bare "internal" / not-found = the request never reached the function
+    // (not deployed, wrong region, blocked network). Say so instead of "internal".
+    const code = (err.code || "").replace(/^functions\//, "");
+    const raw  = (err.message || "").trim().toLowerCase();
+    if (!raw || raw === code || raw === "internal" || code === "not-found") {
+      throw new Error(`Couldn't reach the reset service (${code || "unknown error"}). Please try again — if this keeps happening, contact support.`);
+    }
+    throw new Error(err.message);
   }
 };
 
