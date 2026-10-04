@@ -3,11 +3,6 @@
   "name": "OJTERN",
   "icons": [
     {
-      "src": "favicon.ico",
-      "sizes": "16x16 32x32 48x48 64x64 128x128 256x256",
-      "type": "image/x-icon"
-    },
-    {
       "src": "ojtern_192.png",
       "type": "image/png",
       "sizes": "192x192",
@@ -28,6 +23,6 @@
   ],
   "start_url": ".",
   "display": "standalone",
-  "theme_color": "#000000",
+  "theme_color": "#1e293b",
   "background_color": "#ffffff"
 }
