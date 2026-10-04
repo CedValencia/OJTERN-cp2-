@@ -22,6 +22,8 @@ const inkFaint   = color.inkFaint;
 const surface    = color.wine600;      // rows, modals
 const page       = color.wine900;      // page background
 const line       = color.wine700;      // hairlines & borders
+// stronger border for buttons & pills (the plain `line` is too faint on them)
+const lineStrong = "#7A7A7A";
 const lineSoft   = color.wine800;
 const panel      = color.blush100;     // dark header bar, primary buttons
 const panelDeep  = color.blush50;
@@ -460,7 +462,7 @@ const primaryBtn = {
 };
 const ghostBtn = {
   padding: "9px 20px", borderRadius: radius.pill, background: surface, color: inkBody,
-  border: `1px solid ${line}`, fontFamily: font.ui, ...type.control, cursor: "pointer",
+  border: `1.5px solid ${lineStrong}`, fontFamily: font.ui, ...type.control, cursor: "pointer",
 };
 
 const validators = {
@@ -2334,7 +2336,7 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
               <button onClick={enterSelectMode} style={ghostBtn}>Select</button>
             ) : (
               <>
-                <div onClick={toggleAll} style={{ display: "flex", alignItems: "center", gap: space.sm, cursor: "pointer", padding: "9px 16px", background: surface, border: `1px solid ${line}`, borderRadius: radius.pill }}>
+                <div onClick={toggleAll} style={{ display: "flex", alignItems: "center", gap: space.sm, cursor: "pointer", padding: "9px 16px", background: surface, border: `1.5px solid ${lineStrong}`, borderRadius: radius.pill }}>
                   <Checkbox checked={allSelected} />
                   <span style={{ fontFamily: font.ui, ...type.control, color: inkBody }}>Select all</span>
                 </div>
@@ -2357,7 +2359,7 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
                 <button
                   onClick={handleDeleteSelected}
                   disabled={selected.size === 0}
-                  style={{ ...ghostBtn, color: panel, borderColor: selected.size === 0 ? line : panel, opacity: selected.size === 0 ? 0.5 : 1, cursor: selected.size === 0 ? "default" : "pointer" }}
+                  style={{ ...ghostBtn, color: panel, borderColor: selected.size === 0 ? lineStrong : panel, opacity: selected.size === 0 ? 0.5 : 1, cursor: selected.size === 0 ? "default" : "pointer" }}
                 >
                   {allSelected && selected.size > 0 ? "Delete all" : `Delete${selected.size > 0 ? ` (${selected.size})` : ""}`}
                 </button>
@@ -2387,7 +2389,7 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
                 aria-selected={on}
                 onClick={() => { setViewTab(t.key); setFilters(prev => ({ ...prev, batch: "" })); exitSelectMode(); }}
                 style={{
-                  border: `1px solid ${on ? panel : line}`, background: on ? panel : surface,
+                  border: `1.5px solid ${on ? panel : lineStrong}`, background: on ? panel : surface,
                   color: on ? color.white : inkBody, borderRadius: radius.pill,
                   padding: "7px 16px", cursor: "pointer", fontFamily: font.ui, ...type.control,
                   display: "inline-flex", alignItems: "center", gap: "8px", maxWidth: "100%",

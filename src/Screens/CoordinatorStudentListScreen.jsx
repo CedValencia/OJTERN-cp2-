@@ -17,6 +17,8 @@ const inkFaint   = color.inkFaint;
 const surface    = color.wine600;      // rows, cards
 const page       = color.wine900;      // page background
 const line       = color.wine700;      // hairlines & borders
+// stronger border for buttons & pills (the plain `line` is too faint on them)
+const lineStrong = "#7A7A7A";
 const lineSoft   = color.wine800;
 const panel      = color.blush100;     // dark header bar
 const panelDeep  = color.blush50;
@@ -1489,7 +1491,7 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
                 style={{
                   background: isActive ? statusColor : surface,
                   color: isActive ? activeText : inkBody,
-                  border: isActive ? "none" : `1px solid ${line}`,
+                  border: isActive ? "none" : `1.5px solid ${lineStrong}`,
                   borderRadius: radius.pill,
                   padding: "7px 16px",
                   fontFamily: font.ui,
@@ -1501,7 +1503,7 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
                   flexShrink: 0,
                 }}
                 onMouseEnter={e => { if (!isActive) e.currentTarget.style.borderColor = color.hoverBorder; }}
-                onMouseLeave={e => { if (!isActive) e.currentTarget.style.borderColor = line; }}
+                onMouseLeave={e => { if (!isActive) e.currentTarget.style.borderColor = lineStrong; }}
               >
                 {statusOption}
               </button>

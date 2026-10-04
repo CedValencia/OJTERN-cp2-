@@ -328,7 +328,7 @@ const SignInScreen = ({ role: roleProp, onRoleChange, onGoSignUp, onSignInCoordi
         lineHeight: 1.5,
         margin: "8px 0 26px",
       }}>
-        Welcome back. Signing in as <span style={{ color: color.onWine, fontWeight: 600 }}>{roleLabel}</span>.
+        Signing in as <span style={{ color: color.onWine, fontWeight: 600 }}>{roleLabel}</span>.
       </p>
 
       {verifyStatus && (

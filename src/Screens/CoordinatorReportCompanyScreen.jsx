@@ -27,6 +27,8 @@ const inkFaint   = "#999999";
 const surface    = "#FFFFFF";
 const page       = "#FFFFFF";
 const line       = "#E5E5E5";
+// stronger border for buttons & pills (the plain `line` is too faint on them)
+const lineStrong = "#7A7A7A";
 const lineSoft   = "#F4F4F4";
 // These now resolve through theme.js's CSS custom properties (--ojt-ink,
 // --ojt-ink-deep, --ojt-badge, ...) instead of fixed hex, so this screen
@@ -610,7 +612,10 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid, coordinator
   // together counts as ONE disciplinary action: five students reporting the
   // same post shouldn't push a company to the 3-action auto-suspension.
   const [siblingReports, setSiblingReports]       = useState([]);
-  const [applyToAll, setApplyToAll]               = useState(true);
+  // Opt-in: the coordinator has to tick the box to push one decision onto the
+  // company's other open reports. Defaulting to true silently moved every other
+  // report (even different concerns) to the same status as the one being resolved.
+  const [applyToAll, setApplyToAll]               = useState(false);
   const [confirmingCorrected, setConfirmingCorrected] = useState(false);
   const [confirmingResolve, setConfirmingResolve] = useState(false);
   const [selectedAction, setSelectedAction] = useState(null);
@@ -1745,7 +1750,7 @@ const CoordinatorReportCompanyScreen = ({ reports = [], otherReports = [], onVie
                 aria-selected={on}
                 onClick={() => setTab(t.key)}
                 style={{
-                  border: `1px solid ${on ? panel : line}`, background: on ? panel : color.white,
+                  border: `1.5px solid ${on ? panel : lineStrong}`, background: on ? panel : color.white,
                   color: on ? color.white : inkBody, borderRadius: "999px",
                   padding: "7px 16px", cursor: "pointer", fontFamily: font.ui,
                   fontSize: "0.8rem", fontWeight: 600,
@@ -1778,7 +1783,7 @@ const CoordinatorReportCompanyScreen = ({ reports = [], otherReports = [], onVie
               key={f.key}
               onClick={() => setStatusFilter(f.key)}
               style={{
-                border: `1px solid ${on ? panel : line}`, background: on ? panel : color.white,
+                border: `1.5px solid ${on ? panel : lineStrong}`, background: on ? panel : color.white,
                 color: on ? color.white : inkBody, borderRadius: "999px", padding: "6px 14px",
                 cursor: "pointer", fontFamily: font.ui, fontSize: "0.78rem", fontWeight: 600,
                 display: "inline-flex", alignItems: "center", gap: "7px",

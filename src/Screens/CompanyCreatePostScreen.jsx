@@ -1025,6 +1025,10 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile, onMo
     .filter(s => !isApproved(s.college, s.program))
     .map(s => [s.college, s.program].filter(Boolean).join(" — "));
 
+  // The email the company registered with at Sign-Up. A NEW post starts with it
+  // already filled in (still editable if they want a different contact).
+  const signupEmail = companyProfile?.email || user?.email || "";
+
   const [form, setForm] = useState({
     benefits:         post?.benefits         || "",
     courseSelections: post?.courseSelections
@@ -1035,7 +1039,7 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile, onMo
     requirements:     post?.requirements     || "",
     workingHoursList: post?.workingHoursList || [post?.workingHours || ""],
     phone:            post?.phone || "+63 ",
-    contactEmail:     post?.contactEmail || "",
+    contactEmail:     post?.contactEmail || signupEmail,
     postLocation:     post?.postLocation || { address: fixedAddress, lat: profileLoc.lat ?? null, lng: profileLoc.lng ?? null },
     expirationDate:   post?.expirationDate || "",
   });
@@ -1049,6 +1053,15 @@ const PostFormModal = ({ post, mode, onClose, onSave, user, companyProfile, onMo
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fixedAddress, profileLoc.lat, profileLoc.lng]);
+
+  // The profile can finish loading after the modal opens — fill the email in
+  // then, but only on a new post and only while the field is still empty.
+  useEffect(() => {
+    if (mode === "create" && signupEmail && !form.contactEmail) {
+      setForm(f => (f.contactEmail ? f : { ...f, contactEmail: signupEmail }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [signupEmail]);
 
   const [errors, setErrors]                         = useState({});
   const [courseErrors, setCourseErrors]             = useState("");
