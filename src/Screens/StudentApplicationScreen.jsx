@@ -2903,7 +2903,7 @@ const FieldError = ({ msg }) => msg
   : null;
 
 // ─── 4-LEVEL LOCATION PICKER ──────────────────────────────────────────────────
-const LocationPicker = ({ region, province, city, barangay, street, onChange, disabled, regionError }) => {
+const LocationPicker = ({ region, province, city, barangay, street, onChange, disabled, regionError, provinceError, cityError, barangayError }) => {
   const regionData = REGIONS.find(r => r.name === region);
   const provinceData = regionData?.provinces?.find(p => p.name === province);
   const cityData = provinceData?.cities?.find(c => c.name === city);
@@ -2919,9 +2919,24 @@ const LocationPicker = ({ region, province, city, barangay, street, onChange, di
         <StyledSelect value={region} onChange={handleRegion} options={REGIONS.map(r => r.name)} placeholder="Select Region" disabled={disabled} hasError={!!regionError} />
         <FieldError msg={regionError} />
       </div>
-      {region   && <StyledSelect value={province} onChange={handleProvince} options={regionData?.provinces?.map(p => p.name) ?? []} placeholder="Select Province" disabled={disabled} />}
-      {province && <StyledSelect value={city}     onChange={handleCity}     options={provinceData?.cities?.map(c => c.name)    ?? []} placeholder="Select City / Municipality" disabled={disabled} />}
-      {city     && <StyledSelect value={barangay} onChange={handleBarangay} options={cityData?.barangays ?? []} placeholder="Select Barangay" disabled={disabled} />}
+      {region && (
+        <div>
+          <StyledSelect value={province} onChange={handleProvince} options={regionData?.provinces?.map(p => p.name) ?? []} placeholder="Select Province" disabled={disabled} hasError={!!provinceError} />
+          <FieldError msg={provinceError} />
+        </div>
+      )}
+      {province && (
+        <div>
+          <StyledSelect value={city} onChange={handleCity} options={provinceData?.cities?.map(c => c.name) ?? []} placeholder="Select City / Municipality" disabled={disabled} hasError={!!cityError} />
+          <FieldError msg={cityError} />
+        </div>
+      )}
+      {city && (
+        <div>
+          <StyledSelect value={barangay} onChange={handleBarangay} options={cityData?.barangays ?? []} placeholder="Select Barangay" disabled={disabled} hasError={!!barangayError} />
+          <FieldError msg={barangayError} />
+        </div>
+      )}
     </div>
   );
 };
@@ -3018,6 +3033,9 @@ const useApplicationForm = (initial) => {
   const [barangay, setBarangay]     = useState(initial.barangay || "");
   const [street, setStreet]         = useState(initial.street || "");
   const [regionTouched, setRegionTouched] = useState(false);
+  // Set when the student tries to submit. The lower levels only show an error
+  // after that, so picking a region doesn't immediately turn "Province" red.
+  const [locationAttempted, setLocationAttempted] = useState(false);
 
   const [college, setCollege]       = useState(initial.college || "");
   const [program, setProgram]       = useState(initial.program || "");
@@ -3052,7 +3070,35 @@ const useApplicationForm = (initial) => {
   const programData    = collegeData?.programs.find(p => p.name === program);
   const majorOptions   = programData?.major?.map(m => m.name) ?? [];
 
-  const regionError  = regionTouched  && !region  ? "Select a region" : "";
+  // The location has to be complete — region, province, city/municipality and
+  // barangay — so a company can see where the applicant actually is. A level is
+  // only required when there is something to choose at it: a few regions list no
+  // provinces and a few cities no barangays, and demanding a pick from an empty
+  // list would make the form impossible to submit. Street stays optional.
+  const regionDataForRules   = REGIONS.find(r => r.name === region);
+  const provinceOptionsCount = regionDataForRules?.provinces?.length ?? 0;
+  const provinceDataForRules = regionDataForRules?.provinces?.find(p => p.name === province);
+  const cityOptionsCount     = provinceDataForRules?.cities?.length ?? 0;
+  const cityDataForRules     = provinceDataForRules?.cities?.find(c => c.name === city);
+  const barangayOptionsCount = cityDataForRules?.barangays?.length ?? 0;
+
+  const missingRegion   = !region;
+  const missingProvince = !!region && provinceOptionsCount > 0 && !province;
+  const missingCity     = !!province && cityOptionsCount > 0 && !city;
+  const missingBarangay = !!city && barangayOptionsCount > 0 && !barangay;
+  const locationComplete = !missingRegion && !missingProvince && !missingCity && !missingBarangay;
+
+  const regionError   = (regionTouched || locationAttempted) && missingRegion ? "Select a region" : "";
+  const provinceError = locationAttempted && missingProvince ? "Select a province" : "";
+  const cityError     = locationAttempted && missingCity     ? "Select a city or municipality" : "";
+  const barangayError = locationAttempted && missingBarangay ? "Select a barangay" : "";
+
+  // One sentence naming what is still missing, for the message above Submit.
+  const locationMessage = locationComplete ? "" :
+    `Complete your location — select your ${[
+      missingRegion && "region", missingProvince && "province",
+      missingCity && "city or municipality", missingBarangay && "barangay",
+    ].filter(Boolean).join(", ")}.`;
   const collegeError = collegeTouched && !college  ? "Required"        : "";
   const programError = programTouched && !program  ? "Required"        : "";
   const majorError    = majorTouched && majorOptions.length > 0 && !major ? "Required" : "";
@@ -3061,7 +3107,7 @@ const useApplicationForm = (initial) => {
   const touchAll = () => {
     firstName.touch(); middleInitial.touch(); lastName.touch(); suffix.touch();
     sex.touch(); contact.touch(); email.touch();
-    setRegionTouched(true); setCollegeTouched(true); setProgramTouched(true);
+    setRegionTouched(true); setLocationAttempted(true); setCollegeTouched(true); setProgramTouched(true);
     setMajorTouched(true); setMessageTouched(true); setFilesTouched(true);
   };
 
@@ -3070,7 +3116,7 @@ const useApplicationForm = (initial) => {
   // a student can't fix them in this form anyway. Only what the student types
   // (location, contact, message, files) can block submitting.
   const isValid = () => {
-    if (!region)                                      return false;
+    if (!locationComplete)                            return false;
     if (appValidators.contact(contact.value))         return false;
     if (appValidators.message(message))               return false;
     if (!attachedFiles || attachedFiles.length === 0) return false;
@@ -3101,7 +3147,7 @@ const useApplicationForm = (initial) => {
 
   return {
     firstName, middleInitial, lastName, suffix, sex, contact, email,
-    region, province, city, barangay, street, regionError, regionTouched,
+    region, province, city, barangay, street, regionError, provinceError, cityError, barangayError, locationComplete, locationMessage, regionTouched,
     college, program, major, handleMajorChange, collegeError, programError, majorError,
     programOptions, majorOptions,
     message, handleMessageChange, messageError,
@@ -3153,7 +3199,7 @@ const FormFields = ({ f, locked = false }) => {
     {/* Location — the student's input */}
     <div id="sform-location" style={{ marginBottom: "4px" }}>
       <FieldLabel>Location:</FieldLabel>
-      <LocationPicker region={f.region} province={f.province} city={f.city} barangay={f.barangay} street={f.street} onChange={f.handleLocationChange} disabled={locked} regionError={!locked ? f.regionError : ""} />
+      <LocationPicker region={f.region} province={f.province} city={f.city} barangay={f.barangay} street={f.street} onChange={f.handleLocationChange} disabled={locked} regionError={!locked ? f.regionError : ""} provinceError={!locked ? f.provinceError : ""} cityError={!locked ? f.cityError : ""} barangayError={!locked ? f.barangayError : ""} />
     </div>
 
     {/* College / Program / Major — from the student's account, read-only */}
@@ -3527,7 +3573,7 @@ export const ApplyModal = ({ company, onClose, onSuccessClose, onSubmit, user })
       return;
     }
     if (!f.isValid()) {
-      setSubmitError("Please complete all required fields before submitting.");
+      setSubmitError(f.locationMessage || "Please complete all required fields before submitting.");
       return;
     }
     setSubmitError("");

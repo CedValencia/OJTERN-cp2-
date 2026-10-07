@@ -1157,7 +1157,7 @@ const PersonalInfoScreen = ({ onBack, user, setupMode = false, onSetupComplete, 
               <span style={{ ...rowValue, overflowWrap: "anywhere" }}>{form.personalEmail || "—"}</span>
             )}
             <span style={{ fontFamily: font.ui, ...type.helper, color: inkFaint, display: "block", marginTop: "4px" }}>
-              Used to send you a reset link if you forget your password.
+             
             </span>
           </div>
 
