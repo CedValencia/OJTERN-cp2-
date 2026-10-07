@@ -3245,9 +3245,11 @@ const FormFields = ({ f, locked = false }) => {
       />
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "8px" }}>
         <div style={{ minWidth: 0 }}><FieldError msg={!locked ? f.messageError : ""} /></div>
-        <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.72rem", color: (f.message || "").length >= APPLICATION_MESSAGE_MAX ? "#c00" : inkMuted, margin: "3px 6px 0 0", flexShrink: 0, marginLeft: "auto" }}>
-          {(f.message || "").length}/{APPLICATION_MESSAGE_MAX}
-        </p>
+        {!locked && (
+          <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.72rem", color: (f.message || "").length >= APPLICATION_MESSAGE_MAX ? "#c00" : inkMuted, margin: "3px 6px 0 0", flexShrink: 0, marginLeft: "auto" }}>
+            {(f.message || "").length}/{APPLICATION_MESSAGE_MAX}
+          </p>
+        )}
       </div>
     </div>
 
