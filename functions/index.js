@@ -1638,6 +1638,31 @@ exports.acceptCoordinatorInvite = onCall({ region: "asia-southeast1" }, async (r
   });
 
   if (isTransfer) {
+    // Leave a small record of who was transferred out, keyed by email, so the
+    // sign-in screen can tell them "you were transferred" instead of a generic
+    // "invalid credentials" once their Auth account is gone (see
+    // checkCoordinatorTransferred below). Written BEFORE the doc is deleted,
+    // because the delete is what triggers the Auth account removal. Non-fatal.
+    try {
+      const outSnap = await db.collection("coordinators").doc(invite.fromUid).get();
+      const outEmails = new Set(
+        [outSnap.exists ? outSnap.get("email") : null, invite.fromEmail]
+          .map((e) => String(e || "").trim().toLowerCase())
+          .filter(Boolean)
+      );
+      await Promise.all([...outEmails].map((email) =>
+        db.collection("transferredCoordinators").doc(email).set({
+          uid:           invite.fromUid,
+          email,
+          transferredTo: normalizedEmail,
+          inviteId,
+          transferredAt: FieldValue.serverTimestamp(),
+        })
+      ));
+    } catch (err) {
+      console.error(`Failed to record transfer for ${invite.fromUid}:`, err);
+    }
+
     // Remove the outgoing coordinator's Firestore doc — this fires
     // deleteCoordinatorAuthOnDocDelete above to clean up their Auth account.
     await db.collection("coordinators").doc(invite.fromUid).delete().catch((err) => {
@@ -1663,6 +1688,25 @@ exports.acceptCoordinatorInvite = onCall({ region: "asia-southeast1" }, async (r
   }
 
   return { uid: newUser.uid };
+});
+
+// Called from the sign-in screen (signed OUT) after a coordinator login fails,
+// to tell a coordinator who was transferred out apart from a plain wrong
+// password. Their Auth account is deleted, so Firebase itself can only say
+// "invalid credential". UNAUTHENTICATED BY DESIGN — the caller can't sign in —
+// and it only ever answers true/false for one email. A false answer is also
+// returned if that email later got a new active coordinator account (e.g. they
+// were invited again), in which case a bad password is just a bad password.
+exports.checkCoordinatorTransferred = onCall({ region: "asia-southeast1" }, async (request) => {
+  const email = String((request.data && request.data.email) || "").trim().toLowerCase();
+  if (!email) return { transferred: false };
+
+  const db = getFirestore();
+  const marker = await db.collection("transferredCoordinators").doc(email).get();
+  if (!marker.exists) return { transferred: false };
+
+  const active = await db.collection("coordinators").where("email", "==", email).limit(1).get();
+  return { transferred: active.empty };
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

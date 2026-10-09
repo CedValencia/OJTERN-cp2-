@@ -170,6 +170,22 @@ const isSuspensionExpired = (data) => {
   return Number.isFinite(expiry) && Date.now() >= expiry;
 };
 
+// Asks the backend whether this email belonged to a coordinator whose account
+// was transferred to someone else. Their Auth account is deleted on transfer,
+// so a later sign-in attempt only gets Firebase's generic "invalid credential"
+// — this is how signIn() below tells them the real reason. Never throws: if the
+// lookup fails for any reason, the caller just shows the normal error.
+const wasCoordinatorTransferred = async (email) => {
+  try {
+    const call = httpsCallable(functions, "checkCoordinatorTransferred");
+    const { data } = await call({ email });
+    return data?.transferred === true;
+  } catch (err) {
+    console.warn("Transfer check failed:", err?.code || err);
+    return false;
+  }
+};
+
 export const signIn = async (role, emailOrStudentId, password) => {
   const collectionMap = {
     coordinator: "coordinators",
@@ -238,6 +254,9 @@ export const signIn = async (role, emailOrStudentId, password) => {
       err.code === "auth/wrong-password"    ||
       err.code === "auth/invalid-credential"
     ) {
+     if (role === "coordinator" && await wasCoordinatorTransferred(loginEmail)) {
+       throw new Error("Successfully Transferred! You no longer have access to the system.");
+     }
      throw new Error("Invalid credentials. Please check and try again.");
     }
     throw err;

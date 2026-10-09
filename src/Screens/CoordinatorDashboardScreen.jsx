@@ -661,6 +661,46 @@ const LogoutConfirmModal = ({ onConfirm, onCancel }) => (
   </div>
 );
 
+// Shown when this coordinator's account has been transferred to someone else
+// while they're still signed in. Not dismissable — OK is what logs them out.
+const TransferredNoticeModal = ({ onConfirm }) => (
+  <div style={{
+    position: "fixed", inset: 0, zIndex: 10000,
+    background: "rgba(0,0,0,0.45)",
+    display: "flex", alignItems: "center", justifyContent: "center",
+    padding: "16px",
+  }}>
+    <div style={{
+      background: paper, borderRadius: "20px",
+      padding: "36px 32px", width: "clamp(280px, 85vw, 380px)",
+      display: "flex", flexDirection: "column", alignItems: "center",
+      gap: "12px", boxShadow: "0 8px 32px rgba(0,0,0,0.25)",
+    }}>
+      <div style={{
+        width: "64px", height: "64px", borderRadius: "50%",
+        background: paperCard, display: "flex",
+        alignItems: "center", justifyContent: "center", marginBottom: "4px",
+      }}>
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none"
+          stroke={ink} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="20 6 9 17 4 12"/>
+        </svg>
+      </div>
+      <p style={{ fontFamily: uiFont, fontWeight: 600, fontSize: "1.15rem", color: inkText, margin: 0, textAlign: "center" }}>Successfully Transferred</p>
+      <p style={{ fontFamily: uiFont, fontSize: "0.9rem", color: inkMuted, margin: 0, textAlign: "center", lineHeight: 1.5 }}>
+        Your account has been transferred and you no longer have access to the system. Please log out.
+      </p>
+      <button onClick={onConfirm} className="pill-btn" style={{
+        width: "100%", marginTop: "8px", padding: "12px", borderRadius: "30px",
+        border: "none", background: ink,
+        fontFamily: uiFont, fontWeight: 700,
+        fontSize: "0.95rem", cursor: "pointer", color: paper,
+        boxShadow: "0 3px 10px rgba(0,0,0,0.5)",
+      }}>OK</button>
+    </div>
+  </div>
+);
+
 // ── Company row ────────────────────────────────────────────────────────────────
 const CompanyRow = ({ company, onView, mr = "0", showTime = false, viewIcon: themedViewIcon = blackViewIcon, companyProfileIcon: themedCompanyIcon = blackCompanyProfileIcon }) => (
   <div
@@ -2484,6 +2524,37 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
     onLogout?.();
     logOut().catch((err) => console.error("Logout failed:", err));
   };
+  // ── Account transferred away while signed in ──────────────────────────────
+  // Accepting a Transfer Account invite deletes THIS coordinator's profile doc
+  // server-side (their Auth account is removed right after). The session token
+  // stays valid for a while, so without this the dashboard would simply keep
+  // running until a refresh silently signed them out. Watching our own doc
+  // catches the moment it disappears. `hadProfileDoc` makes sure we only react
+  // to a doc that existed and then went away, not one that just hasn't loaded.
+  const [showTransferredNotice, setShowTransferredNotice] = useState(false);
+  const hadProfileDoc = useRef(false);
+  useEffect(() => {
+    if (!user?.uid) return;
+    hadProfileDoc.current = false;
+    const unsub = onSnapshot(
+      doc(db, "coordinators", user.uid),
+      (snap) => {
+        if (snap.exists()) { hadProfileDoc.current = true; return; }
+        if (snap.metadata.fromCache) return;
+        if (hadProfileDoc.current) setShowTransferredNotice(true);
+      },
+      (err) => console.warn("[transfer-watch] couldn't read own coordinator doc:", err?.code || err)
+    );
+    return unsub;
+  }, [user?.uid]);
+
+  const handleTransferredOk = () => {
+    setShowTransferredNotice(false);
+    setCachedCoordinatorUid(null);
+    onLogout?.();
+    logOut().catch((err) => console.error("Logout failed:", err));
+  };
+
   // Recently visited companies now live in Firestore (coordinators/{uid}.recentVisited)
   // instead of localStorage, so the list follows the account across browsers
   // and devices instead of being stuck on whichever one was used to visit.
@@ -3365,6 +3436,7 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
           onCancel={() => setShowLogoutConfirm(false)}
         />
       )}
+      {showTransferredNotice && <TransferredNoticeModal onConfirm={handleTransferredOk} />}
 
         {/* ── Top Navbar ── */}
         <div style={{
