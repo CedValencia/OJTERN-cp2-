@@ -23,4 +23,4 @@ reportWebVitals();
 // Register the service worker so the app can be installed as a PWA and
 // work offline. This only takes effect in a production build (npm run
 // build) served over HTTPS or localhost.
-serviceWorkerRegistration.register();
+serviceWorkerRegistration.unregister();

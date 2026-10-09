@@ -80,6 +80,69 @@
       You need to enable JavaScript to run this app.
     </noscript>
 
-    <div id="root"></div>
+    <div id="root">
+      <!-- Shown until React mounts and replaces it, so a slow or failed load
+           is never a blank white page. -->
+      <div id="boot-loader" style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;font-family:system-ui,-apple-system,'Segoe UI',sans-serif;color:#555;gap:14px;">
+        <div style="width:28px;height:28px;border:3px solid #ddd;border-top-color:#161616;border-radius:50%;animation:boot-spin .8s linear infinite;"></div>
+        <span>Loading OJTERN…</span>
+        <button id="boot-reload" onclick="ojternClearAndReload()" style="display:none;padding:8px 18px;border-radius:999px;border:1px solid #161616;background:#fff;color:#161616;cursor:pointer;font:inherit;">Reload</button>
+      </div>
+      <style>@keyframes boot-spin{to{transform:rotate(360deg)}}</style>
+    </div>
+
+    <script>
+      // Stale-cache recovery. After a deploy or dev-server restart, a cached
+      // index.html can point at JS bundles that no longer exist: the request
+      // fails, or (with an SPA rewrite) comes back as HTML and throws
+      // "Unexpected token '<'". Either way the app never mounts. Reload once
+      // to pick up the fresh index.html; the sessionStorage flag stops a loop.
+      (function () {
+        var KEY = "ojtern-boot-reload";
+        // With a service worker installed, a plain reload can be answered from
+        // the SW's cached (stale) index.html. Unregister it and drop its caches
+        // first so the reload really goes to the network.
+        function clearAndReload() {
+          var jobs = [];
+          if (navigator.serviceWorker) {
+            jobs.push(navigator.serviceWorker.getRegistrations().then(function (rs) {
+              return Promise.all(rs.map(function (r) { return r.unregister(); }));
+            }));
+          }
+          if (window.caches) {
+            jobs.push(caches.keys().then(function (ks) {
+              return Promise.all(ks.map(function (k) { return caches.delete(k); }));
+            }));
+          }
+          Promise.all(jobs).catch(function () {}).then(function () { location.reload(); });
+        }
+        window.ojternClearAndReload = clearAndReload;
+        function recover() {
+          if (sessionStorage.getItem(KEY)) return;
+          sessionStorage.setItem(KEY, "1");
+          clearAndReload();
+        }
+        window.addEventListener("error", function (e) {
+          var t = e.target;
+          if (t && t.tagName === "SCRIPT" && t.src && t.src.indexOf("/static/") !== -1) return recover();
+          if (e.message && /Unexpected token '<'|ChunkLoadError|Loading chunk/i.test(e.message)) recover();
+        }, true);
+        window.addEventListener("unhandledrejection", function (e) {
+          var m = e.reason && (e.reason.name + " " + e.reason.message);
+          if (m && /ChunkLoadError|Loading chunk|Failed to fetch dynamically imported/i.test(m)) recover();
+        });
+        // Booted fine → clear the flag so a later stale deploy can recover again.
+        window.addEventListener("load", function () {
+          setTimeout(function () {
+            if (!document.getElementById("boot-loader")) sessionStorage.removeItem(KEY);
+          }, 4000);
+        });
+        // Still on the loader after 8s → offer a manual reload.
+        setTimeout(function () {
+          var b = document.getElementById("boot-reload");
+          if (b && document.getElementById("boot-loader")) b.style.display = "inline-block";
+        }, 8000);
+      })();
+    </script>
   </body>
 </html>

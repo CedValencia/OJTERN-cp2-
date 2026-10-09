@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import logo from "../icons/ojtern.png";
 import photoMichael from "../icons/team/Valencia.png";
 import photoJames from "../icons/team/Day.png";
-import photoRose from "../icons/team/natino1.png";
+import photoRose from "../icons/team/wing.png";
 import photoHenrick from "../icons/team/Guanlao.png";
 import photoJayem from "../icons/team/Gueco.png";
 

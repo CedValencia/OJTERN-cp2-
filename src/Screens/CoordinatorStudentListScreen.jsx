@@ -285,7 +285,10 @@ const downloadBlob = (filename, blob) => {
 // deliberate action — loading them eagerly would make every coordinator pay
 // that cost on first paint just so the button exists. Imported on click
 // instead, so the weight lands only on whoever actually exports.
-const buildStudentPdf = async ({ rows, scope, total, mode = "history" }) => {
+// `groups` is [{ label, studentCount, rows }]. With more than one group (the
+// "All batches" export) each batch gets its own heading and table, so the
+// printed list reads batch by batch instead of one long mixed table.
+const buildStudentPdf = async ({ groups, scope, total, mode = "history" }) => {
   const cfg = EXPORT_MODES[mode] || EXPORT_MODES.history;
   const { jsPDF }     = await import("jspdf");
   const { default: autoTable } = await import("jspdf-autotable");
@@ -304,16 +307,35 @@ const buildStudentPdf = async ({ rows, scope, total, mode = "history" }) => {
   doc.setFontSize(9);
   doc.setTextColor(110);
   doc.text(scope, margin, 62);
+  const totalRows = groups.reduce((n, g) => n + g.rows.length, 0);
   doc.text(
-    `${total} student${total === 1 ? "" : "s"} in this list · ${rows.length} ${cfg.unit}${rows.length === 1 ? "" : "s"} · Generated ${new Date().toLocaleDateString()}`,
+    `${total} student${total === 1 ? "" : "s"} in this list · ${totalRows} ${cfg.unit}${totalRows === 1 ? "" : "s"} · Generated ${new Date().toLocaleDateString()}`,
     margin, 75
   );
   doc.setTextColor(0);
 
+  const pageHeight = doc.internal.pageSize.getHeight();
+  let cursorY = 92;
+
+  groups.forEach((group, gi) => {
+  if (groups.length > 1) {
+    if (gi > 0) cursorY += 22;
+    // Don't strand a batch heading at the very bottom of a page.
+    if (cursorY > pageHeight - 110) { doc.addPage(); cursorY = 46; }
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(11);
+    doc.setTextColor(0);
+    doc.text(
+      `${group.label} · ${group.studentCount} student${group.studentCount === 1 ? "" : "s"} · ${group.rows.length} ${cfg.unit}${group.rows.length === 1 ? "" : "s"}`,
+      margin, cursorY
+    );
+    cursorY += 8;
+  }
+
   autoTable(doc, {
     head: [cfg.header],
-    body: rows,
-    startY: 92,
+    body: group.rows,
+    startY: cursorY,
     margin: { left: margin, right: margin, bottom: 46 },
     styles:     { font: "helvetica", fontSize: 8.5, cellPadding: 5, overflow: "linebreak" },
     headStyles: { fillColor: [139, 0, 0], textColor: 255, fontStyle: "bold" },
@@ -335,6 +357,8 @@ const buildStudentPdf = async ({ rows, scope, total, mode = "history" }) => {
       doc.text(`OJTern · Page ${page}`, width - margin, height - 24, { align: "right" });
       doc.setTextColor(0);
     },
+  });
+  cursorY = doc.lastAutoTable?.finalY ?? cursorY;
   });
 
   return doc.output("blob");
@@ -1104,6 +1128,9 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
   const [showFilter, setShowFilter]         = useState(false);
   const [showExport, setShowExport]         = useState(false);
   const [exportingPdf, setExportingPdf]     = useState(false);
+  // Which batch the export covers. "" = every batch (grouped by batch in the PDF).
+  // Seeded from the on-screen batch filter each time the Export menu opens.
+  const [exportBatch, setExportBatch]       = useState("");
   const [filters, setFilters]               = useState({ college: "", program: "", specialization: "", sex: "", section: "", status: initialStatusFilter || "", batch: "" });
   // A dashboard notification can open this list pre-filtered (e.g. "Needs Follow-up").
   useEffect(() => {
@@ -1235,7 +1262,9 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
   const panelFilterKeys = ["college", "program", "specialization", "sex", "section"];
   const hasFilter = panelFilterKeys.some(k => filters[k]);
 
-  const filtered = students.filter(s => {
+  // Everything EXCEPT the batch filter — the Export menu has its own batch
+  // picker and needs the pool before batch narrowing.
+  const filteredAnyBatch = students.filter(s => {
     const q        = search.toLowerCase();
     const fullName = `${s.firstName} ${s.lastName}`.toLowerCase();
     const matchSearch  = fullName.includes(q) || s.studentId.includes(q) || s.program.toLowerCase().includes(q) || s.college.toLowerCase().includes(q) || String(s.batch || "").toLowerCase().includes(q);
@@ -1248,10 +1277,15 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
     // Status filter — non-exclusive, see matchesStatusFilter above.
     const matchStatus = matchesStatusFilter(applicationsByStudent[s.id], filters.status, companyStandings);
 
-    const matchBatch = !filters.batch || batchKeyOf(s) === filters.batch;
-
-    return matchSearch && matchSex && matchSection && matchCollege && matchProgram && matchSpec && matchStatus && matchBatch;
+    return matchSearch && matchSex && matchSection && matchCollege && matchProgram && matchSpec && matchStatus;
   });
+  const filtered = filters.batch ? filteredAnyBatch.filter(s => batchKeyOf(s) === filters.batch) : filteredAnyBatch;
+
+  // Export pool: same search/filters as the screen, narrowed by the export's batch picker.
+  const exportStudents = exportBatch ? filteredAnyBatch.filter(s => batchKeyOf(s) === exportBatch) : filteredAnyBatch;
+  const exportBatchCounts = {};
+  filteredAnyBatch.forEach(s => { const k = batchKeyOf(s); exportBatchCounts[k] = (exportBatchCounts[k] || 0) + 1; });
+  const exportBatchKeys = sortBatchKeys(Object.keys(exportBatchCounts));
 
   // Batch options from the loaded students, newest academic year first.
   const batchOptions = sortBatchKeys([...new Set(students.map(batchKeyOf))]).filter(k => k !== BATCH_NONE);
@@ -1267,32 +1301,34 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
 
   const clearAllFilters = () => setFilters({ college: "", program: "", specialization: "", sex: "", section: "", status: "", batch: "" });
 
-  // The export uses `filtered`, not `students` — what downloads is exactly
-  // what the search box and filter chips are currently showing, so the file
-  // always matches the "N of M" count in the header. Filter first, then export.
+  // The export uses the search box + filter chips, then the batch picked in the
+  // Export menu (it starts on the on-screen batch filter). "All batches" gives
+  // one section per batch in the PDF.
   const exportDate = () => new Date().toISOString().slice(0, 10);
 
   const handleExportPdf = async (mode = "history") => {
-    if (filtered.length === 0 || exportingPdf) return;
+    if (exportStudents.length === 0 || exportingPdf) return;
     setShowExport(false);
     setExportingPdf(true);
     try {
       const builder = mode === "final" ? buildFinalPlacementRows : mode === "status" ? buildPlacementStatusRows : buildExportRows;
-      const rows = builder(filtered, applicationsByStudent, companies, postsById);
-      if (rows.length === 0) {
+      const batchKeys = exportBatch ? [exportBatch] : sortBatchKeys([...new Set(exportStudents.map(batchKeyOf))]);
+      const groups = batchKeys.map(key => {
+        const studs = exportStudents.filter(s => batchKeyOf(s) === key);
+        return { label: batchLabelOf(key), studentCount: studs.length, rows: builder(studs, applicationsByStudent, companies, postsById) };
+      }).filter(g => g.rows.length > 0);
+      if (groups.length === 0) {
         alert(mode === "final"
           ? "None of the students shown has an accepted placement yet."
           : "There's nothing to export for the students shown.");
         return;
       }
-      const blob = await buildStudentPdf({
-        rows,
-        mode,
-        scope: describeExportScope(filters, search),
-        total: filtered.length,
-      });
+      let scope = describeExportScope({ ...filters, batch: exportBatch }, search);
+      if (!exportBatch) scope = scope === "No filters applied" ? "All batches" : `${scope} · All batches`;
+      const blob = await buildStudentPdf({ groups, mode, scope, total: exportStudents.length });
       const fileTag = mode === "final" ? "final-placements" : mode === "status" ? "placement-status" : "application-history";
-      downloadBlob(`ojtern-${fileTag}-${exportDate()}.pdf`, blob);
+      const batchTag = exportBatch ? (exportBatch === BATCH_NONE ? "no-batch" : exportBatch) : "all-batches";
+      downloadBlob(`ojtern-${fileTag}-${batchTag}-${exportDate()}.pdf`, blob);
     } catch (err) {
       // The PDF libraries are fetched on click, so this also covers a failed
       // chunk load on a bad connection — silence here would look like a dead
@@ -1400,9 +1436,9 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
 
             <div id="sl-export-btn" ref={exportRef} style={{ position: "relative", marginLeft: "10px" }}>
               <button
-                onClick={() => setShowExport(v => !v)}
-                disabled={filtered.length === 0 || exportingPdf}
-                title="Export the students shown below"
+                onClick={() => { if (!showExport) setExportBatch(filters.batch || ""); setShowExport(v => !v); }}
+                disabled={filteredAnyBatch.length === 0 || exportingPdf}
+                title="Export students"
                 aria-label="Export students"
                 aria-expanded={showExport}
                 style={{
@@ -1411,8 +1447,8 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
                   border: showExport ? `1px solid ${color.onWineFaint}` : "none",
                   borderRadius: radius.pill,
                   display: "flex", alignItems: "center", justifyContent: "center",
-                  cursor: filtered.length === 0 || exportingPdf ? "not-allowed" : "pointer",
-                  opacity: filtered.length === 0 || exportingPdf ? 0.45 : 1,
+                  cursor: filteredAnyBatch.length === 0 || exportingPdf ? "not-allowed" : "pointer",
+                  opacity: filteredAnyBatch.length === 0 || exportingPdf ? 0.45 : 1,
                   flexShrink: 0, padding: 0,
                 }}
               >
@@ -1430,9 +1466,25 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
                   borderRadius: radius.card, boxShadow: shadow.panel,
                   padding: "6px", minWidth: "270px",
                 }}>
-                  <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, padding: "6px 10px 8px" }}>
-                    {filtered.length} of {students.length} students
-                  </p>
+                  <div style={{ padding: "6px 10px 10px" }}>
+                    <label htmlFor="sl-export-batch" style={{ display: "block", fontFamily: font.ui, ...type.helper, color: inkMuted, marginBottom: "4px" }}>
+                      Batch to export
+                    </label>
+                    <select
+                      id="sl-export-batch"
+                      value={exportBatch}
+                      onChange={e => setExportBatch(e.target.value)}
+                      style={{ width: "100%", padding: "8px 10px", borderRadius: radius.pill, border: `1px solid ${lineStrong}`, background: color.white, color: ink, fontFamily: font.ui, ...type.control, cursor: "pointer" }}
+                    >
+                      <option value="">All batches (grouped by batch)</option>
+                      {exportBatchKeys.map(k => (
+                        <option key={k} value={k}>{batchLabelOf(k)} ({exportBatchCounts[k]})</option>
+                      ))}
+                    </select>
+                    <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, marginTop: "6px" }}>
+                      {exportStudents.length} of {students.length} students
+                    </p>
+                  </div>
                   {[
                     { label: "Final placements (PDF)",      hint: "Accepted students and where they'll be deployed", onClick: () => handleExportPdf("final") },
                     { label: "Placement status (PDF)",      hint: "Every student — placed or not yet",               onClick: () => handleExportPdf("status") },

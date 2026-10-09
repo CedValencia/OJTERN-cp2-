@@ -995,7 +995,7 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
   const handleProgramChange = (val) => { setProgram(val); setProgramTouched(true); };
 
   const allFields = isCreate
-    ? [studentId, lastName, firstName, middleName, yearSection, sex, batch]
+    ? [studentId, lastName, firstName, middleName, suffix, yearSection, sex, batch]
     : [studentId, lastName, middleInitial, firstName, suffix, sex, yearSection, age, batch];
   const touchAll = () => { allFields.forEach(f => f.touch()); setCollegeTouched(true); if (!isCreate) setProgramTouched(true); };
 
@@ -1008,6 +1008,7 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
     if (validators.batch(batch.value)) return false;
     if (isCreate) {
       if (validators.middleName(middleName.value)) return false;
+      if (validators.suffix(suffix.value)) return false;
       if (validators.sex(sex.value)) return false;
       return true;
     }
@@ -1042,7 +1043,8 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
       if (isCreate) {
         // Same shape a bulk-imported row produces (see ImportModal.parseFile):
         // program is filled in only when the department offers exactly one;
-        // sex, age, suffix, and email come from the student on first login.
+        // sex, age, and email come from the student on first login. The
+        // suffix is optional and set here (it's part of the name on the list).
         const deptPrograms = (departments[college]?.programs || []).map(p => p.name).filter(Boolean);
         await onSubmit({
           studentId: studentId.value.trim(),
@@ -1055,7 +1057,7 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
           program: deptPrograms.length === 1 ? deptPrograms[0] : "",
           sex: sex.value,
           batch: normalizeBatch(batch.value) || batch.value.trim(),
-          specialization: "", suffix: "", age: "",
+          specialization: "", suffix: isRealSuffix(suffix.value) ? suffix.value : "", age: "",
         });
         return;
       }
@@ -1097,12 +1099,20 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
   // fullName — used for the modal header. Now includes the suffix (e.g. "Jr.")
   // and stays live: it recomputes from the current field values while editing,
   // and falls back to the original `initial` data before any edits are made.
-  const buildFullName = (last, first, suf) =>
-    last && first ? `${last}, ${first}${isRealSuffix(suf) ? " " + suf : ""}` : null;
+  // Middle initial shown as "S." whether it was typed "S" or "S.". On create
+  // there is no initial field — it's derived from the Middle name input.
+  const asInitial = (v) => {
+    const letter = String(v || "").trim().replace(/\./g, "").charAt(0);
+    return letter ? `${letter.toUpperCase()}.` : "";
+  };
+  const buildFullName = (last, first, mi, suf) =>
+    last && first
+      ? `${last}, ${first}${asInitial(mi) ? " " + asInitial(mi) : ""}${isRealSuffix(suf) ? " " + suf : ""}`
+      : null;
 
   const fullName =
-    buildFullName(lastName.value, firstName.value, suffix.value) ||
-    buildFullName(initial.lastName, initial.firstName, initial.suffix) ||
+    buildFullName(lastName.value, firstName.value, isCreate ? middleName.value : middleInitial.value, suffix.value) ||
+    buildFullName(initial.lastName, initial.firstName, initial.middleInitial || initial.middleName, initial.suffix) ||
     "New student";
 
   const onStudentIdChange     = (v) => { if (/^\d*$/.test(v) && v.length <= 9) studentId.onChange(v); };
@@ -1140,7 +1150,7 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
           {isCreate ? (
             <>
               {/* Same fields, in the same order, as the import template. */}
-              <div className="sa-name-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))" }}>
+              <div className="sa-name-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))" }}>
                 <div>
                   <FieldLabel>Last name</FieldLabel>
                   <StyledInput value={lastName.value} onChange={onLastNameChange} placeholder="Dela Cruz" hasError={!!lastName.error} />
@@ -1155,6 +1165,11 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
                   <FieldLabel>Middle name</FieldLabel>
                   <StyledInput value={middleName.value} onChange={(v) => middleName.onChange(v.replace(/[^A-Za-zÑñ\s\-]/g, ""))} placeholder="Santos (optional)" hasError={!!middleName.error} />
                   <FieldError msg={middleName.error} />
+                </div>
+                <div>
+                  <FieldLabel>Suffix</FieldLabel>
+                  <StyledSelect value={suffix.value} onChange={(v) => suffix.onChange(v)} options={SUFFIX_OPTIONS} placeholder="None" hasError={!!suffix.error} />
+                  <FieldError msg={suffix.error} />
                 </div>
               </div>
 
@@ -2079,7 +2094,7 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
     // actually gets saved to the student's Firestore doc, matching the
     // full-name convention used everywhere else in the app.
     const { password } = await createStudentAccount({ ...form, collegeAbbr: departments[form.college]?.abbr || form.college }, coordinatorUid);
-    const fullName = `${form.firstName} ${form.middleInitial ? form.middleInitial.replace(/\.$/, "") + ". " : ""}${form.lastName}`;
+    const fullName = `${form.firstName} ${form.middleInitial ? form.middleInitial.replace(/\.$/, "") + ". " : ""}${form.lastName}${isRealSuffix(form.suffix) ? " " + form.suffix : ""}`;
     logActivity(coordinatorUid, "student_created", `Created student account for ${fullName}`, { targetId: form.studentId, targetName: fullName }).catch(err => console.error("Failed to log activity:", err));
     setShowNewModal(false);
     setSuccessInfo({
