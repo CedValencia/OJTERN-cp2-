@@ -170,22 +170,6 @@ const isSuspensionExpired = (data) => {
   return Number.isFinite(expiry) && Date.now() >= expiry;
 };
 
-// Asks the backend whether this email belonged to a coordinator whose account
-// was transferred to someone else. Their Auth account is deleted on transfer,
-// so a later sign-in attempt only gets Firebase's generic "invalid credential"
-// — this is how signIn() below tells them the real reason. Never throws: if the
-// lookup fails for any reason, the caller just shows the normal error.
-const wasCoordinatorTransferred = async (email) => {
-  try {
-    const call = httpsCallable(functions, "checkCoordinatorTransferred");
-    const { data } = await call({ email });
-    return data?.transferred === true;
-  } catch (err) {
-    console.warn("Transfer check failed:", err?.code || err);
-    return false;
-  }
-};
-
 export const signIn = async (role, emailOrStudentId, password) => {
   const collectionMap = {
     coordinator: "coordinators",
@@ -254,9 +238,6 @@ export const signIn = async (role, emailOrStudentId, password) => {
       err.code === "auth/wrong-password"    ||
       err.code === "auth/invalid-credential"
     ) {
-     if (role === "coordinator" && await wasCoordinatorTransferred(loginEmail)) {
-       throw new Error("Successfully Transferred! You no longer have access to the system.");
-     }
      throw new Error("Invalid credentials. Please check and try again.");
     }
     throw err;
@@ -1105,13 +1086,101 @@ export const notifyReporter = async (reporterId, reporterRole, { title, body, re
   if (!reporterId || !body) return;
   const isStudent = String(reporterRole || "").toLowerCase() === "student";
   await addDoc(collection(db, "notifications"), {
-    recipientId:   reporterId,
-    ...(isStudent ? { studentId: reporterId } : {}),
+    // Students read notifications by `studentId` and the dashboard HIDES any
+    // notice that also has a `recipientId` (it treats those as company or
+    // coordinator notices) -- so a student reporter gets studentId only, and a
+    // company reporter gets recipientId only.
+    ...(isStudent ? { studentId: reporterId } : { recipientId: reporterId }),
     recipientRole: isStudent ? "student" : "company",
     title:         title || "Report update",
     message:       body,
     type:          "report_outcome",
     reportId,
+    read:          false,
+    createdAt:     serverTimestamp(),
+  });
+};
+
+/**
+ * A company registers under one or more Department/Program pairs (deptSelections)
+ * and each Department's coordinator approves it separately. When ONE
+ * coordinator blocks the company, the coordinators of its OTHER departments
+ * would otherwise only find out when an application or a post stops working.
+ * This drops a notice for each of those Department/Program scopes.
+ *
+ * - Only entries that still matter are notified: "approved" (the company is
+ *   active there) and "pending" (a request that's now moot). Rejected and
+ *   withdrawn entries are skipped.
+ * - The blocking coordinator's own department(s) are skipped -- they just did it.
+ * - Shaped like the other coordinator-addressed notices (see the post_closed
+ *   notice in CompanyCreatePostScreen): recipientRole "coordinator", the
+ *   department + program it applies to, and readBy[].
+ *
+ * @returns {Promise<number>} how many Department/Program scopes were notified
+ */
+export const notifyOtherCoordinatorsCompanyBlocked = async (companyId, companyName, actingCoordinatorUid) => {
+  if (!companyId) return 0;
+  const [companySnap, actorSnap] = await Promise.all([
+    getDoc(doc(db, "companies", companyId)),
+    actingCoordinatorUid ? getDoc(doc(db, "coordinators", actingCoordinatorUid)) : Promise.resolve(null),
+  ]);
+  if (!companySnap.exists()) return 0;
+
+  const name = companyName || companySnap.data().companyName || "A company";
+  const actorDepartments = new Set(
+    ((actorSnap && actorSnap.exists() ? actorSnap.data().deptSelections : null) || [])
+      .map(e => normalizeScope(e.department))
+      .filter(Boolean)
+  );
+
+  const targets = new Map();   // one notice per Department + Program
+  (companySnap.data().deptSelections || []).forEach(e => {
+    const status = e.status || "pending";
+    if (status !== "approved" && status !== "pending") return;
+    if (!e.department || actorDepartments.has(normalizeScope(e.department))) return;
+    targets.set(
+      `${normalizeScope(e.department)}||${normalizeScope(e.program)}`,
+      { department: e.department, program: e.program || "" }
+    );
+  });
+
+  await Promise.all([...targets.values()].map(t =>
+    addDoc(collection(db, "notifications"), {
+      recipientRole: "coordinator",
+      department:    t.department,
+      program:       t.program,
+      type:          "company_blocked",
+      companyId,
+      companyName:   name,
+      message:       `${name} was blocked by another coordinator after a report review. The company can no longer sign in or post, which may affect students of yours who are applying or placed there.`,
+      readBy:        [],
+      createdAt:     serverTimestamp(),
+    })
+  ));
+  return targets.size;
+};
+
+/**
+ * Notification for the STUDENT a report is about -- the counterpart of
+ * notifyCompanyAccount for company reports. Without it a coordinator's decision
+ * on a report about a student only reached whoever filed it; the student never
+ * heard anything.
+ *
+ * Shaped for StudentDashboardScreen: read by `studentId == uid`, NO recipientId
+ * (the dashboard hides notices that have one), and `action` + `reportId` so
+ * Warning Issued / Require Correction / Others open the response form.
+ */
+export const notifyReportedStudent = async (studentUid, { title, body, action = null, reportId = null, coordinatorUid = null }) => {
+  if (!studentUid || !body) return;
+  await addDoc(collection(db, "notifications"), {
+    studentId:     studentUid,
+    recipientRole: "student",
+    action,
+    title:         title || "Report update",
+    message:       body,
+    type:          "report_resolution",
+    reportId,
+    coordinatorUid,
     read:          false,
     createdAt:     serverTimestamp(),
   });

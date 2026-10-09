@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { getCoordinatorInvite, acceptCoordinatorInvite } from "./AuthService";
 
-import logo from "../icons/ojtern.png";
+import logo from "../icons/ojtern_512.png";
 import { color } from "./theme";
 
 const red     = color.blush100;

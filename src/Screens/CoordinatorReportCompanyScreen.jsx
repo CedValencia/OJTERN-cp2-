@@ -11,6 +11,8 @@ import {
   recordCompanyAction,
   notifyCompanyAccount,
   notifyReporter,
+  notifyReportedStudent,
+  notifyOtherCoordinatorsCompanyBlocked,
   getCompanyActionHistory,
 } from "./AuthService";
 
@@ -537,6 +539,20 @@ const buildNotificationText = (actionType, resolutionNotes) => {
   }
 };
 
+// Same idea, worded for a STUDENT a report was filed about. Require Correction /
+// Warning Issued / Others open the response form from the student's bell.
+const buildStudentNotificationText = (actionType, resolutionNotes) => {
+  const notes = resolutionNotes ? ` Details: ${resolutionNotes}` : "";
+  switch (actionType) {
+    case "Require Correction":
+      return `A coordinator reviewed a report concerning you and requires a correction. Tap to send your response.${notes}`;
+    case "Warning Issued":
+      return `A coordinator reviewed a report concerning you and issued a formal warning. Please follow the platform guidelines.${notes}`;
+    default:
+      return `A coordinator reviewed a report concerning you. Action taken: ${actionType}.${notes}`;
+  }
+};
+
 // ── Company account-status badge (Active/Approved, Suspended, Blocked) ────────
 const COMPANY_STATUS_BADGE = {
   approved:  { bg: color.success, label: "Active" },
@@ -644,7 +660,11 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid, coordinator
   // would call applyCompanyEnforcement with a student's uid, find no company
   // document, and silently do nothing while the report still said "resolved".
   // Older reports have no subjectType, and those were all about companies.
-  const subjectType = String(report?.subjectType || "company").toLowerCase();
+  // Same rule as the list (subjectOf): older student reports have no
+  // subjectType, only reportedRole: "student" -- they used to be treated as
+  // company reports here, so resolving them enforced on a company and told
+  // nobody on the student side.
+  const subjectType = subjectOf(report);
   const isCompanySubject = subjectType === "company";
 
   // A coordinator must not rule on a report about themselves. Those belong to
@@ -673,7 +693,10 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid, coordinator
         setSiblingReports(
           snap.docs
             .map(d => ({ id: d.id, ...d.data() }))
-            .filter(r => r.id !== report.id && r.status !== "resolved" && r.status !== "dismissed")
+            .filter(r => r.id !== report.id && r.status !== "resolved" && r.status !== "dismissed"
+              // only reports about the same kind of subject -- and, for students, the same student
+              && subjectOf(r) === subjectType
+              && (isCompanySubject || studentIdOf(r) === studentIdOf(report)))
         );
       } catch (err) {
         console.error("Failed to load the company's other open reports:", err);
@@ -882,6 +905,12 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid, coordinator
                   ? `Company account has been suspended${untilStr ? ` until ${untilStr}` : ""}.`
                   : `Company account has been ${enforcementResult.status}.`
             );
+            // A block is felt in EVERY department the company is registered under,
+            // not just this coordinator's: tell the other departments' coordinators.
+            if (enforcementResult.status === "blocked" && enforcementResult.previousStatus !== "blocked") {
+              notifyOtherCoordinatorsCompanyBlocked(report.companyId, report.company, coordinatorUid)
+                .catch(err => console.error("Failed to notify the other coordinators:", err));
+            }
             logActivity(
               coordinatorUid,
               enforcementResult.autoEscalated ? "company_auto_suspended" : "company_status_changed",
@@ -894,6 +923,10 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid, coordinator
         console.error("Failed to apply company enforcement:", err);
       }
 
+      // Company-only steps: a disciplinary record and an account notice against a
+      // COMPANY. For a report about a student they would land on report.companyId
+      // (the company that filed it), so they are skipped.
+      if (isCompanySubject) {
       // Audit trail — dedicated record for this disciplinary action.
       try {
         await recordCompanyAction({
@@ -925,6 +958,23 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid, coordinator
         });
       } catch (err) {
         console.error("Failed to notify company:", err);
+      }
+      } else {
+        // A report ABOUT a student: tell that student what was decided. It lands in
+        // their notification bell; Warning / Require Correction / Others open the
+        // same response form companies get.
+        const studentUid = await resolveStudentUid(studentIdOf(report));
+        if (studentUid) {
+          notifyReportedStudent(studentUid, {
+            title: `Report update: ${finalAction}`,
+            body: buildStudentNotificationText(finalAction, resolutionNotes.trim()),
+            action: finalAction,
+            reportId: report.id || null,
+            coordinatorUid,
+          }).catch(err => console.error("Failed to notify the student:", err));
+        } else {
+          console.warn("Report has no subjectId/studentId, so the student could not be notified.");
+        }
       }
 
       // Tell whoever filed it what came of their report.
@@ -1682,6 +1732,27 @@ const subjectOf = (r) => {
 };
 // Name to show: the new fields first, then what older reports used.
 const reportedNameOf = (r) => r?.subjectName || r?.company || r?.reportedName || "—";
+// The student a report is about. Student ids are the Firebase uid across the app
+// (applications / notifications are keyed `studentId == user.uid`); new reports
+// carry subjectId, older ones studentId.
+const studentIdOf = (r) => r?.subjectId || r?.studentId || "";
+
+// Notifications are keyed by the student's Firebase uid, but the id stored on a
+// report can also be the school Student ID number (older reports). Check it
+// against the students collection and return the real uid, so the notice
+// doesn't get written under a key the student's bell never reads.
+const resolveStudentUid = async (rawId) => {
+  if (!rawId) return "";
+  try {
+    const direct = await getDoc(doc(db, "students", String(rawId)));
+    if (direct.exists()) return String(rawId);
+    const byNumber = await getDocs(query(collection(db, "students"), where("studentId", "==", String(rawId))));
+    if (!byNumber.empty) return byNumber.docs[0].id;
+  } catch (err) {
+    console.error("Couldn't look up the student's account:", err);
+  }
+  return String(rawId);
+};
 
 const CoordinatorReportCompanyScreen = ({ reports = [], otherReports = [], onViewReport }) => {
   // Open on "All reports" when this coordinator's own industries have nothing:
