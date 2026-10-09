@@ -1644,8 +1644,23 @@ exports.acceptCoordinatorInvite = onCall({ region: "asia-southeast1" }, async (r
       console.error(`Failed to remove outgoing coordinator doc ${invite.fromUid}:`, err);
     });
   }
-  // type "add" — nothing further to do; the inviting coordinator keeps
-  // their own account exactly as it was.
+  // type "add" — the inviting coordinator keeps their own account exactly as
+  // it was. Just let them know their invitee has joined: this is the
+  // "coordinator_invite_accepted" notice the Coordinator Dashboard bell reads
+  // (matched by recipientId/inviterId = the inviter's uid). Skipped for
+  // transfers, since the inviter's account is removed above. Non-fatal — the
+  // new account already exists, so a failure here must not fail the accept.
+  if (!isTransfer) {
+    await db.collection("notifications").add({
+      type:          "coordinator_invite_accepted",
+      recipientRole: "coordinator",
+      recipientId:   invite.fromUid,
+      inviterId:     invite.fromUid,
+      message:       `${name.trim()} (${normalizedEmail}) accepted your invitation and is now an OJT Coordinator.`,
+      read:          false,
+      createdAt:     FieldValue.serverTimestamp(),
+    }).catch((err) => console.error("Failed to notify inviter about accepted invite:", err));
+  }
 
   return { uid: newUser.uid };
 });
