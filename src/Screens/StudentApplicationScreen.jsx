@@ -3364,7 +3364,7 @@ const companyAvailability = (data) => {
         ok: false,
         title: "Applications Closed",
         message: untilMs
-          ? `This company is suspended until ${new Date(untilMs).toLocaleDateString()} and isn't accepting applications.`
+          ? `This company is suspended until ${new Date(untilMs).toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" })} and isn't accepting applications.`
           : "This company is currently suspended and isn't accepting applications.",
       };
     }
@@ -3878,7 +3878,7 @@ const ViewApplicationModal = ({ application, standing, onClose, onSave, onEditin
 
         {application.status === "Accepted" && application.coordinatorReviewedAt?.seconds && (
           <div role="note" style={{ margin: "12px 18px 0", padding: "8px 14px", borderRadius: "10px", background: "#EAF6EE", border: "1px solid #BFE3CB", fontFamily: font.ui, fontSize: "0.78rem", lineHeight: 1.45, color: "#1f5e36" }}>
-            ✓ Your OJT coordinator reviewed this placement on {new Date(application.coordinatorReviewedAt.seconds * 1000).toLocaleDateString()}.
+            ✓ Your OJT coordinator reviewed this placement on {new Date(application.coordinatorReviewedAt.seconds * 1000).toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" })}.
           </div>
         )}
         {postClosure && application.status !== WITHDRAWN && (
@@ -3892,15 +3892,15 @@ const ViewApplicationModal = ({ application, standing, onClose, onSave, onEditin
         {!application.affiliationWithdrawn && application.affiliationRestoredAt?.seconds && (
           <div role="note" style={{ margin: "12px 18px 0", padding: "8px 14px", borderRadius: "10px", background: "#F2F2F2", border: "1px solid #E0E0E0", fontFamily: font.ui, fontSize: "0.78rem", lineHeight: 1.45, color: "#555" }}>
             Program affiliation was withdrawn
-            {application.affiliationWithdrawnAt?.seconds ? ` on ${new Date(application.affiliationWithdrawnAt.seconds * 1000).toLocaleDateString()}` : ""}
-            {" "}and restored on {new Date(application.affiliationRestoredAt.seconds * 1000).toLocaleDateString()}. Your application is active again.
+            {application.affiliationWithdrawnAt?.seconds ? ` on ${new Date(application.affiliationWithdrawnAt.seconds * 1000).toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" })}` : ""}
+            {" "}and restored on {new Date(application.affiliationRestoredAt.seconds * 1000).toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" })}. Your application is active again.
           </div>
         )}
         {application.affiliationWithdrawn && (
           <div role="status" style={{ margin: "12px 18px 0", padding: "10px 14px", borderRadius: "10px", background: "#FFF3D6", border: "1px solid #F0D48A", fontFamily: font.ui, fontSize: "0.82rem", lineHeight: 1.45, color: "#5c3d00" }}>
-            <strong>Program affiliation withdrawn.</strong>{" "}
+            <strong>Company is no longer in the program.</strong>{" "}
             {application.company || "The company"} is no longer accepting{application.affiliationWithdrawnLabel ? ` ${application.affiliationWithdrawnLabel}` : " your program"} for OJT
-            {application.affiliationWithdrawnAt?.seconds ? ` (since ${new Date(application.affiliationWithdrawnAt.seconds * 1000).toLocaleDateString()})` : ""}.
+            {application.affiliationWithdrawnAt?.seconds ? ` (since ${new Date(application.affiliationWithdrawnAt.seconds * 1000).toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" })})` : ""}.
             {" "}Your application stays on record with its current status ({application.status}). Please coordinate with your OJT coordinator about next steps.
           </div>
         )}
@@ -3908,7 +3908,7 @@ const ViewApplicationModal = ({ application, standing, onClose, onSave, onEditin
         {application.status === "Accepted" && application.placementConfirmed && companyStanding.state !== "blocked" && (
           <div role="note" style={{ margin: "12px 18px 0", padding: "8px 14px", borderRadius: "10px", background: "#EAF6EE", border: "1px solid #BFE3CB", fontFamily: font.ui, fontSize: "0.8rem", lineHeight: 1.45, color: "#1f5e36" }}>
             <strong>✓ Confirmed placement.</strong> {application.company} is your OJT placement
-            {application.placementConfirmedAt?.seconds ? ` (confirmed ${new Date(application.placementConfirmedAt.seconds * 1000).toLocaleDateString()})` : ""}.
+            {application.placementConfirmedAt?.seconds ? ` (confirmed ${new Date(application.placementConfirmedAt.seconds * 1000).toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" })})` : ""}.
           </div>
         )}
         <StandingNotice standing={companyStanding} style={{ margin: "12px 18px 0" }} />
@@ -4414,7 +4414,7 @@ const ApplicationRow = ({ application, standing, onView, onDelete, companyProfil
           <p style={{ fontFamily: font.ui, ...type.label, color: ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{application.company}</p>
           {application.createdAt?.seconds && (
             <div style={{ marginTop: "3px" }}>
-              <span style={meta}>Applied {new Date(application.createdAt.seconds * 1000).toLocaleDateString()}</span>
+              <span style={meta}>Applied {new Date(application.createdAt.seconds * 1000).toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" })}</span>
             </div>
           )}
           {/* Post expired/closed — independent of any affiliation change. The
@@ -4437,7 +4437,7 @@ const ApplicationRow = ({ application, standing, onView, onDelete, companyProfil
           {application.affiliationWithdrawn && (
             <div style={{ marginTop: "4px" }}>
               <span style={{ fontFamily: font.ui, fontSize: "0.7rem", fontWeight: 600, color: "#8a5a00", background: "#FFF3D6", border: "1px solid #F0D48A", borderRadius: radius.pill, padding: "1px 8px", whiteSpace: "nowrap" }}>
-                Program affiliation withdrawn
+                Company is no longer in the program
               </span>
             </div>
           )}

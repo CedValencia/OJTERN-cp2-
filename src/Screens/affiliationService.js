@@ -282,7 +282,7 @@ export const commitCompanyProfileWithAffiliations = async ({
       applicationIds: list.map(a => a.app.id),
       // The student dashboard opens `applicationId` when the notification is tapped.
       applicationId: list[0].app.id,
-      message: `${companyName || "A company"} is no longer accepting your program for OJT. Your application${list.length > 1 ? "s stay" : " stays"} on record with ${list.length > 1 ? "their" : "its"} current status — your coordinator can help you follow up.`,
+      message: `${companyName || "A company"} is no longer in the program. Your application${list.length > 1 ? "s stay" : " stays"} on record with ${list.length > 1 ? "their" : "its"} current status — your coordinator can help you follow up.`,
       read: false,
       createdAt: serverTimestamp(),
     }));
@@ -302,7 +302,7 @@ export const commitCompanyProfileWithAffiliations = async ({
       openApplications: open.length,
       acceptedApplications: open.filter(a => String(a.app.status || "").toLowerCase() === "accepted").length,
       applicationIds: related.map(a => a.app.id),
-      message: `${companyName || "A company"} withdrew ${pairLabel(w.department, w.program)}.` +
+      message: `${companyName || "A company"} is no longer in the program for ${pairLabel(w.department, w.program)}.` +
         (open.length ? ` ${open.length} student application${open.length > 1 ? "s" : ""} may need follow-up.` : ""),
       readBy: [],
       createdAt: serverTimestamp(),

@@ -1053,14 +1053,14 @@ const PersonalDetailsModal = ({ applicant, standing, onClose, onStatusChange, on
                 {applicant.status === "Accepted" && (
                   <span style={{ fontFamily: font.ui, ...type.helper, color: applicant.placementConfirmed ? "#2a7a2a" : inkFaint, fontStyle: applicant.placementConfirmed ? "normal" : "italic", fontWeight: applicant.placementConfirmed ? 600 : 400 }}>
                     {applicant.placementConfirmed
-                      ? `✓ Confirmed by the student as their OJT placement${applicant.placementConfirmedAt?.seconds ? ` on ${new Date(applicant.placementConfirmedAt.seconds * 1000).toLocaleDateString()}` : ""}.`
+                      ? `✓ Confirmed by the student as their OJT placement${applicant.placementConfirmedAt?.seconds ? ` on ${new Date(applicant.placementConfirmedAt.seconds * 1000).toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" })}` : ""}.`
                       : "Waiting for the student to confirm this as their OJT placement."}
                   </span>
                 )}
                 {applicant.status === "Withdrawn" && (
                   <span style={{ fontFamily: font.ui, ...type.helper, color: inkFaint, fontStyle: "italic" }}>
                     The student withdrew this application
-                    {applicant.withdrawnAt?.seconds ? ` on ${new Date(applicant.withdrawnAt.seconds * 1000).toLocaleDateString()}` : ""}
+                    {applicant.withdrawnAt?.seconds ? ` on ${new Date(applicant.withdrawnAt.seconds * 1000).toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" })}` : ""}
                     {applicant.statusBeforeWithdrawal ? ` (it was ${applicant.statusBeforeWithdrawal})` : ""}.
                     {applicant.withdrawalReason ? ` Reason: ${[applicant.withdrawalReason, applicant.withdrawalReasonDetails].filter(Boolean).join(" — ")}.` : ""}
                     {" "}It's kept on record and can no longer be changed.

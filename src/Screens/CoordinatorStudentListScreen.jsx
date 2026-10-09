@@ -157,7 +157,7 @@ const EXPORT_MODES = {
   history: { title: "Student Application History", unit: "application record", header: EXPORT_HEADER },
 };
 
-const fmtTs = (ts) => (ts?.seconds ? new Date(ts.seconds * 1000).toLocaleDateString() : "");
+const fmtTs = (ts) => (ts?.seconds ? new Date(ts.seconds * 1000).toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" }) : "");
 const companyNameOf = (app, companies) => companies.find(c => c.id === app.companyId)?.name || app.companyName || "Unknown company";
 
 // companyId -> standing, built from the companies already loaded on this
@@ -171,7 +171,7 @@ const placementNotes = (app, postsById) => {
   const notes = [];
   const closure = getPostClosure(app.postId, postsById);
   if (closure) notes.push(closure.label.toLowerCase());
-  if (app.affiliationWithdrawn) notes.push("program affiliation withdrawn");
+  if (app.affiliationWithdrawn) notes.push("company is no longer in the program");
   return notes;
 };
 const studentBase = (student) => [
@@ -256,8 +256,8 @@ const buildExportRows = (students, applicationsByStudent, companies, postsById =
           ? `company suspended${exportStanding.endDate ? ` until ${exportStanding.endDate}` : ""}`
           : "company blocked");
       }
-      if (app.affiliationWithdrawn) notes.push("program affiliation withdrawn");
-      else if (app.affiliationRestoredAt) notes.push("program affiliation withdrawn, then restored");
+      if (app.affiliationWithdrawn) notes.push("company is no longer in the program");
+      else if (app.affiliationRestoredAt) notes.push("company is no longer in the program, then restored");
       return [
         ...base,
         company?.name || app.companyName || "Unknown company",
@@ -322,7 +322,7 @@ const buildStudentPdf = async ({ groups, scope, total, mode = "history" }) => {
   doc.text(scope, margin, 62);
   const totalRows = groups.reduce((n, g) => n + g.rows.length, 0);
   doc.text(
-    `${total} student${total === 1 ? "" : "s"} in this list · ${totalRows} ${cfg.unit}${totalRows === 1 ? "" : "s"} · Generated ${new Date().toLocaleDateString()}`,
+    `${total} student${total === 1 ? "" : "s"} in this list · ${totalRows} ${cfg.unit}${totalRows === 1 ? "" : "s"} · Generated ${new Date().toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" })}`,
     margin, 75
   );
   doc.setTextColor(0);
@@ -874,21 +874,22 @@ const PlacementModal = ({ student, onClose, onNavigateToCompany, companies, onMe
                     notices.push(`${closure.detail}${["Pending", "In Review", "To Interview"].includes(app.status) ? " Application still open with the company." : ""}`);
                   }
                   if (app.affiliationWithdrawn) {
-                    notices.push(`Program affiliation withdrawn${app.affiliationWithdrawnLabel ? ` (${app.affiliationWithdrawnLabel})` : ""}${app.affiliationWithdrawnAt?.seconds ? ` on ${new Date(app.affiliationWithdrawnAt.seconds * 1000).toLocaleDateString()}` : ""}`);
+                    notices.push(`Company is no longer in the program${app.affiliationWithdrawnLabel ? ` (${app.affiliationWithdrawnLabel})` : ""}${app.affiliationWithdrawnAt?.seconds ? ` on ${new Date(app.affiliationWithdrawnAt.seconds * 1000).toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" })}` : ""}`);
                   }
                   if (!app.affiliationWithdrawn && app.affiliationRestoredAt?.seconds) {
-                    notices.push(`Program affiliation withdrawn${app.affiliationWithdrawnAt?.seconds ? ` on ${new Date(app.affiliationWithdrawnAt.seconds * 1000).toLocaleDateString()}` : ""} and restored on ${new Date(app.affiliationRestoredAt.seconds * 1000).toLocaleDateString()}`);
+                    notices.push(`Company is no longer in the program${app.affiliationWithdrawnAt?.seconds ? ` on ${new Date(app.affiliationWithdrawnAt.seconds * 1000).toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" })}` : ""} and restored on ${new Date(app.affiliationRestoredAt.seconds * 1000).toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" })}`);
                   }
                   if (app.status === "Accepted") {
                     const confirmedElsewhere = !app.placementConfirmed && confirmedOf(applications);
                     notices.push(app.placementConfirmed
-                      ? `✓ Confirmed by the student as their OJT placement${app.placementConfirmedAt?.seconds ? ` on ${new Date(app.placementConfirmedAt.seconds * 1000).toLocaleDateString()}` : ""}`
+                      ? `✓ Confirmed by the student as their OJT placement${app.placementConfirmedAt?.seconds ? ` on ${new Date(app.placementConfirmedAt.seconds * 1000).toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" })}` : ""}`
                       : confirmedElsewhere
                         ? `Accepted — student already has a confirmed placement at ${companies.find(c => c.id === confirmedElsewhere.companyId)?.name || confirmedElsewhere.companyName || "another company"}`
                         : "Accepted — waiting for the student to confirm it as their OJT placement");
                   }
                   if (app.status === "Withdrawn") {
-                    notices.push(`Withdrawn by the student${app.withdrawnAt?.seconds ? ` on ${new Date(app.withdrawnAt.seconds * 1000).toLocaleDateString()}` : ""}${app.statusBeforeWithdrawal ? ` — was ${app.statusBeforeWithdrawal}` : ""}${app.withdrawalReason ? ` · Reason: ${[app.withdrawalReason, app.withdrawalReasonDetails].filter(Boolean).join(" — ")}` : ""}`);
+                    notices.push(`Withdrawn by the student${app.withdrawnAt?.seconds ? ` on ${new Date(app.withdrawnAt.seconds * 1000).toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" })}` : ""}${app.statusBeforeWithdrawal ? ` — was ${app.statusBeforeWithdrawal}` : ""}`);
+                    if (app.withdrawalReason) notices.push(`Reason: ${[app.withdrawalReason, app.withdrawalReasonDetails].filter(Boolean).join(" — ")}`);
                   }
                   return (
                     <div key={app.id} style={{ background: color.wine800, border: `1px solid ${reason ? "#F0D48A" : line}`, borderRadius: radius.card, padding: "10px 14px" }}>
@@ -912,9 +913,13 @@ const PlacementModal = ({ student, onClose, onNavigateToCompany, companies, onMe
                       </div>
                     </div>
                     {notices.length > 0 && (
-                      <p style={{ fontFamily: font.ui, fontSize: "0.72rem", color: inkMuted, margin: "6px 0 0", lineHeight: 1.4 }}>
-                        {notices.join(" · ")}
-                      </p>
+                      <div style={{ margin: "6px 0 0", display: "flex", flexDirection: "column", gap: "2px" }}>
+                        {notices.map((n, i) => (
+                          <p key={i} style={{ fontFamily: font.ui, fontSize: "0.72rem", color: inkMuted, margin: 0, lineHeight: 1.4 }}>
+                            {n}
+                          </p>
+                        ))}
+                      </div>
                     )}
                     {reason && (
                       <p style={{ fontFamily: font.ui, fontSize: "0.72rem", fontWeight: 600, color: "#8a5a00", background: "#FFF3D6", border: "1px solid #F0D48A", borderRadius: "8px", padding: "4px 8px", margin: "6px 0 0", display: "inline-block" }}>
@@ -940,7 +945,7 @@ const PlacementModal = ({ student, onClose, onNavigateToCompany, companies, onMe
                     )}
                     {app.status === "Accepted" && app.coordinatorReviewedAt?.seconds && (
                       <p style={{ fontFamily: font.ui, fontSize: "0.72rem", color: "#2a7a2a", margin: "6px 0 0" }}>
-                        ✓ Placement reviewed on {new Date(app.coordinatorReviewedAt.seconds * 1000).toLocaleDateString()}
+                        ✓ Placement reviewed on {new Date(app.coordinatorReviewedAt.seconds * 1000).toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" })}
                       </p>
                     )}
                     </div>
@@ -1636,7 +1641,9 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
                     {group.rows.length} student{group.rows.length !== 1 ? "s" : ""}
                   </span>
                 </div>
-                {group.rows.map(renderStudentRow)}
+                <div className="sp-rows">
+                  {group.rows.map(renderStudentRow)}
+                </div>
               </section>
             ))}
           </div>
