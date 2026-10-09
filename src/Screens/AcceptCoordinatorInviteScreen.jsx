@@ -3,15 +3,16 @@ import { useSearchParams, useNavigate } from "react-router-dom";
 import { getCoordinatorInvite, acceptCoordinatorInvite } from "./AuthService";
 
 import logo from "../icons/ojtern.png";
+import { color } from "./theme";
 
-const red     = "#8B0000";
-const darkRed = "#590101";
-const fieldBg = "#7A4F4F";
+const red     = color.blush100;
+const darkRed = color.ink;
+const fieldBg = color.wine700;
 
 const fieldStyle = {
   width: "100%", padding: "10px 16px",
   background: fieldBg, border: "none", borderRadius: "20px",
-  color: "white", fontSize: "0.88rem",
+  color: color.ink, fontSize: "0.88rem",
   fontFamily: "'Kufam', sans-serif", outline: "none",
   boxSizing: "border-box",
 };
@@ -19,17 +20,17 @@ const fieldStyle = {
 const labelStyle = {
   fontFamily: "'Kufam', sans-serif",
   fontWeight: 700, fontSize: "0.88rem",
-  color: "#222", marginBottom: "4px", display: "block",
+  color: color.ink, marginBottom: "4px", display: "block",
 };
 
 const EyeIcon = ({ show, onClick }) => (
   <span onClick={onClick} style={{ position: "absolute", right: "14px", top: "50%", transform: "translateY(-50%)", cursor: "pointer", display: "flex", alignItems: "center" }}>
     {show ? (
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={color.inkMuted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
       </svg>
     ) : (
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={color.inkMuted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
         <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
         <line x1="1" y1="1" x2="23" y2="23"/>
@@ -60,10 +61,10 @@ const PasswordChecklist = ({ password }) => {
         const passed = rule.test(password);
         return (
           <div key={rule.key} style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-            <span style={{ fontSize: "0.78rem", fontWeight: 700, color: passed ? "#2a7a2a" : "#c0392b", width: "12px", flexShrink: 0 }}>
+            <span style={{ fontSize: "0.78rem", fontWeight: 700, color: passed ? color.success : color.danger, width: "12px", flexShrink: 0 }}>
               {passed ? "✓" : "✗"}
             </span>
-            <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.74rem", color: passed ? "#2a7a2a" : "#888" }}>
+            <span style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.74rem", color: passed ? color.success : color.inkMuted }}>
               {rule.label}
             </span>
           </div>
@@ -186,13 +187,13 @@ const AcceptCoordinatorInviteScreen = () => {
   return (
     <div style={{
       width: "100vw", minHeight: "100vh",
-      background: "linear-gradient(180deg, #A32424 0%, #320000 100%)",
+      background: `linear-gradient(180deg, ${color.blush200} 0%, ${color.blush50} 100%)`,
       display: "flex", alignItems: "center", justifyContent: "center",
       padding: "24px",
     }}>
       <div style={{
         width: "100%", maxWidth: "440px",
-        background: "white", borderRadius: "18px",
+        background: color.white, borderRadius: "18px",
         padding: "32px 28px", boxSizing: "border-box",
       }}>
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginBottom: "20px" }}>
@@ -201,7 +202,7 @@ const AcceptCoordinatorInviteScreen = () => {
         </div>
 
         {status === "loading" && (
-          <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem", color: "#555", textAlign: "center" }}>
+          <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.9rem", color: color.inkMuted, textAlign: "center" }}>
             Verifying your invitation…
           </p>
         )}
@@ -211,12 +212,12 @@ const AcceptCoordinatorInviteScreen = () => {
             <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.3rem", color: red, marginBottom: "8px", textAlign: "center" }}>
               Invalid or Expired Invitation
             </p>
-            <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#555", textAlign: "center", marginBottom: "20px" }}>
+            <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: color.inkMuted, textAlign: "center", marginBottom: "20px" }}>
               {loadError}
             </p>
             <button
               onClick={() => navigate("/signin")}
-              style={{ width: "100%", padding: "12px", borderRadius: "20px", background: red, color: "white", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.9rem", cursor: "pointer" }}
+              style={{ width: "100%", padding: "12px", borderRadius: "20px", background: red, color: color.white, border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.9rem", cursor: "pointer" }}
             >
               Go to Sign In
             </button>
@@ -228,12 +229,12 @@ const AcceptCoordinatorInviteScreen = () => {
             <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.3rem", color: red, marginBottom: "8px", textAlign: "center" }}>
               You're All Set!
             </p>
-            <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#555", textAlign: "center", marginBottom: "20px" }}>
+            <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: color.inkMuted, textAlign: "center", marginBottom: "20px" }}>
               Your OJT Coordinator account has been created. You can now sign in with your email and the password you just set.
             </p>
             <button
               onClick={() => navigate("/signin")}
-              style={{ width: "100%", padding: "12px", borderRadius: "20px", background: red, color: "white", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.9rem", cursor: "pointer" }}
+              style={{ width: "100%", padding: "12px", borderRadius: "20px", background: red, color: color.white, border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.9rem", cursor: "pointer" }}
             >
               Go to Sign In
             </button>
@@ -245,25 +246,25 @@ const AcceptCoordinatorInviteScreen = () => {
             <p style={{ fontFamily: "'Jersey 25', sans-serif", fontSize: "1.3rem", color: red, marginBottom: "8px", textAlign: "center" }}>
               Coordinator Invitation
             </p>
-            <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#555", textAlign: "center", marginBottom: "20px" }}>
+            <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: color.inkMuted, textAlign: "center", marginBottom: "20px" }}>
               {(INVITE_COPY[invite.type] || INVITE_COPY.add)(invite)}
             </p>
 
             <label style={labelStyle}>Full Name:</label>
             <input value={name} onChange={e => setName(e.target.value)} onKeyDown={handleKeyDown} placeholder="Full Name" style={{ ...fieldStyle, marginBottom: "2px" }} />
-            {errors.name && <p style={{ color: "red", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif", marginBottom: "6px" }}>{errors.name}</p>}
+            {errors.name && <p style={{ color: color.danger, fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif", marginBottom: "6px" }}>{errors.name}</p>}
 
             <label style={{ ...labelStyle, marginTop: "10px" }}>Set Password:</label>
             <PasswordInput value={password} onChange={e => setPassword(e.target.value)} onKeyDown={handleKeyDown} />
-            {errors.password && <p style={{ color: "red", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif", marginBottom: "6px" }}>{errors.password}</p>}
+            {errors.password && <p style={{ color: color.danger, fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif", marginBottom: "6px" }}>{errors.password}</p>}
             <PasswordChecklist password={password} />
 
             <label style={{ ...labelStyle, marginTop: "10px" }}>Confirm Password:</label>
             <PasswordInput value={confirmPassword} onChange={e => setConfirm(e.target.value)} onKeyDown={handleKeyDown} />
-            {errors.confirmPassword && <p style={{ color: "red", fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif", marginBottom: "6px" }}>{errors.confirmPassword}</p>}
+            {errors.confirmPassword && <p style={{ color: color.danger, fontSize: "0.74rem", fontFamily: "'Kufam', sans-serif", marginBottom: "6px" }}>{errors.confirmPassword}</p>}
 
             {submitError && (
-              <p style={{ color: "red", fontSize: "0.8rem", fontFamily: "'Kufam', sans-serif", textAlign: "center", marginTop: "12px" }}>
+              <p style={{ color: color.danger, fontSize: "0.8rem", fontFamily: "'Kufam', sans-serif", textAlign: "center", marginTop: "12px" }}>
                 ⚠️ {submitError}
               </p>
             )}
@@ -271,7 +272,7 @@ const AcceptCoordinatorInviteScreen = () => {
             <button
               onClick={handleSubmit}
               disabled={submitting}
-              style={{ width: "100%", padding: "12px", borderRadius: "20px", background: red, color: "white", border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.9rem", cursor: submitting ? "not-allowed" : "pointer", opacity: submitting ? 0.7 : 1, marginTop: "18px" }}
+              style={{ width: "100%", padding: "12px", borderRadius: "20px", background: red, color: color.white, border: "none", fontFamily: "'Kufam', sans-serif", fontWeight: 700, fontSize: "0.9rem", cursor: submitting ? "not-allowed" : "pointer", opacity: submitting ? 0.7 : 1, marginTop: "18px" }}
             >
               {submitting ? "Setting Up Account…" : "Accept & Create Account"}
             </button>
