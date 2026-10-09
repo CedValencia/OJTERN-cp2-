@@ -1591,20 +1591,8 @@ const PersonalInfoScreen = ({ user, onBack, onSaved, mandatory = false, onEditin
     if (emailErr) e.email = emailErr;
     if (!address.trim()) e.address = "Address is required.";
 
-    const newDeptErrors = deptSelections.map(entry => {
-      const err = {};
-      if (!entry.department) err.department = true;
-      if (entry.department && !entry.program) err.program = true;
-      if (entry.department && entry.program) {
-        const specs = (departments[entry.department]?.programs ?? []).find(p => p.name === entry.program)?.specializations ?? [];
-        if (specs.length > 0 && !entry.specialization) err.specialization = true;
-      }
-      return err;
-    });
-    setDeptErrors(newDeptErrors);
-    const hasDeptError = newDeptErrors.some(e => Object.keys(e).length > 0);
     setErrors(e);
-    return Object.keys(e).length === 0 && !hasDeptError;
+    return Object.keys(e).length === 0;
   };
 
   const handleSave = async () => {
@@ -1634,16 +1622,8 @@ const PersonalInfoScreen = ({ user, onBack, onSaved, mandatory = false, onEditin
     setSaving(true);
     setSaveError("");
     try {
-      // Sanitize deptSelections — replace any undefined/null with empty string
-      const cleanDeptSelections = deptSelections.map(entry => ({
-        department:     entry.department     || "",
-        program:        entry.program        || "",
-        specialization: entry.specialization || "",
-      }));
-
       const payload = {
         name:           name          || "",
-        deptSelections: cleanDeptSelections,
         sex:            sex           || "",
         contact:        contact       || "",
         // `email` intentionally excluded — see handleSave/saveNonEmailFields split above.
@@ -1658,7 +1638,7 @@ const PersonalInfoScreen = ({ user, onBack, onSaved, mandatory = false, onEditin
       // in the mandatory first-login flow, immediately unmounts this
       // screen) once the coordinator has dismissed it — otherwise the
       // modal never gets a chance to render.
-      setSavedPayload(payload);
+      setSavedPayload({ ...payload, deptSelections });
       setShowSaveSuccess(true);
     } catch (err) {
       setSaveError(err.message || "Your information didn't save. Try again.");
@@ -1729,21 +1709,17 @@ const PersonalInfoScreen = ({ user, onBack, onSaved, mandatory = false, onEditin
             )}
           </div>
 
-          {/* Department */}
+          {/* Department — read-only; can't be changed from Personal Information */}
           <div id="pinfo-dept" className="cap-info-row">
             <span style={rowLabel}>Department</span>
-            {editing ? (
-              <MultiDepartmentPicker selections={deptSelections} onChange={v => { setDeptSelections(v); setDeptErrors([]); }} readOnly={false} errors={deptErrors} departments={departments} departmentNames={departmentNames} />
+            {deptSelections.length === 1 ? (
+              <p style={rowValue}>{deptViewLabel(deptSelections[0]) || "—"}</p>
             ) : (
-              deptSelections.length === 1 ? (
-                <p style={rowValue}>{deptViewLabel(deptSelections[0]) || "—"}</p>
-              ) : (
-                <ul style={{ margin: "2px 0 0", paddingLeft: "18px" }}>
-                  {deptSelections.map((entry, i) => (
-                    <li key={i} style={{ fontFamily: font.ui, ...type.body, color: ink, marginBottom: "2px" }}>{deptViewLabel(entry) || "—"}</li>
-                  ))}
-                </ul>
-              )
+              <ul style={{ margin: "2px 0 0", paddingLeft: "18px" }}>
+                {deptSelections.map((entry, i) => (
+                  <li key={i} style={{ fontFamily: font.ui, ...type.body, color: ink, marginBottom: "2px" }}>{deptViewLabel(entry) || "—"}</li>
+                ))}
+              </ul>
             )}
           </div>
 
