@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from "react";
 import reportIcon from "../icons/report.png";
 import { collection, onSnapshot, query, where, addDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "./firebase";
-import { useEligibleOjtPosts } from "./useEligibleOjtPosts";
+import { useVisibleOjtPosts } from "./useVisibleOjtPosts";
 import { normalizeScope } from "./affiliationService";
 import { color, font, type, space, radius, shadow, ease } from "./theme";
 
@@ -258,9 +258,10 @@ export const ALL_COMPANIES = [];
 
 // ── Hook: fetch live OJT posts from Firestore ─────────────────────────────────
 const useOjtPosts = () => {
-  // Live posts, trimmed to programs the company is still APPROVED for — a
-  // withdrawn program's post never reaches this screen. See useEligibleOjtPosts.js.
-  const { posts, loading } = useEligibleOjtPosts();
+  // Live posts, trimmed to programs the company is still APPROVED for (a
+  // withdrawn program's post never reaches this screen) and with the posts of
+  // BLOCKED companies removed. See useVisibleOjtPosts.js / useEligibleOjtPosts.js.
+  const { posts, loading } = useVisibleOjtPosts();
   return { posts, loading };
 };
 

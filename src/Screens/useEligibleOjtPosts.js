@@ -13,6 +13,10 @@
 // post's `courseSelections` / `departments` down to approved programs only.
 // Posts left with no approved program are dropped from the result.
 //
+// A BLOCKED company's posts are dropped too — read live from the same company
+// documents, so blocking a company removes its posts from an open screen right
+// away and unblocking brings them back.
+//
 // The untrimmed targets stay available as `post.allCourseSelections`.
 // ─────────────────────────────────────────────────────────────────────────────
 import { useEffect, useMemo, useState } from "react";
@@ -21,6 +25,11 @@ import { db } from "./firebase";
 import { eligiblePostTargets } from "./affiliationService";
 
 const CHUNK = 30; // Firestore "in" limit
+
+// A company is blocked when its own document says so — the same test the apply
+// form uses (StudentApplicationScreen → companyAvailability).
+export const isCompanyBlocked = (companyData) =>
+  String(companyData?.status || "").toLowerCase() === "blocked";
 
 export const useEligibleOjtPosts = () => {
   const [rawPosts, setRawPosts] = useState([]);
@@ -87,6 +96,7 @@ export const useEligibleOjtPosts = () => {
     if (!post.companyId || unreadable[post.companyId]) return [post];
     if (!(post.companyId in companiesById)) return []; // still loading
     const company = companiesById[post.companyId];
+    if (isCompanyBlocked(company)) return []; // blocked company → its posts disappear
     const eligible = eligiblePostTargets(post, company);
     if (eligible.length === 0) return [];
     const hasCourseSelections = Array.isArray(post.courseSelections) && post.courseSelections.length > 0;

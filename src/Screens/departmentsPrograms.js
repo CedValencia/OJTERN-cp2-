@@ -48,7 +48,7 @@ export const DEFAULT_DEPARTMENTS = {
     programs: [{ name: "Bachelor of Arts in Political Science", specializations: [] }],
   },
   "College of Education": {
-    abbr: "CE",
+    abbr: "CED",
     programs: [
       { name: "Bachelor of Elementary Education", specializations: [] },
       { name: "BS Education — Major in English", specializations: [] },

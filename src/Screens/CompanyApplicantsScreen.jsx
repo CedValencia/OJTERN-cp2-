@@ -40,16 +40,16 @@ const onPanelDim = color.onWineMuted;
 const CLOUDINARY_CLOUD_NAME    = "doalndt5l";
 const CLOUDINARY_UPLOAD_PRESET = "ojtern_docs";
 
-// Concerns a company can raise about an applicant. Mirrors the student-side
-// flow in StudentFindCompanyScreen, but the categories describe applicant
-// behaviour rather than employer behaviour.
+// Concerns a company can raise about an applicant. Same categories as every other report form (student → company in Find Company,
+// company → student from chat), so a coordinator sees one consistent set of
+// concerns whoever filed the report.
 const reportCategories = [
-  { label: "Falsified Requirements", description: "Submitted documents, endorsements, or credentials that appear forged, edited, or that belong to someone else.", details: ["Edited or forged endorsement letter", "Credentials belonging to another student", "Altered grades or certificates"] },
-  { label: "Misrepresentation", description: "Claimed a program, skill set, or status that does not match the applicant's actual record.", details: ["Wrong program or college claimed", "Fabricated skills or experience", "Applying on behalf of someone else"] },
-  { label: "Harassment or Abusive Conduct", description: "Threatening, abusive, or sexually inappropriate behaviour toward staff during the application or interview process.", details: ["Abusive or threatening messages", "Sexually inappropriate conduct", "Repeated unwanted contact"] },
-  { label: "No-show or Unprofessional Conduct", description: "Repeatedly missing scheduled interviews or agreed commitments without notice.", details: ["Missed interviews without notice", "Backed out after accepting", "Unresponsive after being scheduled"] },
-  { label: "Spam or Fake Application", description: "Bulk, automated, or non-serious applications, or an account that does not appear to be a real student.", details: ["Placeholder or nonsense application message", "Duplicate applications", "Account appears fake"] },
-  { label: "Others", description: "Any other concern not listed above. Please provide a detailed description of the issue.", details: [] },
+  { label: "Fraud and Scam", description: "Job scams are fraudulent schemes where scammers impersonate employers to steal money, personal information, or coerce victims into fake work activities.", details: ["Fake job postings requiring payment", "Identity theft", "Misrepresentation of company"] },
+  { label: "Discrimination", description: "Discrimination involves unfair treatment based on race, gender, age, religion, disability, or other protected characteristics.", details: ["Racial discrimination", "Gender-based bias", "Age discrimination", "Religious intolerance"] },
+  { label: "Sexual Harassment", description: "Sexual harassment includes any unwelcome sexual advances or other verbal or physical conduct of a sexual nature.", details: ["Unwanted physical contact", "Verbal harassment", "Hostile work environment", "Quid pro quo harassment"] },
+  { label: "Harmful Misinformation", description: "Spreading false information about OJT programs, company practices, or student requirements.", details: ["False program descriptions", "Fake requirements", "Misleading slot information"] },
+  { label: "Workplace Misconduct", description: "Behavior that violates company policies or professional standards, including unsafe working conditions.", details: ["Unsafe working conditions", "Violation of OJT agreement", "Forced overtime", "Unpaid work"] },
+  { label: "Others", description: "Any other concern not listed above. Please provide a detailed description.", details: [] },
 ];
 
 // A company may only ever report a student. Coordinators are school staff and
@@ -676,18 +676,33 @@ const ReportApplicantModal = ({ applicant, reporter, onClose, onSubmitted }) => 
     try {
       const filesData = await Promise.all(attachedFiles.map(a => uploadToCloudinary(a.file)));
 
+      const studentName = buildFullName(applicant);
       const reportDoc = {
+        // The coordinator's Reports list reads company / companyId / subjectType /
+        // subjectId / subjectName (see CoordinatorReportCompanyScreen) — a report
+        // without them has no name, no scope and was never reaching that list.
+        // For a student report, companyId + subjectId hold the STUDENT's uid,
+        // same as a report filed from chat (CompanyMessagesScreen.handleReport).
+        company:        studentName,
+        companyId:      applicant.studentId || "",
+        subjectType:    "student",
+        subjectId:      applicant.studentId || "",
+        subjectName:    studentName,
+        // Kept so a coordinator can scope it by the student's department.
+        college:        applicant.college || "",
+        program:        applicant.program || "",
         // `applicant.id` is the applications document id, so the student's own
         // uid comes from `studentId` — the same distinction handleMessage makes.
         studentId:      applicant.studentId || "",
         applicationId:  applicant.id || "",
-        reportedName:   buildFullName(applicant),
+        reportedName:   studentName,
         reportedRole:   "student",
         concern:        selected?.label || "Others",
         description,
         attachedFile:   filesData[0] || null, // first file, kept for older readers
         attachedFiles:  filesData,
         reportedBy:     reporter?.uid || "",
+        reporterId:     reporter?.uid || "",
         reporterName:   applicant.companyName || reporter?.companyName || reporter?.name || "Unknown",
         reporterRole:   "company",
         date:           new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),

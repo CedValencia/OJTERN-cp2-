@@ -1096,6 +1096,9 @@ const CompanyMessagesScreen = ({
         attachedFiles: uploadedFiles,
         status:       "pending",
         reporterId:   user?.uid || "",
+        // The coordinator's "your report was reviewed" notice goes to `reportedBy`
+        // (notifyReporter) — without it a chat report was never answered.
+        reportedBy:   user?.uid || "",
         reporterName: myName,
         reporterRole: "company",
         createdAt:    serverTimestamp(),

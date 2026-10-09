@@ -799,6 +799,12 @@ export const ReportDetailModal = ({ report, onClose, coordinatorUid, coordinator
         correctedAt: serverTimestamp(),
         correctedBy: coordinatorUid || "",
       });
+      // The reporter was last told "Require Correction"; tell them it's now closed.
+      notifyReporter(report.reportedBy, report.reporterRole, {
+        title: "Your report was resolved",
+        body: `${report.company} made the required correction, and your report is now closed.`,
+        reportId: report.id,
+      }).catch(err => console.error("Failed to notify the reporter:", err));
       logActivity(
         coordinatorUid,
         "report_correction_confirmed",
@@ -1663,6 +1669,20 @@ const clampSuspensionDays = (value) => {
 // scope fails closed by design), which meant a serious report about an
 // unassigned company could sit unread — the second tab makes them reachable
 // without mixing them into the default view.
+// Reports about companies and reports about students share one collection; the
+// list keeps them apart. Older reports have no subjectType and were all about
+// companies.
+// Reports filed from the company's Applicants screen BEFORE subjectType existed
+// carry `reportedRole: "student"` (and the student's `studentId`) instead, so
+// those are recognised too rather than landing under Companies with no name.
+const subjectOf = (r) => {
+  const t = String(r?.subjectType || "").toLowerCase();
+  if (t) return t === "student" ? "student" : "company";
+  return String(r?.reportedRole || "").toLowerCase() === "student" ? "student" : "company";
+};
+// Name to show: the new fields first, then what older reports used.
+const reportedNameOf = (r) => r?.subjectName || r?.company || r?.reportedName || "—";
+
 const CoordinatorReportCompanyScreen = ({ reports = [], otherReports = [], onViewReport }) => {
   // Open on "All reports" when this coordinator's own industries have nothing:
   // an empty default list reads as "no reports exist", which is exactly the
@@ -1670,9 +1690,23 @@ const CoordinatorReportCompanyScreen = ({ reports = [], otherReports = [], onVie
   const [tab, setTab] = useState(() => (reports.length === 0 && otherReports.length > 0 ? "all" : "mine"));
   const [statusFilter, setStatusFilter] = useState("open");
   const [search, setSearch]             = useState("");
+  // Companies and students are listed separately. Open on whichever has reports
+  // (companies first) so the default view is never an empty list by accident.
+  const [subject, setSubject] = useState(() => {
+    const everything = [...reports, ...otherReports];
+    return everything.some(r => subjectOf(r) === "company") || !everything.some(r => subjectOf(r) === "student")
+      ? "company" : "student";
+  });
+  const isStudentList = subject === "student";
 
-  const inScope = tab === "all" ? [...reports, ...otherReports] : reports;
-  const pendingOther = otherReports.filter(r => r.status !== "resolved" && r.status !== "dismissed").length;
+  const scoped  = tab === "all" ? [...reports, ...otherReports] : reports;
+  const inScope = scoped.filter(r => subjectOf(r) === subject);
+  const ofSubject = (list) => list.filter(r => subjectOf(r) === subject);
+  const pendingOther = ofSubject(otherReports).filter(r => r.status !== "resolved" && r.status !== "dismissed").length;
+  const subjectCounts = {
+    company: scoped.filter(r => subjectOf(r) === "company").length,
+    student: scoped.filter(r => subjectOf(r) === "student").length,
+  };
 
   // Default to the work queue — Pending and Awaiting correction — instead of a
   // single pile where closed reports bury the ones still needing a decision.
@@ -1682,7 +1716,7 @@ const CoordinatorReportCompanyScreen = ({ reports = [], otherReports = [], onVie
     .filter(r => statusFilter === "all"
       || (statusFilter === "open" && isOpenReport(r))
       || r.status === statusFilter)
-    .filter(r => !q || [r.company, r.concern, r.subjectName].filter(Boolean)
+    .filter(r => !q || [r.company, r.concern, r.subjectName, r.reportedName, r.reporterName].filter(Boolean)
       .some(v => String(v).toLowerCase().includes(q)))
     // Oldest open report first: the one that has waited longest needs a
     // decision most. Closed ones read better newest-first.
@@ -1736,11 +1770,40 @@ const CoordinatorReportCompanyScreen = ({ reports = [], otherReports = [], onVie
         </div>
       </div>
 
+      {/* Who the report is about: kept apart because they're handled differently
+          (a company can be suspended or blocked; a student can't). */}
+      <div role="tablist" aria-label="Reported party" style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "14px" }}>
+        {[
+          { key: "company", label: "Companies", count: subjectCounts.company },
+          { key: "student", label: "Students",  count: subjectCounts.student },
+        ].map(t => {
+          const on = subject === t.key;
+          return (
+            <button
+              key={t.key}
+              role="tab"
+              aria-selected={on}
+              onClick={() => setSubject(t.key)}
+              style={{
+                border: `1.5px solid ${on ? panel : lineStrong}`, background: on ? panel : color.white,
+                color: on ? color.white : inkBody, borderRadius: "999px",
+                padding: "7px 16px", cursor: "pointer", fontFamily: font.ui,
+                fontSize: "0.8rem", fontWeight: 600,
+                display: "inline-flex", alignItems: "center", gap: "8px",
+              }}
+            >
+              {t.label}
+              <span style={{ background: on ? "rgba(255,255,255,0.22)" : color.wine700, color: on ? color.white : inkMuted, borderRadius: "999px", padding: "1px 8px", fontSize: "0.72rem", fontWeight: 700 }}>{t.count}</span>
+            </button>
+          );
+        })}
+      </div>
+
       {otherReports.length > 0 && (
         <div role="tablist" aria-label="Report scope" style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "14px" }}>
           {[
-            { key: "mine", label: "My industries", count: reports.length },
-            { key: "all",  label: "All reports",   count: reports.length + otherReports.length },
+            { key: "mine", label: "My industries", count: ofSubject(reports).length },
+            { key: "all",  label: "All reports",   count: ofSubject(reports).length + ofSubject(otherReports).length },
           ].map(t => {
             const on = tab === t.key;
             return (
@@ -1772,10 +1835,11 @@ const CoordinatorReportCompanyScreen = ({ reports = [], otherReports = [], onVie
           queue from closed cases is just a pile that grows. */}
       <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center", marginBottom: "14px" }}>
         {[
+          { key: "all",       label: "All",          count: inScope.length },
           { key: "open",      label: "Needs action", count: statusCounts.open },
           { key: "resolved",  label: "Resolved",     count: statusCounts.resolved },
           { key: "dismissed", label: "Dismissed",    count: statusCounts.dismissed },
-          { key: "all",       label: "All",          count: inScope.length },
+          ,
         ].map(f => {
           const on = statusFilter === f.key;
           return (
@@ -1801,7 +1865,7 @@ const CoordinatorReportCompanyScreen = ({ reports = [], otherReports = [], onVie
         <input
           value={search}
           onChange={e => setSearch(e.target.value)}
-          placeholder="Search company or concern"
+          placeholder={isStudentList ? "Search student or concern" : "Search company or concern"}
           aria-label="Search reports"
           style={{
             marginLeft: "auto", minWidth: "200px", flex: "0 1 260px",
@@ -1817,7 +1881,7 @@ const CoordinatorReportCompanyScreen = ({ reports = [], otherReports = [], onVie
           <table className="rc-table">
             <thead>
               <tr>
-                {["Reported Company", "Concern", "Date", "Status", "Action"].map(h => (
+                {[isStudentList ? "Reported Student" : "Reported Company", "Concern", "Date", "Status", "Action"].map(h => (
                   <th key={h} className="rc-th">{h}</th>
                 ))}
               </tr>
@@ -1826,7 +1890,7 @@ const CoordinatorReportCompanyScreen = ({ reports = [], otherReports = [], onVie
             <tbody>
               {shown.map((r, i) => (
                 <tr key={r.id || i}>
-                  <td className="rc-td">{r.company}</td>
+                  <td className="rc-td">{reportedNameOf(r)}</td>
                   <td className="rc-td">{r.concern}</td>
                   <td className="rc-td">{r.date}</td>
                   <td className="rc-td">
@@ -1858,7 +1922,7 @@ const CoordinatorReportCompanyScreen = ({ reports = [], otherReports = [], onVie
             <div key={r.id || i} className="rc-card">
               <div className="rc-card-top">
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <p className="rc-card-label">Reported Company</p>
+                  <p className="rc-card-label">{isStudentList ? "Reported Student" : "Reported Company"}</p>
                   <p
                     className="rc-card-value"
                     style={{
@@ -1867,7 +1931,7 @@ const CoordinatorReportCompanyScreen = ({ reports = [], otherReports = [], onVie
                       whiteSpace: "nowrap",
                     }}
                   >
-                    {r.company}
+                    {reportedNameOf(r)}
                   </p>
                 </div>
 

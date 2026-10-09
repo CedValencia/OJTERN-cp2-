@@ -103,6 +103,19 @@ const getFullName = (s) =>
   `${s.firstName} ${s.middleInitial ? s.middleInitial + " " : ""}${s.lastName}` +
   `${s.suffix && s.suffix !== "None" && s.suffix !== "N/A" ? " " + s.suffix : ""}`;
 
+// Alphabetical by last name, then first name, then middle initial — the usual
+// class-list order. localeCompare with sensitivity "base" ignores case and
+// accents ("de la Cruz" / "Dela Cruz", "Ñ"), and students missing a name sort last
+// within their group rather than throwing.
+const compareStudentNames = (a, b) => {
+  const cmp = (x, y) => {
+    const X = String(x || "").trim(), Y = String(y || "").trim();
+    if (!X || !Y) return X === Y ? 0 : X ? -1 : 1; // blank names sort last
+    return X.localeCompare(Y, undefined, { sensitivity: "base", numeric: true });
+  };
+  return cmp(a.lastName, b.lastName) || cmp(a.firstName, b.firstName) || cmp(a.middleInitial, b.middleInitial);
+};
+
 const getBestApplication = (apps) => {
   if (!apps || apps.length === 0) return null;
   for (const status of STATUS_PRIORITY) {
@@ -601,6 +614,43 @@ const StudentAvatar = ({ size = 42, userIcon: themedUserIcon = blackUserIcon }) 
 // Opens for ANY application, whatever happened to the post: shows the live
 // post when it still exists (expired, disabled or closed included — with a
 // label, never an Apply button), otherwise the snapshot saved at apply time.
+// Replaces window.alert(): same message, but styled like the rest of the app and
+// dismissible with OK, Esc, or a click outside.
+const NoticeModal = ({ title, message, onClose }) => {
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  return (
+    <div
+      onClick={onClose}
+      style={{ position: "fixed", inset: 0, background: "rgba(10,10,10,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1200, padding: "clamp(16px, 5vw, 24px)" }}
+    >
+      <div
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="notice-title"
+        aria-describedby="notice-message"
+        onClick={(e) => e.stopPropagation()}
+        style={{ background: color.white, borderRadius: radius.card, width: "100%", maxWidth: "400px", padding: "24px", boxShadow: "0 12px 40px rgba(0,0,0,0.25)" }}
+      >
+        <h2 id="notice-title" style={{ fontFamily: font.ui, fontSize: "clamp(1.05rem, 4vw, 1.25rem)", fontWeight: 600, color: ink, margin: 0 }}>{title}</h2>
+        <p id="notice-message" style={{ fontFamily: font.ui, ...type.helper, color: inkBody, margin: "10px 0 20px", lineHeight: 1.5 }}>{message}</p>
+        <div style={{ display: "flex", justifyContent: "flex-end" }}>
+          <button
+            autoFocus
+            onClick={onClose}
+            style={{ background: ink, color: color.white, border: "none", borderRadius: radius.pill, padding: "9px 26px", cursor: "pointer", fontFamily: font.ui, ...type.control }}
+          >
+            OK
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const PostRecordModal = ({ app, livePost, company, onClose }) => {
   // livePost: undefined = still loading, null = post no longer exists.
   const closure = livePost === undefined ? null : getPostClosure(app.postId, { [app.postId]: livePost });
@@ -1099,7 +1149,7 @@ const FilterPanel = ({ filters, setFilters, filterRef, coordinatorColleges = [],
 // this screen and the Students Account screen ended up showing different
 // people. So match on both forms until the data is cleaned up.
 // Firestore allows up to 10 values in an "in" clause, hence the slice.
-const useCollegeVariants = (coordinatorColleges) => {
+export const useCollegeVariants = (coordinatorColleges) => {
   const { departments, departmentNames } = useDepartmentsPrograms();
   return React.useMemo(() => {
     const abbrToFull = {}, fullToAbbr = {};
@@ -1128,6 +1178,8 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
   const [showFilter, setShowFilter]         = useState(false);
   const [showExport, setShowExport]         = useState(false);
   const [exportingPdf, setExportingPdf]     = useState(false);
+  // { title, message } while the export notice modal is open, else null.
+  const [notice, setNotice]                 = useState(null);
   // Which batch the export covers. "" = every batch (grouped by batch in the PDF).
   // Seeded from the on-screen batch filter each time the Export menu opens.
   const [exportBatch, setExportBatch]       = useState("");
@@ -1198,7 +1250,10 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
         // A missing isArchived field means active, which keeps every older
         // student record visible.
         .filter(r => r.isArchived !== true)
-        .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+        // Alphabetical (last name, first name). Everything downstream — the
+        // on-screen list, the batch groups, and the PDF export — keeps this
+        // order, because filtering never reorders.
+        .sort(compareStudentNames);
       setStudents(rows);
       setLoadingStudents(false);
 
@@ -1318,9 +1373,9 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
         return { label: batchLabelOf(key), studentCount: studs.length, rows: builder(studs, applicationsByStudent, companies, postsById) };
       }).filter(g => g.rows.length > 0);
       if (groups.length === 0) {
-        alert(mode === "final"
-          ? "None of the students shown has an accepted placement yet."
-          : "There's nothing to export for the students shown.");
+        setNotice(mode === "final"
+          ? { title: "No accepted placements yet", message: "None of the students shown has an accepted placement yet." }
+          : { title: "Nothing to export", message: "There's nothing to export for the students shown." });
         return;
       }
       let scope = describeExportScope({ ...filters, batch: exportBatch }, search);
@@ -1334,7 +1389,7 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
       // chunk load on a bad connection — silence here would look like a dead
       // button with no way to tell whether anything happened.
       console.error("PDF export failed:", err);
-      alert("Couldn't generate the PDF. Please check your connection and try again.");
+      setNotice({ title: "Couldn't generate the PDF", message: "Please check your connection and try again." });
     } finally {
       setExportingPdf(false);
     }
@@ -1604,6 +1659,8 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
           </div>
         )}
       </div>
+
+      {notice && <NoticeModal title={notice.title} message={notice.message} onClose={() => setNotice(null)} />}
 
       {viewingStudent && (
         <PlacementModal

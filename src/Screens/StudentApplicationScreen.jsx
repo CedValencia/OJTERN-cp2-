@@ -3453,14 +3453,14 @@ export const ApplyModal = ({ company, onClose, onSuccessClose, onSubmit, user })
   const [unavailable, setUnavailable] = useState(null);
 
   // The specific OJT post being applied to — a student may apply to more
-  // than one post at the same company, so the duplicate check below scopes
-  // to postId, not just companyId.
+  // than one post at the same company only if the earlier one is over (see
+  // loadAvailability), so the duplicate check below scopes to postId.
   const targetPostId = company?.id || "";
 
   // ── Prevent duplicate applications: check if this student already has
   //    an application on file for this specific post before letting them
   //    apply again. (Applying to a different post at the same company is
-  //    allowed — only re-applying to the same post is blocked.)
+  //    handled separately in loadAvailability: one live application per company.)
   useEffect(() => {
     let cancelled = false;
     const checkExistingApplication = async () => {
@@ -3472,8 +3472,10 @@ export const ApplyModal = ({ company, onClose, onSuccessClose, onSubmit, user })
           where("postId", "==", targetPostId)
         );
         const snap = await getDocs(dupQ);
-        // A withdrawn application doesn't count — the student may re-apply.
-        if (!cancelled) setAlreadyApplied(snap.docs.some(d => d.data().status !== WITHDRAWN));
+        // A withdrawn or declined application doesn't count — the student may
+        // apply to this post again. Anything else (Pending, In Review, To
+        // Interview, Accepted) is still live.
+        if (!cancelled) setAlreadyApplied(snap.docs.some(d => d.data().status !== WITHDRAWN && d.data().status !== "Declined"));
       } catch (err) {
         console.error("Failed to check existing application:", err);
       } finally {
@@ -3504,15 +3506,63 @@ export const ApplyModal = ({ company, onClose, onSuccessClose, onSubmit, user })
   };
 
   const loadAvailability = async (formCollege, formProgram) => {
-    // A confirmed OJT placement ends the student's search — no new applications.
     if (user?.uid) {
       const mine = await getDocs(query(collection(db, "applications"), where("studentId", "==", user.uid)));
-      const confirmed = mine.docs.map(d => d.data()).find(a => a.status === "Accepted" && a.placementConfirmed === true);
+      const myApps = mine.docs.map(d => d.data());
+
+      // A confirmed OJT placement ends the student's search — no new applications.
+      // …unless that company has since been BLOCKED: the placement can't go
+      // ahead, so the student is released and may apply elsewhere. A suspension
+      // is temporary and the placement comes back, so it still counts.
+      let confirmed = myApps.find(a => a.status === "Accepted" && a.placementConfirmed === true);
+      if (confirmed?.companyId) {
+        try {
+          const cs = await getDoc(doc(db, "companies", confirmed.companyId));
+          if (standingOf(cs.exists() ? cs.data() : null, "company").state === "blocked") confirmed = null;
+        } catch (err) {
+          console.error("Failed to check the placement company's standing:", err);
+        }
+      }
       if (confirmed) {
         return {
           ok: false,
           title: "You Already Have an OJT Placement",
           message: `You already have a confirmed OJT placement at ${confirmed.companyName || "a company"}. If you need to change it, talk to your OJT coordinator.`,
+        };
+      }
+
+      // Once a company has ACCEPTED the student, they can't apply to ANY post
+      // of that company. Checked first so it wins over the generic message.
+      const acceptedHere = targetCompanyId && myApps.find(a =>
+        a.companyId === targetCompanyId && a.status === "Accepted"
+      );
+      if (acceptedHere) {
+        const name = acceptedHere.companyName || company?.name || company?.companyName || "This company";
+        return {
+          ok: false,
+          title: "Already Accepted by This Company",
+          message: `${name} has already accepted your application, so you can't apply to any of their posts.`,
+        };
+      }
+
+      // One post per company. A student with a live application to one post
+      // can't apply to another post of the SAME company. Only live ones count:
+      // Withdrawn and Declined applications are over (a Declined one can't be
+      // withdrawn, so counting it would lock the student out for good). The same
+      // post is left to the "already applied" check, which has its own message,
+      // and which also lets a declined student apply to that post again.
+      const atThisCompany = targetCompanyId && myApps.find(a =>
+        a.companyId === targetCompanyId &&
+        a.postId !== targetPostId &&
+        a.status !== WITHDRAWN &&
+        a.status !== "Declined"
+      );
+      if (atThisCompany) {
+        const name = atThisCompany.companyName || company?.name || company?.companyName || "this company";
+        return {
+          ok: false,
+          title: "Already Applied to This Company",
+          message: `You already have an application at ${name} for another post. Students can apply to only one post per company. To apply to this post instead, withdraw your other application first.`,
         };
       }
     }
@@ -3589,7 +3639,7 @@ export const ApplyModal = ({ company, onClose, onSuccessClose, onSubmit, user })
         where("postId", "==", targetPostId)
       );
       const dupSnap = await getDocs(dupQ);
-      if (dupSnap.docs.some(d => d.data().status !== WITHDRAWN)) {
+      if (dupSnap.docs.some(d => d.data().status !== WITHDRAWN && d.data().status !== "Declined")) {
         setAlreadyApplied(true);
         setSubmitError("You've already applied to this post.");
         setSubmitting(false);
@@ -3690,7 +3740,7 @@ export const ApplyModal = ({ company, onClose, onSuccessClose, onSubmit, user })
               </p>
               <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, lineHeight: 1.6 }}>
                 You can only submit one application per post.<br />
-                You can still apply to other open posts at this company.<br />
+                Only one post per company can be applied to, so you can't apply to this company's other posts while this application is active.<br />
                 Check your Applications list to view its current status.
               </p>
             </div>
@@ -3855,7 +3905,7 @@ const ViewApplicationModal = ({ application, standing, onClose, onSave, onEditin
           </div>
         )}
 
-        {application.status === "Accepted" && application.placementConfirmed && (
+        {application.status === "Accepted" && application.placementConfirmed && companyStanding.state !== "blocked" && (
           <div role="note" style={{ margin: "12px 18px 0", padding: "8px 14px", borderRadius: "10px", background: "#EAF6EE", border: "1px solid #BFE3CB", fontFamily: font.ui, fontSize: "0.8rem", lineHeight: 1.45, color: "#1f5e36" }}>
             <strong>✓ Confirmed placement.</strong> {application.company} is your OJT placement
             {application.placementConfirmedAt?.seconds ? ` (confirmed ${new Date(application.placementConfirmedAt.seconds * 1000).toLocaleDateString()})` : ""}.
@@ -4391,7 +4441,7 @@ const ApplicationRow = ({ application, standing, onView, onDelete, companyProfil
               </span>
             </div>
           )}
-          {application.status === "Accepted" && application.placementConfirmed && (
+          {application.status === "Accepted" && application.placementConfirmed && companyStanding.state !== "blocked" && (
             <div style={{ marginTop: "4px" }}><ConfirmedPlacementBadge /></div>
           )}
         </div>
@@ -4419,7 +4469,7 @@ const ApplicationRow = ({ application, standing, onView, onDelete, companyProfil
                   once the application is already Withdrawn or Declined. */}
               {/* A confirmed placement can't be withdrawn by the student either —
                   changes go through the coordinator. */}
-              {application.status !== WITHDRAWN && application.status !== "Declined" && !(application.status === "Accepted" && application.placementConfirmed) && (
+              {application.status !== WITHDRAWN && application.status !== "Declined" && !(application.status === "Accepted" && application.placementConfirmed && companyStanding.state !== "blocked") && (
               <>
               <div style={{ height: "1px", background: line, margin: "0 8px" }} />
               <button
@@ -4593,7 +4643,11 @@ const StudentApplicationScreen = ({ initialCompany, onModalClose, user, openAppl
   //     Applicants screen give its slot back),
   //   • then notifies the student, the chosen company, the other companies and
   //     the coordinator (best-effort — the batch above is already saved).
-  const hasConfirmedPlacement = applications.some(a => a.status === "Accepted" && a.placementConfirmed);
+  // A placement at a BLOCKED company no longer counts: it can't proceed, so the
+  // student may confirm another offer. (Confirming withdraws the old one too,
+  // since it is still an Accepted application.)
+  const hasConfirmedPlacement = applications.some(a =>
+    a.status === "Accepted" && a.placementConfirmed && companyStandings[a.companyId]?.state !== "blocked");
   // Confirming ends the student's OJT search: every OTHER open application
   // (accepted, pending, in review, to interview) is withdrawn, so no other
   // company can accept them afterwards.
@@ -4632,6 +4686,11 @@ const StudentApplicationScreen = ({ initialCompany, onModalClose, user, openAppl
 
     const studentName = [chosen.data?.firstName, chosen.data?.lastName].filter(Boolean).join(" ") || "A student";
     const otherList = others.map(o => o.company || "a company").join(", ");
+    // Other open applications at the SAME company the student just confirmed
+    // (a different post there). They're closed too, but that company isn't being
+    // left — it gets no "withdrew" notice, just a note on the confirmation.
+    const sameCompanyOthers = others.filter(o => o.companyId && o.companyId === chosen.companyId);
+    const otherCompanyOthers = others.filter(o => !(o.companyId && o.companyId === chosen.companyId));
     const notices = [
       // Student
       {
@@ -4642,10 +4701,10 @@ const StudentApplicationScreen = ({ initialCompany, onModalClose, user, openAppl
       // Chosen company
       chosen.companyId && {
         recipientId: chosen.companyId, type: "placement_confirmed", title: "Placement confirmed",
-        message: `${studentName} confirmed your company as their OJT placement.`, applicationId: id, applicantStudentId: user?.uid || "", read: false,
+        message: `${studentName} confirmed your company as their OJT placement.${sameCompanyOthers.length ? ` Their other application${sameCompanyOthers.length > 1 ? "s" : ""} to your company ${sameCompanyOthers.length > 1 ? "were" : "was"} closed.` : ""}`, applicationId: id, applicantStudentId: user?.uid || "", read: false,
       },
       // Other companies
-      ...others.filter(o => o.companyId).map(o => ({
+      ...otherCompanyOthers.filter(o => o.companyId).map(o => ({
         recipientId: o.companyId, type: "application_withdrawn", title: "Application withdrawn",
         message: `${studentName} withdrew their application (was ${o.status || "Pending"}). Reason: Accepted another OJT offer.`,
         applicationId: o.id, applicantStudentId: user?.uid || "",

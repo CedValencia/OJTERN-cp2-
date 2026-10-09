@@ -93,22 +93,37 @@ const SUFFIX_OPTIONS = ["Jr.", "Sr.", "II", "III", "IV", "V", "VI", "VII", "VIII
 // leaving the suffix blank — treat those the same as having no suffix.
 const isRealSuffix = (v) => !!v && !["none", "n/a"].includes(String(v).trim().toLowerCase());
 
+// For the bulk import: a spreadsheet cell is free text, so "jr", "JR." and "iii"
+// are accepted and turned into the exact option the New Student form offers
+// ("Jr.", "III"). Blank / "None" / "N/A" mean no suffix → "". Anything else is
+// not a suffix → null, so the row can be reported instead of saved as typed.
+const normalizeSuffix = (v) => {
+  const raw = String(v ?? "").trim();
+  if (!isRealSuffix(raw)) return "";
+  const key = raw.replace(/\.$/, "").toLowerCase();
+  return SUFFIX_OPTIONS.find(o => o.replace(/\.$/, "").toLowerCase() === key) || null;
+};
+
 const EXCEL_COLUMNS = [
   "Student ID", "Full Name", "Default Password"
 ];
 
 // Columns for the bulk-IMPORT template — separate from EXCEL_COLUMNS above,
 // which is only for the 3-column credentials export. Order must match the
-// row[0..6] indices read in ImportModal.parseFile below.
+// columns read in ImportModal.parseFile below (by position, in this order).
 // Only what the school's class list already has. Everything else — email,
 // program (when the department offers more than one), and age — the
 // student fills in themselves on first login, in the Edit personal
 // information form that opens before the dashboard. The downloadable
 // template, the header check, and the "Columns, in this order" hint are all
 // derived from this list.
+// Suffix sits after Middle Name, same order as the New Student form, and is
+// optional per row. Templates downloaded before it existed (no Suffix column)
+// are still accepted — see LEGACY_IMPORT_COLUMNS in parseFile.
 const IMPORT_TEMPLATE_COLUMNS = [
-  "Student ID", "Last Name", "First Name", "Middle Name", "Department", "Sex",
+  "Student ID", "Last Name", "First Name", "Middle Name", "Suffix", "Department", "Sex",
 ];
+const LEGACY_IMPORT_COLUMNS = IMPORT_TEMPLATE_COLUMNS.filter(c => c !== "Suffix");
 
 // ── Batch + archive ──────────────────────────────────────────────────────────
 // `batch` is the student's ACADEMIC YEAR ("2026-2027") and is NOT the same as
@@ -568,12 +583,12 @@ const downloadTemplateXLSX = () => {
     IMPORT_TEMPLATE_COLUMNS,
     [
       "e.g. 201112345", "e.g. Dela Cruz", "e.g. Juan", "e.g. Santos (or blank)",
-      "e.g. CCS", "e.g. Male",
+      "e.g. Jr. (or blank)", "e.g. CCS", "e.g. Male",
     ],
   ];
   const ws = XLSX.utils.aoa_to_sheet(rows);
   ws["!cols"] = [
-    { wch: 15 }, { wch: 22 }, { wch: 22 }, { wch: 24 }, { wch: 38 }, { wch: 12 },
+    { wch: 15 }, { wch: 22 }, { wch: 22 }, { wch: 24 }, { wch: 18 }, { wch: 38 }, { wch: 12 },
   ];
   for (let r = 2; r < 200; r++) {
     for (let c = 0; c < IMPORT_TEMPLATE_COLUMNS.length; c++) {
@@ -617,13 +632,21 @@ const downloadTemplateXLSX = () => {
   // workbook is generated first and the <dataValidations> element is injected
   // into the sheet XML — the same markup Excel writes for a list validation.
   const sexCol = XLSX.utils.encode_col(IMPORT_TEMPLATE_COLUMNS.indexOf("Sex"));
+  const suffixCol = XLSX.utils.encode_col(IMPORT_TEMPLATE_COLUMNS.indexOf("Suffix"));
   const dataValidation =
-    '<dataValidations count="1">' +
+    '<dataValidations count="2">' +
       '<dataValidation type="list" allowBlank="1" showInputMessage="1" showErrorMessage="1" ' +
       'errorTitle="Invalid sex" error="Choose Male or Female from the list." ' +
       'promptTitle="Sex" prompt="Choose Male or Female." ' +
       `sqref="${sexCol}3:${sexCol}200">` +
         '<formula1>"Male,Female"</formula1>' +
+      '</dataValidation>' +
+      // Suffix: the same options as the New Student form's dropdown; blank is fine.
+      '<dataValidation type="list" allowBlank="1" showInputMessage="1" showErrorMessage="1" ' +
+      'errorTitle="Invalid suffix" error="Choose a suffix from the list, or leave it blank." ' +
+      'promptTitle="Suffix" prompt="Optional. Jr., Sr., II, III … or leave blank." ' +
+      `sqref="${suffixCol}3:${suffixCol}200">` +
+        `<formula1>"${SUFFIX_OPTIONS.join(",")}"</formula1>` +
       '</dataValidation>' +
     '</dataValidations>';
 
@@ -1404,6 +1427,10 @@ const validateRow = (row, rowIndex, coordinatorColleges = [], departments = {}) 
   if (!row.firstName) errs.push(`Row ${r}: First Name is required`);
   else if (!NAME_REGEX.test(row.firstName)) errs.push(`Row ${r}: First Name can only contain letters, spaces, and hyphens`);
   if (row.middleName && !NAME_REGEX.test(row.middleName)) errs.push(`Row ${r}: Middle Name can only contain letters, spaces, and hyphens`);
+  // Optional. Same options as the New Student form; "jr" / "iii" are tidied up.
+  const suffix = normalizeSuffix(row.suffix);
+  if (suffix === null) errs.push(`Row ${r}: Suffix "${row.suffix}" must be one of ${SUFFIX_OPTIONS.join(", ")} (or blank)`);
+  else row.suffix = suffix;
 
   if (!row.sex) {
     errs.push(`Row ${r}: Sex is required`);
@@ -1466,7 +1493,11 @@ const ImportModal = ({ onClose, onImport, coordinatorColleges = [], departments 
       if (rows.length < 2) { setPreview({ valid: [], rowErrors: ["The file has no data rows."], headerErrors: [] }); setParsing(false); return; }
       const headerRow = rows[0].map(h => String(h).trim());
       const headerErrors = [];
-      IMPORT_TEMPLATE_COLUMNS.forEach((expected, i) => { if (headerRow[i] !== expected) headerErrors.push(`Column ${i + 1}: expected "${expected}", found "${headerRow[i] || "(empty)"}"`); });
+      // The Suffix column is optional: an older template without it is read in
+      // its old layout instead of being rejected.
+      const expectedColumns = headerRow[IMPORT_TEMPLATE_COLUMNS.indexOf("Suffix")] === "Suffix" ? IMPORT_TEMPLATE_COLUMNS : LEGACY_IMPORT_COLUMNS;
+      const at = (name) => expectedColumns.indexOf(name);   // -1 when the column isn't in this layout
+      expectedColumns.forEach((expected, i) => { if (headerRow[i] !== expected) headerErrors.push(`Column ${i + 1}: expected "${expected}", found "${headerRow[i] || "(empty)"}"`); });
       if (headerErrors.length > 0) { setPreview({ valid: [], rowErrors: [], headerErrors }); setParsing(false); return; }
       const rowErrors = []; const valid = [];
       rows.slice(2).forEach((row, i) => {
@@ -1474,15 +1505,17 @@ const ImportModal = ({ onClose, onImport, coordinatorColleges = [], departments 
         // Extra safety net: skip any row that still looks like the
         // template's own "e.g. ..." example row.
         if (String(row[0] ?? "").trim().toLowerCase().startsWith("e.g.")) return;
-        const middleName = String(row[3]||"").trim();
+        const cell = (name) => (at(name) === -1 ? "" : String(row[at(name)] ?? "").trim());
+        const middleName = cell("Middle Name");
         const student = {
-          studentId:     String(row[0]||"").trim(),
-          lastName:      String(row[1]||"").trim(),
-          firstName:     String(row[2]||"").trim(),
+          studentId:     cell("Student ID"),
+          lastName:      cell("Last Name"),
+          firstName:     cell("First Name"),
           middleName,
           middleInitial: toMiddleInitial(middleName),
-          college:       String(row[4]||"").trim(),
-          sex:           String(row[5]||"").trim(),
+          suffix:        cell("Suffix"),   // checked + normalized in validateRow
+          college:       cell("Department"),
+          sex:           cell("Sex"),
           // Section and batch are typed once in the import form and stamped on
           // every row there — one import is one section of one batch.
           yearSection:   "",

@@ -3,9 +3,10 @@ import reportIcon from "../icons/report.png";
 import pdfIcon from "../icons/pdf.png";
 import imgIcon from "../icons/img.png";
 import { ApplyModal } from "./StudentApplicationScreen";
-import { collection, onSnapshot, query, where, addDoc, serverTimestamp } from "firebase/firestore";
+import { collection, onSnapshot, query, where, addDoc, serverTimestamp, doc, getDoc } from "firebase/firestore";
+import { standingOf } from "./accountStanding";
 import { db } from "./firebase";
-import { useEligibleOjtPosts } from "./useEligibleOjtPosts";
+import { useVisibleOjtPosts } from "./useVisibleOjtPosts";
 import { color, font, type, space, radius, shadow, ease } from "./theme";
 
 // ── Design tokens, aliased for this screen ────────────────────────────────────
@@ -255,9 +256,10 @@ export const ALL_COMPANIES = [];
 
 // ─── HOOK: fetch live OJT posts from Firestore ────────────────────────────────
 export const useOjtPosts = () => {
-  // Live posts, trimmed to programs the company is still APPROVED for — a
-  // withdrawn program's post never reaches this screen. See useEligibleOjtPosts.js.
-  const { posts, loading } = useEligibleOjtPosts();
+  // Live posts, trimmed to programs the company is still APPROVED for (a
+  // withdrawn program's post never reaches this screen) and with the posts of
+  // BLOCKED companies removed. See useVisibleOjtPosts.js / useEligibleOjtPosts.js.
+  const { posts, loading } = useVisibleOjtPosts();
   return { posts, loading };
 };
 
@@ -460,7 +462,7 @@ const PlacementConfirmedModal = ({ company, onClose }) => (
       </div>
       <h3 style={{ fontFamily: font.ui, fontSize: "1.25rem", fontWeight: 600, letterSpacing: "-0.01em", color: ink, marginBottom: space.sm }}>You have been applied</h3>
       <p style={{ fontFamily: font.ui, ...type.body, color: inkBody, marginBottom: space.lg }}>
-        You already have a confirmed OJT placement at {company}, so you can't apply to other posts. If you need to change it, talk to your OJT coordinator.
+        You already have a confirmed OJT placement at {company}.
       </p>
       <button
         onClick={onClose}
@@ -1024,11 +1026,27 @@ const StudentFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onNavig
   useEffect(() => {
     if (!user?.uid) return;
     const q = query(collection(db, "applications"), where("studentId", "==", user.uid));
-    const unsub = onSnapshot(q, snap => {
-      const c = snap.docs.map(d => d.data()).find(a => a.status === "Accepted" && a.placementConfirmed === true);
-      setConfirmedPlacement(c ? (c.companyName || "a company") : null);
+    let stale = false;
+    const unsub = onSnapshot(q, async snap => {
+      const confirmed = snap.docs.map(d => d.data()).filter(a => a.status === "Accepted" && a.placementConfirmed === true);
+      // A placement at a BLOCKED company can't go ahead — don't lock the student
+      // out of applying elsewhere. (Suspended still counts: it comes back.)
+      let live = null;
+      for (const a of confirmed) {
+        let blocked = false;
+        if (a.companyId) {
+          try {
+            const cs = await getDoc(doc(db, "companies", a.companyId));
+            blocked = standingOf(cs.exists() ? cs.data() : null, "company").state === "blocked";
+          } catch (err) {
+            console.error("Failed to check the placement company's standing:", err);
+          }
+        }
+        if (!blocked) { live = a; break; }
+      }
+      if (!stale) setConfirmedPlacement(live ? (live.companyName || "a company") : null);
     }, err => console.error("Failed to check confirmed placement:", err));
-    return () => unsub();
+    return () => { stale = true; unsub(); };
   }, [user?.uid]);
   const loading = postsLoading || !user; // after a refresh `user` is null for a moment
   const [view, setView] = useState("list");

@@ -12,6 +12,7 @@ import "driver.js/dist/driver.css";
 
 import CoordinatorStudentsAcccountScreen      from "./CoordinatorStudentsAcccountScreen";
 import CoordinatorStudentListScreen from "./CoordinatorStudentListScreen";
+import { useDepartmentsPrograms } from "./departmentsPrograms";
 import CoordinatorCompanyListScreen       from "./CoordinatorCompanyListScreen";
 import CoordinatorMessagesScreen          from "./CoordinatorMessagesScreen";
 import CoordinatorAccountProfileScreen    from "./CoordinatorAccountProfileScreen";
@@ -716,10 +717,17 @@ const StatCard = ({ label, value, bg = steel, onView, viewIcon: themedViewIcon =
       {label}
     </p>
     <div style={{ position: "relative", marginBottom: "35px" }}>
-      <div style={{
+      <div
+        role="button"
+        tabIndex={0}
+        aria-label={`${label}: open the list`}
+        onClick={onView}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onView(); } }}
+        style={{
         background: bg, borderRadius: "8px",
         width: "100%", height: "120px",
         display: "flex", alignItems: "center", justifyContent: "center",
+        cursor: "pointer",
       }}>
         {value !== null ? (
           <span style={{ fontFamily: uiFont, fontWeight: 700, fontSize: "clamp(2rem, 4.5vw, 3.4rem)", color: paper }}>
@@ -751,81 +759,88 @@ const StatCard = ({ label, value, bg = steel, onView, viewIcon: themedViewIcon =
 );
 
 // ── Dashboard Content ──────────────────────────────────────────────────────────
-const DashboardContent = ({ onNavigate, onViewCompany, onViewRegistered, coordinatorUid, coordinatorColleges, coordinatorIndustries = [], recentVisited = [], viewIcon: themedViewIcon = blackViewIcon, companyProfileIcon: themedCompanyIcon = blackCompanyProfileIcon }) => {
-  const [recentRegistered, setRecentRegistered] = React.useState([]);
+// Same department matching as CoordinatorStudentListScreen: a coordinator's
+// college may be stored as its full name or its abbreviation on student records,
+// so match both. Keep this in step with the copy in that file.
+const useCollegeVariants = (coordinatorColleges) => {
+  const { departments, departmentNames } = useDepartmentsPrograms();
+  return React.useMemo(() => {
+    const abbrToFull = {}, fullToAbbr = {};
+    (departmentNames || []).forEach(name => {
+      const abbr = departments?.[name]?.abbr;
+      if (abbr) { abbrToFull[abbr] = name; fullToAbbr[name] = abbr; }
+    });
+    const out = new Set();
+    (coordinatorColleges || []).forEach(c => {
+      if (!c) return;
+      out.add(c);
+      if (abbrToFull[c]) out.add(abbrToFull[c]);
+      if (fullToAbbr[c]) out.add(fullToAbbr[c]);
+    });
+    return [...out].slice(0, 10);
+  }, [coordinatorColleges, departments, departmentNames]);
+};
+
+const DashboardContent = ({ onNavigate, onViewStudents, onViewCompany, onViewRegistered, coordinatorUid, coordinatorColleges, coordinatorIndustries = [], recentRegistered = [], recentVisited = [], viewIcon: themedViewIcon = blackViewIcon, companyProfileIcon: themedCompanyIcon = blackCompanyProfileIcon }) => {
   const [totalStudents,    setTotalStudents]    = React.useState(null);
   const [acceptedStudents, setAcceptedStudents] = React.useState(null);
 
-  // Track raw sets so we can intersect "active students in my department(s)"
-  // with "students who have an Accepted application" — applications don't
-  // carry a college field, so the accepted count is derived client-side.
+  // Track raw sets so we can intersect "students in my department(s)" with
+  // "students who have an Accepted application" — applications don't carry a
+  // college field, so the accepted count is derived client-side.
   const [activeStudentIds,     setActiveStudentIds]     = React.useState(new Set());
   const [acceptedAppStudentIds, setAcceptedAppStudentIds] = React.useState(new Set());
 
+  // Recent Registered Company: `recentRegistered` arrives ready-made from the
+  // dashboard screen, which scopes companies by this coordinator's department
+  // (the same rule the notifications and Company List use).
+
+  // Same department matching as the Student List (college name OR abbreviation),
+  // so both screens always count the same students. Keyed by content: the hook's
+  // array can be a new reference every render and would resubscribe endlessly.
+  const collegeVariants = useCollegeVariants(coordinatorColleges);
+  const collegeVariantsKey = collegeVariants.join("|");
+
   React.useEffect(() => {
     if (!coordinatorUid) return;
-
-    // 1. Recent approved companies — scoped to this coordinator's assigned
-    //    industries (same "industry array-contains-any" pattern already used
-    //    successfully in CoordinatorCompanyListScreen). Without this, every
-    //    coordinator saw every approved company regardless of industry.
-    let unsubCompany = () => {};
-    if (coordinatorIndustries.length > 0) {
-      const companyQ = query(
-        collection(db, "companies"),
-        where("status", "==", "approved"),
-        where("industry", "array-contains-any", coordinatorIndustries.slice(0, 30)),
-        limit(5)
-      );
-      unsubCompany = onSnapshot(companyQ, (snap) => {
-        setRecentRegistered(snap.docs.map(d => ({ id: d.id, name: d.data().companyName })));
-      });
-    } else {
-      setRecentRegistered([]);
-    }
-
-    // If this coordinator has no recognized department assigned yet, don't
-    // run the (invalid) empty "in" query — just show zero instead of crashing.
-    if (!coordinatorColleges || coordinatorColleges.length === 0) {
+    if (collegeVariants.length === 0) {
       setTotalStudents(0);
       setActiveStudentIds(new Set());
-      return () => { unsubCompany(); };
+      return;
     }
-
-    // 2. Total students — scoped to college/department only. All coordinators
-    //    assigned to the same college (e.g. all of CED) see the same set of
-    //    students regardless of program/major — the specific program is shown
-    //    per-student in the Student List, not used to further split coordinators.
-    //    NOTE: needs a Firestore composite index (status + college) the first
-    //    time it runs; Firestore will log a console link to create it.
-    const studentQ = query(
-      collection(db, "students"),
-      where("status", "==", "active"),
-      where("college", "in", coordinatorColleges)
-    );
+    // Everything in my department except archived students — the exact rule the
+    // Student List uses (a missing isArchived field means active). No `status`
+    // filter: the list doesn't use one, and filtering on it made this card read 0
+    // while the list showed every student.
+    const studentQ = query(collection(db, "students"), where("college", "in", collegeVariants));
     const unsubStudents = onSnapshot(studentQ, (snap) => {
-      setTotalStudents(snap.size);
-      setActiveStudentIds(new Set(snap.docs.map(d => d.id)));
-    });
+      const ids = snap.docs.filter(d => d.data().isArchived !== true).map(d => d.id);
+      setTotalStudents(ids.length);
+      setActiveStudentIds(new Set(ids));
+    }, (err) => console.error("Failed to load student counts:", err));
+    return () => unsubStudents();
+  }, [coordinatorUid, collegeVariantsKey]);
 
-    // 3. Accepted students — an "accepted" student is one with at least one
-    //    application whose status is "Accepted" (set by the company in
-    //    CompanyApplicantsScreen). Count unique studentId values since a
-    //    student could have multiple applications. Filtered down to only
-    //    student IDs that belong to this coordinator's department(s) (see #2).
+  // An "accepted" student has at least one application with status "Accepted" —
+  // the same test as the Student List's Accepted filter.
+  React.useEffect(() => {
+    if (!coordinatorUid) return;
     const acceptedQ = query(collection(db, "applications"), where("status", "==", "Accepted"));
     const unsubAccepted = onSnapshot(acceptedQ, (snap) => {
       setAcceptedAppStudentIds(new Set(snap.docs.map(d => d.data().studentId)));
-    });
-
-    return () => { unsubCompany(); unsubStudents(); unsubAccepted(); };
-  }, [coordinatorUid, coordinatorColleges, coordinatorIndustries]);
+    }, (err) => console.error("Failed to load accepted applications:", err));
+    return () => unsubAccepted();
+  }, [coordinatorUid]);
 
   React.useEffect(() => {
+    if (totalStudents === null) return; // students not loaded yet — keep "—", not a false 0
     let count = 0;
     activeStudentIds.forEach((id) => { if (acceptedAppStudentIds.has(id)) count += 1; });
     setAcceptedStudents(count);
-  }, [activeStudentIds, acceptedAppStudentIds]);
+  }, [totalStudents, activeStudentIds, acceptedAppStudentIds]);
+
+  // Opens the Student List; "Accepted" arrives with that filter already applied.
+  const openStudents = (status = "") => (onViewStudents ? onViewStudents(status) : onNavigate("studentlist"));
 
   return (
     <div style={{ padding: "clamp(16px, 4vw, 32px)", overflowY: "auto", flex: 1 }}>
@@ -854,14 +869,14 @@ const DashboardContent = ({ onNavigate, onViewCompany, onViewRegistered, coordin
               label="Total Students"
               value={totalStudents}
               bg={steel}
-              onView={() => onNavigate("studentlist")}
+              onView={() => openStudents("")}
               viewIcon={themedViewIcon}
             />
             <StatCard
               label="Accepted Students"
               value={acceptedStudents}
               bg={ink}
-              onView={() => onNavigate("studentlist")}
+              onView={() => openStudents("Accepted")}
               viewIcon={themedViewIcon}
             />
           </div>
@@ -2548,6 +2563,24 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
     return unsub;
   }, []);
 
+  // ── Students in this coordinator's departments ─────────────────────────────
+  // A report about a STUDENT has no company to read a department from (its
+  // companyId/subjectId is the student's uid), so it is scoped by whether that
+  // student belongs to one of this coordinator's colleges — the same college
+  // match the Student List uses. Archived students are kept: a report about
+  // them still needs reading. null = not loaded yet.
+  const reportCollegeVariants = useCollegeVariants(coordinatorColleges);
+  const reportCollegeKey = reportCollegeVariants.join("|");
+  const [myStudentIds, setMyStudentIds] = useState(null);
+  useEffect(() => {
+    if (reportCollegeVariants.length === 0) { setMyStudentIds(new Set()); return; }
+    const q = query(collection(db, "students"), where("college", "in", reportCollegeVariants));
+    const unsub = onSnapshot(q, (snap) => {
+      setMyStudentIds(new Set(snap.docs.map(d => d.id)));
+    }, (err) => console.error("Failed to load students for report scoping:", err));
+    return unsub;
+  }, [reportCollegeKey]);
+
   // Department labels a company accepts, from whichever field their doc uses:
   // `departments` (names), `deptSelections[].department`, or
   // `collegePrograms[].college`. Returned as college KEYS ("CCS") so they can
@@ -2611,11 +2644,20 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
     if (!companyIndustryMapLoaded) return reports;
     if (coordinatorColleges.length === 0) return [];
     return reports.filter(r => {
+      // Student reports: in scope when the student is in one of my colleges.
+      // (Older ones have no subjectType, only reportedRole: "student".)
+      const kind = String(r.subjectType || "").toLowerCase();
+      const aboutStudent = kind === "student" || (!kind && String(r.reportedRole || "").toLowerCase() === "student");
+      if (aboutStudent) {
+        if (myStudentIds === null) return true; // brief window before the student list loads
+        const sid = r.subjectId || r.studentId || r.companyId;
+        return !!sid && myStudentIds.has(sid);
+      }
       const depts = companyDeptMap[r.companyId] || companyDeptMap[r.company];
       if (!depts || depts.length === 0) return false;
       return depts.some(key => coordinatorColleges.includes(key));
     });
-  }, [reports, companyDeptMap, companyIndustryMapLoaded, coordinatorColleges]);
+  }, [reports, companyDeptMap, companyIndustryMapLoaded, coordinatorColleges, myStudentIds]);
 
   // Everything outside this coordinator's industries — including companies
   // whose industry can't be matched at all. `scopedReports` fails closed on
@@ -2784,15 +2826,21 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
           kind: "company",
           companyId: c.id,
         }));
+    // "<name> accepted your invitation" is addressed to ONE coordinator (the
+    // inviter, by uid), not to a department — so it skips the department/program
+    // scope check that every other coordinator notice goes through.
+    const isInviteAccepted = (n) => n.type === "coordinator_invite_accepted";
     const fromNotices = coordinatorNotices
-      .filter(n => inMyScope(n.department, n.program))
+      .filter(n => isInviteAccepted(n)
+        ? !!user?.uid && (n.recipientId === user.uid || n.inviterId === user.uid)
+        : inMyScope(n.department, n.program))
       .map(n => ({
         id: `notice_${n.id}`,
         message: n.message || "Update from a company.",
         createdAt: n.createdAt,
         // Any student withdrawal opens that student's Placement modal; only an
         // ACCEPTED one is marked ⚑ (see `important`).
-        kind: (n.type === "accepted_application_withdrawn" || n.type === "application_withdrawn" || n.type === "application_accepted" || n.type === "placement_confirmed") ? "student_followup" : "affiliation",
+        kind: isInviteAccepted(n) ? "invite_accepted" : (n.type === "accepted_application_withdrawn" || n.type === "application_withdrawn" || n.type === "application_accepted" || n.type === "placement_confirmed") ? "student_followup" : "affiliation",
         // Accepted alone is informational now — the review starts when the
         // student CONFIRMS the placement (placement_confirmed), which is ⚑.
         important: n.type === "accepted_application_withdrawn" || n.type === "placement_confirmed" || (n.openApplications || 0) > 0,
@@ -2804,7 +2852,7 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
       }));
     const fromReports = scopedReports.map(r => ({
       id: `report_${r.id}`,
-      message: `New report submitted for ${r.company}.`,
+      message: `New report submitted for ${r.subjectName || r.company || r.reportedName || "a student"}.`,
       createdAt: r.createdAt,
       kind: "report",
       reportId: r.id,
@@ -2812,10 +2860,59 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
     return [...fromCompanies, ...fromNotices, ...fromReports]
       .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0))
       .slice(0, 30);
-  }, [scopedCompanies, scopedReports, deptCompanies, coordinatorNotices, myAffiliationScopes, inMyScope]);
+  }, [scopedCompanies, scopedReports, deptCompanies, coordinatorNotices, myAffiliationScopes, inMyScope, user?.uid]);
+
+  // Dashboard → Recent Registered Company. Scoped by DEPARTMENT, like the
+  // notifications above: a company counts when it lists a program in this
+  // coordinator's scope (not withdrawn or rejected) and isn't suspended/blocked.
+  // The old industry-only scoping left this empty for coordinators who have a
+  // department but no assigned industries. With no department assigned yet it
+  // falls back to the approved companies in the coordinator's industries.
+  // Newest first, top 5.
+  const recentRegisteredCompanies = React.useMemo(() => {
+    const rows = myAffiliationScopes.length > 0
+      ? deptCompanies.filter(c =>
+          c.status !== "suspended" && c.status !== "blocked" &&
+          (c.deptSelections || []).some(e =>
+            e?.department &&
+            e.status !== AFFILIATION_STATUS.WITHDRAWN &&
+            String(e.status || "").toLowerCase() !== "rejected" &&
+            inMyScope(e.department, e.program)
+          )
+        )
+      : scopedCompanies.filter(c => c.status === "approved");
+    return rows
+      .slice()
+      .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0))
+      .slice(0, 5)
+      .map(c => ({ id: c.id, name: c.companyName || c.name || "Company" }));
+  }, [deptCompanies, scopedCompanies, myAffiliationScopes, inMyScope]);
 
   const [showNotifDropdown, setShowNotifDropdown]                = useState(false);
   const [lastSeenNotifAt, setLastSeenNotifAt]                    = useState(0);
+  // Activity Log "new" count — same idea as the bell: entries newer than the
+  // last time this coordinator opened the log. Your own actions don't count as
+  // new to you, and the count waits for the saved timestamp to load so it
+  // doesn't flash the whole log as unread.
+  const [lastSeenActivityAt, setLastSeenActivityAt]              = useState(0);
+  const unreadActivityCount = !recentVisitedLoaded ? 0 : visibleActivity.filter(
+    e => e.coordinatorUid !== user?.uid && (e.createdAt?.seconds || 0) * 1000 > lastSeenActivityAt
+  ).length;
+
+  const handleToggleActivityDropdown = () => {
+    setShowActivityDropdown(prev => {
+      const next = !prev;
+      if (next) {
+        const now = Date.now();
+        setLastSeenActivityAt(now);
+        if (user?.uid) {
+          setDoc(doc(db, "coordinators", user.uid), { lastSeenActivityAt: now }, { merge: true })
+            .catch((err) => console.error("Failed to save activity-log seen state:", err));
+        }
+      }
+      return next;
+    });
+  };
   const unreadNotifCount = coordinatorNotifications.filter(
     n => (n.createdAt?.seconds || 0) * 1000 > lastSeenNotifAt
   ).length;
@@ -3050,6 +3147,7 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
         const data = snap.data();
         setRecentVisited(Array.isArray(data?.recentVisited) ? data.recentVisited : []);
         setLastSeenNotifAt(Number(data?.lastSeenNotifAt) || 0);
+        setLastSeenActivityAt(Number(data?.lastSeenActivityAt) || 0);
       } catch (err) {
         console.error("Failed to load coordinator dashboard preferences:", err);
       } finally {
@@ -3071,6 +3169,13 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
   const navigate = (key) => {
     setDrawerOpen(false);
     routerNavigate(`${BASE_PATH}/${key}`);
+  };
+
+  // Sidebar → Student List always opens unfiltered; otherwise a filter set by the
+  // dashboard's Accepted card (or a notification) would stick around.
+  const navigateFromMenu = (key) => {
+    if (key === "studentlist") setStudentListStatusFilter("");
+    navigate(key);
   };
 
   const handleReportSubmit = () => {}; // Firestore onSnapshot auto-updates the reports list
@@ -3130,9 +3235,12 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
       const report = scopedReports.find(r => r.id === n.reportId);
       navigate("reportcompany");
       if (report) setViewingReport(report);
+    } else if (n.kind === "invite_accepted") {
+      navigate("accountprofile");
     } else if (n.kind === "student_followup" && n.studentId) {
       // Opens that student's Placement modal directly.
       setPlacementTargetStudentId(n.studentId);
+      setStudentListStatusFilter("");
       navigate("studentlist");
     } else if (n.kind === "affiliation") {
       // Affected students are flagged "⚑ Follow-up" in the Student List.
@@ -3147,7 +3255,9 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
         coordinatorUid={user?.uid}
         coordinatorColleges={coordinatorColleges}
         coordinatorIndustries={coordinatorIndustries}
+        recentRegistered={recentRegisteredCompanies}
         onNavigate={navigate}
+        onViewStudents={(status) => { setStudentListStatusFilter(status || ""); navigate("studentlist"); }}
         onViewCompany={handleViewCompany}
         onViewRegistered={handleViewRegistered}
         recentVisited={recentVisited}
@@ -3280,11 +3390,23 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
           <div style={{ display: "flex", alignItems: "center", gap: "4px", flexShrink: 0 }}>
             {/* Activity Log */}
             <div style={{ position: "relative" }}>
-              <div id="topbar-activity-log" className="topbar-icon-btn" style={{ cursor: "pointer", padding: "8px" }} onClick={() => setShowActivityDropdown(prev => !prev)} title="Activity Log">
+              <div id="topbar-activity-log" className="topbar-icon-btn" style={{ cursor: "pointer", padding: "8px", position: "relative" }} onClick={handleToggleActivityDropdown} title="Activity Log">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <circle cx="12" cy="12" r="9"/>
                   <path d="M12 7v5l3 3"/>
                 </svg>
+                {unreadActivityCount > 0 && (
+                  <span style={{
+                    position: "absolute", top: "4px", right: "4px",
+                    background: paper, color: ink, borderRadius: "50%",
+                    minWidth: "16px", height: "16px", fontSize: "0.65rem",
+                    fontFamily: uiFont, fontWeight: "bold",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    padding: "0 3px", lineHeight: 1,
+                  }}>
+                    {unreadActivityCount > 9 ? "9+" : unreadActivityCount}
+                  </span>
+                )}
               </div>
               {showActivityDropdown && (
                 <>
@@ -3468,7 +3590,7 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
           {/* Desktop static sidebar */}
           {isDesktop && (
             <div className="sidebar-static">
-              <SidebarNav activeNav={activeNav} onNavigate={navigate} onLogout={handleLogoutClick} unreadMessages={unreadMessages} />
+              <SidebarNav activeNav={activeNav} onNavigate={navigateFromMenu} onLogout={handleLogoutClick} unreadMessages={unreadMessages} />
             </div>
           )}
 
@@ -3490,7 +3612,7 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
                   <img src={logo} alt="OJTern" style={{ width: "32px", height: "32px", objectFit: "contain" }} />
                   <span style={{ fontFamily: logoFont, fontSize: "1.2rem", color: paper }}>OJTern</span>
                 </button>
-                <SidebarNav activeNav={activeNav} onNavigate={navigate} onLogout={handleLogoutClick} unreadMessages={unreadMessages} />
+                <SidebarNav activeNav={activeNav} onNavigate={navigateFromMenu} onLogout={handleLogoutClick} unreadMessages={unreadMessages} />
               </div>
             </>
           )}
