@@ -524,6 +524,42 @@ const YEAR_SECTIONS = [
 // so a student can't reach the dashboard with any of these still empty.
 // Suffix isn't listed: most students have none, and the form already requires
 // an explicit "None" before it saves.
+// ── Birthdate ────────────────────────────────────────────────────────────────
+// The student gives a birthdate (not a typed age). It is saved as "YYYY-MM-DD"
+// in students/{uid}.birthdate, and the age is derived from it. `age` is still
+// written as a number so anything that already reads it keeps working, but it
+// goes stale as time passes, so screens should prefer ageFromBirthdate().
+// Parsed by hand: new Date("2004-05-01") is UTC and can land on the wrong day.
+export const parseBirthdate = (v) => {
+  const m = String(v || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  const y = +m[1], mo = +m[2], d = +m[3];
+  const dt = new Date(y, mo - 1, d);
+  return dt.getFullYear() === y && dt.getMonth() === mo - 1 && dt.getDate() === d ? dt : null;
+};
+export const ageFromBirthdate = (v, today = new Date()) => {
+  const b = parseBirthdate(v);
+  if (!b) return null;
+  let age = today.getFullYear() - b.getFullYear();
+  const m = today.getMonth() - b.getMonth();
+  if (m < 0 || (m === 0 && today.getDate() < b.getDate())) age--;
+  return age;
+};
+export const formatBirthdate = (v) => {
+  const b = parseBirthdate(v);
+  return b ? b.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : "";
+};
+// "" = fine. Same 1–100 sanity range the old age field had, now applied to the derived age.
+export const birthdateProblem = (v) => {
+  if (!v) return "Birthdate is required.";
+  if (!parseBirthdate(v)) return "Enter a valid date.";
+  const age = ageFromBirthdate(v);
+  if (age < 0) return "Birthdate can't be in the future.";
+  if (age < 1 || age > 100) return "That birthdate gives an age outside 1–100.";
+  return "";
+};
+const toIsoDate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
 export const REQUIRED_PROFILE_FIELDS = [
   ["firstName",   "First name"],
   ["lastName",    "Last name"],
@@ -531,7 +567,7 @@ export const REQUIRED_PROFILE_FIELDS = [
   ["program",     "Program"],
   ["yearSection", "Year and section"],
   ["sex",         "Sex"],
-  ["age",         "Age"],
+  ["birthdate",   "Birthdate"],
 ];
 
 // Labels of the required fields that are still empty on a students/{uid} doc.
@@ -539,9 +575,13 @@ export const missingProfileFields = (data = {}) =>
   REQUIRED_PROFILE_FIELDS
     .filter(([key]) => {
       const value = data?.[key];
-      if (key === "age") {
-        const n = Number(value);
-        return value == null || value === "" || !Number.isInteger(n) || n < 1;
+      if (key === "birthdate") {
+        if (!birthdateProblem(value)) return false;
+        // Accounts made before birthdates existed still have a typed age. They
+        // are not sent back through first-login setup; the birthdate is asked
+        // for the next time they edit their information.
+        const n = Number(data?.age);
+        return !(Number.isInteger(n) && n >= 1);
       }
       return !String(value ?? "").trim();
     })
@@ -557,7 +597,7 @@ const FORM_REQUIRED_FIELDS = [
   ["programCode",   "Program"],
   ["yearSection",   "Year and section"],
   ["sex",           "Sex"],
-  ["age",           "Age"],
+  ["birthdate",     "Birthdate"],
   ["personalEmail", "Email address"],
 ];
 
@@ -591,7 +631,8 @@ const PersonalInfoScreen = ({ onBack, user, setupMode = false, onSetupComplete, 
     programCode:    "",   // holds the full Program name now
     yearSection:    "",
     sex:            "",
-    age:            "",
+    age:            "",   // read-only: derived from birthdate (legacy typed age until it is set)
+    birthdate:      "",   // "YYYY-MM-DD"
     personalEmail:  "",   // recovery email — NOT students/{uid}.email (the login address)
   });
   // Last personal email saved in Firestore, so a change can release the old one.
@@ -653,6 +694,7 @@ const PersonalInfoScreen = ({ onBack, user, setupMode = false, onSetupComplete, 
           yearSection:    d.yearSection    || "",
           sex:            d.sex            || "",
           age:            String(d.age     || ""),
+          birthdate:      d.birthdate      || "",
           // Blank until the student provides one. Never fall back to d.email:
           // for bulk-created accounts that is the system-generated login address.
           personalEmail:  normalizeEmail(d.personalEmail),
@@ -697,12 +739,12 @@ const PersonalInfoScreen = ({ onBack, user, setupMode = false, onSetupComplete, 
     return "";
   };
 
-  const validateAge = (v) => {
-    if (!v) return "Age is required.";
-    const n = Number(v);
-    if (!Number.isInteger(n) || n < 1 || n > 100) return "Enter an age between 1 and 100.";
-    return "";
-  };
+  const validateBirthdate = birthdateProblem;
+  // Age shown next to the birthdate: derived, never typed.
+  const derivedAge  = ageFromBirthdate(form.birthdate);
+  const displayAge  = derivedAge !== null && derivedAge >= 0 ? String(derivedAge) : (form.age || "");
+  const todayIso    = toIsoDate(new Date());
+  const oldestIso   = toIsoDate(new Date(new Date().getFullYear() - 100, new Date().getMonth(), new Date().getDate()));
 
   const validate = () => {
     const e = {};
@@ -716,8 +758,8 @@ const PersonalInfoScreen = ({ onBack, user, setupMode = false, onSetupComplete, 
     if (!form.suffix && canEditField("suffix")) e.suffix = "Select a suffix, or None.";
     if (!form.yearSection) e.yearSection = "Year and section is required.";
     if (!form.sex) e.sex = "Select sex.";
-    const ageErr = validateAge(form.age);
-    if (ageErr) e.age = ageErr;
+    const birthErr = validateBirthdate(form.birthdate);
+    if (birthErr) e.birthdate = birthErr;
     const emailErr = validatePersonalEmail(form.personalEmail);
     if (emailErr) e.personalEmail = emailErr;
     setErrors(e);
@@ -730,8 +772,8 @@ const PersonalInfoScreen = ({ onBack, user, setupMode = false, onSetupComplete, 
   // their account out of step with the coordinator's list. During first-login
   // setup the whole form stays open, because that's where the details the
   // coordinator's import didn't provide get filled in.
-  const STUDENT_EDITABLE_FIELDS = ["age", "personalEmail"];
-  // First-login setup too: only Age and Email address can be changed, plus Program when the
+  const STUDENT_EDITABLE_FIELDS = ["birthdate", "personalEmail"];
+  // First-login setup too: only Birthdate and Email address can be changed, plus Program when the
   // coordinator's import left it blank. Every other field is plain read-only text.
   const canEditField = (field) =>
     STUDENT_EDITABLE_FIELDS.includes(field) || (setupMode && field === "programCode" && programMissingAtLoad);
@@ -782,13 +824,14 @@ const PersonalInfoScreen = ({ onBack, user, setupMode = false, onSetupComplete, 
         inUse.code = "email-in-use";
         throw inUse;
       }
-      // Only what the STUDENT owns is written: age (and program when the
+      // Only what the STUDENT owns is written: birthdate + the age derived from it (and program when the
       // coordinator's import left it blank). Name, Student ID, department,
       // section and sex are the coordinator's — and are edited from the
       // coordinator's Student Accounts screen. Writing the whole form here
       // could overwrite a coordinator's newer correction with a stale copy.
       const profileUpdate = {
-        age:               Number(form.age),
+        birthdate:         form.birthdate,
+        age:               ageFromBirthdate(form.birthdate),
         ...(canEditField("programCode") ? { program: form.programCode } : {}),
         // Clears the one-time "review your information" step after a
         // coordinator reset (see computeSetupStage in StudentDashboardScreen).
@@ -844,11 +887,9 @@ const PersonalInfoScreen = ({ onBack, user, setupMode = false, onSetupComplete, 
     setErrors(prev => ({ ...prev, middleInitial: validateMiddleInitial(filtered) }));
   };
 
-  const handleAgeChange = (v) => {
-    if (v === "" || /^\d+$/.test(v)) {
-      setField("age", v);
-      setErrors(prev => ({ ...prev, age: validateAge(v) }));
-    }
+  const handleBirthdateChange = (v) => {
+    setField("birthdate", v);
+    setErrors(prev => ({ ...prev, birthdate: validateBirthdate(v) }));
   };
 
   const rowLabel = { fontFamily: font.ui, ...type.helper, color: inkMuted, display: "block", marginBottom: "3px" };
@@ -897,7 +938,7 @@ const PersonalInfoScreen = ({ onBack, user, setupMode = false, onSetupComplete, 
         >
           {editing && !setupMode && (
             <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, margin: `0 0 ${space.md}`, lineHeight: 1.6 }}>
-              You can update your age and email address here. Your name, course, year &amp; section and other school records are maintained by your coordinator — contact them if something needs correcting.
+              You can update your birthdate and email address here. Your name, course, year &amp; section and other school records are maintained by your coordinator — contact them if something needs correcting.
             </p>
           )}
 
@@ -1115,21 +1156,28 @@ const PersonalInfoScreen = ({ onBack, user, setupMode = false, onSetupComplete, 
             )}
           </div>
 
-          {/* Age */}
-          <div id="spinfo-age" className="sap-info-row">
-            {fieldLabel("Age")}
-            {editing && canEditField("age") ? (
+          {/* Birthdate — the age is worked out from it */}
+          <div id="spinfo-birthdate" className="sap-info-row">
+            {fieldLabel("Birthdate")}
+            {editing && canEditField("birthdate") ? (
               <>
                 <input
-                  value={form.age}
-                  onChange={e => handleAgeChange(e.target.value)}
-                  placeholder="1–100"
-                  style={errors.age ? inlineInputErrorStyle : inlineInputStyle}
+                  type="date"
+                  value={form.birthdate}
+                  min={oldestIso}
+                  max={todayIso}
+                  onChange={e => handleBirthdateChange(e.target.value)}
+                  style={errors.birthdate ? inlineInputErrorStyle : inlineInputStyle}
                 />
-                {errText(errors.age)}
+                {errText(errors.birthdate)}
               </>
             ) : (
-              <span style={rowValue}>{form.age || "—"}</span>
+              <span style={rowValue}>{formatBirthdate(form.birthdate) || "—"}</span>
+            )}
+            {displayAge && !errors.birthdate && (
+              <span style={{ ...rowLabel, marginTop: "4px", marginBottom: 0 }}>
+                Age: {displayAge}{!parseBirthdate(form.birthdate) ? " (birthdate not set yet)" : ""}
+              </span>
             )}
           </div>
 

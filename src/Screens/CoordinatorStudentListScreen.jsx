@@ -141,7 +141,8 @@ const matchesStatusFilter = (apps, filterValue, standings = {}) => {
 
 // ── Export ────────────────────────────────────────────────────────────────────
 
-const EXPORT_HEADER = ["Student Name", "Student ID", "College", "Program", "Year & Section", "Placement", "Status"];
+// Student ID is the FIRST column of every PDF, then the name. Keep studentBase() and buildExportRows() in step with these headers.
+const EXPORT_HEADER = ["Student ID", "Student Name", "College", "Program", "Year & Section", "Placement", "Status"];
 
 // Three export modes (chosen from the Export menu):
 //   "final"   → Final placements: only students with an Accepted application,
@@ -152,8 +153,8 @@ const EXPORT_HEADER = ["Student Name", "Student ID", "College", "Program", "Year
 //               "No placement yet" with their current progress.
 //   "history" → Full application history: one row per application.
 const EXPORT_MODES = {
-  final:   { title: "Final OJT Placements",    unit: "placement",          header: ["Student Name", "Student ID", "College", "Program", "Year & Section", "Company (Deployment)", "Accepted / Confirmed", "Reviewed by Coordinator"] },
-  status:  { title: "Student Placement Status", unit: "student",           header: ["Student Name", "Student ID", "College", "Program", "Year & Section", "Placement", "Status"] },
+  final:   { title: "Final OJT Placements",    unit: "placement",          header: ["Student ID", "Student Name", "College", "Program", "Year & Section", "Company (Deployment)", "Accepted / Confirmed", "Reviewed by Coordinator"] },
+  status:  { title: "Student Placement Status", unit: "student",           header: ["Student ID", "Student Name", "College", "Program", "Year & Section", "Placement", "Status"] },
   history: { title: "Student Application History", unit: "application record", header: EXPORT_HEADER },
 };
 
@@ -175,7 +176,7 @@ const placementNotes = (app, postsById) => {
   return notes;
 };
 const studentBase = (student) => [
-  getFullName(student), student.studentId || "", student.college || "", student.program || "", student.yearSection || "",
+  student.studentId || "", getFullName(student), student.college || "", student.program || "", student.yearSection || "",
 ];
 
 const buildFinalPlacementRows = (students, applicationsByStudent, companies, postsById = {}) =>
@@ -233,8 +234,8 @@ const buildPlacementStatusRows = (students, applicationsByStudent, companies, po
 const buildExportRows = (students, applicationsByStudent, companies, postsById = {}) =>
   students.flatMap(student => {
     const base = [
-      getFullName(student),
       student.studentId || "",
+      getFullName(student),
       student.college || "",
       student.program || "",
       student.yearSection || "",
@@ -358,7 +359,7 @@ const buildStudentPdf = async ({ groups, scope, total, mode = "history" }) => {
     // minimums, so long values like "BS Business Administration major in
     // Marketing Management" push the table past the page edge and autoTable
     // drops the overflow. Auto-sizing distributes by real content and fits.
-    columnStyles: { 0: { minCellWidth: 110 }, 3: { minCellWidth: 120 }, 5: { minCellWidth: 110 } },
+    columnStyles: { 0: { minCellWidth: 62 }, 1: { minCellWidth: 110 }, 3: { minCellWidth: 120 }, 5: { minCellWidth: 110 } },
     // A multi-page placement list is easy to shuffle out of order once it is
     // printed, so every page carries its own number.
     didDrawPage: () => {
@@ -554,36 +555,9 @@ const ResponsiveStyles = () => (
   `}</style>
 );
 
-// College > Programs structure — same as CoordinatorStudentsAcccountScreen
-const COLLEGE_DATA = {
-  "CCS": {
-    label: "College of Computer Studies",
-    programs: ["BSIT"],
-  },
-  "CBA": {
-    label: "College of Business and Accountancy",
-    programs: ["BSBA (Major in Marketing Management)", "BSA"],
-  },
-  "CCJE": {
-    label: "College of Criminal Justice Education",
-    programs: ["BS CRIM"],
-  },
-  "CLA": {
-    label: "College of Liberal Arts",
-    programs: ["BA POLSCI"],
-  },
-  "CED": {
-    label: "College of Education",
-    programs: ["BEED", "BSED (Major in English)", "BSED (Major in Mathematics)"],
-  },
-  "CHTM": {
-    label: "College of Hospitality and Tourism Management",
-    programs: ["BSTM", "BSHM"],
-  },
-};
-
-// Year & Section options
-const YEAR_SECTIONS = ["4-A","4-B","4-C","4-D","4-E","4-F"];
+// Sections run A–Z (26). The Section filter only lists the ones that actually
+// have registered students, so the full range never clutters the panel.
+const sectionLetterOf = (s) => String(s?.yearSection || "").split("-").pop().trim().toUpperCase();
 
 // Sex options
 const SEX_OPTIONS = ["Male", "Female"];
@@ -977,22 +951,47 @@ const PlacementModal = ({ student, onClose, onNavigateToCompany, companies, onMe
   );
 };
 
-const FilterPanel = ({ filters, setFilters, filterRef, coordinatorColleges = [], batchOptions = [], hasUnbatched = false }) => {
-  const [expandedCollege, setExpandedCollege] = useState(filters.college || "");
+// ── Search: first name, middle initial, last name, suffix and student ID only ──
+// Every word typed must match one of those fields, so "juan dela cruz", "cruz jr"
+// and "m. santos" all work. A single letter matches a middle initial or the start
+// of a name/ID, so typing "m" doesn't match every name that merely contains an m.
+const searchKey = (v) => String(v ?? "").toLowerCase().replace(/[.,]/g, "").trim();
+const matchesStudentSearch = (s, query) => {
+  const tokens = searchKey(query).split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return true;
+  const names = [s.firstName, s.lastName, s.suffix].map(searchKey).filter(Boolean);
+  const mi = searchKey(s.middleInitial);
+  const id = searchKey(s.studentId);
+  return tokens.every(t => (t.length === 1
+    ? (mi === t || names.some(n => n.startsWith(t)) || id.startsWith(t))
+    : (names.some(n => n.includes(t)) || id.includes(t) || mi === t)));
+};
 
-  // Scoped to the coordinator's own assigned department(s) — never the
-  // full school-wide college list.
-  const allColleges        = coordinatorColleges.length > 0 ? coordinatorColleges : Object.keys(COLLEGE_DATA);
-  const allPrograms        = expandedCollege ? (COLLEGE_DATA[expandedCollege]?.programs || []) : [];
-  const allSpecializations = (expandedCollege && filters.program)
-    ? (COLLEGE_DATA[expandedCollege]?.programs[filters.program]?.specializations || [])
-    : [];
+// ── Program / Major options for the filter panel ──
+// The department itself is fixed (the list is already limited to the coordinator's
+// own department(s)), so it is never a filter. Only programs are listed here.
+const programOptionsFor = (colleges, departments, departmentNames) => {
+  const deps = departments || {};
+  const names = departmentNames || [];
+  const resolve = (c) => (deps[c] ? c : names.find(n => deps[n]?.abbr === c) || null);
+  const scope = [...new Set((colleges || []).map(resolve).filter(Boolean))];
+  return (scope.length > 0 ? scope : names).flatMap(dept =>
+    (deps[dept]?.programs || []).map(p => ({ dept, name: p.name, specializations: p.specializations || [] })));
+};
 
-  // Derive section letters from YEAR_SECTIONS (e.g. "4-A" → "A")
-  const sectionLetters = YEAR_SECTIONS.map(s => s.split("-")[1]).filter(Boolean);
+const FilterPanel = ({ filters, setFilters, filterRef, coordinatorColleges = [], batchOptions = [], hasUnbatched = false, sectionOptions = [] }) => {
+  const { departments, departmentNames } = useDepartmentsPrograms();
+  // Department is fixed (the coordinator's own), so only Program / Major are filterable,
+  // and only when there is something to choose between.
+  const programOptions  = programOptionsFor(coordinatorColleges, departments, departmentNames);
+  const showDeptLabels  = new Set(programOptions.map(p => p.dept)).size > 1;
+  const showPrograms    = programOptions.length > 1;
+  const activeProgram   = filters.program ? programOptions.find(p => p.name === filters.program)
+                                          : (programOptions.length === 1 ? programOptions[0] : null);
+  const majors          = activeProgram?.specializations || [];
+  const showMajors      = majors.length > 0;
 
   const clearAll = () => {
-    setExpandedCollege("");
     // Everything in this panel, batch included. (The status chips above the
     // list are a separate control and keep their own selection.)
     setFilters(prev => ({ ...prev, college: "", program: "", specialization: "", sex: "", section: "", batch: "" }));
@@ -1000,31 +999,12 @@ const FilterPanel = ({ filters, setFilters, filterRef, coordinatorColleges = [],
 
   const toggleSex     = (val) => setFilters(prev => ({ ...prev, sex:     prev.sex     === val ? "" : val }));
   const toggleSection = (val) => setFilters(prev => ({ ...prev, section: prev.section === val ? "" : val }));
-
-  const toggleCollege = (col) => {
-    if (expandedCollege === col) {
-      setExpandedCollege("");
-      setFilters(prev => ({ ...prev, college: "", program: "", specialization: "" }));
-    } else {
-      setExpandedCollege(col);
-      setFilters(prev => ({ ...prev, college: col, program: "", specialization: "" }));
-    }
-  };
   const toggleProgram = (prog) => setFilters(prev => ({ ...prev, program: prev.program === prog ? "" : prog, specialization: "" }));
   const toggleSpec    = (spec) => setFilters(prev => ({ ...prev, specialization: prev.specialization === spec ? "" : spec }));
   const toggleBatch   = (val)  => setFilters(prev => ({ ...prev, batch: prev.batch === val ? "" : val }));
 
-  const locationLevel = !expandedCollege ? "college" : !filters.program ? "program" : "specialization";
-
   const groupLabel = { fontFamily: font.ui, ...type.label, color: ink };
   const emptyNote  = { fontFamily: font.ui, ...type.helper, color: inkFaint };
-
-  const backRow = (label, onClick) => (
-    <div onClick={onClick} style={{ display: "flex", alignItems: "center", gap: space.xs, cursor: "pointer", marginBottom: space.sm, color: inkMuted, fontFamily: font.ui, ...type.helper }}>
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
-      {label}
-    </div>
-  );
 
   return (
     <div
@@ -1032,7 +1012,8 @@ const FilterPanel = ({ filters, setFilters, filterRef, coordinatorColleges = [],
       style={{
         position: "absolute", top: "48px", right: 0, width: "266px",
         background: surface, border: `1px solid ${line}`, borderRadius: radius.card,
-        boxShadow: shadow.panel, zIndex: 100, overflow: "hidden",
+        boxShadow: shadow.panel, zIndex: 100, overflowX: "hidden", overflowY: "auto",
+        maxHeight: "min(72vh, 560px)",
         fontFamily: font.ui,
       }}
     >
@@ -1076,71 +1057,54 @@ const FilterPanel = ({ filters, setFilters, filterRef, coordinatorColleges = [],
       <div style={{ padding: "0 14px 12px" }}>
         <p style={{ ...groupLabel, marginBottom: space.sm }}>Section</p>
         <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
-          {sectionLetters.length > 0 ? (
-            sectionLetters.map(s => (
-              <span key={s} onClick={() => toggleSection(s)} style={chip(filters.section === s)}>{s}</span>
+          {sectionOptions.length > 0 ? (
+            sectionOptions.map(o => (
+              <span key={o.key} onClick={() => toggleSection(o.key)} style={chip(filters.section === o.key)}>
+                {o.label}<span style={{ opacity: 0.6, marginLeft: "4px" }}>{o.count}</span>
+              </span>
             ))
           ) : (
-            <span style={emptyNote}>No sections available</span>
+            <span style={emptyNote}>No students registered in any section yet</span>
           )}
         </div>
       </div>
 
-      <hr style={{ border: "none", borderTop: `1px solid ${lineSoft}`, margin: 0 }} />
-
-      {/* College → Program → Major */}
-      <div style={{ padding: "12px 14px 14px" }}>
-        <p style={{ ...groupLabel, marginBottom: space.sm }}>
-          Department
-          {expandedCollege && (
-            <span style={{ fontWeight: 400, color: inkMuted, marginLeft: "6px", fontSize: "0.75rem" }}>
-              {[expandedCollege, filters.program].filter(Boolean).join(" › ")}
-            </span>
-          )}
-        </p>
-
-        {locationLevel === "college" && (
-          <div style={{ maxHeight: "160px", overflowY: "auto", display: "flex", flexDirection: "column", gap: "4px" }}>
-            {allColleges.length > 0 ? (
-              allColleges.map(col => (
-                <div key={col} onClick={() => toggleCollege(col)}
-                  style={{ padding: "7px 11px", borderRadius: "10px", fontFamily: font.ui, ...type.helper, color: inkBody, cursor: "pointer", background: color.wine800, border: `1px solid ${line}`, transition: `background 160ms ${ease}` }}
-                  onMouseEnter={e => e.currentTarget.style.background = color.hoverWashStrong}
-                  onMouseLeave={e => e.currentTarget.style.background = color.wine800}
-                >{COLLEGE_DATA[col]?.label || col}</div>
-              ))
-            ) : (
-              <span style={emptyNote}>No colleges available</span>
-            )}
-          </div>
-        )}
-
-        {locationLevel === "program" && (
-          <div>
-            {backRow(expandedCollege, () => toggleCollege(expandedCollege))}
-            <div style={{ maxHeight: "150px", overflowY: "auto", display: "flex", flexWrap: "wrap", gap: "6px" }}>
-              {allPrograms.map(prog => (
-                <span key={prog} onClick={() => toggleProgram(prog)} style={chip(filters.program === prog)}>{prog}</span>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {locationLevel === "specialization" && (
-          <div>
-            {backRow(filters.program, () => setFilters(prev => ({ ...prev, program: "", specialization: "" })))}
-            {allSpecializations.length > 0 ? (
-              <div style={{ maxHeight: "150px", overflowY: "auto", display: "flex", flexWrap: "wrap", gap: "6px" }}>
-                {allSpecializations.map(spec => (
-                  <span key={spec} onClick={() => toggleSpec(spec)} style={chip(filters.specialization === spec)}>{spec}</span>
-                ))}
+      {/* Program and Major. Department is fixed, so there is no Department filter. This
+          whole section is hidden when the department has no other program or major to pick. */}
+      {(showPrograms || showMajors) && (
+        <>
+          <hr style={{ border: "none", borderTop: `1px solid ${lineSoft}`, margin: 0 }} />
+          <div style={{ padding: "12px 14px 14px" }}>
+            {showPrograms && (
+              <div style={{ marginBottom: showMajors ? "12px" : 0 }}>
+                <p style={{ ...groupLabel, marginBottom: space.sm }}>Program</p>
+                <div style={{ maxHeight: "170px", overflowY: "auto", display: "flex", flexDirection: "column", gap: "8px" }}>
+                  {[...new Set(programOptions.map(p => p.dept))].map(dept => (
+                    <div key={dept}>
+                      {showDeptLabels && <p style={{ ...emptyNote, margin: "0 0 4px" }}>{dept}</p>}
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                        {programOptions.filter(p => p.dept === dept).map(p => (
+                          <span key={p.name} onClick={() => toggleProgram(p.name)} style={chip(filters.program === p.name)}>{p.name}</span>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
-            ) : (
-              <p style={emptyNote}>No specializations for this program.</p>
+            )}
+            {showMajors && (
+              <div>
+                <p style={{ ...groupLabel, marginBottom: space.sm }}>Major</p>
+                <div style={{ maxHeight: "150px", overflowY: "auto", display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                  {majors.map(m => (
+                    <span key={m} onClick={() => toggleSpec(m)} style={chip(filters.specialization === m)}>{m}</span>
+                  ))}
+                </div>
+              </div>
             )}
           </div>
-        )}
-      </div>
+        </>
+      )}
     </div>
   );
 };
@@ -1325,14 +1289,12 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
   // Everything EXCEPT the batch filter — the Export menu has its own batch
   // picker and needs the pool before batch narrowing.
   const filteredAnyBatch = students.filter(s => {
-    const q        = search.toLowerCase();
-    const fullName = `${s.firstName} ${s.lastName}`.toLowerCase();
-    const matchSearch  = fullName.includes(q) || s.studentId.includes(q) || s.program.toLowerCase().includes(q) || s.college.toLowerCase().includes(q) || String(s.batch || "").toLowerCase().includes(q);
+    const matchSearch  = matchesStudentSearch(s, search);
     const matchSex     = !filters.sex     || s.sex === filters.sex;
-    const matchSection = !filters.section || s.yearSection.endsWith(`-${filters.section}`);
+    const matchSection = !filters.section || sectionLetterOf(s) === filters.section;
     const matchCollege = !filters.college || s.college  === filters.college;
     const matchProgram = !filters.program || s.program  === filters.program;
-    const matchSpec    = !filters.specialization || s.major === filters.specialization;
+    const matchSpec    = !filters.specialization || (s.specialization || s.major) === filters.specialization;
 
     // Status filter — non-exclusive, see matchesStatusFilter above.
     const matchStatus = matchesStatusFilter(applicationsByStudent[s.id], filters.status, companyStandings);
@@ -1346,6 +1308,20 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
   const exportBatchCounts = {};
   filteredAnyBatch.forEach(s => { const k = batchKeyOf(s); exportBatchCounts[k] = (exportBatchCounts[k] || 0) + 1; });
   const exportBatchKeys = sortBatchKeys(Object.keys(exportBatchCounts));
+
+  // Sections that really have students, given the other panel filters (sex, batch,
+  // program, major), with a head-count each. A selected section stays listed so it
+  // can be switched off.
+  const sectionCounts = new Map();
+  students
+    .filter(s =>
+      (!filters.sex || s.sex === filters.sex) &&
+      (!filters.batch || batchKeyOf(s) === filters.batch) &&
+      (!filters.program || s.program === filters.program) &&
+      (!filters.specialization || (s.specialization || s.major) === filters.specialization))
+    .forEach(s => { const k = sectionLetterOf(s); if (k) sectionCounts.set(k, (sectionCounts.get(k) || 0) + 1); });
+  if (filters.section && !sectionCounts.has(filters.section)) sectionCounts.set(filters.section, 0);
+  const sectionOptions = [...sectionCounts.keys()].sort().map(k => ({ key: k, label: k, count: sectionCounts.get(k) }));
 
   // Batch options from the loaded students, newest academic year first.
   const batchOptions = sortBatchKeys([...new Set(students.map(batchKeyOf))]).filter(k => k !== BATCH_NONE);
@@ -1485,7 +1461,7 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
               <input
                 value={search}
                 onChange={e => setSearch(e.target.value)}
-                placeholder="Search"
+                placeholder="Search name or ID"
                 className="sp-search-input"
                 style={{ border: "none", background: "transparent", outline: "none", boxShadow: "none", WebkitAppearance: "none", appearance: "none", color: ink, fontFamily: font.ui, ...type.control }}
               />
@@ -1577,7 +1553,7 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
                   <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>
                 </svg>
               </div>
-              {showFilter && <FilterPanel filters={filters} setFilters={setFilters} filterRef={filterRef} coordinatorColleges={coordinatorColleges} batchOptions={batchOptions} hasUnbatched={hasUnbatched} />}
+              {showFilter && <FilterPanel filters={filters} setFilters={setFilters} filterRef={filterRef} coordinatorColleges={coordinatorColleges} batchOptions={batchOptions} hasUnbatched={hasUnbatched} sectionOptions={sectionOptions} />}
             </div>
           </div>
         </div>

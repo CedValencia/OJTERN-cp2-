@@ -347,7 +347,11 @@ const getCompanyNavKeyFromPath = (pathname) => {
 // ── Sidebar nav list (reused in static & drawer) ───────────────────────────────
 const SidebarNav = ({ activeNav, onNavigate, onLogout, unreadMessages = 0 }) => (
   <>
-    <div style={{ padding: "14px 20px 8px", flexShrink: 0 }} />
+    <div style={{ padding: "16px 22px 12px", flexShrink: 0 }}>
+      <span style={{ fontFamily: uiFont, fontSize: "1.15rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: inkText }}>
+        Company
+      </span>
+    </div>
     {navItems.map((item) => {
       const isActive = activeNav === item.key;
       return (

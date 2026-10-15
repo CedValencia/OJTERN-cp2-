@@ -4,6 +4,7 @@ import { getAuth, reauthenticateWithCredential, EmailAuthProvider } from "fireba
 import { db } from "./firebase";
 import { initiateCoordinatorTransfer, initiateCoordinatorAddition, changePassword, requestCoordinatorEmailChange } from "./AuthService";
 import { useDepartmentsPrograms } from "./departmentsPrograms";
+import { REGIONS } from "./philippineLocations";
 import { color, font, type, space, radius, shadow, ease, getThemedAsset } from "./theme";
 
 import PersonalAccountProfile from "../icons/personalaccountprofile.png";
@@ -732,6 +733,7 @@ function CustomSelect({
   errorColor = color.danger,
   triggerStyle = {},
   ariaLabel,
+  selectedLabel,   // optional prefix so a chosen value reads e.g. "Province - Tarlac"
 }) {
   const [open, setOpen]         = useState(false);
   const [openUp, setOpenUp]     = useState(false);
@@ -837,7 +839,7 @@ function CustomSelect({
         onKeyDown={onKeyDown}
         style={merged}
       >
-        {selected ? selected.label : placeholder}
+        {selected ? (selectedLabel ? `${selectedLabel} - ${selected.label}` : selected.label) : placeholder}
       </button>
 
       <span
@@ -910,6 +912,57 @@ function CustomSelect({
   );
 }
 
+
+// ── Province → City → Barangay picker ─────────────────────────────────────────
+// Same cascade as Sign Up Step 1, but it starts at Province (no Region step).
+// Each chosen value is labelled, e.g. "Province - Tarlac".
+const ALL_PROVINCES = REGIONS
+  .flatMap(r => r.provinces.map(p => ({ ...p, region: r.name })))
+  .sort((a, b) => a.name.localeCompare(b.name));
+const regionOfProvince = (name) => ALL_PROVINCES.find(p => p.name === name)?.region || "";
+
+const ProvinceLocationPicker = ({ value, onChange, errors = {}, baseStyle, errorStyle, errText }) => {
+  const { province = "", city = "", barangay = "", street = "" } = value;
+  const provinceData = ALL_PROVINCES.find(p => p.name === province);
+  const cityData     = provinceData?.cities?.find(c => c.name === city);
+  const gap = { marginBottom: "10px" };
+  const sel = (err) => ({ ...(err ? errorStyle : baseStyle), paddingRight: "28px" });
+
+  return (
+    <div>
+      <div style={gap}>
+        <CustomSelect value={province} ariaLabel="Province" placeholder="Select province" selectedLabel="Province"
+          options={ALL_PROVINCES.map(p => p.name)} hasError={!!errors.province} errorColor={danger}
+          onChange={v => onChange({ province: v, city: "", barangay: "", street: "" })}
+          triggerStyle={sel(errors.province)} />
+        {errText(errors.province)}
+      </div>
+      {province && (
+        <div style={gap}>
+          <CustomSelect value={city} ariaLabel="City or municipality" placeholder="Select city or municipality" selectedLabel="City/Municipality"
+            options={(provinceData?.cities || []).map(c => c.name)} hasError={!!errors.city} errorColor={danger}
+            onChange={v => onChange({ province, city: v, barangay: "", street: "" })}
+            triggerStyle={sel(errors.city)} />
+          {errText(errors.city)}
+        </div>
+      )}
+      {city && (
+        <div style={gap}>
+          <CustomSelect value={barangay} ariaLabel="Barangay" placeholder="Select barangay" selectedLabel="Barangay"
+            options={cityData?.barangays || []} hasError={!!errors.barangay} errorColor={danger}
+            onChange={v => onChange({ province, city, barangay: v, street })}
+            triggerStyle={sel(errors.barangay)} />
+          {errText(errors.barangay)}
+        </div>
+      )}
+      {city && (
+        <input type="text" value={street} placeholder="Street or building (optional)"
+          onChange={e => onChange({ province, city, barangay, street: e.target.value })}
+          style={baseStyle} />
+      )}
+    </div>
+  );
+};
 
 const MultiDepartmentPicker = ({ selections, onChange, readOnly, errors, departments, departmentNames }) => {
   const addEntry = () => onChange([...selections, { department: "", program: "", specialization: "" }]);
@@ -1009,6 +1062,9 @@ const labelStyle = {
 };
 
 const errorTextStyle = { color: danger, fontSize: "0.8125rem", fontFamily: font.ui, margin: `0 0 ${space.sm} 6px` };
+
+// Red asterisk beside required field labels.
+const reqMark = <span aria-hidden="true" style={{ color: danger, marginLeft: "3px" }}>*</span>;
 
 const EditIcon = ({ size = 16, stroke = ink }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={stroke} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
@@ -1215,7 +1271,7 @@ const AddAccountModal = ({ onClose, currentUid, currentEmail, coordinatorDeptSel
 
               <div id="accadd-identity">
               <ModalTitle>Confirm your identity</ModalTitle>
-              <label style={labelStyle}>Your current password</label>
+              <label style={labelStyle}>Your current password{reqMark}</label>
               <PasswordInput value={currentPass} onChange={e => setCurrentPass(e.target.value)} onKeyDown={handleKeyDown} invalid={!!errors.currentPass} />
               {errors.currentPass && <p style={errorTextStyle}>{errors.currentPass}</p>}
               </div>
@@ -1241,7 +1297,7 @@ const AddAccountModal = ({ onClose, currentUid, currentEmail, coordinatorDeptSel
               </div>
 
               <div id="accadd-email">
-              <label style={labelStyle}>Email address</label>
+              <label style={labelStyle}>Email address{reqMark}</label>
               <input type="email" value={email} onChange={e => setEmail(e.target.value)} onKeyDown={handleKeyDown} placeholder="example@gmail.com"
                 style={{ ...fieldStyle, borderColor: errors.email ? danger : line, marginBottom: "6px" }} />
               {errors.email && <p style={errorTextStyle}>{errors.email}</p>}
@@ -1325,7 +1381,7 @@ const TransferAccountModal = ({ onClose, currentUid, currentEmail, coordinatorDe
 
               <div id="acctransfer-identity">
               <ModalTitle>Confirm your identity</ModalTitle>
-              <label style={labelStyle}>Your current password</label>
+              <label style={labelStyle}>Your current password{reqMark}</label>
               <PasswordInput value={currentPass} onChange={e => setCurrentPass(e.target.value)} onKeyDown={handleKeyDown} invalid={!!errors.currentPass} />
               {errors.currentPass && <p style={errorTextStyle}>{errors.currentPass}</p>}
               </div>
@@ -1351,7 +1407,7 @@ const TransferAccountModal = ({ onClose, currentUid, currentEmail, coordinatorDe
               </div>
 
               <div id="acctransfer-email">
-              <label style={labelStyle}>Email address</label>
+              <label style={labelStyle}>Email address{reqMark}</label>
               <input type="email" value={email} onChange={e => setEmail(e.target.value)} onKeyDown={handleKeyDown} placeholder="example@gmail.com"
                 style={{ ...fieldStyle, borderColor: errors.email ? danger : line, marginBottom: "6px" }} />
               {errors.email && <p style={errorTextStyle}>{errors.email}</p>}
@@ -1483,7 +1539,7 @@ const CoordinatorEmailChangeConfirmModal = ({ newEmail, uid, onCancel, onDone })
           <p style={{ fontFamily: font.ui, ...type.body, color: inkBody, marginBottom: space.md }}>
             This is a security-sensitive change, so you need to confirm your current password before continuing.
           </p>
-          <label style={labelStyle}>Current password</label>
+          <label style={labelStyle}>Current password{reqMark}</label>
           <PasswordInput value={currentPass} onChange={e => { setCurrentPass(e.target.value); setError(""); }} onKeyDown={handleKeyDown} invalid={!!error} />
           {error && <p style={{ ...errorTextStyle, textAlign: "center", marginTop: space.sm }}>{error}</p>}
         </div>
@@ -1511,7 +1567,10 @@ const PersonalInfoScreen = ({ user, onBack, onSaved, mandatory = false, onEditin
   const [sex, setSex]         = useState(user?.sex || "");
   const [contact, setContact] = useState(user?.contact || "");
   const [email, setEmail]     = useState(user?.email || "");
-  const [address, setAddress] = useState(user?.address || "");
+  const [address, setAddress] = useState(user?.address || "");   // saved address text (what View mode shows)
+  // Structured address for the Province → City → Barangay picker.
+  const emptyLoc = { province: "", city: "", barangay: "", street: "" };
+  const [loc, setLoc] = useState({ ...emptyLoc, ...(user?.addressDetails || {}) });
   const [errors, setErrors]     = useState({});
   const [deptErrors, setDeptErrors] = useState([]);
   const [saving, setSaving]     = useState(false);
@@ -1541,6 +1600,10 @@ const PersonalInfoScreen = ({ user, onBack, onSaved, mandatory = false, onEditin
   // mirror it into a ref that's always current.
   const editingRef = useRef(editing);
   useEffect(() => { editingRef.current = editing; }, [editing]);
+  // Same idea for the department picker (editable on first login): load it
+  // from Firestore once, then don't overwrite what the coordinator is picking.
+  const deptLoadedRef = useRef(false);
+  const locLoadedRef  = useRef(false);
 
   // ── Always reflect the latest Firestore data, not a stale `user` prop ────
   // (Fixes fields resetting to blank when re-opening Edit after a save.)
@@ -1551,7 +1614,10 @@ const PersonalInfoScreen = ({ user, onBack, onSaved, mandatory = false, onEditin
       if (!snap.exists()) return;
       const d = snap.data();
       setName(d.name || "");
-      setDeptSelections(d.deptSelections?.length ? d.deptSelections : [{ department: "", program: "", specialization: "" }]);
+      if (!deptLoadedRef.current || !editingRef.current) {
+        setDeptSelections(d.deptSelections?.length ? d.deptSelections : [{ department: "", program: "", specialization: "" }]);
+        deptLoadedRef.current = true;
+      }
       setSex(d.sex || "");
       setContact(d.contact || "");
       // Only sync the visible email input from Firestore while NOT actively
@@ -1564,6 +1630,10 @@ const PersonalInfoScreen = ({ user, onBack, onSaved, mandatory = false, onEditin
       originalEmailRef.current = d.email || "";
       setPendingEmail(d.pendingEmail || "");
       setAddress(d.address || "");
+      if (!locLoadedRef.current || !editingRef.current) {
+        setLoc({ ...emptyLoc, ...(d.addressDetails || {}) });
+        locLoadedRef.current = true;
+      }
     });
     return unsub;
   }, [user?.uid]);
@@ -1589,10 +1659,32 @@ const PersonalInfoScreen = ({ user, onBack, onSaved, mandatory = false, onEditin
     if (phoneErr) e.contact = phoneErr;
     const emailErr = validateEmail(email);
     if (emailErr) e.email = emailErr;
-    if (!address.trim()) e.address = "Address is required.";
+    // Province → City → Barangay (a level is only required when it has options to pick from).
+    const provData = ALL_PROVINCES.find(p => p.name === loc.province);
+    const cityData = provData?.cities?.find(c => c.name === loc.city);
+    if (!loc.province) e.province = "Select a province.";
+    else if (!loc.city) e.city = "Select a city or municipality.";
+    else if ((cityData?.barangays?.length ?? 0) > 0 && !loc.barangay) e.barangay = "Select a barangay.";
+
+    // Department is only editable on first login (mandatory), so only check it then.
+    let deptOk = true;
+    if (mandatory) {
+      const dErrs = deptSelections.map(entry => {
+        const err = {};
+        if (!entry.department) err.department = true;
+        else if (!entry.program) err.program = true;
+        else {
+          const specs = (departments[entry.department]?.programs ?? []).find(p => p.name === entry.program)?.specializations ?? [];
+          if (specs.length > 0 && !entry.specialization) err.specialization = true;
+        }
+        return err;
+      });
+      deptOk = dErrs.every(err => Object.keys(err).length === 0);
+      setDeptErrors(dErrs);
+    }
 
     setErrors(e);
-    return Object.keys(e).length === 0;
+    return Object.keys(e).length === 0 && deptOk;
   };
 
   const handleSave = async () => {
@@ -1627,9 +1719,14 @@ const PersonalInfoScreen = ({ user, onBack, onSaved, mandatory = false, onEditin
         sex:            sex           || "",
         contact:        contact       || "",
         // `email` intentionally excluded — see handleSave/saveNonEmailFields split above.
-        address:        address       || "",
+        // Readable address (what View mode and other screens show) + the structured parts for re-editing.
+        address:        [loc.street, loc.barangay, loc.city, loc.province].map(x => (x || "").trim()).filter(Boolean).join(", "),
+        addressDetails: { region: regionOfProvince(loc.province), ...loc },
       };
-      if (mandatory) payload.profileComplete = true;
+      if (mandatory) {
+        payload.profileComplete = true;
+        payload.deptSelections = deptSelections;
+      }
       await updateDoc(doc(db, "coordinators", uid), payload);
       setEditing(false);
       setErrors({});
@@ -1660,6 +1757,8 @@ const PersonalInfoScreen = ({ user, onBack, onSaved, mandatory = false, onEditin
 
   const rowLabel = { fontFamily: font.ui, ...type.helper, color: inkMuted, display: "block", marginBottom: "3px" };
   const rowValue = { fontFamily: font.ui, ...type.body, color: ink, margin: 0 };
+  // Red asterisk on required fields, shown while editing so it's clear what must be filled in.
+  const Req = () => editing ? <span aria-hidden="true" style={{ color: danger, marginLeft: "3px" }}>*</span> : null;
 
   const inlineInputStyle = {
     background: "transparent", border: "none", borderBottom: `1px solid ${line}`,
@@ -1698,7 +1797,7 @@ const PersonalInfoScreen = ({ user, onBack, onSaved, mandatory = false, onEditin
 
           {/* Name */}
           <div id="pinfo-name" className="cap-info-row">
-            <span style={rowLabel}>Name</span>
+            <span style={rowLabel}>Name<Req /></span>
             {editing ? (
               <>
                 <input value={name} onChange={e => { setName(e.target.value); setErrors(p => ({ ...p, name: "" })); }} placeholder="Full name" style={errors.name ? inlineInputErrorStyle : inlineInputStyle} />
@@ -1709,10 +1808,19 @@ const PersonalInfoScreen = ({ user, onBack, onSaved, mandatory = false, onEditin
             )}
           </div>
 
-          {/* Department — read-only; can't be changed from Personal Information */}
+          {/* Department — editable on first login (mandatory setup); read-only afterwards */}
           <div id="pinfo-dept" className="cap-info-row">
-            <span style={rowLabel}>Department</span>
-            {deptSelections.length === 1 ? (
+            <span style={rowLabel}>Department{editing && mandatory && <Req />}</span>
+            {editing && mandatory ? (
+              <MultiDepartmentPicker
+                selections={deptSelections}
+                onChange={(next) => { setDeptSelections(next); setDeptErrors([]); }}
+                readOnly={false}
+                errors={deptErrors}
+                departments={departments}
+                departmentNames={departmentNames}
+              />
+            ) : deptSelections.length === 1 ? (
               <p style={rowValue}>{deptViewLabel(deptSelections[0]) || "—"}</p>
             ) : (
               <ul style={{ margin: "2px 0 0", paddingLeft: "18px" }}>
@@ -1725,7 +1833,7 @@ const PersonalInfoScreen = ({ user, onBack, onSaved, mandatory = false, onEditin
 
           {/* Sex */}
           <div id="pinfo-sex" className="cap-info-row">
-            <span style={rowLabel}>Sex</span>
+            <span style={rowLabel}>Sex<Req /></span>
             {editing ? (
               <>
                 <CustomSelect value={sex} onChange={v => { setSex(v); setErrors(p => ({ ...p, sex: "" })); }}
@@ -1740,7 +1848,7 @@ const PersonalInfoScreen = ({ user, onBack, onSaved, mandatory = false, onEditin
 
           {/* Contact */}
           <div id="pinfo-contact" className="cap-info-row">
-            <span style={rowLabel}>Contact number</span>
+            <span style={rowLabel}>Contact number<Req /></span>
             {editing ? (
               <>
                 <input value={contact} onChange={e => handleContactChange(e.target.value)} placeholder="+63 000-000-0000" style={errors.contact ? inlineInputErrorStyle : inlineInputStyle} />
@@ -1753,7 +1861,7 @@ const PersonalInfoScreen = ({ user, onBack, onSaved, mandatory = false, onEditin
 
           {/* Email */}
           <div id="pinfo-email" className="cap-info-row">
-            <span style={rowLabel}>Email address</span>
+            <span style={rowLabel}>Email address<Req /></span>
             {editing ? (
               <>
                 <input type="email" value={email} onChange={e => handleEmailChange(e.target.value)} placeholder="example@gmail.com" style={errors.email ? inlineInputErrorStyle : inlineInputStyle} />
@@ -1774,14 +1882,20 @@ const PersonalInfoScreen = ({ user, onBack, onSaved, mandatory = false, onEditin
 
           {/* Address */}
           <div id="pinfo-address" className="cap-info-row">
-            <span style={rowLabel}>Address</span>
+            <span style={rowLabel}>Address<Req /></span>
             {editing ? (
               <>
-                <input type="text" value={address}
-                  onChange={e => { setAddress(e.target.value); setErrors(p => ({ ...p, address: "" })); }}
-                  placeholder="Province, city, barangay, street"
-                  style={errors.address ? inlineInputErrorStyle : inlineInputStyle} />
-                {errors.address && <p style={inlineErrText}>{errors.address}</p>}
+                <ProvinceLocationPicker
+                  value={loc}
+                  onChange={(next) => { setLoc(next); setErrors(p => ({ ...p, province: "", city: "", barangay: "" })); }}
+                  errors={errors}
+                  baseStyle={inlineInputStyle}
+                  errorStyle={inlineInputErrorStyle}
+                  errText={(m) => (m ? <p style={inlineErrText}>{m}</p> : null)}
+                />
+                {address && !loc.province && (
+                  <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, margin: "6px 0 0" }}>Saved address: {address}</p>
+                )}
               </>
             ) : (
               <p style={rowValue}>{address || "—"}</p>
@@ -1790,7 +1904,7 @@ const PersonalInfoScreen = ({ user, onBack, onSaved, mandatory = false, onEditin
 
           {mandatory && (
             <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, textAlign: "center", margin: `${space.sm} 0 0` }}>
-              Complete your personal information to continue.
+              Complete your personal information to continue. <span aria-hidden="true" style={{ color: danger }}>*</span> Required field
             </p>
           )}
 
@@ -1917,7 +2031,7 @@ const ResetPasswordModal = ({ onClose, user, onLogout }) => {
           <ModalTitle sub="Choose a password you don't use anywhere else.">Reset password</ModalTitle>
 
           <div id="accreset-current">
-          <label style={labelStyle}>Current password</label>
+          <label style={labelStyle}>Current password{reqMark}</label>
           <PasswordInput value={currentPass} onChange={e => { setCurrentPass(e.target.value); setErrors(p => ({ ...p, currentPass: "" })); }} onKeyDown={handleKeyDown} invalid={!!errors.currentPass} />
           {errors.currentPass && <p style={errorTextStyle}>{errors.currentPass}</p>}
           </div>
@@ -1925,7 +2039,7 @@ const ResetPasswordModal = ({ onClose, user, onLogout }) => {
           <hr style={{ border: "none", borderTop: `1px solid ${line}`, margin: `${space.lg} 0 ${space.md}` }} />
 
           <div id="accreset-new">
-          <label style={labelStyle}>New password</label>
+          <label style={labelStyle}>New password{reqMark}</label>
           <PasswordInput value={newPass} onChange={e => { setNewPass(e.target.value); setErrors(p => ({ ...p, newPass: "" })); }} onKeyDown={handleKeyDown} invalid={!!errors.newPass} />
           {errors.newPass && <p style={errorTextStyle}>{errors.newPass}</p>}
 
@@ -1933,7 +2047,7 @@ const ResetPasswordModal = ({ onClose, user, onLogout }) => {
           </div>
 
           <div id="accreset-confirm">
-          <label style={labelStyle}>Confirm new password</label>
+          <label style={labelStyle}>Confirm new password{reqMark}</label>
           <PasswordInput value={confirm} onChange={e => { setConfirm(e.target.value); setErrors(p => ({ ...p, confirm: "" })); }} onKeyDown={handleKeyDown} invalid={!!errors.confirm} />
           {errors.confirm && <p style={errorTextStyle}>{errors.confirm}</p>}
           </div>
@@ -2021,15 +2135,15 @@ const FirstLoginPasswordModal = ({ user, onLogout }) => {
           <p style={{ fontFamily: font.ui, ...type.helper, color: onPanelDim, margin: "3px 0 0" }}>Required before you can continue.</p>
         </div>
         <div className="cap-modal-body">
-          <label style={labelStyle}>Current password</label>
+          <label style={labelStyle}>Current password{reqMark}</label>
           <PasswordInput value={currentPass} onChange={e => { setCurrentPass(e.target.value); setPassError(""); }} onKeyDown={onEnter} />
 
-          <label style={labelStyle}>New password</label>
+          <label style={labelStyle}>New password{reqMark}</label>
           <PasswordInput value={newPass} onChange={e => { setNewPass(e.target.value); setPassError(""); }} onKeyDown={onEnter} />
 
           <PasswordChecklist password={newPass} />
 
-          <label style={labelStyle}>Confirm new password</label>
+          <label style={labelStyle}>Confirm new password{reqMark}</label>
           <PasswordInput value={confirmPass} onChange={e => { setConfirmPass(e.target.value); setPassError(""); }} onKeyDown={onEnter} />
 
           {passError && <p style={{ ...errorTextStyle, marginTop: space.xs }}>{passError}</p>}

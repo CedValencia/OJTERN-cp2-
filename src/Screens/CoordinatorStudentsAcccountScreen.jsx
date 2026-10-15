@@ -81,9 +81,11 @@ const LEGACY_PROGRAM_CODE_MAP = {
 };
 
 // Year & Section options — adjust to match your school's actual sections
-const YEAR_SECTIONS = [
-  "4-A","4-B","4-C","4-D","4-E", "4-F",
-];
+// Sections run A–Z (26), so a department with many sections never runs out.
+const SECTION_LETTERS = Array.from({ length: 26 }, (_, i) => String.fromCharCode(65 + i));
+const YEAR_SECTIONS = SECTION_LETTERS.map(l => `4-${l}`);
+// "4-A" → "A". Used by the Section filter so it matches what is really saved.
+const sectionLetterOf = (s) => String(s?.yearSection || "").split("-").pop().trim().toUpperCase();
 
 const SEX_OPTIONS = ["Male", "Female"];
 
@@ -119,11 +121,18 @@ const EXCEL_COLUMNS = [
 // derived from this list.
 // Suffix sits after Middle Name, same order as the New Student form, and is
 // optional per row. Templates downloaded before it existed (no Suffix column)
-// are still accepted — see LEGACY_IMPORT_COLUMNS in parseFile.
+// are still accepted — see LEGACY_IMPORT_LAYOUTS in parseFile.
 const IMPORT_TEMPLATE_COLUMNS = [
-  "Student ID", "Last Name", "First Name", "Middle Name", "Suffix", "Department", "Sex",
+  "Student ID", "Last Name", "First Name", "Middle Name", "Suffix", "Sex",
 ];
-const LEGACY_IMPORT_COLUMNS = IMPORT_TEMPLATE_COLUMNS.filter(c => c !== "Suffix");
+// There is no Department column any more: every imported student gets the
+// coordinator's own department (picked in the Import form only when the
+// coordinator has more than one). Older templates are still accepted; their
+// Department column is simply ignored.
+const LEGACY_IMPORT_LAYOUTS = [
+  ["Student ID", "Last Name", "First Name", "Middle Name", "Suffix", "Department", "Sex"],
+  ["Student ID", "Last Name", "First Name", "Middle Name", "Department", "Sex"],
+];
 
 // ── Batch + archive ──────────────────────────────────────────────────────────
 // `batch` is the student's ACADEMIC YEAR ("2026-2027") and is NOT the same as
@@ -159,6 +168,20 @@ const normalizeBatch = (value) => {
   return "";
 };
 const isValidBatch = (v) => normalizeBatch(v) !== "";
+// Message for the field's error line ("" = fine). Specific on purpose, so the
+// coordinator can see WHAT is wrong with what they typed.
+const batchProblem = (value) => {
+  const raw = String(value || "").trim();
+  if (!raw) return "Required";
+  if (normalizeBatch(raw)) return "";
+  if (/^\d{4}\s*[-\u2013\u2014]\s*\d{2,4}$/.test(raw)) return "The two years must be consecutive, e.g. 2026-2027";
+  return "Use an academic year like 2026-2027";
+};
+// "2026-27" is accepted; tell the person what will really be saved.
+const batchHint = (value) => {
+  const n = normalizeBatch(value);
+  return n && n !== String(value || "").trim() ? `Will be saved as ${n}` : "";
+};
 const batchStartYear = (key) => Number(String(key).split("-")[0]) || 0;
 
 // Newest batch first; "No batch set" always last.
@@ -196,6 +219,31 @@ const normalizeSection = (value) => {
     if (match) return match;
   }
   return "";
+};
+
+// ── Birthdate / age ──────────────────────────────────────────────────────────
+// The student enters a birthdate on first login (StudentAccountProfileScreen) and
+// the age is derived from it. Age is worked out here from the birthdate, so it
+// stays current; the stored `age` number is only a fallback for accounts that
+// predate birthdates. Kept in step with the helpers in that file.
+const parseBirthdate = (v) => {
+  const m = String(v || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  const y = +m[1], mo = +m[2], d = +m[3];
+  const dt = new Date(y, mo - 1, d);
+  return dt.getFullYear() === y && dt.getMonth() === mo - 1 && dt.getDate() === d ? dt : null;
+};
+const ageFromBirthdate = (v, today = new Date()) => {
+  const b = parseBirthdate(v);
+  if (!b) return null;
+  let age = today.getFullYear() - b.getFullYear();
+  const m = today.getMonth() - b.getMonth();
+  if (m < 0 || (m === 0 && today.getDate() < b.getDate())) age--;
+  return age >= 0 ? age : null;
+};
+const formatBirthdate = (v) => {
+  const b = parseBirthdate(v);
+  return b ? b.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : "";
 };
 
 const NAME_REGEX = /^[A-Za-zÑñ][A-Za-zÑñ\s\-]*$/;
@@ -492,11 +540,7 @@ const validators = {
     if (!NAME_REGEX.test(v)) return "Letters, Ñ/ñ and hyphens only";
     return "";
   },
-  batch: (v) => {
-    if (!v) return "Required";
-    if (!isValidBatch(v)) return "Academic year, e.g. 2026-2027";
-    return "";
-  },
+  batch: (v) => batchProblem(v),
   middleName: (v) => {
     if (!v) return "";
     if (!NAME_REGEX.test(v)) return "Letters, Ñ/ñ and hyphens only";
@@ -578,41 +622,51 @@ const exportToXLSX = (students, departments) => {
   XLSX.writeFile(wb, "student_credentials.xlsx");
 };
 
-const downloadTemplateXLSX = () => {
+const IMPORT_TEMPLATE_LAST_ROW = 200;
+
+const escXml = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+const NAME_LETTERS = "abcdefghijklmnopqrstuvwxyzñ";
+const excelNameRule = (cell) =>
+  `AND(LEN(${cell})<=60,` +
+  `ISNUMBER(FIND(LEFT(LOWER(${cell}),1),"${NAME_LETTERS}")),` +
+  `SUMPRODUCT(ISNUMBER(FIND(MID(LOWER(${cell}),ROW($1:$60),1),"${NAME_LETTERS} -"))*(MID(${cell},ROW($1:$60),1)<>""))=LEN(${cell}))`;
+const excelStudentIdRule = (cell) =>
+  `AND(LEN(${cell})=9,SUMPRODUCT(--ISNUMBER(--MID(${cell},ROW($1:$9),1)))=9)`;
+
+// The sheet is PROTECTED: only Student ID … Sex on rows 3–200 are editable, so
+// nobody can type outside the designated columns. Each editable column also has
+// an Excel validation rule that mirrors the checks the import runs, so a wrong
+// value is refused while typing instead of failing after Import. (xlsx-js-style
+// can write neither data validation nor unlocked cells, so both are patched into
+// the XML below.) Protection has no password: it is a guard-rail, not security,
+// and Excel's validation can still be bypassed by pasting — the import check
+// remains the real safety net.
+const buildImportTemplate = async (outType = "blob") => {
+  const colCount = IMPORT_TEMPLATE_COLUMNS.length;
+  const lastRow = IMPORT_TEMPLATE_LAST_ROW;
   const rows = [
     IMPORT_TEMPLATE_COLUMNS,
-    [
-      "e.g. 201112345", "e.g. Dela Cruz", "e.g. Juan", "e.g. Santos (or blank)",
-      "e.g. Jr. (or blank)", "e.g. CCS", "e.g. Male",
-    ],
+    ["e.g. 201112345", "e.g. Dela Cruz", "e.g. Juan", "e.g. Santos (or blank)", "e.g. Jr. (or blank)", "e.g. Male"],
   ];
   const ws = XLSX.utils.aoa_to_sheet(rows);
-  ws["!cols"] = [
-    { wch: 15 }, { wch: 22 }, { wch: 22 }, { wch: 24 }, { wch: 18 }, { wch: 38 }, { wch: 12 },
-  ];
-  for (let r = 2; r < 200; r++) {
-    for (let c = 0; c < IMPORT_TEMPLATE_COLUMNS.length; c++) {
-      const cell = XLSX.utils.encode_cell({ r, c });
-      ws[cell] = { t: "s", v: "", s: { protection: { locked: false } } };
+  ws["!cols"] = [{ wch: 15 }, { wch: 22 }, { wch: 22 }, { wch: 24 }, { wch: 18 }, { wch: 12 }];
+
+  for (let r = 2; r < lastRow; r++) {
+    for (let c = 0; c < colCount; c++) {
+      ws[XLSX.utils.encode_cell({ r, c })] = { t: "s", v: "" };
     }
   }
-  for (let c = 0; c < IMPORT_TEMPLATE_COLUMNS.length; c++) {
+  for (let c = 0; c < colCount; c++) {
     const headerCell = XLSX.utils.encode_cell({ r: 0, c });
-    if (ws[headerCell]) {
-      ws[headerCell].s = {
-        // Header fill follows the app's dark panel, not the old maroon.
-        font: { bold: true, color: { rgb: "FFFFFF" } },
-        fill: { patternType: "solid", fgColor: { rgb: "161616" } },
-        alignment: { horizontal: "center" },
-        protection: { locked: true },
-      };
-    }
-  }
-  for (let c = 0; c < IMPORT_TEMPLATE_COLUMNS.length; c++) {
-    const cell = XLSX.utils.encode_cell({ r: 1, c });
-    ws[cell].s = {
+    ws[headerCell].s = {
+      font: { bold: true, color: { rgb: "FFFFFF" } },
+      fill: { patternType: "solid", fgColor: { rgb: "161616" } },
+      alignment: { horizontal: "center" },
+    };
+    ws[XLSX.utils.encode_cell({ r: 1, c })].s = {
       fill: { patternType: "solid", fgColor: { rgb: "FFFFFF" } },
-      font: { name: "Calibri", sz: 11, bold: false, italic: false, color: { rgb: "A85450" } },
+      font: { name: "Calibri", sz: 11, color: { rgb: "A85450" } },
       alignment: { horizontal: "left", vertical: "center" },
       border: {
         top:    { style: "thin", color: { rgb: "000000" } },
@@ -622,75 +676,83 @@ const downloadTemplateXLSX = () => {
       },
     };
   }
-  ws["!ref"] = `A1:${XLSX.utils.encode_col(IMPORT_TEMPLATE_COLUMNS.length - 1)}200`;
-  ws["!freeze"] = { xSplit: 0, ySplit: 1 };
+  ws["!ref"] = `A1:${XLSX.utils.encode_col(colCount - 1)}${lastRow}`;
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Student Template");
 
-  // Sex is a dropdown in the sheet, so the coordinator picks Male or Female
-  // instead of typing it. xlsx-js-style cannot write data validation, so the
-  // workbook is generated first and the <dataValidations> element is injected
-  // into the sheet XML — the same markup Excel writes for a list validation.
-  const sexCol = XLSX.utils.encode_col(IMPORT_TEMPLATE_COLUMNS.indexOf("Sex"));
-  const suffixCol = XLSX.utils.encode_col(IMPORT_TEMPLATE_COLUMNS.indexOf("Suffix"));
-  const dataValidation =
-    '<dataValidations count="2">' +
-      '<dataValidation type="list" allowBlank="1" showInputMessage="1" showErrorMessage="1" ' +
-      'errorTitle="Invalid sex" error="Choose Male or Female from the list." ' +
-      'promptTitle="Sex" prompt="Choose Male or Female." ' +
-      `sqref="${sexCol}3:${sexCol}200">` +
-        '<formula1>"Male,Female"</formula1>' +
-      '</dataValidation>' +
-      // Suffix: the same options as the New Student form's dropdown; blank is fine.
-      '<dataValidation type="list" allowBlank="1" showInputMessage="1" showErrorMessage="1" ' +
-      'errorTitle="Invalid suffix" error="Choose a suffix from the list, or leave it blank." ' +
-      'promptTitle="Suffix" prompt="Optional. Jr., Sr., II, III … or leave blank." ' +
-      `sqref="${suffixCol}3:${suffixCol}200">` +
-        `<formula1>"${SUFFIX_OPTIONS.join(",")}"</formula1>` +
-      '</dataValidation>' +
-    '</dataValidations>';
+  const col = (name) => XLSX.utils.encode_col(IMPORT_TEMPLATE_COLUMNS.indexOf(name));
+  const range = (name) => `${col(name)}3:${col(name)}${lastRow}`;
+  const rule = ({ name, type, formula, title, message, prompt }) =>
+    `<dataValidation type="${type}" allowBlank="1" showInputMessage="1" showErrorMessage="1" errorStyle="stop" ` +
+    `errorTitle="${escXml(title)}" error="${escXml(message)}" promptTitle="${escXml(name)}" prompt="${escXml(prompt)}" sqref="${range(name)}">` +
+    `<formula1>${escXml(formula)}</formula1></dataValidation>`;
+  const rules = [
+    rule({ name: "Student ID", type: "custom", formula: excelStudentIdRule(`${col("Student ID")}3`),
+      title: "Invalid Student ID", message: "Student ID must be exactly 9 digits. Numbers only, no spaces or symbols.", prompt: "Exactly 9 digits." }),
+    rule({ name: "Last Name", type: "custom", formula: excelNameRule(`${col("Last Name")}3`),
+      title: "Invalid last name", message: "Use letters, Ñ/ñ, spaces and hyphens only. It must start with a letter.", prompt: "Letters, spaces and hyphens only." }),
+    rule({ name: "First Name", type: "custom", formula: excelNameRule(`${col("First Name")}3`),
+      title: "Invalid first name", message: "Use letters, Ñ/ñ, spaces and hyphens only. It must start with a letter.", prompt: "Letters, spaces and hyphens only." }),
+    rule({ name: "Middle Name", type: "custom", formula: excelNameRule(`${col("Middle Name")}3`),
+      title: "Invalid middle name", message: "Use letters, Ñ/ñ, spaces and hyphens only, or leave it blank.", prompt: "Optional. Letters only." }),
+    rule({ name: "Suffix", type: "list", formula: `"${SUFFIX_OPTIONS.join(",")}"`,
+      title: "Invalid suffix", message: "Choose a suffix from the list, or leave it blank.", prompt: "Optional. Jr., Sr., II, III … or leave blank." }),
+    rule({ name: "Sex", type: "list", formula: `"Male,Female"`,
+      title: "Invalid sex", message: "Choose Male or Female from the list.", prompt: "Choose Male or Female." }),
+  ];
+  const dataValidation = `<dataValidations count="${rules.length}">${rules.join("")}</dataValidations>`;
+  const sheetProtection = '<sheetProtection sheet="1" objects="1" scenarios="1" formatColumns="0" formatRows="0"/>';
 
-  (async () => {
-    try {
-      const rawFile = XLSX.write(wb, { type: "array", bookType: "xlsx" });
-      const zip = await JSZip.loadAsync(rawFile);
-      const sheetPath = "xl/worksheets/sheet1.xml";
-      let xml = await zip.file(sheetPath).async("string");
-      // <dataValidations> has a FIXED slot in the sheet XML: after sheetData,
-      // and before hyperlinks / printOptions / pageMargins / pageSetup /
-      // headerFooter / ... / ignoredErrors / drawing / tableParts. Excel is
-      // strict about that order and answers an out-of-order element with "We
-      // found a problem with some content ... recover?". xlsx-js-style writes
-      // NO <pageMargins> but DOES write <ignoredErrors>, so the old
-      // "append before </worksheet>" fallback put it AFTER <ignoredErrors> --
-      // which is exactly what produced that error. Insert it before whichever
-      // later element comes first instead.
-      const AFTER_DATA_VALIDATIONS = [
-        "hyperlinks", "printOptions", "pageMargins", "pageSetup", "headerFooter",
-        "rowBreaks", "colBreaks", "customProperties", "cellWatches", "ignoredErrors",
-        "smartTags", "drawing", "legacyDrawing", "legacyDrawingHF", "drawingHF",
-        "picture", "oleObjects", "controls", "webPublishItems", "tableParts", "extLst",
-      ];
-      const later = AFTER_DATA_VALIDATIONS.map(tag => xml.indexOf(`<${tag}`)).filter(i => i !== -1);
-      const insertAt = later.length ? Math.min(...later) : xml.lastIndexOf("</worksheet>");
-      xml = xml.slice(0, insertAt) + dataValidation + xml.slice(insertAt);
-      zip.file(sheetPath, xml);
+  const rawFile = XLSX.write(wb, { type: "array", bookType: "xlsx" });
+  const zip = await JSZip.loadAsync(rawFile);
 
-      const blob = await zip.generateAsync({ type: "blob" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "student_import_template.xlsx";
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      // Never leave the coordinator without a template.
-      console.error("Failed to add the Sex dropdown to the template:", err);
-      XLSX.writeFile(wb, "student_import_template.xlsx");
-    }
-  })();
+  const stylesPath = "xl/styles.xml";
+  let styles = await zip.file(stylesPath).async("string");
+  const xfsMatch = styles.match(/<cellXfs count="(\d+)">/);
+  if (!xfsMatch) throw new Error("cellXfs not found");
+  const unlockedIdx = Number(xfsMatch[1]);
+  styles = styles
+    .replace(xfsMatch[0], `<cellXfs count="${unlockedIdx + 1}">`)
+    .replace("</cellXfs>", '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyProtection="1"><protection locked="0"/></xf></cellXfs>');
+  zip.file(stylesPath, styles);
+
+  const sheetPath = "xl/worksheets/sheet1.xml";
+  let xml = await zip.file(sheetPath).async("string");
+  xml = xml.replace(/<c r="([A-Z]+)(\d+)" s="\d+"/g, (m, c, r) => (Number(r) >= 3 && Number(r) <= lastRow ? `<c r="${c}${r}" s="${unlockedIdx}"` : m));
+  xml = xml.replace("</sheetData>", `</sheetData>${sheetProtection}`);
+  const AFTER_DATA_VALIDATIONS = [
+    "hyperlinks", "printOptions", "pageMargins", "pageSetup", "headerFooter",
+    "rowBreaks", "colBreaks", "customProperties", "cellWatches", "ignoredErrors",
+    "smartTags", "drawing", "legacyDrawing", "legacyDrawingHF", "drawingHF",
+    "picture", "oleObjects", "controls", "webPublishItems", "tableParts", "extLst",
+  ];
+  const later = AFTER_DATA_VALIDATIONS.map(tag => xml.indexOf(`<${tag}`)).filter(i => i !== -1);
+  const insertAt = later.length ? Math.min(...later) : xml.lastIndexOf("</worksheet>");
+  xml = xml.slice(0, insertAt) + dataValidation + xml.slice(insertAt);
+  zip.file(sheetPath, xml);
+
+  return zip.generateAsync({ type: outType });
+};
+
+const downloadTemplateXLSX = async () => {
+  try {
+    const blob = await buildImportTemplate("blob");
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "student_import_template.xlsx";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    // Never leave the coordinator without a template.
+    console.error("Failed to build the protected template:", err);
+    const ws = XLSX.utils.aoa_to_sheet([IMPORT_TEMPLATE_COLUMNS]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Student Template");
+    XLSX.writeFile(wb, "student_import_template.xlsx");
+  }
 };
 
 // ── CustomSelect ──────────────────────────────────────────────────────────────
@@ -974,6 +1036,43 @@ const useField = (initial = "", validatorKey) => {
   return { value, onChange, touch, reset, error, hasError: !!error };
 };
 
+// ── Program / Major picker ────────────────────────────────────────────────────
+// Department is never picked here — it comes from the coordinator. Program only
+// appears when the department has more than one, and Major only when the program
+// has majors; otherwise there is nothing to choose, so nothing is shown.
+// `programs` is the department's [{ name, specializations }] list. Leaving a
+// field blank is allowed: the student then sets it on first login.
+const programsOf = (departments, college) => (college ? (departments[college]?.programs || []) : []);
+const programMajorState = (programs, program) => {
+  const single   = programs.length === 1 ? programs[0] : null;
+  const active   = single || programs.find(p => p.name === program) || null;
+  const majors   = (active?.specializations || []).filter(Boolean);
+  return { showProgram: programs.length > 1, showMajor: majors.length > 0, majors, activeName: active?.name || "" };
+};
+const ProgramMajorFields = ({ programs, program, major, onProgram, onMajor, Label = FieldLabel }) => {
+  const { showProgram, showMajor, majors } = programMajorState(programs, program);
+  if (!showProgram && !showMajor) return null;
+  return (
+    <>
+      {showProgram && (
+        <div style={{ gridColumn: "1 / -1" }}>
+          <Label>Program</Label>
+          <StyledSelect value={program} onChange={onProgram} options={programs.map(p => p.name)} placeholder="Let the student choose" />
+        </div>
+      )}
+      {showMajor && (
+        <div style={{ gridColumn: "1 / -1" }}>
+          <Label>Major</Label>
+          <StyledSelect value={major} onChange={onMajor} options={majors} placeholder="Not set" />
+        </div>
+      )}
+    </>
+  );
+};
+const SmallLabel = ({ children }) => (
+  <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, marginBottom: "4px" }}>{children}</p>
+);
+
 // ── Student Form ───────────────────────────────────────────────────────────────
 const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submitLabel = "Create account", coordinatorColleges = [], departments = {} }) => {
   const studentId     = useField(initial.studentId || "", "studentId");
@@ -1004,6 +1103,7 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
     initial.college || (coordinatorColleges.length === 1 ? coordinatorColleges[0] : "")
   );
   const [program, setProgram] = useState(initial.program || "");
+  const [major, setMajor]     = useState("");   // create only
   const [collegeTouched, setCollegeTouched] = useState(false);
   const [programTouched, setProgramTouched] = useState(false);
   const [isEditing, setIsEditing]           = useState(!readOnly);
@@ -1014,8 +1114,10 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
   const collegeError = collegeTouched && !college ? "Required" : "";
   const programError = programTouched && !program ? "Required" : "";
 
-  const handleCollegeChange = (val) => { setCollege(val); setProgram(""); setCollegeTouched(true); };
-  const handleProgramChange = (val) => { setProgram(val); setProgramTouched(true); };
+  const handleCollegeChange = (val) => { setCollege(val); setProgram(""); setMajor(""); setCollegeTouched(true); };
+  const handleProgramChange = (val) => { setProgram(val); setMajor(""); setProgramTouched(true); };
+  const programObjs = programsOf(departments, college);
+  const pm = programMajorState(programObjs, program);
 
   const allFields = isCreate
     ? [studentId, lastName, firstName, middleName, suffix, yearSection, sex, batch]
@@ -1068,7 +1170,9 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
         // program is filled in only when the department offers exactly one;
         // sex, age, and email come from the student on first login. The
         // suffix is optional and set here (it's part of the name on the list).
-        const deptPrograms = (departments[college]?.programs || []).map(p => p.name).filter(Boolean);
+        // Program: the only one the department has, else what was picked (blank =
+        // the student chooses on first login). Major only when one was picked.
+        const deptPrograms = programObjs.map(p => p.name).filter(Boolean);
         await onSubmit({
           studentId: studentId.value.trim(),
           lastName: lastName.value.trim(),
@@ -1077,10 +1181,10 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
           middleInitial: toMiddleInitial(middleName.value),
           yearSection: yearSection.value,
           college,
-          program: deptPrograms.length === 1 ? deptPrograms[0] : "",
+          program: deptPrograms.length === 1 ? deptPrograms[0] : program,
           sex: sex.value,
           batch: normalizeBatch(batch.value) || batch.value.trim(),
-          specialization: "", suffix: isRealSuffix(suffix.value) ? suffix.value : "", age: "",
+          specialization: pm.showMajor ? major : "", suffix: isRealSuffix(suffix.value) ? suffix.value : "", age: "",
         });
         return;
       }
@@ -1203,32 +1307,6 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
                   <FieldError msg={yearSection.error} />
                 </div>
                 <div>
-                  <FieldLabel>Department</FieldLabel>
-                  {coordinatorColleges.length > 1 ? (
-                    <>
-                      <StyledSelect
-                        value={college}
-                        onChange={handleCollegeChange}
-                        options={coordinatorColleges.map(name => ({ value: name, label: name }))}
-                        placeholder="Select your department"
-                        hasError={!!collegeError}
-                      />
-                      <FieldError msg={collegeError} />
-                    </>
-                  ) : (
-                    <div style={{
-                      width: "100%", padding: "9px 14px", borderRadius: radius.pill,
-                      background: color.wine800, color: inkBody, fontFamily: font.ui,
-                      ...type.helper, border: `1px solid ${line}`,
-                    }}>
-                      {college || "—"}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div className="sa-college-grid" style={{ marginTop: "12px" }}>
-                <div>
                   <FieldLabel>Sex</FieldLabel>
                   <StyledSelect value={sex.value} onChange={(v) => sex.onChange(v)} options={SEX_OPTIONS} placeholder="Select sex" hasError={!!sex.error} />
                   <FieldError msg={sex.error} />
@@ -1237,11 +1315,30 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
                   <FieldLabel>Batch</FieldLabel>
                   <StyledInput value={batch.value} onChange={(v) => batch.onChange(v.replace(/[^\d-]/g, "").slice(0, 9))} placeholder="2026-2027" hasError={!!batch.error} />
                   <FieldError msg={batch.error} />
+                  {!batch.error && batchHint(batch.value) && <p style={{ fontFamily: font.ui, ...type.helper, color: success, marginTop: "4px", paddingLeft: "14px" }}>{batchHint(batch.value)}</p>}
                 </div>
+                {/* Only a coordinator with more than one department picks one.
+                    Everyone else's students simply get their own department. */}
+                {coordinatorColleges.length > 1 && (
+                  <div>
+                    <FieldLabel>Department</FieldLabel>
+                    <StyledSelect
+                      value={college}
+                      onChange={handleCollegeChange}
+                      options={coordinatorColleges.map(name => ({ value: name, label: name }))}
+                      placeholder="Select department"
+                      hasError={!!collegeError}
+                    />
+                    <FieldError msg={collegeError} />
+                  </div>
+                )}
+                <ProgramMajorFields programs={programObjs} program={program} major={major} onProgram={handleProgramChange} onMajor={setMajor} />
               </div>
 
               <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, marginTop: space.sm, lineHeight: 1.6 }}>
-                The student adds their program, age, and personal email on their first login.
+                {coordinatorColleges.length <= 1 && college ? `Added to ${college}, your department. ` : ""}
+                {pm.showProgram ? "Leave Program blank to let the student choose it on first login. " : ""}
+                The student adds {pm.showProgram ? "" : "their program, "}age, and personal email on their first login.
               </p>
             </>
           ) : (
@@ -1319,14 +1416,18 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
               <FieldError msg={sex.error} />
             </div>
             <div>
-              <FieldLabel>Age</FieldLabel>
-              {/* Age is the student's to set (first-login setup / their own
-                  profile), so a coordinator never types it here. */}
-              <StyledInput value={age.value} onChange={onAgeChange} disabled hasError={false} />
+              <FieldLabel>Birthdate</FieldLabel>
+              {/* The student sets this on first login (or in their own profile),
+                  so a coordinator never types it here. */}
+              <StyledInput value={formatBirthdate(initial.birthdate)} onChange={() => {}} placeholder="Not set yet" disabled hasError={false} />
               {isEditing && readOnly && (
                 <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, marginTop: "4px" }}>Set by the student</p>
               )}
-
+            </div>
+            <div>
+              <FieldLabel>Age</FieldLabel>
+              {/* Worked out from the birthdate, so it stays current. */}
+              <StyledInput value={String(age.value ?? "")} onChange={onAgeChange} disabled hasError={false} />
             </div>
             <div>
               <FieldLabel>Batch</FieldLabel>
@@ -1406,22 +1507,15 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
   );
 };
 
-const validateRow = (row, rowIndex, coordinatorColleges = [], departments = {}) => {
+const validateRow = (row, rowIndex, seenIds = new Map(), existingIds = new Set()) => {
   const errs = []; const r = rowIndex + 3;
-  const departmentNames = Object.keys(departments);
-  // Reverse-lookup: short Department code (e.g. "CCS") → canonical full name,
-  // derived from each department's `abbr` in the live Firestore data — so
-  // the spreadsheet can stay compact while what's saved is always the same
-  // full name companies/coordinators/posts use. Matching ignores case.
-  const abbrToFullName = {};
-  departmentNames.forEach(name => {
-    if (departments[name]?.abbr) abbrToFullName[String(departments[name].abbr).toUpperCase()] = name;
-  });
-  const fullNameByLower = {};
-  departmentNames.forEach(name => { fullNameByLower[name.toLowerCase()] = name; });
 
   if (!row.studentId) errs.push(`Row ${r}: Student ID is required`);
   else if (!/^\d{9}$/.test(row.studentId)) errs.push(`Row ${r}: Student ID must be exactly 9 digits`);
+  else if (existingIds.has(row.studentId)) errs.push(`Row ${r}: Student ID ${row.studentId} already has an account`);
+  else if (seenIds.has(row.studentId)) errs.push(`Row ${r}: Student ID ${row.studentId} is repeated (also on row ${seenIds.get(row.studentId)})`);
+  else seenIds.set(row.studentId, r);
+
   if (!row.lastName) errs.push(`Row ${r}: Last Name is required`);
   else if (!NAME_REGEX.test(row.lastName)) errs.push(`Row ${r}: Last Name can only contain letters, spaces, and hyphens`);
   if (!row.firstName) errs.push(`Row ${r}: First Name is required`);
@@ -1440,36 +1534,25 @@ const validateRow = (row, rowIndex, coordinatorColleges = [], departments = {}) 
     else row.sex = sex; // normalize in place, e.g. "m" → "Male"
   }
 
-  // Section and batch are not checked per row: they are typed once in the import
-  // form and validated there, then stamped onto every row.
-
-  if (!row.college) {
-    errs.push(`Row ${r}: Department is required`);
-  } else {
-    // Accept either the short code ("CCS") or the full name, in any case.
-    const resolvedCollege = abbrToFullName[row.college.toUpperCase()] || fullNameByLower[row.college.toLowerCase()] || null;
-    if (!resolvedCollege) errs.push(`Row ${r}: Department "${row.college}" is not valid`);
-    else if (coordinatorColleges.length > 0 && !coordinatorColleges.includes(resolvedCollege)) errs.push(`Row ${r}: Department "${row.college}" is not one of your assigned departments — you can only import your own department's students`);
-    else {
-      row.college = resolvedCollege; // normalize in place to the canonical full name before this row gets saved
-      // No Program column: a department with exactly one program gets it
-      // filled in automatically; otherwise the student picks it on first login.
-      const programs = (departments[resolvedCollege]?.programs || []).map(p => p.name).filter(Boolean);
-      row.program = programs.length === 1 ? programs[0] : "";
-    }
-  }
+  // Section, batch, department, program and major are not checked per row: they
+  // are chosen once in the import form and stamped onto every row.
   return errs;
 };
 
 // ── Import Modal ───────────────────────────────────────────────────────────────
-const ImportModal = ({ onClose, onImport, coordinatorColleges = [], departments = {} }) => {
+const ImportModal = ({ onClose, onImport, coordinatorColleges = [], departments = {}, existingIds = [] }) => {
   const [dragging, setDragging] = useState(false);
   // Section and batch are typed once here and stamped on every row, instead of
   // being repeated down two template columns where one row could disagree with
   // the rest. One import is therefore one section of one batch.
   const [section, setSection] = useState("");
   const [batch, setBatch]     = useState("");
-  const [fieldError, setFieldError] = useState("");
+  // Department: no field when the coordinator has one (it is applied
+  // automatically); a dropdown only when they have more than one.
+  const [department, setDepartment] = useState(coordinatorColleges.length === 1 ? coordinatorColleges[0] : "");
+  const [program, setProgram]       = useState("");
+  const [major, setMajor]           = useState("");
+  const [batchTouched, setBatchTouched] = useState(false);
   const [file, setFile] = useState(null);
   const [fileError, setFileError] = useState("");
   const [parsing, setParsing] = useState(false);
@@ -1495,11 +1578,15 @@ const ImportModal = ({ onClose, onImport, coordinatorColleges = [], departments 
       const headerErrors = [];
       // The Suffix column is optional: an older template without it is read in
       // its old layout instead of being rejected.
-      const expectedColumns = headerRow[IMPORT_TEMPLATE_COLUMNS.indexOf("Suffix")] === "Suffix" ? IMPORT_TEMPLATE_COLUMNS : LEGACY_IMPORT_COLUMNS;
+      const layouts = [IMPORT_TEMPLATE_COLUMNS, ...LEGACY_IMPORT_LAYOUTS];
+      const matched = layouts.find(cols => cols.every((c, i) => headerRow[i] === c));
+      const expectedColumns = matched || IMPORT_TEMPLATE_COLUMNS;
       const at = (name) => expectedColumns.indexOf(name);   // -1 when the column isn't in this layout
-      expectedColumns.forEach((expected, i) => { if (headerRow[i] !== expected) headerErrors.push(`Column ${i + 1}: expected "${expected}", found "${headerRow[i] || "(empty)"}"`); });
+      if (!matched) IMPORT_TEMPLATE_COLUMNS.forEach((expected, i) => { if (headerRow[i] !== expected) headerErrors.push(`Column ${i + 1}: expected "${expected}", found "${headerRow[i] || "(empty)"}"`); });
       if (headerErrors.length > 0) { setPreview({ valid: [], rowErrors: [], headerErrors }); setParsing(false); return; }
       const rowErrors = []; const valid = [];
+      const seenIds = new Map();
+      const knownIds = new Set(existingIds.map(String));
       rows.slice(2).forEach((row, i) => {
         if (row.every(c => c === "" || c === null || c === undefined)) return;
         // Extra safety net: skip any row that still looks like the
@@ -1514,22 +1601,21 @@ const ImportModal = ({ onClose, onImport, coordinatorColleges = [], departments 
           middleName,
           middleInitial: toMiddleInitial(middleName),
           suffix:        cell("Suffix"),   // checked + normalized in validateRow
-          college:       cell("Department"),
           sex:           cell("Sex"),
           // Section and batch are typed once in the import form and stamped on
           // every row there — one import is one section of one batch.
           yearSection:   "",
           batch:         "",
-          // Not in the template — filled in by validateRow (single-program
-          // departments) or by the student on first login.
-          program: "", major: "", specialization: "",
+          // Department, program and major come from the import form (or the
+          // student on first login) — see handleImport.
+          college: "", program: "", major: "", specialization: "",
           age: "",
           email: "", password: "",
         };
-        const errs = validateRow(student, i, coordinatorColleges, departments);
+        const errs = validateRow(student, i, seenIds, knownIds);
         if (errs.length > 0) rowErrors.push(...errs); else valid.push(student);
       });
-      setPreview({ valid, rowErrors, headerErrors: [] });
+      setPreview({ valid, rowErrors, headerErrors: [], ignoredDepartment: expectedColumns.includes("Department") });
     } catch (e) { setPreview({ valid: [], rowErrors: ["The file couldn't be read."], headerErrors: [] }); }
     setParsing(false);
   };
@@ -1539,16 +1625,29 @@ const ImportModal = ({ onClose, onImport, coordinatorColleges = [], departments 
   const clearFile = () => { setFile(null); setPreview(null); setFileError(""); };
   const normalizedSection = normalizeSection(section);
   const normalizedBatch   = normalizeBatch(batch);
+  const batchError        = batchTouched ? batchProblem(batch) : "";
+  const programObjs       = programsOf(departments, department);
+  const pm                = programMajorState(programObjs, program);
 
   const handleImport = () => {
-    if (!preview || preview.valid.length === 0) return;
-    if (!normalizedSection) { setFieldError(`Choose the section for these students (${YEAR_SECTIONS.join(", ")}).`); return; }
-    if (!normalizedBatch)   { setFieldError("Enter the batch as an academic year, e.g. 2026-2027."); return; }
-    onImport(preview.valid.map(st => ({ ...st, yearSection: normalizedSection, batch: normalizedBatch })));
+    if (!canImport) return;
+    // Same rule as the New Student form: the department's only program is filled
+    // in automatically; otherwise whatever was picked (blank = the student picks).
+    const resolvedProgram = programObjs.length === 1 ? programObjs[0].name : program;
+    onImport(preview.valid.map(st => ({
+      ...st,
+      yearSection: normalizedSection, batch: normalizedBatch,
+      college: department, program: resolvedProgram, specialization: pm.showMajor ? major : "",
+    })));
     onClose();
   };
 
-  const canImport = preview && preview.valid.length > 0 && !!normalizedSection && !!normalizedBatch;
+  const missing = [
+    !normalizedSection && "Section",
+    !normalizedBatch && "Batch",
+    !department && "Department",
+  ].filter(Boolean);
+  const canImport = !!preview && preview.valid.length > 0 && missing.length === 0;
 
   const noticeBox = (borderColor, children) => (
     <div style={{ background: color.wine800, border: `1px solid ${borderColor}`, borderRadius: radius.card, padding: "12px 16px", marginBottom: space.sm }}>
@@ -1589,39 +1688,41 @@ const ImportModal = ({ onClose, onImport, coordinatorColleges = [], departments 
 
           {fileError && <p style={{ fontFamily: font.ui, ...type.helper, color: danger, marginTop: space.sm }}>{fileError}</p>}
 
-          {/* One section and one batch for the whole file. */}
-          <div style={{ display: "flex", gap: space.sm, flexWrap: "wrap", marginTop: space.md }}>
+          {/* One section, batch (and department / program / major) for the whole file. */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: space.sm, marginTop: space.md }}>
             <div>
-              <label htmlFor="sa-import-section" style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, display: "block", marginBottom: "4px" }}>
-                Section <span style={{ color: danger }}>*</span>
-              </label>
-              <StyledSelect
-                value={section}
-                onChange={(v) => { setSection(v); setFieldError(""); }}
-                options={YEAR_SECTIONS}
-                placeholder="Select section"
-                hasError={!!fieldError && !normalizedSection}
-              />
+              <SmallLabel>Section <span style={{ color: danger }}>*</span></SmallLabel>
+              <StyledSelect value={section} onChange={setSection} options={YEAR_SECTIONS} placeholder="Select section" />
             </div>
             <div>
-              <label htmlFor="sa-import-batch" style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, display: "block", marginBottom: "4px" }}>
-                Batch <span style={{ color: danger }}>*</span>
-              </label>
+              <SmallLabel>Batch <span style={{ color: danger }}>*</span></SmallLabel>
               <StyledInput
                 value={batch}
-                onChange={(v) => { setBatch(v.replace(/[^\d-]/g, "").slice(0, 9)); setFieldError(""); }}
+                onChange={(v) => { setBatch(v.replace(/[^\d-]/g, "").slice(0, 9)); setBatchTouched(true); }}
                 placeholder="2026-2027"
-                hasError={!!fieldError && !normalizedBatch}
+                hasError={!!batchError}
               />
+              {batchError && <p role="alert" style={{ fontFamily: font.ui, ...type.helper, color: danger, margin: "4px 0 0 14px" }}>{batchError}</p>}
+              {!batchError && batchTouched && batchHint(batch) && <p style={{ fontFamily: font.ui, ...type.helper, color: success, margin: "4px 0 0 14px" }}>{batchHint(batch)}</p>}
             </div>
+            {coordinatorColleges.length > 1 && (
+              <div style={{ gridColumn: "1 / -1" }}>
+                <SmallLabel>Department <span style={{ color: danger }}>*</span></SmallLabel>
+                <StyledSelect
+                  value={department}
+                  onChange={(v) => { setDepartment(v); setProgram(""); setMajor(""); }}
+                  options={coordinatorColleges.map(name => ({ value: name, label: name }))}
+                  placeholder="Select department"
+                />
+              </div>
+            )}
+            <ProgramMajorFields programs={programObjs} program={program} major={major} onProgram={(v) => { setProgram(v); setMajor(""); }} onMajor={setMajor} Label={SmallLabel} />
           </div>
 
-          {fieldError
-            ? <p role="alert" style={{ fontFamily: font.ui, ...type.helper, color: danger, margin: "6px 0 0" }}>{fieldError}</p>
-            : <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, margin: "6px 0 0", lineHeight: 1.6 }}>
-                Students are imported one section at a time: every student in this file is saved under the section and batch above.
-                For another section, import a separate file.
-              </p>}
+          <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, margin: "8px 0 0", lineHeight: 1.6 }}>
+            Every student in this file is saved under the section and batch above
+            {coordinatorColleges.length === 1 ? `, in ${coordinatorColleges[0]}, your department` : ""}. For another section, import a separate file.
+          </p>
 
           <div id="sa-import-columns" style={{ background: color.wine800, border: `1px solid ${line}`, borderRadius: radius.card, padding: "12px 16px", marginTop: space.md }}>
             <p style={{ fontFamily: font.ui, ...type.label, color: ink, marginBottom: "4px" }}>Columns, in this order</p>
@@ -1649,7 +1750,11 @@ const ImportModal = ({ onClose, onImport, coordinatorColleges = [], departments 
                 </div>
               )}
               {preview.valid.length > 0 && preview.headerErrors.length === 0 && noticeBox(success, (
-                <p style={{ fontFamily: font.ui, ...type.label, color: success }}>{preview.valid.length} student{preview.valid.length !== 1 ? "s" : ""} ready to import</p>
+                <>
+                  <p style={{ fontFamily: font.ui, ...type.label, color: success }}>{preview.valid.length} student{preview.valid.length !== 1 ? "s" : ""} ready to import</p>
+                  {preview.ignoredDepartment && <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, marginTop: "4px" }}>This file has a Department column. It's ignored: students go into the department chosen here.</p>}
+                  {missing.length > 0 && <p style={{ fontFamily: font.ui, ...type.helper, color: inkBody, marginTop: "4px" }}>Still needed above: {missing.join(", ")}.</p>}
+                </>
               ))}
               {preview.valid.length === 0 && preview.headerErrors.length === 0 && preview.rowErrors.length > 0 && noticeBox(danger, (
                 <p style={{ fontFamily: font.ui, ...type.label, color: danger }}>No rows can be imported yet. Fix the issues above and upload again.</p>
@@ -1670,34 +1775,77 @@ const ImportModal = ({ onClose, onImport, coordinatorColleges = [], departments 
 };
 
 // ── Filter Panel ───────────────────────────────────────────────────────────────
-const FilterPanel = ({ filters, setFilters, filterRef, coordinatorColleges = [], departments = {}, departmentNames = [], batchOptions = [], hasUnbatched = false }) => {
+const EMPTY_FILTERS = { program: "", specialization: "", sex: "", section: "", batch: "" };
+// `skip` leaves one filter out, which is how each option list is built from the
+// students the OTHER filters still allow (e.g. sections inside the chosen batch).
+const matchesPanelFilters = (s, f, skip = "") =>
+  (skip === "sex"            || !f.sex            || s.sex === f.sex) &&
+  (skip === "section"        || !f.section        || sectionLetterOf(s) === f.section) &&
+  (skip === "batch"          || !f.batch          || batchKeyOf(s) === f.batch) &&
+  (skip === "program"        || !f.program        || s.program === f.program) &&
+  (skip === "specialization" || !f.specialization || (s.specialization || s.major) === f.specialization);
+const countBy = (list, keyFn) => {
+  const m = new Map();
+  list.forEach(x => { const k = keyFn(x); m.set(k, (m.get(k) || 0) + 1); });
+  return m;
+};
+// ── Search: first name, middle initial, last name, suffix and student ID only ──
+// Every word typed must match one of those fields, so "juan dela cruz", "cruz jr"
+// and "m. santos" all work. A single letter matches a middle initial or the start
+// of a name/ID, so typing "m" doesn't match every name that merely contains an m.
+const searchKey = (v) => String(v ?? "").toLowerCase().replace(/[.,]/g, "").trim();
+const matchesStudentSearch = (s, query) => {
+  const tokens = searchKey(query).split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return true;
+  const names = [s.firstName, s.lastName, s.suffix].map(searchKey).filter(Boolean);
+  const mi = searchKey(s.middleInitial);
+  const id = searchKey(s.studentId);
+  return tokens.every(t => (t.length === 1
+    ? (mi === t || names.some(n => n.startsWith(t)) || id.startsWith(t))
+    : (names.some(n => n.includes(t)) || id.includes(t) || mi === t)));
+};
+
+// ── Program / Major options for the filter panel ──
+// The department itself is fixed (the list is already limited to the coordinator's
+// own department(s)), so it is never a filter. Only programs are listed here.
+const programOptionsFor = (colleges, departments, departmentNames) => {
+  const deps = departments || {};
+  const names = departmentNames || [];
+  const resolve = (c) => (deps[c] ? c : names.find(n => deps[n]?.abbr === c) || null);
+  const scope = [...new Set((colleges || []).map(resolve).filter(Boolean))];
+  return (scope.length > 0 ? scope : names).flatMap(dept =>
+    (deps[dept]?.programs || []).map(p => ({ dept, name: p.name, specializations: p.specializations || [] })));
+};
+
+// batchOptions / sectionOptions are [{ key, label, count }] built from the students that
+// really exist (given the other filters), so nothing is offered that returns nobody.
+const FilterPanel = ({ filters, setFilters, filterRef, coordinatorColleges = [], departments = {}, departmentNames = [], batchOptions = [], sectionOptions = [] }) => {
   const { isMobile, isTablet } = useBreakpoint();
-  const [expandedCollege, setExpandedCollege] = useState(filters.college || "");
-  // Scoped to the coordinator's own assigned department(s) — never the
-  // full school-wide college list.
-  const allColleges        = coordinatorColleges.length > 0 ? coordinatorColleges : departmentNames;
-  const allPrograms        = expandedCollege ? (departments[expandedCollege]?.programs || []).map(p => p.name) : [];
+  // Department is fixed (the coordinator's own), so only Program / Major are filterable,
+  // and only when there is something to choose between.
+  const programOptions  = programOptionsFor(coordinatorColleges, departments, departmentNames);
+  const showDeptLabels  = new Set(programOptions.map(p => p.dept)).size > 1;
+  const showPrograms    = programOptions.length > 1;
+  const activeProgram   = filters.program ? programOptions.find(p => p.name === filters.program)
+                                          : (programOptions.length === 1 ? programOptions[0] : null);
+  const majors          = activeProgram?.specializations || [];
+  const showMajors      = majors.length > 0;
 
-  // Derive section letters from YEAR_SECTIONS (e.g. "4-A" → "A")
-  const sectionLetters = YEAR_SECTIONS.map(s => s.split("-")[1]).filter(Boolean);
-
-  const clearAll = () => { setExpandedCollege(""); setFilters({ college: "", program: "", sex: "", section: "", batch: "" }); };
+  const clearAll = () => { setFilters({ ...EMPTY_FILTERS }); };
   const toggleBatch   = (val) => setFilters(prev => ({ ...prev, batch: prev.batch === val ? "" : val }));
   const toggleSex     = (val) => setFilters(prev => ({ ...prev, sex: prev.sex === val ? "" : val }));
   const toggleSection = (val) => setFilters(prev => ({ ...prev, section: prev.section === val ? "" : val }));
-  const toggleCollege = (col) => {
-    if (expandedCollege === col) { setExpandedCollege(""); setFilters(prev => ({ ...prev, college: "", program: "" })); }
-    else { setExpandedCollege(col); setFilters(prev => ({ ...prev, college: col, program: "", specialization: "" })); }
-  };
   const toggleProgram = (prog) => setFilters(prev => ({ ...prev, program: prev.program === prog ? "" : prog, specialization: "" }));
-  const locationLevel = !expandedCollege ? "college" : "program";
+  const toggleSpec    = (spec) => setFilters(prev => ({ ...prev, specialization: prev.specialization === spec ? "" : spec }));
 
   const panelStyle = {
     position: "absolute", top: "48px", right: 0, width: "266px",
     background: surface, border: `1px solid ${line}`, borderRadius: radius.card,
-    boxShadow: shadow.panel, zIndex: 100, overflow: "hidden",
+    boxShadow: shadow.panel, zIndex: 100, overflowX: "hidden", overflowY: "auto",
+    maxHeight: "min(72vh, 560px)",
     fontFamily: font.ui,
   };
+  const countTag = (n) => <span style={{ opacity: 0.6, marginLeft: "4px" }}>{n}</span>;
 
   const groupLabel = { fontFamily: font.ui, ...type.label, color: ink };
   const emptyNote  = { fontFamily: font.ui, ...type.helper, color: inkFaint };
@@ -1725,14 +1873,9 @@ const FilterPanel = ({ filters, setFilters, filterRef, coordinatorColleges = [],
       <div style={{ padding: "0 14px 12px" }}>
         <p style={{ ...groupLabel, marginBottom: space.sm }}>Batch</p>
         <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
-          {batchOptions.length > 0 || hasUnbatched ? (
-            <>
-              {batchOptions.map(b => (<span key={b} onClick={() => toggleBatch(b)} style={chip(filters.batch === b)}>{b}</span>))}
-              {hasUnbatched && (
-                <span onClick={() => toggleBatch(BATCH_NONE)} style={chip(filters.batch === BATCH_NONE)}>No batch</span>
-              )}
-            </>
-          ) : (
+          {batchOptions.length > 0 ? batchOptions.map(b => (
+            <span key={b.key} onClick={() => toggleBatch(b.key)} style={chip(filters.batch === b.key)}>{b.label}{countTag(b.count)}</span>
+          )) : (
             <span style={emptyNote}>No batches yet</span>
           )}
         </div>
@@ -1740,51 +1883,54 @@ const FilterPanel = ({ filters, setFilters, filterRef, coordinatorColleges = [],
 
       <hr style={{ border: "none", borderTop: `1px solid ${lineSoft}`, margin: "10px 0" }} />
 
+      {/* Section — only sections that have registered students (A–Z possible). */}
       <div style={{ padding: "0 14px 12px" }}>
         <p style={{ ...groupLabel, marginBottom: space.sm }}>Section</p>
         <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
-          {sectionLetters.length > 0 ? (
-            sectionLetters.map(s => (<span key={s} onClick={() => toggleSection(s)} style={chip(filters.section === s)}>{s}</span>))
-          ) : (
-            <span style={emptyNote}>No sections available</span>
+          {sectionOptions.length > 0 ? sectionOptions.map(o => (
+            <span key={o.key} onClick={() => toggleSection(o.key)} style={chip(filters.section === o.key)}>{o.label}{countTag(o.count)}</span>
+          )) : (
+            <span style={emptyNote}>No students registered in any section yet</span>
           )}
         </div>
       </div>
 
-      <hr style={{ border: "none", borderTop: `1px solid ${lineSoft}`, margin: 0 }} />
-
-      <div style={{ padding: "12px 14px 14px" }}>
-        <p style={{ ...groupLabel, marginBottom: space.sm }}>
-          Department
-          {expandedCollege && <span style={{ fontWeight: 400, color: inkMuted, marginLeft: "6px", fontSize: "0.75rem" }}>{[expandedCollege, filters.program].filter(Boolean).join(" › ")}</span>}
-        </p>
-        {locationLevel === "college" && (
-          <div style={{ maxHeight: "160px", overflowY: "auto", display: "flex", flexDirection: "column", gap: "4px" }}>
-            {allColleges.length > 0 ? (
-              allColleges.map(col => (
-                <div key={col} onClick={() => toggleCollege(col)}
-                  style={{ padding: "7px 11px", borderRadius: "10px", fontFamily: font.ui, ...type.helper, color: inkBody, cursor: "pointer", background: color.wine800, border: `1px solid ${line}`, transition: `background 160ms ${ease}` }}
-                  onMouseEnter={e => e.currentTarget.style.background = color.hoverWashStrong}
-                  onMouseLeave={e => e.currentTarget.style.background = color.wine800}
-                >{col}</div>
-              ))
-            ) : (
-              <span style={emptyNote}>No departments available</span>
+      {/* Program and Major. Department is fixed, so there is no Department filter. This
+          whole section is hidden when the department has no other program or major to pick. */}
+      {(showPrograms || showMajors) && (
+        <>
+          <hr style={{ border: "none", borderTop: `1px solid ${lineSoft}`, margin: 0 }} />
+          <div style={{ padding: "12px 14px 14px" }}>
+            {showPrograms && (
+              <div style={{ marginBottom: showMajors ? "12px" : 0 }}>
+                <p style={{ ...groupLabel, marginBottom: space.sm }}>Program</p>
+                <div style={{ maxHeight: "170px", overflowY: "auto", display: "flex", flexDirection: "column", gap: "8px" }}>
+                  {[...new Set(programOptions.map(p => p.dept))].map(dept => (
+                    <div key={dept}>
+                      {showDeptLabels && <p style={{ ...emptyNote, margin: "0 0 4px" }}>{dept}</p>}
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                        {programOptions.filter(p => p.dept === dept).map(p => (
+                          <span key={p.name} onClick={() => toggleProgram(p.name)} style={chip(filters.program === p.name)}>{p.name}</span>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {showMajors && (
+              <div>
+                <p style={{ ...groupLabel, marginBottom: space.sm }}>Major</p>
+                <div style={{ maxHeight: "150px", overflowY: "auto", display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                  {majors.map(m => (
+                    <span key={m} onClick={() => toggleSpec(m)} style={chip(filters.specialization === m)}>{m}</span>
+                  ))}
+                </div>
+              </div>
             )}
           </div>
-        )}
-        {locationLevel === "program" && (
-          <div>
-            <div onClick={() => toggleCollege(expandedCollege)} style={{ display: "flex", alignItems: "center", gap: space.xs, cursor: "pointer", marginBottom: space.sm, color: inkMuted, fontFamily: font.ui, ...type.helper }}>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
-              {expandedCollege}
-            </div>
-            <div style={{ maxHeight: "150px", overflowY: "auto", display: "flex", flexWrap: "wrap", gap: "6px" }}>
-              {allPrograms.map(prog => (<span key={prog} onClick={() => toggleProgram(prog)} style={chip(filters.program === prog)}>{prog}</span>))}
-            </div>
-          </div>
-        )}
-      </div>
+        </>
+      )}
     </div>
   );
 };
@@ -1840,11 +1986,12 @@ const StudentRowMenu = ({ onView, onDelete, onArchive, onRestore, archived }) =>
 };
 
 // ── Checkbox ──────────────────────────────────────────────────────────────────
-const Checkbox = ({ checked, onClick }) => (
+const Checkbox = ({ checked, partial = false, onClick }) => (
   <div
     onClick={onClick}
-    style={{ width: "18px", height: "18px", border: `1.5px solid ${checked ? panel : color.wine400}`, borderRadius: "5px", background: checked ? panel : color.white, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 }}
+    style={{ width: "18px", height: "18px", border: `1.5px solid ${checked || partial ? panel : color.wine400}`, borderRadius: "5px", background: checked ? panel : color.white, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 }}
   >
+    {partial && !checked && <div style={{ width: "8px", height: "2px", background: panel, borderRadius: "1px" }} />}
     {checked && <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={color.white} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>}
   </div>
 );
@@ -1861,10 +2008,12 @@ const mapStudentDoc = (docSnap) => {
     suffix:         d.suffix         || "",
     college:        d.college        || "",
     program:        d.program        || "",
-    specialization: d.specialization || "",
+    specialization: d.specialization || d.major || "",
     yearSection:    d.yearSection    || "",
     sex:            d.sex            || "",
-    age:            d.age            || "",
+    // Derived from the birthdate when there is one; the stored number only for older accounts.
+    age:            ageFromBirthdate(d.birthdate) ?? (d.age || ""),
+    birthdate:      d.birthdate      || "",
     email:          d.email          || "",
     fullName:       d.fullName       || `${d.firstName} ${d.lastName}`,
     status:         d.status         || "active",
@@ -1936,9 +2085,14 @@ const StudentRow = ({ student: s, selectMode, isSelected, onToggleSelect, onView
 };
 
 // ── Confirm / notice dialog ───────────────────────────────────────────────────
-const Dialog = ({ title, body, children }) => (
+const Dialog = ({ title, body, children, success: showSuccess = false }) => (
   <div style={{ position: "fixed", inset: 0, background: "rgba(10,10,10,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2100, padding: space.md }}>
     <div style={{ background: surface, border: `1px solid ${line}`, borderRadius: radius.panel, padding: `${space.xl} ${space.lg}`, width: "100%", maxWidth: "360px", boxShadow: shadow.panel, textAlign: "center" }}>
+      {showSuccess && (
+        <div style={{ width: "52px", height: "52px", borderRadius: "50%", background: lineSoft, display: "flex", alignItems: "center", justifyContent: "center", margin: `0 auto ${space.md}` }}>
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke={success} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+        </div>
+      )}
       <p style={{ fontFamily: font.ui, fontSize: "1.125rem", fontWeight: 600, letterSpacing: "-0.01em", color: ink, marginBottom: body ? space.sm : space.lg }}>{title}</p>
       {body && <p style={{ fontFamily: font.ui, ...type.body, color: inkBody, marginBottom: space.lg }}>{body}</p>}
       <div style={{ display: "flex", gap: space.sm, justifyContent: "center", flexWrap: "wrap" }}>{children}</div>
@@ -2007,7 +2161,7 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
   const [selectMode, setSelectMode]             = useState(false);
   const [confirmDeleteInfo, setConfirmDeleteInfo] = useState(null); // { type: "single" | "selected", id?, count? }
   const [confirmExport, setConfirmExport]         = useState(false);
-  const [exportEmptyWarning, setExportEmptyWarning] = useState(false);
+  const [archiveDone, setArchiveDone]         = useState(null); // { mode, count, name } — success dialog
   const [search, setSearch]                     = useState("");
   const [showNewModal, setShowNewModal]         = useState(false);
   const [showImportModal, setShowImportModal]   = useState(false);
@@ -2025,7 +2179,8 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
   useEffect(() => { onImportModalChange?.(showImportModal); }, [showImportModal, onImportModalChange]);
   const [successInfo, setSuccessInfo]           = useState(null); // { fullName, password }
   const [importResult, setImportResult]        = useState(null); // { successCount, failures[] }
-  const [filters, setFilters]                   = useState({ college: "", program: "", sex: "", section: "", batch: "" });
+  // No `college` filter: the department is fixed (the coordinator's own).
+  const [filters, setFilters]                   = useState({ ...EMPTY_FILTERS });
   // "active" | "archived" — which pool the list is showing.
   const [viewTab, setViewTab]                   = useState("active");
   const [confirmArchiveInfo, setConfirmArchiveInfo] = useState(null); // { student, mode: "archive"|"restore" }
@@ -2090,23 +2245,20 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
   const archivedStudents = students.filter(s => isArchivedStudent(s));
   const pool = viewTab === "archived" ? archivedStudents : activeStudents;
 
-  // Batch options come from the students actually in this tab, so the list
-  // never offers a year that returns nothing.
-  const batchOptions = sortBatchKeys([...new Set(pool.map(batchKeyOf))])
-    .filter(k => k !== BATCH_NONE);
-  const hasUnbatched = pool.some(s => batchKeyOf(s) === BATCH_NONE);
+  // Option lists come from the students actually in this tab AND allowed by the
+  // other filters, so the panel never offers a batch or section that returns nobody.
+  // A currently-selected value stays listed (even at 0) so it can be switched off.
+  const batchCounts = countBy(pool.filter(s => matchesPanelFilters(s, filters, "batch")), batchKeyOf);
+  if (filters.batch && !batchCounts.has(filters.batch)) batchCounts.set(filters.batch, 0);
+  const batchOptions = sortBatchKeys([...batchCounts.keys()]).map(k => ({
+    key: k, label: k === BATCH_NONE ? "No batch" : k, count: batchCounts.get(k),
+  }));
+  const sectionCounts = countBy(pool.filter(s => matchesPanelFilters(s, filters, "section")), sectionLetterOf);
+  sectionCounts.delete("");
+  if (filters.section && !sectionCounts.has(filters.section)) sectionCounts.set(filters.section, 0);
+  const sectionOptions = [...sectionCounts.keys()].sort().map(k => ({ key: k, label: k, count: sectionCounts.get(k) }));
 
-  const filtered = pool.filter(s => {
-    const q = search.toLowerCase();
-    const matchSearch  = [s.firstName, s.lastName, s.fullName, s.studentId, s.email, s.college, s.program, s.batch]
-      .filter(Boolean).some(v => String(v).toLowerCase().includes(q));
-    const matchCollege = !filters.college || s.college === filters.college;
-    const matchProgram = !filters.program || s.program === filters.program;
-    const matchSex     = !filters.sex || s.sex === filters.sex;
-    const matchSection = !filters.section || s.yearSection.endsWith(`-${filters.section}`);
-    const matchBatch   = !filters.batch || batchKeyOf(s) === filters.batch;
-    return matchSearch && matchCollege && matchProgram && matchSex && matchSection && matchBatch;
-  });
+  const filtered = pool.filter(s => matchesStudentSearch(s, search) && matchesPanelFilters(s, filters));
 
   // Group the visible students by batch, newest year first.
   const groupedByBatch = (() => {
@@ -2116,7 +2268,17 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
   })();
 
   const toggleSelect = (id) => { setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; }); };
-  const toggleAll    = () => { if (selected.size === filtered.length && filtered.length > 0) setSelected(new Set()); else setSelected(new Set(filtered.map(s => s.id))); };
+  // Only what is on screen counts. A tick left on a row that a filter has since
+  // hidden is never exported, archived or deleted by accident.
+  const selectedIds = filtered.filter(s => selected.has(s.id)).map(s => s.id);
+  const toggleAll    = () => { if (selectedIds.length === filtered.length && filtered.length > 0) setSelected(new Set()); else setSelected(new Set(filtered.map(s => s.id))); };
+  // One tick for a whole batch group, so "select this batch" needs no filtering first.
+  const toggleGroup  = (rows) => setSelected(prev => {
+    const n = new Set(prev);
+    const all = rows.every(r => n.has(r.id));
+    rows.forEach(r => (all ? n.delete(r.id) : n.add(r.id)));
+    return n;
+  });
   const enterSelectMode = () => setSelectMode(true);
   const exitSelectMode  = () => { setSelectMode(false); setSelected(new Set()); };
 
@@ -2183,12 +2345,12 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
   // Bulk archive/restore over the ticked rows. Which one it is follows the tab
   // the coordinator is in — the Archived tab can only restore, and vice versa.
   const handleArchiveSelected = () => {
-    if (selected.size === 0) return;
+    if (selectedIds.length === 0) return;
     setConfirmArchiveInfo({
       mode: viewTab === "archived" ? "restore" : "archive",
       bulk: true,
-      ids: [...selected],
-      count: selected.size,
+      ids: selectedIds,
+      count: selectedIds.length,
     });
   };
 
@@ -2225,6 +2387,8 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
         setSelected(prev => { const n = new Set(prev); n.delete(student.id); return n; });
       }
       setConfirmArchiveInfo(null);
+      // Tell the coordinator it worked instead of the row just vanishing.
+      setArchiveDone({ mode, count: bulk ? ids.length : 1, name: bulk ? "" : (student.fullName || student.studentId) });
     } catch (err) {
       console.error(`Failed to ${mode} student(s):`, err);
       setConfirmArchiveInfo(prev => prev && { ...prev, error: "That didn't save. Check your connection and try again." });
@@ -2235,15 +2399,15 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
 
   // ── Bulk: set the batch on the selected students ──────────────────────────
   const handleSetBatchSelected = () => {
-    if (selected.size === 0) return;
-    setBatchAssign({ ids: [...selected], value: "", error: "", busy: false });
+    if (selectedIds.length === 0) return;
+    setBatchAssign({ ids: selectedIds, value: "", error: "", busy: false });
   };
 
   const confirmSetBatch = async () => {
     if (!batchAssign || batchAssign.busy) return;
     const batch = normalizeBatch(batchAssign.value);
     if (!batch) {
-      setBatchAssign(prev => prev && { ...prev, error: "Enter an academic year like 2026-2027." });
+      setBatchAssign(prev => prev && { ...prev, error: batchProblem(batchAssign.value) });
       return;
     }
     setBatchAssign(prev => prev && { ...prev, busy: true, error: "" });
@@ -2267,7 +2431,8 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
 
   // ── Delete selected ───────────────────────────────────────────────────────
   const handleDeleteSelected = () => {
-    setConfirmDeleteInfo({ type: "selected", count: selected.size });
+    if (selectedIds.length === 0) return;
+    setConfirmDeleteInfo({ type: "selected", count: selectedIds.length, ids: selectedIds });
   };
 
   // ── Runs the actual deletion once confirmed in the modal ────────────────────
@@ -2280,8 +2445,9 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
       logActivity(coordinatorUid, "student_deleted", `Deleted student account for ${target?.fullName || target?.studentId || id}`, { targetId: id, targetName: target?.fullName || "" }).catch(err => console.error("Failed to log activity:", err));
       setSelected(prev => { const n = new Set(prev); n.delete(id); return n; });
     } else {
-      const count = selected.size;
-      await Promise.all([...selected].map(id => deleteDoc(doc(db, "students", id))));
+      const ids = confirmDeleteInfo.ids || [];
+      const count = ids.length;
+      await Promise.all(ids.map(id => deleteDoc(doc(db, "students", id))));
       logActivity(coordinatorUid, "student_deleted_bulk", `Deleted ${count} student account(s)`, { targetCount: count }).catch(err => console.error("Failed to log activity:", err));
       // Back to the plain "Select" button once the bulk delete is done.
       setSelected(new Set());
@@ -2317,12 +2483,12 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
   };
 
   const handleExport = () => {
-    if (selected.size === 0) { setExportEmptyWarning(true); return; }
+    if (selectedIds.length === 0) return;   // the button is disabled too
     setConfirmExport(true);
   };
 
   const doExport = () => {
-    const studentsToExport = students.filter(s => selected.has(s.id));
+    const studentsToExport = students.filter(s => selectedIds.includes(s.id));
     exportToXLSX(studentsToExport.map(s => ({
       studentId: s.studentId, firstName: s.firstName,
       middleInitial: s.middleInitial, lastName: s.lastName, college: s.college,
@@ -2330,7 +2496,7 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
     setConfirmExport(false);
   };
 
-  const allSelected = filtered.length > 0 && selected.size === filtered.length;
+  const allSelected = filtered.length > 0 && selectedIds.length === filtered.length;
 
   if (loading) {
     return (
@@ -2358,7 +2524,7 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
             <div id="sa-search-bar" style={{ display: "flex", alignItems: "center", gap: space.sm, background: color.white, borderRadius: radius.pill, padding: "9px 16px" }}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={inkMuted} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
               <input
-                value={search} onChange={e => setSearch(e.target.value)} placeholder="Search"
+                value={search} onChange={e => setSearch(e.target.value)} placeholder="Search name or ID"
                 className="sa-search-input"
                 style={{ border: "none", background: "transparent", outline: "none", boxShadow: "none", WebkitAppearance: "none", appearance: "none", color: ink, fontFamily: font.ui, ...type.control }}
               />
@@ -2372,7 +2538,7 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
               >
                 <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={hasFilter ? onPanel : inkMuted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
               </div>
-              {showFilterDrawer && <FilterPanel filters={filters} setFilters={setFilters} filterRef={filterRef} coordinatorColleges={normalizedCoordinatorColleges} departments={departments} departmentNames={departmentNames} batchOptions={batchOptions} hasUnbatched={hasUnbatched} />}
+              {showFilterDrawer && <FilterPanel filters={filters} setFilters={setFilters} filterRef={filterRef} coordinatorColleges={normalizedCoordinatorColleges} departments={departments} departmentNames={departmentNames} batchOptions={batchOptions} sectionOptions={sectionOptions} />}
             </div>
           </div>
         </div>
@@ -2390,33 +2556,40 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
                 </div>
                 <button
                   onClick={handleSetBatchSelected}
-                  disabled={selected.size === 0}
-                  style={{ ...ghostBtn, opacity: selected.size === 0 ? 0.5 : 1, cursor: selected.size === 0 ? "default" : "pointer" }}
+                  disabled={selectedIds.length === 0}
+                  style={{ ...ghostBtn, opacity: selectedIds.length === 0 ? 0.5 : 1, cursor: selectedIds.length === 0 ? "default" : "pointer" }}
                 >
-                  {allSelected && selected.size > 0 ? "Set batch (all)" : `Set batch${selected.size > 0 ? ` (${selected.size})` : ""}`}
+                  {allSelected && selectedIds.length > 0 ? "Set batch (all)" : `Set batch${selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}`}
                 </button>
                 <button
                   onClick={handleArchiveSelected}
-                  disabled={selected.size === 0}
-                  style={{ ...ghostBtn, opacity: selected.size === 0 ? 0.5 : 1, cursor: selected.size === 0 ? "default" : "pointer" }}
+                  disabled={selectedIds.length === 0}
+                  style={{ ...ghostBtn, opacity: selectedIds.length === 0 ? 0.5 : 1, cursor: selectedIds.length === 0 ? "default" : "pointer" }}
                 >
                   {viewTab === "archived"
-                    ? (allSelected && selected.size > 0 ? "Restore all" : `Restore${selected.size > 0 ? ` (${selected.size})` : ""}`)
-                    : (allSelected && selected.size > 0 ? "Archive all" : `Archive${selected.size > 0 ? ` (${selected.size})` : ""}`)}
+                    ? (allSelected && selectedIds.length > 0 ? "Restore all" : `Restore${selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}`)
+                    : (allSelected && selectedIds.length > 0 ? "Archive all" : `Archive${selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}`)}
                 </button>
                 <button
                   onClick={handleDeleteSelected}
-                  disabled={selected.size === 0}
-                  style={{ ...ghostBtn, color: panel, borderColor: selected.size === 0 ? lineStrong : panel, opacity: selected.size === 0 ? 0.5 : 1, cursor: selected.size === 0 ? "default" : "pointer" }}
+                  disabled={selectedIds.length === 0}
+                  style={{ ...ghostBtn, color: panel, borderColor: selectedIds.length === 0 ? lineStrong : panel, opacity: selectedIds.length === 0 ? 0.5 : 1, cursor: selectedIds.length === 0 ? "default" : "pointer" }}
                 >
-                  {allSelected && selected.size > 0 ? "Delete all" : `Delete${selected.size > 0 ? ` (${selected.size})` : ""}`}
+                  {allSelected && selectedIds.length > 0 ? "Delete all" : `Delete${selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}`}
                 </button>
                 <button onClick={exitSelectMode} style={{ background: "none", border: "none", fontFamily: font.ui, ...type.helper, color: inkMuted, cursor: "pointer", textDecoration: "underline" }}>Cancel</button>
               </>
             )}
           </div>
           <div id="sa-toolbar-actions" className="sa-toolbar-group">
-            <button onClick={handleExport} style={ghostBtn}>Export</button>
+            <button
+              onClick={handleExport}
+              disabled={selectedIds.length === 0}
+              title={selectedIds.length === 0 ? "Tick the students to export first (use Select)" : `Export ${selectedIds.length} selected`}
+              style={{ ...ghostBtn, opacity: selectedIds.length === 0 ? 0.5 : 1, cursor: selectedIds.length === 0 ? "not-allowed" : "pointer" }}
+            >
+              Export{selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}
+            </button>
             <button onClick={() => setShowImportModal(true)} style={ghostBtn}>Import</button>
             <button onClick={() => setShowNewModal(true)} style={primaryBtn}>New student</button>
           </div>
@@ -2435,7 +2608,7 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
                 key={t.key}
                 role="tab"
                 aria-selected={on}
-                onClick={() => { setViewTab(t.key); setFilters(prev => ({ ...prev, batch: "" })); exitSelectMode(); }}
+                onClick={() => { setViewTab(t.key); setFilters(prev => ({ ...prev, batch: "", section: "" })); exitSelectMode(); }}
                 style={{
                   border: `1.5px solid ${on ? panel : lineStrong}`, background: on ? panel : surface,
                   color: on ? color.white : inkBody, borderRadius: radius.pill,
@@ -2454,16 +2627,17 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
         {hasFilter && (
           <div style={{ display: "flex", alignItems: "center", gap: space.sm, marginBottom: space.md, flexWrap: "wrap" }}>
             {[
-              filters.sex     && { label: filters.sex,          clear: () => setFilters(prev => ({ ...prev, sex: "" })) },
-              filters.section && { label: `4-${filters.section}`, clear: () => setFilters(prev => ({ ...prev, section: "" })) },
-              filters.college && { label: [filters.college, filters.program].filter(Boolean).join(" › "), clear: () => setFilters(prev => ({ ...prev, college: "", program: "" })) },
-              filters.batch   && { label: batchLabelOf(filters.batch), clear: () => setFilters(prev => ({ ...prev, batch: "" })) },
+              filters.sex            && { label: filters.sex,                   clear: () => setFilters(prev => ({ ...prev, sex: "" })) },
+              filters.section        && { label: `Section ${filters.section}`, clear: () => setFilters(prev => ({ ...prev, section: "" })) },
+              filters.program        && { label: filters.program,               clear: () => setFilters(prev => ({ ...prev, program: "", specialization: "" })) },
+              filters.specialization && { label: filters.specialization,        clear: () => setFilters(prev => ({ ...prev, specialization: "" })) },
+              filters.batch          && { label: batchLabelOf(filters.batch),   clear: () => setFilters(prev => ({ ...prev, batch: "" })) },
             ].filter(Boolean).map(({ label, clear }) => (
               <span key={label} style={{ background: surface, color: inkBody, border: `1px solid ${line}`, borderRadius: radius.pill, padding: "4px 12px", fontFamily: font.ui, ...type.helper, display: "flex", alignItems: "center", gap: "6px" }}>
                 {label}<span onClick={clear} style={{ cursor: "pointer", color: inkMuted }}>✕</span>
               </span>
             ))}
-            <span onClick={() => setFilters({ college: "", program: "", sex: "", section: "", batch: "" })} style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, cursor: "pointer", textDecoration: "underline" }}>Clear all</span>
+            <span onClick={() => setFilters({ ...EMPTY_FILTERS })} style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, cursor: "pointer", textDecoration: "underline" }}>Clear all</span>
           </div>
         )}
 
@@ -2477,6 +2651,18 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
                   padding: "0 2px 8px", borderBottom: `1px solid ${line}`, marginBottom: space.sm,
                   flexWrap: "wrap",
                 }}>
+                  {selectMode && (
+                    <div
+                      onClick={() => toggleGroup(group.rows)}
+                      title={`Select every student in ${group.label}`}
+                      style={{ display: "flex", alignItems: "center", cursor: "pointer" }}
+                    >
+                      <Checkbox
+                        checked={group.rows.every(r => selected.has(r.id))}
+                        partial={group.rows.some(r => selected.has(r.id))}
+                      />
+                    </div>
+                  )}
                   <h3 style={{ fontFamily: font.ui, ...type.label, color: ink, fontWeight: 650, margin: 0, minWidth: 0, overflowWrap: "anywhere" }}>
                     {group.label}
                   </h3>
@@ -2540,7 +2726,7 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
 
       {showNewModal    && <StudentForm coordinatorColleges={normalizedCoordinatorColleges} departments={departments} onClose={() => setShowNewModal(false)} onSubmit={handleCreate} submitLabel="Create account" />}
       {viewingStudent  && <StudentForm initial={viewingStudent} readOnly coordinatorColleges={normalizedCoordinatorColleges} departments={departments} onClose={() => setViewingStudent(null)} onSubmit={handleSave} />}
-      {showImportModal && <ImportModal coordinatorColleges={normalizedCoordinatorColleges} departments={departments} onClose={() => setShowImportModal(false)} onImport={handleImport} />}
+      {showImportModal && <ImportModal existingIds={students.map(s => s.studentId)} coordinatorColleges={normalizedCoordinatorColleges} departments={departments} onClose={() => setShowImportModal(false)} onImport={handleImport} />}
 
       {/* ── Default password was reset by an edit ── */}
       {credentialResetInfo && (
@@ -2551,13 +2737,6 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
             : `${credentialResetInfo.fullName} has been notified to log out and sign in again with Student ID ${credentialResetInfo.studentId} and the new default password ${credentialResetInfo.password || "(see the student's record)"}, then set a new password. Give them these details.`}
         >
           <button onClick={() => setCredentialResetInfo(null)} style={primaryBtn}>OK</button>
-        </Dialog>
-      )}
-
-      {/* ── Nothing selected for export ── */}
-      {exportEmptyWarning && (
-        <Dialog title="Select the students to export first" body="Tap Select, tick the students you need, then choose Export.">
-          <button onClick={() => setExportEmptyWarning(false)} style={primaryBtn}>OK</button>
         </Dialog>
       )}
 
@@ -2599,7 +2778,7 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
       {/* ── Export confirmation ── */}
       {confirmExport && (
         <Dialog
-          title={`Export ${selected.size} student${selected.size !== 1 ? "s" : ""}?`}
+          title={`Export ${selectedIds.length} student${selectedIds.length !== 1 ? "s" : ""}?`}
           body="The file includes each student's ID, full name, and default password."
         >
           <button onClick={() => setConfirmExport(false)} style={ghostBtn}>Cancel</button>
@@ -2637,16 +2816,20 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
               disabled={batchAssign.busy}
               style={{
                 width: "160px", textAlign: "center", padding: "10px 12px",
-                borderRadius: radius.pill, border: `1.5px solid ${batchAssign.error ? danger : line}`,
+                borderRadius: radius.pill, border: `1.5px solid ${(batchAssign.error || (batchAssign.value && batchProblem(batchAssign.value))) ? danger : line}`,
                 fontFamily: font.ui, ...type.control, color: ink, outline: "none", background: color.white,
               }}
             />
-            {batchAssign.error && (
-              <p role="alert" style={{ fontFamily: font.ui, ...type.helper, color: danger, margin: 0, textAlign: "center" }}>{batchAssign.error}</p>
-            )}
+            {(() => {
+              const live = batchAssign.value ? batchProblem(batchAssign.value) : "";
+              const msg = batchAssign.error || live;
+              if (msg) return <p role="alert" style={{ fontFamily: font.ui, ...type.helper, color: danger, margin: 0, textAlign: "center" }}>{msg}</p>;
+              const hint = batchHint(batchAssign.value);
+              return hint ? <p style={{ fontFamily: font.ui, ...type.helper, color: success, margin: 0, textAlign: "center" }}>{hint}</p> : null;
+            })()}
           </div>
           <button onClick={() => setBatchAssign(null)} disabled={batchAssign.busy} style={ghostBtn}>Cancel</button>
-          <button onClick={confirmSetBatch} disabled={batchAssign.busy} style={primaryBtn}>
+          <button onClick={confirmSetBatch} disabled={batchAssign.busy || !isValidBatch(batchAssign.value)} style={{ ...primaryBtn, opacity: isValidBatch(batchAssign.value) ? 1 : 0.5, cursor: isValidBatch(batchAssign.value) ? "pointer" : "not-allowed" }}>
             {batchAssign.busy ? "Saving…" : "Set batch"}
           </button>
         </Dialog>
@@ -2683,6 +2866,24 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
           </button>
         </Dialog>
       )}
+
+      {/* ── Archive / restore done ── */}
+      {archiveDone && (() => {
+        const archived = archiveDone.mode === "archive";
+        const many = archiveDone.count > 1;
+        const who = many ? `${archiveDone.count} student accounts` : (archiveDone.name || "The student");
+        return (
+          <Dialog
+            success
+            title={archived ? (many ? "Students archived" : "Student archived") : (many ? "Students restored" : "Student restored")}
+            body={archived
+              ? `${who} ${many ? "were" : "was"} moved to Archived Students. Nothing was deleted, and you can restore ${many ? "them" : "this student"} any time.`
+              : `${who} ${many ? "are" : "is"} back in the active student list and can log in again.`}
+          >
+            <button onClick={() => setArchiveDone(null)} style={primaryBtn}>OK</button>
+          </Dialog>
+        );
+      })()}
 
       {/* ── Success after creating a student ── */}
       {successInfo && (

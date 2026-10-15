@@ -1032,8 +1032,8 @@ const SplashScreen = () => {
     </h2>
     <p style={{ margin: 0, fontSize: "0.9375rem", lineHeight: 1.6, color: color.onWineMuted }}>
       {role === "coordinator"
-        ? "Coordinator accounts are set up by the OJT office. You'll get an email invite with a link to finish setting yours up."
-        : "Student accounts are enrolled by your OJT coordinator. Once you're enrolled, sign in with your Student ID."}
+        ? "Coordinator accounts are set up by the OJT Admin. You'll get an email invite with a link to finish setting yours up.”"
+        : "Student accounts are enrolled by your OJT coordinator. Once you're enrolled, sign in with your Student ID and default password."}
     </p>
     <button
       type="button"

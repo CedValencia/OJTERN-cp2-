@@ -783,7 +783,8 @@ const dropdownStyle = {
   cursor: "pointer",
 };
 
-const PillSelect = ({ value, onChange, placeholder, options, hasError, disabled }) => {
+// selectedLabel: optional prefix so a chosen value reads e.g. "Province - Tarlac".
+const PillSelect = ({ value, onChange, placeholder, options, hasError, disabled, selectedLabel }) => {
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);
   const wrapRef = useRef(null);
@@ -839,7 +840,7 @@ const PillSelect = ({ value, onChange, placeholder, options, hasError, disabled 
         style={{ border: hasError ? "1.5px solid #FF7B72" : "1.5px solid transparent" }}
       >
         <span className={selected ? "su1-select-value" : "su1-select-placeholder"}>
-          {selected ? selected.label : placeholder}
+          {selected ? (selectedLabel ? `${selectedLabel} - ${selected.label}` : selected.label) : placeholder}
         </span>
         <svg className="su1-drop" width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
           <path d="M7 10l5 5 5-5z" />
@@ -3110,6 +3111,7 @@ const LocationPicker = ({ location, onChange }) => {
         value={region}
         onChange={handleRegion}
         placeholder="Select region"
+        selectedLabel="Region"
         options={REGIONS.map(r => r.name)}
       />
  
@@ -3118,6 +3120,7 @@ const LocationPicker = ({ location, onChange }) => {
           value={province}
           onChange={handleProvince}
           placeholder="Select province"
+          selectedLabel="Province"
           options={(regionData?.provinces || []).map(p => p.name)}
         />
       )}
@@ -3127,6 +3130,7 @@ const LocationPicker = ({ location, onChange }) => {
           value={city}
           onChange={handleCity}
           placeholder="Select city or municipality"
+          selectedLabel="City/Municipality"
           options={(provinceData?.cities || []).map(c => c.name)}
         />
       )}
@@ -3136,6 +3140,7 @@ const LocationPicker = ({ location, onChange }) => {
           value={barangay}
           onChange={handleBarangay}
           placeholder="Select barangay"
+          selectedLabel="Barangay"
           options={cityData?.barangays || []}
         />
       )}
@@ -3391,6 +3396,9 @@ const INDUSTRIES = [
 // Firestore document ID (case/spacing differences collapse to the same doc).
 const slugifyIndustry = (s) =>
   s.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+
+// Red asterisk shown beside required field labels.
+const Req = () => <span aria-hidden="true" style={{ color: "red", marginLeft: "3px" }}>*</span>;
 
 // ── Departments / Programs ───────────────────────────────────────────────────
 // This is what a company's registration is now routed/sorted by (a Company
@@ -3723,7 +3731,7 @@ const SignUpStep1Screen = ({ onContinue, onGoSignIn, initialData }) => {
             <p style={{ fontFamily: "'Jua', sans-serif", textAlign: "center", fontSize: "1.05rem", fontWeight: "700", color: "#1a1a1a", marginBottom: "10px" }}>Create Your Account</p>
             <hr style={{ border: "none", borderTop: "1.5px solid #ddd", marginBottom: "10px" }} />
 
-            <label style={labelStyle}>Company Name:</label>
+            <label style={labelStyle}>Company Name:<Req /></label>
             <input
               type="text"
               placeholder="Enter your Company Name:"
@@ -3733,7 +3741,7 @@ const SignUpStep1Screen = ({ onContinue, onGoSignIn, initialData }) => {
             />
             <ErrMsg field="companyName" />
 
-            <label style={labelStyle}>Industry:</label>
+            <label style={labelStyle}>Industry:<Req /></label>
             <IndustryAutocomplete
               value={industry}
               onChange={val => { setIndustry(val); setErrors(p => ({ ...p, industry: "" })); }}
@@ -3742,7 +3750,7 @@ const SignUpStep1Screen = ({ onContinue, onGoSignIn, initialData }) => {
             />
             <ErrMsg field="industry" />
 
-            <label style={labelStyle}>Department:</label>
+            <label style={labelStyle}>Department:<Req /></label>
             <DeptProgramPicker
               selections={deptSelections}
               onChange={sels => { setDeptSelections(sels); setErrors(p => ({ ...p, departments: "" })); }}
@@ -3752,7 +3760,7 @@ const SignUpStep1Screen = ({ onContinue, onGoSignIn, initialData }) => {
             />
             <ErrMsg field="departments" />
 
-            <label style={labelStyle}>Company Address:</label>
+            <label style={labelStyle}>Company Address:<Req /></label>
             <LocationPicker
               location={location}
               onChange={val => { setLocation(val); setErrors(p => ({ ...p, location: "" })); }}
@@ -3767,7 +3775,7 @@ const SignUpStep1Screen = ({ onContinue, onGoSignIn, initialData }) => {
             )}
             <ErrMsg field="location" />
 
-            <label style={{ ...labelStyle, marginTop: "10px" }}>Email:</label>
+            <label style={{ ...labelStyle, marginTop: "10px" }}>Email:<Req /></label>
             <input
               type="email"
               placeholder="Enter your Email:"
@@ -3777,7 +3785,7 @@ const SignUpStep1Screen = ({ onContinue, onGoSignIn, initialData }) => {
             />
             <ErrMsg field="email" />
 
-            <label style={labelStyle}>Password:</label>
+            <label style={labelStyle}>Password:<Req /></label>
             <div style={{ position: "relative", marginBottom: "2px" }}>
               <input
                 type={showPass ? "text" : "password"}
@@ -3792,7 +3800,7 @@ const SignUpStep1Screen = ({ onContinue, onGoSignIn, initialData }) => {
 
             <PasswordChecklist password={password} />
 
-            <label style={labelStyle}>Confirm Password:</label>
+            <label style={labelStyle}>Confirm Password:<Req /></label>
             <div style={{ position: "relative", marginBottom: "4px" }}>
               <input
                 type={showConfirm ? "text" : "password"}

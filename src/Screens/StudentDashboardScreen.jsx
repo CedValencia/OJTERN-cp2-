@@ -1494,7 +1494,7 @@ const HELP_STEPS_BY_STUDENT_NAV = {
       element: "#spinfo-edit-btn",
       popover: {
         title: "Edit",
-        description: "Tap Edit to update your age and email address.",
+        description: "Tap Edit to update your birthdate and email address.",
       },
     },
     {
@@ -1561,10 +1561,10 @@ const HELP_STEPS_BY_STUDENT_NAV = {
       },
     },
     {
-      element: "#spinfo-age",
+      element: "#spinfo-birthdate",
       popover: {
-        title: "Age",
-        description: "Your age on file.",
+        title: "Birthdate",
+        description: "Your birthdate on file. Your age is worked out from it.",
       },
     },
     {
@@ -1577,10 +1577,10 @@ const HELP_STEPS_BY_STUDENT_NAV = {
   ],
   accprofilepersonaledit: [
     {
-      element: "#spinfo-age",
+      element: "#spinfo-birthdate",
       popover: {
-        title: "Age",
-        description: "Type your current age.",
+        title: "Birthdate",
+        description: "Pick your birthdate. Your age is worked out from it.",
       },
     },
     {
@@ -1594,7 +1594,7 @@ const HELP_STEPS_BY_STUDENT_NAV = {
       element: "#spinfo-save",
       popover: {
         title: "Save Changes",
-        description: "Save your updated age and email, or Cancel to discard them.",
+        description: "Save your updated birthdate and email, or Cancel to discard them.",
       },
     },
   ],
@@ -1719,7 +1719,11 @@ const STUDENT_EDIT_INFO_STEPS = [
 // ── Sidebar nav list ───────────────────────────────────────────────────────────
 const SidebarNavList = ({ activeNav, onNavigate, onLogout, unreadMessages = 0 }) => (
   <>
-    <div style={{ padding: "6px 22px 10px", flexShrink: 0 }} />
+    <div style={{ padding: "14px 22px 8px", flexShrink: 0 }}>
+      <span style={{ fontFamily: uiFont, fontSize: "0.72rem", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: inkMuted }}>
+        Student
+      </span>
+    </div>
     {navItems.map((item) => {
       const isActive = activeNav === item.key;
       return (
