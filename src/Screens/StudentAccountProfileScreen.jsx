@@ -905,7 +905,15 @@ const PersonalInfoScreen = ({ onBack, user, setupMode = false, onSetupComplete, 
   const selectErrorStyle = { ...inlineInputErrorStyle, cursor: "pointer" };
   const inlineErrText = { color: danger, fontSize: "0.75rem", fontFamily: font.ui, margin: "4px 0 0" };
 
-  const fieldLabel = (text) => <span style={rowLabel}>{text}</span>;
+  // `required` puts a red asterisk on a field the student still has to fill in.
+  // Only shown while the form is editable, and only for fields the student can
+  // actually edit (read-only school records need no mark).
+  const fieldLabel = (text, required = false) => (
+    <span style={rowLabel}>
+      {text}
+      {required && editing && <span aria-hidden="true" style={{ color: danger, marginLeft: "3px" }}>*</span>}
+    </span>
+  );
   const errText = (msg) => (msg ? <p data-field-error="true" role="alert" style={inlineErrText}>{msg}</p> : null);
 
   if (loading) {
@@ -962,6 +970,9 @@ const PersonalInfoScreen = ({ onBack, user, setupMode = false, onSetupComplete, 
                   {done
                     ? "Review your details, then select Save and Continue."
                     : `Still needed: ${missing.join(", ")}.`}
+                </p>
+                <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, margin: "4px 0 0" }}>
+                  <span style={{ color: danger }}>*</span> Required
                 </p>
               </div>
             );
@@ -1093,7 +1104,7 @@ const PersonalInfoScreen = ({ onBack, user, setupMode = false, onSetupComplete, 
 
           {/* Program */}
           <div id="spinfo-program" className="sap-info-row">
-            {fieldLabel("Program")}
+            {fieldLabel("Program", canEditField("programCode"))}
             {editing && canEditField("programCode") ? (
               <>
                 <select
@@ -1158,7 +1169,7 @@ const PersonalInfoScreen = ({ onBack, user, setupMode = false, onSetupComplete, 
 
           {/* Birthdate — the age is worked out from it */}
           <div id="spinfo-birthdate" className="sap-info-row">
-            {fieldLabel("Birthdate")}
+            {fieldLabel("Birthdate", true)}
             {editing && canEditField("birthdate") ? (
               <>
                 <input
@@ -1174,9 +1185,15 @@ const PersonalInfoScreen = ({ onBack, user, setupMode = false, onSetupComplete, 
             ) : (
               <span style={rowValue}>{formatBirthdate(form.birthdate) || "—"}</span>
             )}
-            {displayAge && !errors.birthdate && (
+          </div>
+
+          {/* Age — its own field, but never editable: it is worked out from the birthdate. */}
+          <div id="spinfo-age" className="sap-info-row">
+            {fieldLabel("Age")}
+            <span style={rowValue}>{displayAge || "—"}</span>
+            {editing && (
               <span style={{ ...rowLabel, marginTop: "4px", marginBottom: 0 }}>
-                Age: {displayAge}{!parseBirthdate(form.birthdate) ? " (birthdate not set yet)" : ""}
+                {parseBirthdate(form.birthdate) ? "" : "Set automatically once you pick your birthdate"}
               </span>
             )}
           </div>
@@ -1184,7 +1201,7 @@ const PersonalInfoScreen = ({ onBack, user, setupMode = false, onSetupComplete, 
           {/* Personal email — the student's own address, used for Forgot Password.
               The login address (students/{uid}.email) is intentionally not shown. */}
           <div id="spinfo-email" className="sap-info-row">
-            {fieldLabel("Email address")}
+            {fieldLabel("Email address", true)}
             {editing && canEditField("personalEmail") ? (
               <>
                 <input

@@ -1568,6 +1568,13 @@ const HELP_STEPS_BY_STUDENT_NAV = {
       },
     },
     {
+      element: "#spinfo-age",
+      popover: {
+        title: "Age",
+        description: "Worked out from your birthdate. You can't edit it.",
+      },
+    },
+    {
       element: "#spinfo-email",
       popover: {
         title: "Email Address",
@@ -1581,6 +1588,13 @@ const HELP_STEPS_BY_STUDENT_NAV = {
       popover: {
         title: "Birthdate",
         description: "Pick your birthdate. Your age is worked out from it.",
+      },
+    },
+    {
+      element: "#spinfo-age",
+      popover: {
+        title: "Age",
+        description: "Shown automatically from your birthdate. You can't change it.",
       },
     },
     {
