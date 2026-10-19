@@ -1054,7 +1054,6 @@ const CoordinatorFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onM
   const filtered = inScopeCompanies.filter(c => {
     const name = (c.companyName || c.company || c.name || "").toLowerCase();
     const industryArr = industriesOf(c);
-    const industry = industryArr.join(" ").toLowerCase();
     const locObj = (c.location && typeof c.location === "object") ? c.location : {};
     // Full location text = everything actually shown on the profile's Location section
     // (barangay, city, province, region, or a full formatted address), so searching
@@ -1069,7 +1068,9 @@ const CoordinatorFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onM
       locObj.region,
       typeof c.location === "string" ? c.location : null,
     ].filter(Boolean).join(", ").toLowerCase();
-    const matchSearch   = name.includes(search.toLowerCase()) || industry.includes(search.toLowerCase()) || fullLocationText.includes(search.toLowerCase());
+    // The search box matches the company NAME only. Industry and location have
+    // their own filters (FilterPanel), so they are not searched here.
+    const matchSearch   = !search.trim() || name.includes(search.trim().toLowerCase());
     const matchIndustry = selectedIndustries.length === 0 || industryArr.some(ind => selectedIndustriesLower.includes(ind.toLowerCase()));
     const matchCity     = !citySearch.trim() || fullLocationText.includes(citySearch.trim().toLowerCase());
     return matchSearch && matchIndustry && matchCity;
@@ -1132,7 +1133,7 @@ const CoordinatorFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onM
               <input
                 value={search}
                 onChange={e => setSearch(e.target.value)}
-                placeholder="Search"
+                placeholder="Search company"
                 className="coord-search-input"
                 style={{ border: "none", background: "transparent", outline: "none", boxShadow: "none", WebkitAppearance: "none", appearance: "none", color: ink, fontFamily: font.ui, ...type.control }}
               />

@@ -3,15 +3,24 @@ import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import './index.css';
 import App from './App';
+import AdminScreen from './Screens/AdminScreen';
 import reportWebVitals from './reportWebVitals';
 import * as serviceWorkerRegistration from './serviceWorkerRegistration';
+
+// The separate Administrator account has its own page at /admin. It is checked here,
+// before <App /> mounts, so it never goes through the role sign-in or the app's routes.
+const isAdminRoute = window.location.pathname.replace(/\/+$/, '') === '/admin';
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(
   <React.StrictMode>
-    <BrowserRouter>
-      <App />
-    </BrowserRouter>
+    {isAdminRoute ? (
+      <AdminScreen onExit={() => { window.location.href = '/'; }} />
+    ) : (
+      <BrowserRouter>
+        <App />
+      </BrowserRouter>
+    )}
   </React.StrictMode>
 );
 

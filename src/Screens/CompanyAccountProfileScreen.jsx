@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useMemo, useLayoutEffect } from "re
 import { doc, onSnapshot, updateDoc, collection, getDocs, query, where, setDoc, serverTimestamp } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 import { db } from "./firebase";
+import { useDepartmentsPrograms } from "./departmentsPrograms";
 import { changePassword, requestCompanyEmailChange } from "./AuthService";
 import { buildNextDeptSelections, analyzeAffiliationImpact, commitCompanyProfileWithAffiliations, isActiveAffiliation, pairLabel as affPairLabel } from "./affiliationService";
 import { color, font, type, space, radius, shadow, ease } from "./theme";
@@ -435,45 +436,6 @@ const INDUSTRIES = [
 // the same "industries" collection/doc.
 const slugifyIndustry = (s) =>
   s.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
-
-// ── College / Program Data ────────────────────────────────────────────────────
-// TODO: Populate from backend or config
-const COLLEGE_PROGRAM_DATA = {
-  "College of Computer Studies": {
-    programs: {
-      "Bachelor of Science in Information Technology": { specializations: [] },
-    },
-  },
-  "College of Business and Accountancy": {
-    programs: {
-      "BS Business Administration — Major in Marketing Management": { specializations: [] },
-      "Bachelor of Science in Accountancy": { specializations: [] },
-    },
-  },
-  "College of Criminal Justice Education": {
-    programs: {
-      "Bachelor of Science in Criminology": { specializations: [] },
-    },
-  },
-  "College of Liberal Arts": {
-    programs: {
-      "Bachelor of Arts in Political Science": { specializations: [] },
-    },
-  },
-  "College of Education": {
-    programs: {
-      "Bachelor of Elementary Education": { specializations: [] },
-      "BS Education — Major in English": { specializations: [] },
-      "BS Education — Major in Mathematics": { specializations: [] },
-    },
-  },
-  "College of Hospitality and Tourism Management": {
-    programs: {
-      "Bachelor of Science in Tourism Management": { specializations: [] },
-      "Bachelor of Science in Hospitality Management": { specializations: [] },
-    },
-  },
-};
 
 // ── Location Data ─────────────────────────────────────────────────────────────
 // TODO: Populate from backend or config
@@ -3220,7 +3182,11 @@ const IndustryAutocomplete = ({ value, onChange, hasError, options, editable = t
 
 // ── Multi-College Program Picker ──────────────────────────────────────────────
 const MultiCollegeProgramPicker = ({ selections, onChange, editable = true }) => {
-  const colleges = Object.keys(COLLEGE_PROGRAM_DATA);
+  // Colleges, programs and majors come from the shared departments source (the same one Sign-Up and
+  // the Coordinator profile use), so an admin edit shows up here too and nothing can drift apart.
+  const { departments } = useDepartmentsPrograms();
+  const colleges = Object.keys(departments);
+  const programsOfCollege = (college) => departments[college]?.programs || [];
 
   const addEntry    = () => onChange([...selections, { college: "", program: "", specialization: "" }]);
   const removeEntry = (idx) => onChange(selections.filter((_, i) => i !== idx));
@@ -3237,9 +3203,9 @@ const MultiCollegeProgramPicker = ({ selections, onChange, editable = true }) =>
   return (
     <div>
       {selections.map((entry, idx) => {
-        const programs = entry.college ? Object.keys(COLLEGE_PROGRAM_DATA[entry.college].programs) : [];
+        const programs = entry.college ? programsOfCollege(entry.college).map(p => p.name) : [];
         const specializations = entry.college && entry.program
-          ? COLLEGE_PROGRAM_DATA[entry.college]?.programs[entry.program]?.specializations ?? []
+          ? programsOfCollege(entry.college).find(p => p.name === entry.program)?.specializations ?? []
           : [];
         const hasSpecs = !!entry.program && specializations.length > 0;
 
@@ -4040,18 +4006,7 @@ const LegalPanel = ({ title, lastUpdated, sections, onBack }) => {
             );
           })}
 
-          <div style={{ display: "flex", justifyContent: "flex-end", marginTop: space.xl }}>
-            <button
-              id="clegal-understand-btn"
-              type="button"
-              onClick={onBack}
-              style={{ padding: "13px 36px", borderRadius: radius.pill, border: "none", background: panel, color: onPanel, fontFamily: font.ui, ...type.control, cursor: "pointer", boxShadow: shadow.pill, transition: `background 240ms ${ease}` }}
-              onMouseEnter={e => (e.currentTarget.style.background = panelDeep)}
-              onMouseLeave={e => (e.currentTarget.style.background = panel)}
-            >
-              I understand
-            </button>
-          </div>
+          {/* No "I understand" button: the Terms and Privacy Policy are read-only here (the back arrow returns). */}
         </div>
       </div>
     </div>

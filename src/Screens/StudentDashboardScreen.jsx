@@ -916,13 +916,6 @@ const LEGAL_STEPS = [
         description: "This thin bar fills up as you scroll, showing how far through the document you are.",
       },
     },
-    {
-      element: "#slegal-understand-btn",
-      popover: {
-        title: "I Understand",
-        description: "When you're done reading, tap this to return to your Account Profile.",
-      },
-    },
   ];
 
 // Screen sub-view (from each screen's onViewChange) → HELP_STEPS key.
@@ -984,7 +977,7 @@ const HELP_STEPS_BY_STUDENT_NAV = {
       element: "#sfind-search-bar",
       popover: {
         title: "Search Company Posts",
-        description: "Search by company name, industry, or location. The count above updates to match your current search and filters.",
+        description: "Search by company name. The count above updates to match your current search and filters.",
       },
     },
     {

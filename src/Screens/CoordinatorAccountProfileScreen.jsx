@@ -657,18 +657,7 @@ const LegalPanel = ({ title, lastUpdated, sections, onBack }) => {
             );
           })}
 
-          <div style={{ display: "flex", justifyContent: "flex-end", marginTop: space.xl }}>
-            <button
-              id="legal-understand-btn"
-              type="button"
-              onClick={onBack}
-              style={{ padding: "13px 36px", borderRadius: radius.pill, border: "none", background: panel, color: onPanel, fontFamily: font.ui, ...type.control, cursor: "pointer", boxShadow: shadow.pill, transition: `background 240ms ${ease}` }}
-              onMouseEnter={e => (e.currentTarget.style.background = panelDeep)}
-              onMouseLeave={e => (e.currentTarget.style.background = panel)}
-            >
-              I understand
-            </button>
-          </div>
+          {/* No "I understand" button: the Terms and Privacy Policy are read-only here (the back arrow returns). */}
         </div>
       </div>
     </div>

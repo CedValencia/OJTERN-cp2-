@@ -9,6 +9,10 @@ import { db } from "./firebase";
 // module is the one place it now lives, backed by Firestore so an admin can
 // add/edit Colleges and Programs without a code change.
 //
+// A MAJOR is never part of a program's name. It lives in that program's
+// `specializations` list ("Bachelor of Secondary Education" + major "English"), so Program and
+// Major can be picked, stored and filtered separately everywhere.
+//
 // Assumed Firestore shape (adapt below if the project's actual structure
 // differs — see the write-up for how to check/migrate):
 //
@@ -35,7 +39,7 @@ export const DEFAULT_DEPARTMENTS = {
   "College of Business and Accountancy": {
     abbr: "CBA",
     programs: [
-      { name: "BS Business Administration — Major in Marketing Management", specializations: [] },
+      { name: "Bachelor of Science in Business Administration", specializations: ["Marketing Management"] },
       { name: "Bachelor of Science in Accountancy", specializations: [] },
     ],
   },
@@ -51,8 +55,7 @@ export const DEFAULT_DEPARTMENTS = {
     abbr: "CED",
     programs: [
       { name: "Bachelor of Elementary Education", specializations: [] },
-      { name: "BS Education — Major in English", specializations: [] },
-      { name: "BS Education — Major in Mathematics", specializations: [] },
+      { name: "Bachelor of Secondary Education", specializations: ["English", "Mathematics"] },
     ],
   },
   "College of Hospitality and Tourism Management": {
@@ -67,16 +70,40 @@ export const DEFAULT_DEPARTMENTS = {
 // Normalizes one raw Firestore "departments" doc into
 // { abbr, programs: [{ name, specializations }] }. Tolerates `programs`
 // being stored as either an array of strings or an array of maps.
-const normalizeDept = (data) => {
-  const programs = Array.isArray(data.programs)
-    ? data.programs
-        .map(p =>
-          typeof p === "string"
-            ? { name: p, specializations: [] }
-            : { name: p?.name || "", specializations: p?.specializations || [] }
-        )
-        .filter(p => p.name)
-    : [];
+// Also splits any old combined name ("BS Business Administration — Major in Marketing Management")
+// into program + major on the fly, so stale Firestore data never shows a major inside a program name.
+const LEGACY_MAJOR = /^(.+?)\s+[—–-]\s+Major in\s+(.+)$/i;
+// "BS Education" was never a real program of the College of Education: its program is
+// Bachelor of Secondary Education (majors English and Mathematics). Old records are renamed.
+const RENAMES = {
+  "bs business administration": "Bachelor of Science in Business Administration",
+  "bs education":               "Bachelor of Secondary Education",
+};
+const canon = (n) => RENAMES[n.trim().toLowerCase()] || n.trim();
+
+// For records saved before programs and majors were separated (a company's program
+// "BS Education — Major in English", say): reads the old name as a program plus a major,
+// so screens can show it correctly with no database migration.
+//   splitLegacyProgram("BS Education — Major in English")
+//     → { program: "Bachelor of Secondary Education", specialization: "English" }
+export const splitLegacyProgram = (name) => {
+  const raw = String(name ?? "").trim();
+  const m = LEGACY_MAJOR.exec(raw);
+  return { program: canon(m ? m[1] : raw), specialization: m ? m[2].trim() : "" };
+};
+// Also used by AdminScreen, which reads the raw `departments` docs itself.
+export const normalizeDept = (data) => {
+  const programs = [];
+  for (const p of Array.isArray(data.programs) ? data.programs : []) {
+    const raw = String((typeof p === "string" ? p : p?.name) ?? "").trim();
+    const m = LEGACY_MAJOR.exec(raw);
+    const name = canon(m ? m[1] : raw);
+    if (!name) continue;
+    let entry = programs.find(x => x.name.toLowerCase() === name.toLowerCase());
+    if (!entry) { entry = { name, specializations: [] }; programs.push(entry); }
+    const specs = [...(typeof p === "string" ? [] : p?.specializations || []), m ? m[2].trim() : ""].filter(Boolean);
+    specs.forEach(s => { if (!entry.specializations.some(x => x.toLowerCase() === s.toLowerCase())) entry.specializations.push(s); });
+  }
   return { abbr: data.abbr || "", programs };
 };
 

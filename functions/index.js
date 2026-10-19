@@ -1600,11 +1600,29 @@ exports.acceptCoordinatorInvite = onCall({ region: "asia-southeast1" }, async (r
   // Admin SDK user creation doesn't touch any client session — unlike the
   // client SDK's createUserWithEmailAndPassword, nobody gets signed in as
   // this new user as a side effect.
-  const newUser = await getAuth().createUser({
-    email: normalizedEmail,
-    password,
-    displayName: name.trim(),
-  });
+  let newUser;
+  try {
+    newUser = await getAuth().createUser({
+      email: normalizedEmail,
+      password,
+      displayName: name.trim(),
+    });
+  } catch (err) {
+    // Without this, any Auth error reaches the screen as a bare "INTERNAL". The real reason is
+    // always logged (Firebase Console > Functions > Logs, filter acceptCoordinatorInvite).
+    console.error(`acceptCoordinatorInvite: createUser failed for ${normalizedEmail}:`, err);
+    const code = err && err.code;
+    if (code === "auth/email-already-exists") {
+      throw new HttpsError("already-exists", "A login with that email already exists in OJTern. Ask the administrator to remove the old account first, or use another email.");
+    }
+    if (code === "auth/invalid-password" || code === "auth/weak-password") {
+      throw new HttpsError("invalid-argument", "That password isn't accepted. Please choose a stronger one.");
+    }
+    if (code === "auth/invalid-email") {
+      throw new HttpsError("invalid-argument", "That email address isn't valid.");
+    }
+    throw new HttpsError("internal", "Could not create the account. Please try again, or contact the administrator.");
+  }
 
   try {
     await db.collection("coordinators").doc(newUser.uid).set({
@@ -1627,15 +1645,18 @@ exports.acceptCoordinatorInvite = onCall({ region: "asia-southeast1" }, async (r
       createdAt: FieldValue.serverTimestamp(),
     });
   } catch (err) {
+    console.error(`acceptCoordinatorInvite: writing coordinators/${newUser.uid} failed:`, err);
     // Roll back the orphaned Auth account if the Firestore write fails.
     await getAuth().deleteUser(newUser.uid).catch(() => {});
     throw new HttpsError("internal", "Failed to create the new coordinator profile.");
   }
 
+  // The account exists at this point, so a failure marking the invite accepted must not turn into
+  // an error for the person (it would also hide that their account was created). Logged instead.
   await inviteRef.update({
     status: "accepted",
     acceptedAt: FieldValue.serverTimestamp(),
-  });
+  }).catch((err) => console.error(`acceptCoordinatorInvite: could not mark invite ${inviteId} accepted:`, err));
 
   if (isTransfer) {
     // Leave a small record of who was transferred out, keyed by email, so the
@@ -1678,7 +1699,9 @@ exports.acceptCoordinatorInvite = onCall({ region: "asia-southeast1" }, async (r
   if (!isTransfer) {
     await db.collection("notifications").add({
       type:          "coordinator_invite_accepted",
-      recipientRole: "coordinator",
+      // An invite created by an ADMIN notifies that admin (and, unlike "coordinator", is not
+      // readable by every active coordinator under the coordinator-wide notice rule).
+      recipientRole: invite.createdByAdmin ? "admin" : "coordinator",
       recipientId:   invite.fromUid,
       inviterId:     invite.fromUid,
       message:       `${name.trim()} (${normalizedEmail}) accepted your invitation and is now an OJT Coordinator.`,
@@ -1761,3 +1784,9 @@ exports.deleteUnsentAttachments = onDocumentUpdated(
     }
   }
 );
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ADMIN ACCOUNT (separate from coordinators). Defined in adminFunctions.js; it is
+// loaded here, at the end, because it reuses sendMail and resendApiKey from above.
+// ═══════════════════════════════════════════════════════════════════════════
+Object.assign(exports, require("./adminFunctions")({ sendMail, resendApiKey }));

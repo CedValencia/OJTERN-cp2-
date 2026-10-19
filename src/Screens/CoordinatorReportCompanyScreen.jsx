@@ -529,7 +529,7 @@ const buildNotificationText = (actionType, resolutionNotes) => {
     case "Require Correction":
       return `A coordinator has reviewed a report concerning your account and found content that needs to be edited or removed. Please make the required corrections.${notes}`;
     case "Warning Issued":
-      return `This is a formal warning regarding your company account. Please review and comply with platform guidelines.${notes}`;
+      return `This is a formal warning regarding your company account. Please review and comply with privacy policy s.${notes}`;
     case "Suspend Account":
       return `Your company account has been suspended following a coordinator review.${notes}`;
     case "Block Account":
@@ -547,7 +547,7 @@ const buildStudentNotificationText = (actionType, resolutionNotes) => {
     case "Require Correction":
       return `A coordinator reviewed a report concerning you and requires a correction. Tap to send your response.${notes}`;
     case "Warning Issued":
-      return `A coordinator reviewed a report concerning you and issued a formal warning. Please follow the platform guidelines.${notes}`;
+      return `A coordinator reviewed a report concerning you and issued a formal warning. Please follow the privacy policy and terms & conditions guid.${notes}`;
     default:
       return `A coordinator reviewed a report concerning you. Action taken: ${actionType}.${notes}`;
   }

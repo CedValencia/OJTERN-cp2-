@@ -663,13 +663,13 @@ const PersonalInfoScreen = ({ onBack, user, setupMode = false, onSetupComplete, 
   };
   const LEGACY_PROGRAM_CODE_MAP = {
     "BSIT":                                  "Bachelor of Science in Information Technology",
-    "BSBA (Major in Marketing Management)":  "BS Business Administration — Major in Marketing Management",
+    "BSBA (Major in Marketing Management)":  "Bachelor of Science in Business Administration",
     "BSA":                                   "Bachelor of Science in Accountancy",
     "BS CRIM":                               "Bachelor of Science in Criminology",
     "BA POLSCI":                             "Bachelor of Arts in Political Science",
     "BEED":                                  "Bachelor of Elementary Education",
-    "BSED (Major in English)":               "BS Education — Major in English",
-    "BSED (Major in Mathematics)":           "BS Education — Major in Mathematics",
+    "BSED (Major in English)":               "Bachelor of Secondary Education",
+    "BSED (Major in Mathematics)":           "Bachelor of Secondary Education",
     "BSTM":                                  "Bachelor of Science in Tourism Management",
     "BSHM":                                  "Bachelor of Science in Hospitality Management",
   };
@@ -1668,18 +1668,7 @@ const LegalPanel = ({ title, lastUpdated, sections, onBack }) => {
             );
           })}
 
-          <div style={{ display: "flex", justifyContent: "flex-end", marginTop: space.xl }}>
-            <button
-              type="button"
-              id="slegal-understand-btn"
-              onClick={onBack}
-              style={{ padding: "13px 36px", borderRadius: radius.pill, border: "none", background: panel, color: onPanel, fontFamily: font.ui, ...type.control, cursor: "pointer", boxShadow: shadow.pill, transition: `background 240ms ${ease}` }}
-              onMouseEnter={e => (e.currentTarget.style.background = panelDeep)}
-              onMouseLeave={e => (e.currentTarget.style.background = panel)}
-            >
-              I understand
-            </button>
-          </div>
+          {/* No "I understand" button: the Terms and Privacy Policy are read-only here (the back arrow returns). */}
         </div>
       </div>
     </div>

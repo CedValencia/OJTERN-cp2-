@@ -2562,6 +2562,9 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
   // and devices instead of being stuck on whichever one was used to visit.
   const [recentVisited, setRecentVisited] = useState([]);
   const [recentVisitedLoaded, setRecentVisitedLoaded] = useState(false);
+  // True only if the account's own Firestore doc really exists. Saving recentVisited must
+  // never CREATE a doc: a bare { recentVisited } doc is a ghost account (no name/email/role).
+  const recentVisitedDocExists = useRef(false);
   const routerNavigate = useNavigate();
   const location = useLocation();
   const activeNav = getNavKeyFromPath(location.pathname);
@@ -3217,6 +3220,7 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
       try {
         const snap = await getDoc(doc(db, "coordinators", user.uid));
         if (cancelled) return;
+        recentVisitedDocExists.current = snap.exists();
         const data = snap.data();
         setRecentVisited(Array.isArray(data?.recentVisited) ? data.recentVisited : []);
         setLastSeenNotifAt(Number(data?.lastSeenNotifAt) || 0);
@@ -3234,8 +3238,8 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
   // so this doesn't fire with an empty array and wipe out the saved list
   // before the initial Firestore read above has finished.
   useEffect(() => {
-    if (!user?.uid || !recentVisitedLoaded) return;
-    setDoc(doc(db, "coordinators", user.uid), { recentVisited }, { merge: true })
+    if (!user?.uid || !recentVisitedLoaded || !recentVisitedDocExists.current) return;
+    updateDoc(doc(db, "coordinators", user.uid), { recentVisited })
       .catch((err) => console.error("Failed to save recent visited companies:", err));
   }, [recentVisited, user?.uid, recentVisitedLoaded]);
 

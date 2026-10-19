@@ -69,13 +69,13 @@ const useBreakpoint = () => {
 // name, matching companies'/coordinators'/posts' Program values exactly.
 const LEGACY_PROGRAM_CODE_MAP = {
   "BSIT":                                  "Bachelor of Science in Information Technology",
-  "BSBA (Major in Marketing Management)":  "BS Business Administration — Major in Marketing Management",
+  "BSBA (Major in Marketing Management)":  "Bachelor of Science in Business Administration",
   "BSA":                                   "Bachelor of Science in Accountancy",
   "BS CRIM":                               "Bachelor of Science in Criminology",
   "BA POLSCI":                             "Bachelor of Arts in Political Science",
   "BEED":                                  "Bachelor of Elementary Education",
-  "BSED (Major in English)":               "BS Education — Major in English",
-  "BSED (Major in Mathematics)":           "BS Education — Major in Mathematics",
+  "BSED (Major in English)":               "Bachelor of Secondary Education",
+  "BSED (Major in Mathematics)":           "Bachelor of Secondary Education",
   "BSTM":                                  "Bachelor of Science in Tourism Management",
   "BSHM":                                  "Bachelor of Science in Hospitality Management",
 };
@@ -119,17 +119,19 @@ const EXCEL_COLUMNS = [
 // information form that opens before the dashboard. The downloadable
 // template, the header check, and the "Columns, in this order" hint are all
 // derived from this list.
-// Suffix sits after Middle Name, same order as the New Student form, and is
+// Suffix sits after Middle Initial, same order as the New Student form, and is
 // optional per row. Templates downloaded before it existed (no Suffix column)
 // are still accepted — see LEGACY_IMPORT_LAYOUTS in parseFile.
 const IMPORT_TEMPLATE_COLUMNS = [
-  "Student ID", "Last Name", "First Name", "Middle Name", "Suffix", "Sex",
+  "Student ID", "Last Name", "First Name", "Middle Initial", "Suffix", "Sex",
 ];
 // There is no Department column any more: every imported student gets the
 // coordinator's own department (picked in the Import form only when the
 // coordinator has more than one). Older templates are still accepted; their
 // Department column is simply ignored.
 const LEGACY_IMPORT_LAYOUTS = [
+  // Before "Middle Initial": the column held a full middle name (reduced to its initial on import).
+  ["Student ID", "Last Name", "First Name", "Middle Name", "Suffix", "Sex"],
   ["Student ID", "Last Name", "First Name", "Middle Name", "Suffix", "Department", "Sex"],
   ["Student ID", "Last Name", "First Name", "Middle Name", "Department", "Sex"],
 ];
@@ -199,8 +201,9 @@ const normalizeSex = (value) => {
   return "";
 };
 
-// "Santos" → "S."; blank stays blank. The rest of the app (profile form,
-// fullName, exports) works with a middle initial, so it's derived here.
+// "Santos" or "S" → "S."; blank stays blank. The rest of the app (profile form,
+// fullName, exports) works with a middle initial. New students are entered as an
+// initial; older import files may still carry a full middle name.
 const toMiddleInitial = (middleName) => {
   const first = String(middleName || "").trim().charAt(0);
   return first ? `${first.toUpperCase()}.` : "";
@@ -247,7 +250,7 @@ const formatBirthdate = (v) => {
 };
 
 const NAME_REGEX = /^[A-Za-zÑñ][A-Za-zÑñ\s\-]*$/;
-const MIDDLE_INITIAL_REGEX = /^[A-Z]\.$/;
+const MIDDLE_INITIAL_REGEX = /^[A-ZÑ]\.$/;
 const GMAIL_REGEX = /^[a-zA-Z0-9._%+\-]+@gmail\.com$/;
 
 // ── Responsive styles ─────────────────────────────────────────────────────────
@@ -548,7 +551,7 @@ const validators = {
   },
   middleInitial: (v) => {
     if (!v) return "";
-    if (!/^[A-Z]$/.test(v) && !MIDDLE_INITIAL_REGEX.test(v)) return "Format: M.";
+    if (!/^[A-ZÑ]$/.test(v) && !MIDDLE_INITIAL_REGEX.test(v)) return "Format: M.";
     return "";
   },
   firstName: (v) => {
@@ -631,11 +634,14 @@ const excelNameRule = (cell) =>
   `AND(LEN(${cell})<=60,` +
   `ISNUMBER(FIND(LEFT(LOWER(${cell}),1),"${NAME_LETTERS}")),` +
   `SUMPRODUCT(ISNUMBER(FIND(MID(LOWER(${cell}),ROW($1:$60),1),"${NAME_LETTERS} -"))*(MID(${cell},ROW($1:$60),1)<>""))=LEN(${cell}))`;
+// Middle initial: one letter, with or without the dot ("S" or "S.").
+const excelInitialRule = (cell) =>
+  `AND(LEN(${cell})<=2,ISNUMBER(FIND(LEFT(LOWER(${cell}),1),"${NAME_LETTERS}")),OR(LEN(${cell})=1,RIGHT(${cell},1)="."))`;
 const excelStudentIdRule = (cell) =>
   `AND(LEN(${cell})=9,SUMPRODUCT(--ISNUMBER(--MID(${cell},ROW($1:$9),1)))=9)`;
 
-// The sheet is PROTECTED: only Student ID … Sex on rows 3–200 are editable, so
-// nobody can type outside the designated columns. Each editable column also has
+// The sheet is PROTECTED and everything outside it is hidden: only Student ID … Sex
+// on rows 3–200 are editable, so nobody can type outside the designated columns. Each editable column also has
 // an Excel validation rule that mirrors the checks the import runs, so a wrong
 // value is refused while typing instead of failing after Import. (xlsx-js-style
 // can write neither data validation nor unlocked cells, so both are patched into
@@ -647,7 +653,7 @@ const buildImportTemplate = async (outType = "blob") => {
   const lastRow = IMPORT_TEMPLATE_LAST_ROW;
   const rows = [
     IMPORT_TEMPLATE_COLUMNS,
-    ["e.g. 201112345", "e.g. Dela Cruz", "e.g. Juan", "e.g. Santos (or blank)", "e.g. Jr. (or blank)", "e.g. Male"],
+    ["e.g. 201112345", "e.g. Dela Cruz", "e.g. Juan", "e.g. S. (or blank)", "e.g. Jr. (or blank)", "e.g. Male"],
   ];
   const ws = XLSX.utils.aoa_to_sheet(rows);
   ws["!cols"] = [{ wch: 15 }, { wch: 22 }, { wch: 22 }, { wch: 24 }, { wch: 18 }, { wch: 12 }];
@@ -693,8 +699,8 @@ const buildImportTemplate = async (outType = "blob") => {
       title: "Invalid last name", message: "Use letters, Ñ/ñ, spaces and hyphens only. It must start with a letter.", prompt: "Letters, spaces and hyphens only." }),
     rule({ name: "First Name", type: "custom", formula: excelNameRule(`${col("First Name")}3`),
       title: "Invalid first name", message: "Use letters, Ñ/ñ, spaces and hyphens only. It must start with a letter.", prompt: "Letters, spaces and hyphens only." }),
-    rule({ name: "Middle Name", type: "custom", formula: excelNameRule(`${col("Middle Name")}3`),
-      title: "Invalid middle name", message: "Use letters, Ñ/ñ, spaces and hyphens only, or leave it blank.", prompt: "Optional. Letters only." }),
+    rule({ name: "Middle Initial", type: "custom", formula: excelInitialRule(`${col("Middle Initial")}3`),
+      title: "Invalid middle initial", message: "Type one letter only, like S or S. Leave it blank if there is none.", prompt: "Optional. One letter, like S." }),
     rule({ name: "Suffix", type: "list", formula: `"${SUFFIX_OPTIONS.join(",")}"`,
       title: "Invalid suffix", message: "Choose a suffix from the list, or leave it blank.", prompt: "Optional. Jr., Sr., II, III … or leave blank." }),
     rule({ name: "Sex", type: "list", formula: `"Male,Female"`,
@@ -720,6 +726,13 @@ const buildImportTemplate = async (outType = "blob") => {
   let xml = await zip.file(sheetPath).async("string");
   xml = xml.replace(/<c r="([A-Z]+)(\d+)" s="\d+"/g, (m, c, r) => (Number(r) >= 3 && Number(r) <= lastRow ? `<c r="${c}${r}" s="${unlockedIdx}"` : m));
   xml = xml.replace("</sheetData>", `</sheetData>${sheetProtection}`);
+  // Everything outside the template is HIDDEN, not just locked: columns after the
+  // last one, and every row after the last data row (rows default to hidden;
+  // rows 1–lastRow all exist explicitly). Google Sheets ignores a .xlsx's sheet
+  // protection but does honour hidden rows/columns, so there is simply nothing
+  // outside the template to click into, in any spreadsheet app.
+  xml = xml.replace("</cols>", `<col min="${colCount + 1}" max="16384" width="9" customWidth="1" hidden="1"/></cols>`);
+  xml = xml.replace("</sheetViews>", '</sheetViews><sheetFormatPr defaultRowHeight="15" zeroHeight="1"/>');
   const AFTER_DATA_VALIDATIONS = [
     "hyperlinks", "printOptions", "pageMargins", "pageSetup", "headerFooter",
     "rowBreaks", "colBreaks", "customProperties", "cellWatches", "ignoredErrors",
@@ -913,7 +926,9 @@ function CustomSelect({
         onKeyDown={onKeyDown}
         style={merged}
       >
-        {selected ? selected.label : placeholder}
+        {/* A disabled (read-only) select with nothing chosen stays blank: its
+            placeholder ("None", "Select section"…) would read like saved data. */}
+        {selected ? selected.label : (disabled ? "\u00A0" : placeholder)}
       </button>
 
       <span
@@ -1011,9 +1026,11 @@ const StyledSelect = ({ value, onChange, options, placeholder, disabled, hasErro
   />
 );
 
+// Placeholders are hints for typing, so they are hidden while the field is disabled
+// (the read-only student view): an empty field there should look empty.
 const StyledInput = ({ value, onChange, placeholder, type: inputType = "text", disabled, hasError }) => (
   <input
-    type={inputType} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} disabled={disabled}
+    type={inputType} value={value} onChange={e => onChange(e.target.value)} placeholder={disabled ? "" : placeholder} disabled={disabled}
     style={{ width: "100%", background: disabled ? color.wine800 : color.white, border: `1px solid ${hasError ? danger : line}`, borderRadius: radius.pill, padding: "9px 14px", fontFamily: font.ui, ...type.helper, color: ink, outline: "none", boxSizing: "border-box" }}
   />
 );
@@ -1079,11 +1096,11 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
   const lastName      = useField(initial.lastName || "", "lastName");
   const middleInitial = useField(initial.middleInitial || "", "middleInitial");
   // New accounts ask for exactly what the import template asks for (Student ID,
-  // Last Name, First Name, Middle Name, Section, Department); the student fills
+  // Last Name, First Name, Middle Initial, Section, Department); the student fills
   // in the rest on first login. Viewing/editing an existing student still shows
   // every field.
   const isCreate      = !readOnly;
-  const middleName    = useField(initial.middleName || "", "middleName");
+  const middleName    = useField(initial.middleName || "", "middleInitial");
   // Graduating batch year — separate from Year & section (see BATCH_NONE above).
   const batch         = useField(initial.batch || "", "batch");
   const firstName     = useField(initial.firstName || "", "firstName");
@@ -1103,7 +1120,7 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
     initial.college || (coordinatorColleges.length === 1 ? coordinatorColleges[0] : "")
   );
   const [program, setProgram] = useState(initial.program || "");
-  const [major, setMajor]     = useState("");   // create only
+  const [major, setMajor]     = useState(initial.specialization || "");   // the student's major, if their program has any
   const [collegeTouched, setCollegeTouched] = useState(false);
   const [programTouched, setProgramTouched] = useState(false);
   const [isEditing, setIsEditing]           = useState(!readOnly);
@@ -1132,7 +1149,7 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
     if (!college) return false;
     if (validators.batch(batch.value)) return false;
     if (isCreate) {
-      if (validators.middleName(middleName.value)) return false;
+      if (validators.middleInitial(middleName.value)) return false;
       if (validators.suffix(suffix.value)) return false;
       if (validators.sex(sex.value)) return false;
       return true;
@@ -1177,7 +1194,8 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
           studentId: studentId.value.trim(),
           lastName: lastName.value.trim(),
           firstName: firstName.value.trim(),
-          middleName: middleName.value.trim(),
+          // One letter is all we ask for; both fields get it so anything that reads either works.
+          middleName: middleName.value.replace(/\./g, "").trim(),
           middleInitial: toMiddleInitial(middleName.value),
           yearSection: yearSection.value,
           college,
@@ -1193,9 +1211,13 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
         studentId: studentId.value, lastName: lastName.value,
         middleInitial: middleInitial.value, firstName: firstName.value,
         suffix: suffix.value, college, program,
-        // A different program invalidates its old specialization; otherwise
-        // whatever is on file stays as it is.
-        ...(program !== (initial.program || "") ? { specialization: "" } : {}),
+        // A different program invalidates its old specialization, so it is reset
+        // (to the major picked for the new program, if any). With the same
+        // program, the major is only sent when it was changed here, so an
+        // untouched record is never rewritten.
+        ...(program !== (initial.program || "")
+          ? { specialization: pm.showMajor ? major : "" }
+          : major !== (initial.specialization || "") ? { specialization: major } : {}),
         yearSection: yearSection.value, sex: sex.value,
         // No `age` — it's the student's own field (Personal Information).
         // Sinasadyang WALANG `email` dito. Sa create, si createStudentAccount
@@ -1227,7 +1249,7 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
   // and stays live: it recomputes from the current field values while editing,
   // and falls back to the original `initial` data before any edits are made.
   // Middle initial shown as "S." whether it was typed "S" or "S.". On create
-  // there is no initial field — it's derived from the Middle name input.
+  // the Middle initial input is the one called middleName here.
   const asInitial = (v) => {
     const letter = String(v || "").trim().replace(/\./g, "").charAt(0);
     return letter ? `${letter.toUpperCase()}.` : "";
@@ -1289,8 +1311,8 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
                   <FieldError msg={firstName.error} />
                 </div>
                 <div>
-                  <FieldLabel>Middle name</FieldLabel>
-                  <StyledInput value={middleName.value} onChange={(v) => middleName.onChange(v.replace(/[^A-Za-zÑñ\s\-]/g, ""))} placeholder="Santos (optional)" hasError={!!middleName.error} />
+                  <FieldLabel>Middle initial</FieldLabel>
+                  <StyledInput value={middleName.value} onChange={(v) => middleName.onChange(v.toUpperCase().replace(/[^A-ZÑ.]/g, "").slice(0, 2))} placeholder="M. (optional)" hasError={!!middleName.error} />
                   <FieldError msg={middleName.error} />
                 </div>
                 <div>
@@ -1402,6 +1424,19 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
               <StyledSelect value={program} onChange={handleProgramChange} options={programs} placeholder="Select program" disabled={locked || !college} hasError={!!programError} />
               <FieldError msg={programError} />
             </div>
+            {/* Major — only when the program has majors (or one is already on file). */}
+            {(pm.showMajor || major) && (
+              <div style={{ gridColumn: "1 / -1" }}>
+                <FieldLabel>Major</FieldLabel>
+                <StyledSelect
+                  value={major}
+                  onChange={setMajor}
+                  options={major && !pm.majors.includes(major) ? [...pm.majors, major] : pm.majors}
+                  placeholder="Not set"
+                  disabled={locked || !program}
+                />
+              </div>
+            )}
           </div>
 
           <div id="sa-modal-info" className="sa-info-grid">
@@ -1520,7 +1555,15 @@ const validateRow = (row, rowIndex, seenIds = new Map(), existingIds = new Set()
   else if (!NAME_REGEX.test(row.lastName)) errs.push(`Row ${r}: Last Name can only contain letters, spaces, and hyphens`);
   if (!row.firstName) errs.push(`Row ${r}: First Name is required`);
   else if (!NAME_REGEX.test(row.firstName)) errs.push(`Row ${r}: First Name can only contain letters, spaces, and hyphens`);
-  if (row.middleName && !NAME_REGEX.test(row.middleName)) errs.push(`Row ${r}: Middle Name can only contain letters, spaces, and hyphens`);
+  if (row.middleName) {
+    if (row.middleIsInitial) {
+      if (!/^[A-Za-zÑñ]\.?$/.test(row.middleName)) errs.push(`Row ${r}: Middle Initial must be a single letter, like S or S.`);
+      else { row.middleInitial = toMiddleInitial(row.middleName); row.middleName = row.middleInitial.replace(".", ""); }
+    } else if (!NAME_REGEX.test(row.middleName)) {
+      errs.push(`Row ${r}: Middle Name can only contain letters, spaces, and hyphens`);
+    }
+  }
+  delete row.middleIsInitial;
   // Optional. Same options as the New Student form; "jr" / "iii" are tidied up.
   const suffix = normalizeSuffix(row.suffix);
   if (suffix === null) errs.push(`Row ${r}: Suffix "${row.suffix}" must be one of ${SUFFIX_OPTIONS.join(", ")} (or blank)`);
@@ -1593,8 +1636,11 @@ const ImportModal = ({ onClose, onImport, coordinatorColleges = [], departments 
         // template's own "e.g. ..." example row.
         if (String(row[0] ?? "").trim().toLowerCase().startsWith("e.g.")) return;
         const cell = (name) => (at(name) === -1 ? "" : String(row[at(name)] ?? "").trim());
-        const middleName = cell("Middle Name");
+        // Current template: "Middle Initial". Older files: "Middle Name" (a full name).
+        const legacyMiddle = !expectedColumns.includes("Middle Initial");
+        const middleName = cell(legacyMiddle ? "Middle Name" : "Middle Initial");
         const student = {
+          middleIsInitial: !legacyMiddle,
           studentId:     cell("Student ID"),
           lastName:      cell("Last Name"),
           firstName:     cell("First Name"),
@@ -2185,10 +2231,6 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
   const [viewTab, setViewTab]                   = useState("active");
   const [confirmArchiveInfo, setConfirmArchiveInfo] = useState(null); // { student, mode: "archive"|"restore" }
   const [archiveBusy, setArchiveBusy]           = useState(false);
-  // Bulk "Set batch" — fills the academic year on the ticked rows. Existing
-  // student records predate the batch field, so without this every one of them
-  // would have to be edited by hand to leave "No batch set".
-  const [batchAssign, setBatchAssign]           = useState(null); // { ids, value, error, busy }
   const filterRef = useRef(null);
 
   // ── Real-time listener: ALL students in this coordinator's department(s) ──
@@ -2397,33 +2439,6 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
     }
   };
 
-  // ── Bulk: set the batch on the selected students ──────────────────────────
-  const handleSetBatchSelected = () => {
-    if (selectedIds.length === 0) return;
-    setBatchAssign({ ids: selectedIds, value: "", error: "", busy: false });
-  };
-
-  const confirmSetBatch = async () => {
-    if (!batchAssign || batchAssign.busy) return;
-    const batch = normalizeBatch(batchAssign.value);
-    if (!batch) {
-      setBatchAssign(prev => prev && { ...prev, error: batchProblem(batchAssign.value) });
-      return;
-    }
-    setBatchAssign(prev => prev && { ...prev, busy: true, error: "" });
-    try {
-      await Promise.all(batchAssign.ids.map(id => updateDoc(doc(db, "students", id), { batch })));
-      logActivity(coordinatorUid, "student_batch_set", `Set batch ${batch} on ${batchAssign.ids.length} student account(s)`, { targetCount: batchAssign.ids.length })
-        .catch(err => console.error("Failed to log activity:", err));
-      setSelected(new Set());
-      exitSelectMode();
-      setBatchAssign(null);
-    } catch (err) {
-      console.error("Failed to set batch:", err);
-      setBatchAssign(prev => prev && { ...prev, busy: false, error: "That didn't save. Check your connection and try again." });
-    }
-  };
-
   // ── Delete single ─────────────────────────────────────────────────────────
   const handleDelete = (id) => {
     setTimeout(() => setConfirmDeleteInfo({ type: "single", id }), 0);
@@ -2554,13 +2569,6 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
                   <Checkbox checked={allSelected} />
                   <span style={{ fontFamily: font.ui, ...type.control, color: inkBody }}>Select all</span>
                 </div>
-                <button
-                  onClick={handleSetBatchSelected}
-                  disabled={selectedIds.length === 0}
-                  style={{ ...ghostBtn, opacity: selectedIds.length === 0 ? 0.5 : 1, cursor: selectedIds.length === 0 ? "default" : "pointer" }}
-                >
-                  {allSelected && selectedIds.length > 0 ? "Set batch (all)" : `Set batch${selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}`}
-                </button>
                 <button
                   onClick={handleArchiveSelected}
                   disabled={selectedIds.length === 0}
@@ -2794,44 +2802,6 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
         >
           <button onClick={() => setConfirmDeleteInfo(null)} style={ghostBtn}>Cancel</button>
           <button onClick={confirmDelete} style={{ ...primaryBtn, background: danger }}>Delete</button>
-        </Dialog>
-      )}
-
-      {/* ── Bulk set batch ── */}
-      {batchAssign && (
-        <Dialog
-          title={`Set batch for ${batchAssign.ids.length} student${batchAssign.ids.length !== 1 ? "s" : ""}`}
-          body="Type the academic year these students belong to. This replaces whatever batch they have now."
-        >
-          <div style={{ width: "100%", display: "flex", flexDirection: "column", alignItems: "center", gap: space.sm, marginBottom: space.sm }}>
-            <input
-              value={batchAssign.value}
-              autoFocus
-              onChange={e => {
-                const v = e.target.value.replace(/[^\d-]/g, "").slice(0, 9);
-                setBatchAssign(prev => prev && { ...prev, value: v, error: "" });
-              }}
-              onKeyDown={e => { if (e.key === "Enter") confirmSetBatch(); }}
-              placeholder="2026-2027"
-              disabled={batchAssign.busy}
-              style={{
-                width: "160px", textAlign: "center", padding: "10px 12px",
-                borderRadius: radius.pill, border: `1.5px solid ${(batchAssign.error || (batchAssign.value && batchProblem(batchAssign.value))) ? danger : line}`,
-                fontFamily: font.ui, ...type.control, color: ink, outline: "none", background: color.white,
-              }}
-            />
-            {(() => {
-              const live = batchAssign.value ? batchProblem(batchAssign.value) : "";
-              const msg = batchAssign.error || live;
-              if (msg) return <p role="alert" style={{ fontFamily: font.ui, ...type.helper, color: danger, margin: 0, textAlign: "center" }}>{msg}</p>;
-              const hint = batchHint(batchAssign.value);
-              return hint ? <p style={{ fontFamily: font.ui, ...type.helper, color: success, margin: 0, textAlign: "center" }}>{hint}</p> : null;
-            })()}
-          </div>
-          <button onClick={() => setBatchAssign(null)} disabled={batchAssign.busy} style={ghostBtn}>Cancel</button>
-          <button onClick={confirmSetBatch} disabled={batchAssign.busy || !isValidBatch(batchAssign.value)} style={{ ...primaryBtn, opacity: isValidBatch(batchAssign.value) ? 1 : 0.5, cursor: isValidBatch(batchAssign.value) ? "pointer" : "not-allowed" }}>
-            {batchAssign.busy ? "Saving…" : "Set batch"}
-          </button>
         </Dialog>
       )}
 
