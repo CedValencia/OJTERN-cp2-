@@ -2,14 +2,14 @@
 // Separate ADMIN account for OJTern: its own sign-in at /admin and its own
 // collection (admins/{uid}). An admin is not a coordinator, student or company.
 //
-// Sign-in is USERNAME + password. Firebase Auth only knows emails, so the username is mapped
-// to a system address (<username>@admin.ojtern.local), the same idea as student accounts.
-// "Forgot password" mails a reset link to the admin's real recovery email (see
-// adminRequestPasswordReset in functions/adminFunctions.js).
+// Sign-in is EMAIL + password (a normal Firebase Auth account). That same email is where
+// "Forgot password" sends its reset link (adminRequestPasswordReset in functions/adminFunctions.js),
+// and it is changed from Account Profile with Firebase's verify-before-update email flow.
 //
 // Modules (same set as the other dashboards, except Messages, which needs the chat layer):
 //   Notifications   bell in the top bar (e.g. "<coordinator> accepted your invitation")
-//   Account Profile name, recovery email, change password
+//   Account Profile name, sign-in email, change password, and Add / Transfer an administrator account
+//                   (server side: functions/adminFunctions.js)
 //   About           the shared About Us page, via the (i) icon in the top bar
 //
 // What the admin can do:
@@ -27,7 +27,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   onAuthStateChanged, signInWithEmailAndPassword, signOut,
-  EmailAuthProvider, reauthenticateWithCredential, updatePassword,
+  EmailAuthProvider, reauthenticateWithCredential, updatePassword, verifyBeforeUpdateEmail,
 } from "firebase/auth";
 import {
   collection, doc, getDoc, onSnapshot, query, setDoc, updateDoc, where, serverTimestamp,
@@ -110,17 +110,9 @@ const describeSel = (raw) => {
   const s = normSel(raw);
   return `${s.department}${s.program ? ` › ${s.program}` : ""}${s.specialization ? ` › ${s.specialization}` : ""}`;
 };
-const ADMIN_LOGIN_DOMAIN = "admin.ojtern.local";   // keep in sync with functions/adminFunctions.js
-// "admin" -> "admin@admin.ojtern.local". A full email is also accepted (admins created with a real
-// email). Anything malformed returns "" and is reported with the same message as a wrong password.
-const toLoginEmail = (id) => {
-  const v = norm(id).toLowerCase();
-  if (v.includes("@")) return EMAIL_RE.test(v) ? v : "";
-  return /^[a-z0-9._-]{3,30}$/.test(v) ? `${v}@${ADMIN_LOGIN_DOMAIN}` : "";
-};
 const authMessage = (e) => {
   const code = e?.code || "";
-  if (["auth/invalid-credential", "auth/wrong-password", "auth/user-not-found", "auth/invalid-email"].includes(code)) return "Incorrect username or password.";
+  if (["auth/invalid-credential", "auth/wrong-password", "auth/user-not-found", "auth/invalid-email"].includes(code)) return "Incorrect email or password.";
   if (code === "auth/too-many-requests") return "Too many attempts. Please wait a moment and try again.";
   if (code === "auth/network-request-failed") return "Network error. Check your connection and try again.";
   return e?.message || "Could not sign in.";
@@ -262,10 +254,50 @@ const LogoutConfirmModal = ({ onConfirm, onCancel }) => (
   </div>
 );
 
+// "Are you sure?" dialog for every add / save / cancel / send in the admin screens. Same look as the
+// Log Out dialog. Use the hook: `const [confirm, confirmDialog] = useConfirm();` render {confirmDialog}
+// once, then `if (!(await confirm({ title, body, confirmLabel }))) return;` before the action.
+// tone: "danger" for things that discard or cancel something.
+const ConfirmModal = ({ title, body, confirmLabel = "Confirm", cancelLabel = "Cancel", tone = "default", onConfirm, onCancel }) => {
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") onCancel(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onCancel]);
+  const accent = tone === "danger" ? C.danger : ink;
+  return (
+    <div role="dialog" aria-modal="true" aria-label={title} style={{ position: "fixed", inset: 0, zIndex: 9999, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: "16px" }}>
+      <div style={{ background: paper, borderRadius: "20px", padding: "32px 28px", width: "clamp(280px, 85vw, 400px)", display: "flex", flexDirection: "column", alignItems: "center", gap: "12px", boxShadow: "0 8px 32px rgba(0,0,0,0.18)" }}>
+        <div style={{ width: "56px", height: "56px", borderRadius: "50%", background: paperCard, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: "2px" }}>
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke={accent} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="10" /><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3" /><line x1="12" y1="17" x2="12.01" y2="17" />
+          </svg>
+        </div>
+        <p style={{ fontFamily: uiFont, fontWeight: 600, fontSize: "1.1rem", color: inkText, margin: 0, textAlign: "center" }}>{title}</p>
+        <p style={{ fontFamily: uiFont, fontSize: "0.9rem", color: inkMuted, margin: 0, textAlign: "center", lineHeight: 1.5, overflowWrap: "anywhere" }}>{body}</p>
+        <div style={{ display: "flex", gap: "12px", width: "100%", marginTop: "8px" }}>
+          <button type="button" onClick={onCancel} style={{ flex: 1, padding: "12px", borderRadius: "30px", border: `1.5px solid ${hairline}`, background: paper, fontFamily: uiFont, fontWeight: 600, fontSize: "0.95rem", cursor: "pointer", color: inkMuted, boxShadow: "0 3px 10px rgba(0,0,0,0.3)" }}>{cancelLabel}</button>
+          <button type="button" autoFocus onClick={onConfirm} style={{ flex: 1, padding: "12px", borderRadius: "30px", border: "none", background: accent, fontFamily: uiFont, fontWeight: 700, fontSize: "0.95rem", cursor: "pointer", color: paper, boxShadow: "0 3px 10px rgba(0,0,0,0.5)" }}>{confirmLabel}</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const useConfirm = () => {
+  const [state, setState] = useState(null);
+  const confirm = (opts) => new Promise((resolve) => setState({ ...opts, resolve }));
+  const finish = (answer) => { state?.resolve(answer); setState(null); };
+  const dialog = state
+    ? <ConfirmModal {...state} onConfirm={() => finish(true)} onCancel={() => finish(false)} />
+    : null;
+  return [confirm, dialog];
+};
+
 // ═══════════════════════════ Sign in ═══════════════════════════
 const AdminSignIn = ({ onExit }) => {
   const [mode, setMode] = useState("signin");            // "signin" | "forgot"
-  const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPass, setShowPass] = useState(false);
   const [focused, setFocused] = useState("");
@@ -277,9 +309,9 @@ const AdminSignIn = ({ onExit }) => {
 
   const submit = async (e) => {
     e.preventDefault();
-    if (!username.trim() || !password) { setError("Enter your username and password."); return; }
-    const loginEmail = toLoginEmail(username);
-    if (!loginEmail) { setError("Incorrect username or password."); return; }
+    const loginEmail = norm(email).toLowerCase();
+    if (!loginEmail || !password) { setError("Enter your email and password."); return; }
+    if (!EMAIL_RE.test(loginEmail)) { setError("Enter a valid email address."); return; }
     setBusy(true); setError("");
     try {
       const cred = await signInWithEmailAndPassword(auth, loginEmail, password);
@@ -296,14 +328,15 @@ const AdminSignIn = ({ onExit }) => {
     }
   };
 
-  // Always answers the same way, so it can't be used to discover which usernames exist.
+  // Always answers the same way, so it can't be used to discover which emails are administrators.
   const sendReset = async (e) => {
     e.preventDefault();
-    if (!username.trim()) { setError("Enter your username."); return; }
+    const target = norm(email).toLowerCase();
+    if (!EMAIL_RE.test(target)) { setError("Enter a valid email address."); return; }
     setBusy(true); setError(""); setInfo("");
     try {
-      await httpsCallable(functions, "adminRequestPasswordReset")({ username: username.trim() });
-      setInfo("If that account exists, a password reset link has been sent to its recovery email. Check your inbox and spam folder. You can ask for another one after a minute.");
+      await httpsCallable(functions, "adminRequestPasswordReset")({ email: target });
+      setInfo("If that email belongs to an administrator account, a password reset link has been sent to it. Check your inbox and spam folder. You can ask for another one after a minute.");
     } catch (err) {
       setError(err?.message || "Could not send the reset link. Please try again.");
     } finally {
@@ -317,12 +350,12 @@ const AdminSignIn = ({ onExit }) => {
     fontFamily: uiFont, fontSize: "0.9375rem", outline: "none", transition: "border-color 160ms ease",
   });
   const linkBtn = { background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: uiFont, fontSize: "0.82rem", fontWeight: 600, color: inkText, textDecoration: "underline" };
-  const usernameField = (
+  const emailField = (
     <>
-      <label style={{ ...S.label, marginTop: 0 }} htmlFor="ad-user">Username<Req /></label>
-      <input id="ad-user" type="text" autoComplete="username" autoCapitalize="none" autoCorrect="off" spellCheck={false}
-        value={username} onChange={(e) => setUsername(e.target.value)}
-        onFocus={() => setFocused("user")} onBlur={() => setFocused("")} style={field("user")} />
+      <label style={{ ...S.label, marginTop: 0 }} htmlFor="ad-email">Email<Req /></label>
+      <input id="ad-email" type="email" autoComplete="username" autoCapitalize="none" autoCorrect="off" spellCheck={false}
+        value={email} onChange={(e) => setEmail(e.target.value)}
+        onFocus={() => setFocused("email")} onBlur={() => setFocused("")} style={field("email")} />
     </>
   );
 
@@ -340,9 +373,9 @@ const AdminSignIn = ({ onExit }) => {
           {mode === "signin" ? (
             <form onSubmit={submit} noValidate style={{ ...S.card, padding: "26px", textAlign: "left", marginBottom: 0, borderRadius: "24px", boxShadow: "0 8px 32px rgba(0,0,0,0.08)" }}>
               <h1 style={{ fontSize: "1.5rem", fontWeight: 600, letterSpacing: "-0.02em", margin: "0 0 4px" }}>Sign In</h1>
-              <p style={{ ...S.help, margin: "0 0 18px" }}>Use the administrator username and password.</p>
+              <p style={{ ...S.help, margin: "0 0 18px" }}>Use the administrator email and password.</p>
 
-              {usernameField}
+              {emailField}
 
               <label style={{ ...S.label, marginTop: "14px" }} htmlFor="ad-pass">Password<Req /></label>
               <div style={{ position: "relative" }}>
@@ -370,9 +403,9 @@ const AdminSignIn = ({ onExit }) => {
           ) : (
             <form onSubmit={sendReset} noValidate style={{ ...S.card, padding: "26px", textAlign: "left", marginBottom: 0, borderRadius: "24px", boxShadow: "0 8px 32px rgba(0,0,0,0.08)" }}>
               <h1 style={{ fontSize: "1.5rem", fontWeight: 600, letterSpacing: "-0.02em", margin: "0 0 4px" }}>Forgot password</h1>
-              <p style={{ ...S.help, margin: "0 0 18px" }}>Enter your username. We’ll email a reset link to the recovery email saved on the administrator account.</p>
+              <p style={{ ...S.help, margin: "0 0 18px" }}>Enter your administrator email. We’ll send a password reset link to it.</p>
 
-              {usernameField}
+              {emailField}
 
               {error && <div role="alert" style={S.err}>{error}</div>}
               {info && <div role="status" style={{ ...S.okMsg, margin: "14px 0 0" }}>{info}</div>}
@@ -463,6 +496,7 @@ const DepartmentsTab = ({ depts, loaded, flash }) => {
   const [form, setForm] = useState({ name: "", abbr: "", program: "", majors: "" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [confirm, confirmDialog] = useConfirm();
   const sorted = useMemo(() => [...depts].sort((a, b) => a.name.localeCompare(b.name)), [depts]);
   const notSeeded = loaded && depts.length === 0;
 
@@ -472,11 +506,14 @@ const DepartmentsTab = ({ depts, loaded, flash }) => {
     catch (e) { console.error(e); setError(e?.message || "Could not save. Please try again."); return false; }
   };
 
-  const seed = () => run(async () => {
+  const seed = async () => {
+    if (!(await confirm({ title: "Save default departments", body: "Are you sure you want to save the built-in default departments to Firestore?", confirmLabel: "Save" }))) return false;
+    return run(async () => {
     for (const [name, v] of Object.entries(DEFAULT_DEPARTMENTS)) {
       await setDoc(doc(db, "departments", slug(v.abbr || name)), { name, abbr: v.abbr || "", programs: v.programs, createdAt: serverTimestamp() });
     }
   }, "Default departments saved to Firestore.");
+  };
 
   const addDepartment = async () => {
     const name = norm(form.name), abbr = norm(form.abbr).toUpperCase(), program = norm(form.program);
@@ -489,6 +526,12 @@ const DepartmentsTab = ({ depts, loaded, flash }) => {
     for (const m of form.majors.split(",").map(norm).filter(Boolean)) {
       if (!specializations.some((x) => same(x, m))) specializations.push(m);
     }
+    const majorsText = specializations.length ? ` with the major${specializations.length > 1 ? "s" : ""} ${specializations.join(", ")}` : "";
+    if (!(await confirm({
+      title: "Add department",
+      body: `Are you sure you want to add ${name} (${abbr}) with the program ${program}${majorsText}? The name and abbreviation can't be changed afterwards.`,
+      confirmLabel: "Add department",
+    }))) return;
     setBusy(true);
     const ok = await run(
       () => setDoc(doc(db, "departments", slug(abbr)), { name, abbr, programs: [{ name: program, specializations }], createdAt: serverTimestamp() }),
@@ -498,20 +541,23 @@ const DepartmentsTab = ({ depts, loaded, flash }) => {
     if (ok) setForm({ name: "", abbr: "", program: "", majors: "" });
   };
 
-  const addProgram = (d, name) => {
-    if (programsOf(d).some((p) => same(p.name, name))) { setError(`"${name}" already exists in ${d.name}.`); return Promise.resolve(false); }
+  const addProgram = async (d, name) => {
+    if (programsOf(d).some((p) => same(p.name, name))) { setError(`"${name}" already exists in ${d.name}.`); return false; }
+    if (!(await confirm({ title: "Add program", body: `Are you sure you want to add the program "${name}" to ${d.name}?`, confirmLabel: "Add program" }))) return false;
     return run(() => updateDoc(doc(db, "departments", d.id), { programs: [...programsOf(d), { name, specializations: [] }] }), `Program added to ${d.name}.`);
   };
 
-  const addMajor = (d, programName, major) => {
+  const addMajor = async (d, programName, major) => {
     const prog = programsOf(d).find((p) => p.name === programName);
-    if (prog?.specializations.some((m) => same(m, major))) { setError(`"${major}" already exists in ${programName}.`); return Promise.resolve(false); }
+    if (prog?.specializations.some((m) => same(m, major))) { setError(`"${major}" already exists in ${programName}.`); return false; }
+    if (!(await confirm({ title: "Add major", body: `Are you sure you want to add the major "${major}" to ${programName}?`, confirmLabel: "Add major" }))) return false;
     const programs = programsOf(d).map((p) => (p.name === programName ? { ...p, specializations: [...p.specializations, major] } : p));
     return run(() => updateDoc(doc(db, "departments", d.id), { programs }), `Major added to ${programName}.`);
   };
 
   return (
     <div>
+      {confirmDialog}
       {error && <div role="alert" style={S.err}>{error}</div>}
 
       {notSeeded && (
@@ -586,6 +632,13 @@ const CoordinatorsTab = ({ admin, depts, flash }) => {
   const [error, setError] = useState("");
   const [editingUid, setEditingUid] = useState(null);
   const [editSel, setEditSel] = useState(emptySel());
+  const [confirm, confirmDialog] = useConfirm();
+
+  // The selection a coordinator has on file, in the shape the editor uses (also what "unchanged" means).
+  const initialSel = (c) => (c.deptSelections?.length
+    ? c.deptSelections.map((raw) => { const s = normSel(raw); return { department: s.department || "", program: s.program || "", specialization: s.specialization || "" }; })
+    : emptySel());
+  const selSig = (v) => JSON.stringify((v || []).map((r) => [r.department || "", r.program || "", r.specialization || ""]));
 
   useEffect(() => onSnapshot(collection(db, "coordinators"),
     (s) => setCoordinators(s.docs.map((d) => ({ uid: d.id, ...d.data() })).sort((a, b) => String(a.name || a.email).localeCompare(String(b.name || b.email)))),
@@ -606,6 +659,11 @@ const CoordinatorsTab = ({ admin, depts, flash }) => {
     const to = email.trim().toLowerCase();
     if (!EMAIL_RE.test(to)) { setError("Enter a valid email address."); return; }
     if (sel.some((r) => !r.department)) { setError("Choose a department for every row."); return; }
+    if (!(await confirm({
+      title: "Send invitation",
+      body: `Are you sure you want to invite ${to} as a coordinator for ${sel.map(describeSel).join("; ")}?`,
+      confirmLabel: "Send invitation",
+    }))) return;
     setBusy(true);
     const res = await call("adminInviteCoordinator", { email: to, deptSelections: sel });
     setBusy(false);
@@ -614,6 +672,12 @@ const CoordinatorsTab = ({ admin, depts, flash }) => {
 
   const saveDepts = async (uid) => {
     if (editSel.some((r) => !r.department)) { setError("Choose a department for every row."); return; }
+    const who = coordinators.find((c) => c.uid === uid);
+    if (!(await confirm({
+      title: "Save changes",
+      body: `Are you sure you want to save the department changes for ${who?.name || who?.email || "this coordinator"}?`,
+      confirmLabel: "Save",
+    }))) return;
     setBusy(true);
     const res = await call("adminSetCoordinatorDepartments", { uid, deptSelections: editSel });
     setBusy(false);
@@ -621,6 +685,7 @@ const CoordinatorsTab = ({ admin, depts, flash }) => {
   };
 
   const resendInvite = async (v) => {
+    if (!(await confirm({ title: "Resend invitation", body: `Are you sure you want to send the invitation to ${v.toEmail} again? The earlier link will stop working.`, confirmLabel: "Resend" }))) return;
     setBusy(true);
     const res = await call("adminInviteCoordinator", { email: v.toEmail, deptSelections: v.deptSelections || [] });
     setBusy(false);
@@ -628,6 +693,12 @@ const CoordinatorsTab = ({ admin, depts, flash }) => {
   };
 
   const cancelInvite = async (id) => {
+    const inv = invites.find((v) => v.id === id);
+    if (!(await confirm({
+      title: "Cancel invitation",
+      body: `Are you sure you want to cancel the invitation${inv?.toEmail ? ` sent to ${inv.toEmail}` : ""}? Their link will stop working.`,
+      confirmLabel: "Cancel invitation", cancelLabel: "Keep it", tone: "danger",
+    }))) return;
     setError("");
     try { await updateDoc(doc(db, "coordinatorInvites", id), { status: "cancelled" }); flash("Invitation cancelled."); }
     catch (e) { console.error(e); setError("Could not cancel the invitation."); }
@@ -635,6 +706,7 @@ const CoordinatorsTab = ({ admin, depts, flash }) => {
 
   return (
     <div>
+      {confirmDialog}
       {error && <div role="alert" style={S.err}>{error}</div>}
 
       <div style={S.card}>
@@ -688,7 +760,12 @@ const CoordinatorsTab = ({ admin, depts, flash }) => {
                 <DeptSelectionsEditor depts={depts} value={editSel} onChange={setEditSel} />
                 <div style={{ display: "flex", gap: "8px", marginTop: "10px" }}>
                   <button type="button" style={S.btn} disabled={busy} onClick={() => saveDepts(c.uid)}>Save</button>
-                  <button type="button" style={S.btn2} onClick={() => setEditingUid(null)}>Cancel</button>
+                  <button type="button" style={S.btn2} onClick={async () => {
+                    // Only ask when something was actually changed; nothing to lose otherwise.
+                    if (selSig(editSel) !== selSig(initialSel(c))
+                      && !(await confirm({ title: "Cancel changes", body: "Are you sure you want to cancel? Your changes will be discarded.", confirmLabel: "Discard changes", cancelLabel: "Keep editing", tone: "danger" }))) return;
+                    setEditingUid(null);
+                  }}>Cancel</button>
                 </div>
               </div>
             ) : (
@@ -809,54 +886,219 @@ const InfoRow = ({ label, children }) => (
 );
 const FieldError = ({ children }) => (children ? <p style={{ fontFamily: FONT, fontSize: "0.78rem", color: C.danger, margin: "4px 0 0" }}>{children}</p> : null);
 
+// Maps the errors from changing the sign-in email to something readable.
+const emailChangeMessage = (err) => {
+  const code = err?.code || "";
+  if (code === "auth/email-already-in-use") return "That email is already used by another OJTern account.";
+  if (code === "auth/invalid-email") return "Enter a valid email address.";
+  if (code === "auth/requires-recent-login") return "Please enter your current password again.";
+  if (code === "auth/too-many-requests") return "Too many attempts. Please wait a moment and try again.";
+  return err?.message || "Could not send the verification link. Please try again.";
+};
+
+// ??? Administrator accounts: Add account / Transfer account ???
+// Add: invites another administrator (full access). Transfer: hands THIS administrator role to someone
+// else; you keep access until they sign in for the first time, so a mistyped email can never lock the
+// system out. No password is shared: the SERVER emails the new person a "set your password" link.
+// Server side: functions/adminFunctions.js (adminAddAdmin, adminTransferAdmin, adminCancelTransfer,
+// adminCompleteTransfer).
+const AdminAccountsCard = ({ pending, onChanged, flash, confirm }) => {
+  const [mode, setMode] = useState(null);            // null | "add" | "transfer"
+  const [form, setForm] = useState({ name: "", email: "", password: "" });
+  const [ack, setAck] = useState(false);
+  const [error, setError] = useState("");
+  const [info, setInfo] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const open = (m) => { setMode(m); setForm({ name: "", email: "", password: "" }); setAck(false); setError(""); setInfo(""); };
+  const close = async () => {
+    // Asking only when something was typed: nothing to lose otherwise.
+    if ((form.name || form.email || form.password)
+      && !(await confirm({ title: "Cancel", body: "Are you sure you want to cancel? What you entered will be discarded.", confirmLabel: "Discard", cancelLabel: "Keep editing", tone: "danger" }))) return;
+    setMode(null); setError("");
+  };
+
+  const submit = async () => {
+    setError(""); setInfo("");
+    const name = norm(form.name);
+    const email = norm(form.email).toLowerCase();
+    if (!name) { setError("Enter the person's name."); return; }
+    if (!EMAIL_RE.test(email)) { setError("Enter a valid email address."); return; }
+    if (email === norm(auth.currentUser?.email).toLowerCase()) { setError("That is your own email. Enter the other person's email."); return; }
+    if (!form.password) { setError("Enter your current password to confirm."); return; }
+    if (mode === "transfer" && !ack) { setError("Tick the box to confirm you understand."); return; }
+    if (!(await confirm(mode === "add"
+      ? { title: "Add administrator", body: `Are you sure you want to add ${name} (${email}) as an administrator? They will have full administrator access.`, confirmLabel: "Add account" }
+      : { title: "Transfer account", body: `Are you sure you want to transfer your administrator role to ${name} (${email})? Your access ends once they sign in for the first time.`, confirmLabel: "Start transfer", tone: "danger" }))) return;
+    setBusy(true);
+    try {
+      await reauthenticate(form.password);
+      const res = await httpsCallable(functions, mode === "add" ? "adminAddAdmin" : "adminTransferAdmin")({ name, email });
+      const mailed = res?.data?.mailed !== false;
+      const done = mode === "add" ? "Administrator account created." : "Transfer started.";
+      setMode(null);
+      onChanged();
+      flash(done);
+      setInfo(mailed
+        ? `We emailed ${email} a link to set their password. ${mode === "transfer" ? "Your access ends once they sign in for the first time." : "They can sign in after that."}`
+        : `The account was created, but we couldn’t send the email. Ask ${email} to use “Forgot password” on the sign-in page.`);
+    } catch (err) {
+      setError(err?.message || "Something went wrong. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const cancelTransfer = async () => {
+    if (!(await confirm({ title: "Cancel transfer", body: `Are you sure you want to cancel the transfer${pending?.email ? ` to ${pending.email}` : ""}? Their account will be switched off if they haven't signed in yet.`, confirmLabel: "Cancel transfer", cancelLabel: "Keep it", tone: "danger" }))) return;
+    setBusy(true); setError("");
+    try {
+      await httpsCallable(functions, "adminCancelTransfer")();
+      onChanged();
+      flash("Transfer cancelled.");
+    } catch (err) {
+      setError(err?.message || "Could not cancel the transfer.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={S.card}>
+      <h2 style={S.h2}>Administrator accounts</h2>
+      <p style={S.help}>
+        Add another administrator, or hand your administrator role to someone else. They set their own password from an emailed link, so no password is ever shared.
+      </p>
+
+      {pending && (
+        <div role="status" style={{ ...S.okMsg, margin: "0 0 14px" }}>
+          Transfer to <strong>{pending.email || "the new administrator"}</strong> is pending. You keep full access until they sign in for the first time; then your account is switched off.
+          <div style={{ marginTop: "10px" }}>
+            <button type="button" style={{ ...S.btn2, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={cancelTransfer}>Cancel transfer</button>
+          </div>
+        </div>
+      )}
+      {info && !pending && <div role="status" style={{ ...S.okMsg, margin: "0 0 14px" }}>{info}</div>}
+      {error && !mode && <div role="alert" style={S.err}>{error}</div>}
+
+      {!mode && (
+        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+          <button type="button" style={S.btn} onClick={() => open("add")}>Add account</button>
+          <button type="button" style={{ ...S.btn2, opacity: pending ? 0.5 : 1 }} disabled={!!pending} title={pending ? "A transfer is already pending" : undefined} onClick={() => open("transfer")}>Transfer account</button>
+        </div>
+      )}
+
+      {mode && (
+        <div>
+          <h3 style={{ ...S.label, fontSize: "0.9rem", marginTop: 0 }}>{mode === "add" ? "Add an administrator account" : "Transfer your administrator account"}</h3>
+          {mode === "transfer" && (
+            <p style={S.help}>Enter the person who will take over. You keep access until they open the emailed link, set a password and sign in once. After that your account is switched off and you are signed out.</p>
+          )}
+          <label style={S.label}>Name<Req /></label>
+          <input style={{ ...S.input, maxWidth: "420px" }} maxLength={60} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+          <label style={S.label}>Email<Req /></label>
+          <input style={{ ...S.input, maxWidth: "420px" }} type="email" autoComplete="off" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+          <label style={S.label}>Your current password<Req /></label>
+          <input style={{ ...S.input, maxWidth: "420px" }} type="password" autoComplete="current-password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
+          {mode === "transfer" && (
+            <label style={{ display: "flex", gap: "8px", alignItems: "flex-start", marginTop: "14px", fontFamily: FONT, fontSize: "0.82rem", maxWidth: "460px" }}>
+              <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} style={{ marginTop: "3px" }} />
+              <span>I understand my administrator access will end once they sign in.</span>
+            </label>
+          )}
+          {error && <div role="alert" style={S.err}>{error}</div>}
+          <div style={{ display: "flex", gap: "8px", marginTop: "14px" }}>
+            <button type="button" style={{ ...S.btn, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={submit}>
+              {busy ? "Working…" : mode === "add" ? "Create and send link" : "Start transfer"}
+            </button>
+            <button type="button" style={S.btn2} disabled={busy} onClick={close}>Cancel</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const AccountProfile = ({ admin, flash }) => {
-  const [profile, setProfile] = useState(null);
+  const [name, setName] = useState(admin.name || "");
   const [loadError, setLoadError] = useState("");
-  const [editing, setEditing] = useState(false);
-  const [form, setForm] = useState({ name: "", recoveryEmail: "", password: "" });
-  const [errors, setErrors] = useState({});
-  const [saving, setSaving] = useState(false);
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState("");
+  const [nameError, setNameError] = useState("");
+  const [savingName, setSavingName] = useState(false);
+
+  const [emailForm, setEmailForm] = useState({ email: "", password: "" });
+  const [emailError, setEmailError] = useState("");
+  const [emailInfo, setEmailInfo] = useState("");
+  const [emailBusy, setEmailBusy] = useState(false);
+
   const [pw, setPw] = useState({ current: "", next: "", confirm: "" });
   const [pwError, setPwError] = useState("");
   const [pwBusy, setPwBusy] = useState(false);
+  const [pending, setPending] = useState(null);   // { email } while a transfer of this account is pending
+  const [confirm, confirmDialog] = useConfirm();
 
-  const load = async () => {
+  const loadName = async () => {
     try {
       const snap = await getDoc(doc(db, "admins", admin.uid));
       const d = snap.data() || {};
-      setProfile({ name: d.name || "", username: d.username || "", recoveryEmail: d.recoveryEmail || "" });
+      setName(d.name || "");
+      setPending(d.transferPendingTo ? { email: d.transferPendingEmail || "" } : null);
       setLoadError("");
     } catch (e) {
       console.error(e);
       setLoadError("Could not load your profile.");
     }
   };
-  useEffect(() => { load(); }, [admin.uid]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { loadName(); }, [admin.uid]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const startEdit = () => {
-    setForm({ name: profile?.name || "", recoveryEmail: profile?.recoveryEmail || "", password: "" });
-    setErrors({});
-    setEditing(true);
+  const saveName = async () => {
+    if (!norm(nameDraft)) { setNameError("Name is required."); return; }
+    if (!(await confirm({ title: "Save changes", body: `Are you sure you want to save "${norm(nameDraft)}" as your name?`, confirmLabel: "Save" }))) return;
+    setSavingName(true); setNameError("");
+    try {
+      await httpsCallable(functions, "adminUpdateProfile")({ name: norm(nameDraft) });
+      await loadName();
+      setEditingName(false);
+      flash("Name updated.");
+    } catch (err) {
+      setNameError(err?.message || "Could not save your name.");
+    } finally {
+      setSavingName(false);
+    }
   };
 
-  const saveProfile = async () => {
-    const e = {};
-    if (!norm(form.name)) e.name = "Name is required.";
-    if (!EMAIL_RE.test(norm(form.recoveryEmail).toLowerCase())) e.recoveryEmail = "Enter a valid email address.";
-    if (!form.password) e.password = "Enter your current password to confirm.";
-    setErrors(e);
-    if (Object.keys(e).length) return;
-    setSaving(true);
+  // The email you type here becomes your sign-in email AND the address password reset links go to.
+  // Firebase first mails a verification link to the NEW address; the change only happens once it is
+  // opened, so a typo can never lock you out. Until then the current email keeps working.
+  const submitEmail = async () => {
+    setEmailError(""); setEmailInfo("");
+    const next = norm(emailForm.email).toLowerCase();
+    if (!EMAIL_RE.test(next)) { setEmailError("Enter a valid email address."); return; }
+    if (next === norm(admin.email).toLowerCase()) { setEmailError("That is already your sign-in email."); return; }
+    if (!emailForm.password) { setEmailError("Enter your current password to confirm."); return; }
+    if (!(await confirm({
+      title: "Change sign-in email",
+      body: `Are you sure you want to change your sign-in email to ${next}? We'll send a verification link to that address first, and the change only happens once it is opened.`,
+      confirmLabel: "Send link",
+    }))) return;
+    setEmailBusy(true);
     try {
-      await reauthenticate(form.password);
-      await httpsCallable(functions, "adminUpdateProfile")({ name: norm(form.name), recoveryEmail: norm(form.recoveryEmail).toLowerCase() });
-      await load();
-      setEditing(false);
-      flash("Profile updated.");
+      await reauthenticate(emailForm.password);
+      try {
+        await verifyBeforeUpdateEmail(auth.currentUser, next, { url: `${window.location.origin}/admin` });
+      } catch (err) {
+        // The site isn't in Firebase's authorized domains for the return link: send it without one.
+        if (err?.code === "auth/unauthorized-continue-uri" || err?.code === "auth/invalid-continue-uri") {
+          await verifyBeforeUpdateEmail(auth.currentUser, next);
+        } else { throw err; }
+      }
+      setEmailForm({ email: "", password: "" });
+      setEmailInfo(`We sent a verification link to ${next}. Your sign-in email changes after you open it. Until then, keep signing in with ${admin.email}. After the change you will be asked to sign in again with the new email.`);
     } catch (err) {
-      setErrors({ form: err?.message || "Could not save your changes." });
+      setEmailError(emailChangeMessage(err));
     } finally {
-      setSaving(false);
+      setEmailBusy(false);
     }
   };
 
@@ -866,6 +1108,7 @@ const AccountProfile = ({ admin, flash }) => {
     if (!isPasswordStrong(pw.next)) { setPwError("The new password doesn’t meet all the requirements below."); return; }
     if (pw.next !== pw.confirm) { setPwError("The new password and its confirmation don’t match."); return; }
     if (pw.next === pw.current) { setPwError("The new password must be different from the current one."); return; }
+    if (!(await confirm({ title: "Change password", body: "Are you sure you want to change your password?", confirmLabel: "Change password" }))) return;
     setPwBusy(true);
     try {
       await reauthenticate(pw.current);
@@ -881,46 +1124,50 @@ const AccountProfile = ({ admin, flash }) => {
 
   return (
     <div>
+      {confirmDialog}
       <div style={S.card}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
           <h2 style={S.h2}>Personal information</h2>
-          {!editing && profile && <button type="button" style={S.btn2} onClick={startEdit}>Edit</button>}
+          {!editingName && <button type="button" style={S.btn2} onClick={() => { setNameDraft(name); setNameError(""); setEditingName(true); }}>Edit name</button>}
         </div>
         {loadError && <div role="alert" style={S.err}>{loadError}</div>}
 
-        {!editing ? (
-          <>
-            <InfoRow label="Name">{profile ? (profile.name || "—") : "Loading…"}</InfoRow>
-            <InfoRow label="Username">{profile ? (profile.username || "—") : "Loading…"}</InfoRow>
-            <InfoRow label="Recovery email">{profile ? (profile.recoveryEmail || <span style={{ color: C.danger }}>Not set — Forgot password can’t work without it</span>) : "Loading…"}</InfoRow>
-            <InfoRow label="Role">Administrator</InfoRow>
-          </>
+        {!editingName ? (
+          <InfoRow label="Name">{name || "—"}</InfoRow>
         ) : (
           <>
             <label style={S.label}>Name<Req /></label>
-            <input style={{ ...S.input, maxWidth: "420px" }} value={form.name} maxLength={60} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-            <FieldError>{errors.name}</FieldError>
-
-            <label style={S.label}>Username</label>
-            <input style={{ ...S.input, maxWidth: "420px", background: paperTint, color: inkMuted }} value={profile?.username || ""} disabled />
-            <p style={{ ...S.help, margin: "4px 0 0" }}>The username can’t be changed here.</p>
-
-            <label style={S.label}>Recovery email<Req /></label>
-            <input style={{ ...S.input, maxWidth: "420px" }} type="email" value={form.recoveryEmail} onChange={(e) => setForm({ ...form, recoveryEmail: e.target.value })} />
-            <p style={{ ...S.help, margin: "4px 0 0" }}>Password reset links are sent here, so use an inbox the school controls.</p>
-            <FieldError>{errors.recoveryEmail}</FieldError>
-
-            <label style={S.label}>Current password<Req /></label>
-            <input style={{ ...S.input, maxWidth: "420px" }} type="password" autoComplete="current-password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
-            <FieldError>{errors.password}</FieldError>
-
-            {errors.form && <div role="alert" style={S.err}>{errors.form}</div>}
+            <input style={{ ...S.input, maxWidth: "420px" }} value={nameDraft} maxLength={60} onChange={(e) => setNameDraft(e.target.value)} />
+            <FieldError>{nameError}</FieldError>
             <div style={{ display: "flex", gap: "8px", marginTop: "14px" }}>
-              <button type="button" style={{ ...S.btn, opacity: saving ? 0.6 : 1 }} disabled={saving} onClick={saveProfile}>{saving ? "Saving…" : "Save changes"}</button>
-              <button type="button" style={S.btn2} disabled={saving} onClick={() => setEditing(false)}>Cancel</button>
+              <button type="button" style={{ ...S.btn, opacity: savingName ? 0.6 : 1 }} disabled={savingName} onClick={saveName}>{savingName ? "Saving…" : "Save"}</button>
+              <button type="button" style={S.btn2} disabled={savingName} onClick={async () => {
+              if (norm(nameDraft) !== norm(name)
+                && !(await confirm({ title: "Cancel changes", body: "Are you sure you want to cancel? Your changes will be discarded.", confirmLabel: "Discard changes", cancelLabel: "Keep editing", tone: "danger" }))) return;
+              setEditingName(false);
+            }}>Cancel</button>
             </div>
           </>
         )}
+        <InfoRow label="Email">{admin.email || "—"}</InfoRow>
+        <InfoRow label="Role">Administrator</InfoRow>
+      </div>
+
+      <div style={S.card}>
+        <h2 style={S.h2}>Sign-in email</h2>
+        <p style={S.help}>
+          This is the email you sign in with, and where password reset links are sent. To change it, enter the new email and your
+          current password. We’ll send a verification link to the new address, and the change takes effect when you open it.
+        </p>
+        <label style={S.label}>New email<Req /></label>
+        <input style={{ ...S.input, maxWidth: "420px" }} type="email" autoComplete="off" value={emailForm.email} onChange={(e) => setEmailForm({ ...emailForm, email: e.target.value })} />
+        <label style={S.label}>Current password<Req /></label>
+        <input style={{ ...S.input, maxWidth: "420px" }} type="password" autoComplete="current-password" value={emailForm.password} onChange={(e) => setEmailForm({ ...emailForm, password: e.target.value })} />
+        {emailError && <div role="alert" style={S.err}>{emailError}</div>}
+        {emailInfo && <div role="status" style={{ ...S.okMsg, margin: "14px 0 0" }}>{emailInfo}</div>}
+        <button type="button" style={{ ...S.btn, marginTop: "14px", opacity: emailBusy ? 0.6 : 1 }} disabled={emailBusy} onClick={submitEmail}>
+          {emailBusy ? "Sending…" : "Send verification link"}
+        </button>
       </div>
 
       <div style={S.card}>
@@ -938,6 +1185,8 @@ const AccountProfile = ({ admin, flash }) => {
           {pwBusy ? "Saving…" : "Change password"}
         </button>
       </div>
+
+      <AdminAccountsCard pending={pending} onChanged={loadName} flash={flash} confirm={confirm} />
     </div>
   );
 };
@@ -949,10 +1198,10 @@ const AccountProfile = ({ admin, flash }) => {
 const PAGE_TITLES = {
   departments:  { title: "Departments & Programs", sub: "Add departments, programs and majors. Changes show up across OJTern right away." },
   coordinators: { title: "Coordinators",           sub: "Invite coordinators and choose which department each one handles." },
-  accountprofile: { title: "Account Profile",      sub: "Your administrator details and password." },
+  accountprofile: { title: "Account Profile",      sub: "Your administrator details, password and administrator accounts." },
 };
 
-const AdminDashboard = ({ admin, onExit }) => {
+const AdminDashboard = ({ admin }) => {
   const { isMobile, isDesktop } = useBreakpoint();
   const showDrawer = !isDesktop;
   const [activeNav, setActiveNav] = useState("departments");
@@ -1010,8 +1259,8 @@ const AdminDashboard = ({ admin, onExit }) => {
   const askLogout = () => { setDrawerOpen(false); setShowLogout(true); };
   const confirmLogout = async () => {
     setShowLogout(false);
+    // Stays on the admin page: onAuthStateChanged in <AdminScreen> brings the sign-in form back.
     try { await signOut(auth); } catch (e) { console.error("Logout failed:", e); }
-    onExit?.();
   };
 
   const page = PAGE_TITLES[activeNav] || PAGE_TITLES.departments;
@@ -1042,7 +1291,7 @@ const AdminDashboard = ({ admin, onExit }) => {
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: "4px", flexShrink: 0 }}>
             {!isMobile && (
-              <span style={{ fontFamily: uiFont, fontSize: "0.82rem", color: "rgba(255,255,255,0.8)", marginRight: "8px" }}>{admin.name || admin.username || admin.email}</span>
+              <span style={{ fontFamily: uiFont, fontSize: "0.82rem", color: "rgba(255,255,255,0.8)", marginRight: "8px" }}>{admin.name || admin.email}</span>
             )}
             <NotificationBell items={notifications} open={notifOpen} onToggle={toggleNotif} onSelect={selectNotif} />
             <div style={{ cursor: "pointer", padding: "8px" }} onClick={() => navigate("about")} title="About" role="button" aria-label="About">
@@ -1095,6 +1344,12 @@ const AdminDashboard = ({ admin, onExit }) => {
 };
 
 // ═══════════════════════════ Entry point ═══════════════════════════
+// Running as an installed app (PWA window): there is no address bar and no "OJTern" page to go back to,
+// so the "Back to OJTern" button is not shown there.
+const isStandalone = () =>
+  typeof window !== "undefined" &&
+  ((window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) || window.navigator.standalone === true);
+
 // Usage (see ADMIN_SETUP.md):  <AdminScreen onExit={() => { window.location.href = "/"; }} />
 const AdminScreen = ({ onExit }) => {
   const [admin, setAdmin] = useState(null);
@@ -1107,7 +1362,13 @@ const AdminScreen = ({ onExit }) => {
       // we show the admin sign-in form and do NOT sign them out.
       const snap = await getDoc(doc(db, "admins", u.uid));
       const ok = snap.exists() && snap.get("role") === "admin" && snap.get("status") === "active";
-      setAdmin(ok ? { uid: u.uid, name: snap.get("name") || "", username: snap.get("username") || "", email: u.email || "" } : null);
+      setAdmin(ok ? { uid: u.uid, name: snap.get("name") || "", email: u.email || "" } : null);
+      // The new administrator of a pending transfer: signing in proves they own the email, so this is
+      // the moment the previous administrator's account is switched off (server-side, and a no-op unless
+      // a transfer to this account really is pending).
+      if (ok && snap.get("transferFrom")) {
+        httpsCallable(functions, "adminCompleteTransfer")().catch((e) => console.error("adminCompleteTransfer:", e));
+      }
     } catch {
       setAdmin(null);
     }
@@ -1115,7 +1376,7 @@ const AdminScreen = ({ onExit }) => {
   }), []);
 
   if (checking) return <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", background: paperTint, color: inkMuted, fontFamily: uiFont }}>Loading…</div>;
-  return admin ? <AdminDashboard admin={admin} onExit={onExit} /> : <AdminSignIn onExit={onExit} />;
+  return admin ? <AdminDashboard admin={admin} /> : <AdminSignIn onExit={isStandalone() ? undefined : onExit} />;
 };
 
 export default AdminScreen;

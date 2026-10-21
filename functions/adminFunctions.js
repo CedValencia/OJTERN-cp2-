@@ -2,18 +2,20 @@
 // Callable Cloud Functions for the separate ADMIN account (admins/{uid}).
 // Admins are NOT coordinators: they have no coordinators/{uid} doc, and nobody
 // can become one from the client (the `admins` collection is write-protected in
-// firestore.rules; admins are created by hand in the Firebase Console).
+// firestore.rules; admins are created by hand in the Firebase Console, or by an existing
+// admin with "Add account" / "Transfer account" in Account Profile: adminAddAdmin / adminTransferAdmin below).
 //
-// An admin signs in with a USERNAME + password. Firebase Auth only knows emails, so the
-// username is mapped to a system address (<username>@admin.ojtern.local) that nobody can
-// receive mail at: the same idea as student accounts. Forgot password therefore goes to
-// the admin's real RECOVERY email, stored on admins/{uid}.recoveryEmail.
+// An admin signs in with their EMAIL + password (a normal Firebase Auth account). That same email
+// is where password reset links go. It is changed from Account Profile with Firebase's
+// verify-before-update flow, so there is nothing to keep in sync here.
 //
 // admins/{uid} fields:
 //   role: "admin"   status: "active"   name: "OJT Office"
-//   username: "admin"                          (lowercase letters, digits, . _ -)
-//   email: "admin@admin.ojtern.local"          (the Firebase Auth login address)
-//   recoveryEmail: "ojt.office@school.edu.ph"  (a real inbox, used only by Forgot password)
+// Written by Add / Transfer account (all optional, none of them needed by the screen to work):
+//   email, createdBy, createdAt                      who invited this admin
+//   transferFrom                                     on the NEW admin until their first sign-in completes the transfer
+//   transferPendingTo / transferPendingEmail         on the CURRENT admin while a transfer to someone is pending
+//   status: "transferred" | "cancelled"              an old admin after a completed transfer / an unused account after a cancel
 //
 // Loaded from the bottom of index.js, which hands over its shared mail helper:
 //   Object.assign(exports, require("./adminFunctions")({ sendMail, resendApiKey }));
@@ -25,7 +27,6 @@ const { getAuth } = require("firebase-admin/auth");
 const crypto = require("crypto");
 
 const REGION = "asia-southeast1";
-const ADMIN_LOGIN_DOMAIN = "admin.ojtern.local";          // keep in sync with AdminScreen.jsx
 const ADMIN_RESET_COOLDOWN_MS = 60 * 1000;
 const STALE_INVITE_AFTER_DAYS = 7;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
@@ -39,12 +40,10 @@ const requireAdmin = async (request) => {
   if (!snap.exists || snap.get("role") !== "admin" || snap.get("status") !== "active") {
     throw new HttpsError("permission-denied", "Administrator access required.");
   }
-  const loginEmail = snap.get("email") || request.auth.token.email || "";
   return {
     uid: request.auth.uid,
     name: snap.get("name") || "",
-    // A real inbox if there is one; the system login address is never shown to anyone.
-    email: clean(snap.get("recoveryEmail")) || (loginEmail.endsWith(`@${ADMIN_LOGIN_DOMAIN}`) ? "" : loginEmail),
+    email: clean(request.auth.token.email),
   };
 };
 
@@ -152,6 +151,101 @@ const sendStaleInviteReminders = async (db, now = Date.now()) => {
   return sent;
 };
 
+const ADMIN_PAGE_URL = "https://ojtern.web.app/admin";
+const RECENT_SIGN_IN_SECONDS = 5 * 60;
+const esc = (v) => clean(v).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+// Add / Transfer account change who can administer everything, so the caller must have signed in
+// recently (the screen asks for the current password again and refreshes the token).
+const requireRecentSignIn = (request) => {
+  const authTime = Number(request.auth?.token?.auth_time);
+  if (!authTime || Date.now() / 1000 - authTime > RECENT_SIGN_IN_SECONDS) {
+    throw new HttpsError("failed-precondition", "Please enter your current password again.");
+  }
+};
+
+const readNameAndEmail = (data) => {
+  const email = clean(data?.email).toLowerCase();
+  const name = clean(data?.name);
+  if (!EMAIL_RE.test(email) || email.length > 254) throw new HttpsError("invalid-argument", "Enter a valid email address.");
+  if (!name || name.length > 60) throw new HttpsError("invalid-argument", "Enter the person's name (up to 60 characters).");
+  return { email, name };
+};
+
+// Creates the Auth login (a random password nobody ever sees) and admins/{uid}. The person sets their
+// own password from the emailed link, so no password is created for anyone to share.
+const createAdminAccount = async (db, { email, name, createdBy, extra = {} }) => {
+  const auth = getAuth();
+  let existing = null;
+  try { existing = await auth.getUserByEmail(email); }
+  catch (e) { if (e?.code !== "auth/user-not-found") throw e; }
+  if (existing) {
+    throw new HttpsError("already-exists", "That email already has a login in OJTern. Use a different email, or remove the leftover under Authentication > Users in the Firebase Console.");
+  }
+  const user = await auth.createUser({
+    email, displayName: name, emailVerified: false,
+    password: crypto.randomBytes(24).toString("base64url") + "aA1!",
+  });
+  try {
+    await db.collection("admins").doc(user.uid).set({
+      role: "admin", status: "active", name, email,
+      createdBy, createdAt: FieldValue.serverTimestamp(), ...extra,
+    });
+  } catch (e) {
+    await auth.deleteUser(user.uid).catch(() => {});   // never leave a login without its admins/{uid} doc
+    throw e;
+  }
+  return user.uid;
+};
+
+// Emails the new admin a "set your password" link. Returns false (and only logs) if it could not be
+// sent: the account already exists by then, and they can use "Forgot password" on the sign-in page.
+const sendAdminInviteEmail = async (sendMail, { email, name, invitedBy, transfer }) => {
+  try {
+    const link = await getAuth().generatePasswordResetLink(email, { url: ADMIN_PAGE_URL });
+    const who = esc(invitedBy) || "An OJTern administrator";
+    const intro = transfer
+      ? `${who} is handing the OJTern administrator role over to you.`
+      : `${who} added you as an OJTern administrator.`;
+    const html = `
+      <h2>${transfer ? "You're taking over as OJTern administrator" : "You've been added as an OJTern administrator"}</h2>
+      <p>Hi <strong>${esc(name)}</strong>,</p>
+      <p>${intro} Set your password to activate the account (${esc(email)}).</p>
+      <table role="presentation" cellpadding="0" cellspacing="0" style="margin: 20px 0;">
+        <tr>
+          <td style="background:#111111; border-radius:24px;">
+            <a href="${link}" style="display:inline-block; padding:13px 32px; font-family:Arial, Helvetica, sans-serif; font-size:15px; font-weight:bold; color:#ffffff; text-decoration:none; border-radius:24px;">
+              Set Your Password
+            </a>
+          </td>
+        </tr>
+      </table>
+      <p>After that, sign in at the administrator page with your email and your new password.</p>
+      <p>If you weren't expecting this, you can safely ignore this email.</p>
+      <p>Best regards,<br/>OJTern Team</p>
+    `;
+    const text = `${transfer ? "You're taking over as OJTern administrator" : "You've been added as an OJTern administrator"}
+
+Hi ${name},
+
+${intro.replace(/&amp;|&lt;|&gt;|&quot;/g, "")} Set your password to activate the account (${email}).
+
+${link}
+
+After that, sign in at the administrator page with your email and your new password.
+
+If you weren't expecting this, you can safely ignore this email.
+
+Best regards,
+OJTern Team`;
+    await sendMail({ to: email, subject: transfer ? "OJTern - You're Taking Over as Administrator" : "OJTern - You've Been Added as an Administrator", html, text });
+    return true;
+  } catch (error) {
+    console.error(`Admin invite email failed for ${email}:`, error);
+    return false;
+  }
+};
+
 module.exports = ({ sendMail, resendApiKey }) => {
   const fns = {};
 
@@ -219,54 +313,46 @@ module.exports = ({ sendMail, resendApiKey }) => {
     return { ok: true };
   });
 
-  // ADMIN FORGOT PASSWORD: no sign-in needed (they can't sign in). Takes the username,
-  // finds admins/{uid}, and mails a reset link to the admin's RECOVERY email, because the
-  // login address (<username>@admin.ojtern.local) can't receive mail. Same approach as
-  // requestStudentPasswordReset.
+  // ADMIN FORGOT PASSWORD: no sign-in needed (they can't sign in). Takes the admin's email, and if it
+  // belongs to an active admin account, mails a reset link to that same address. Only ADMIN accounts
+  // are accepted here (a coordinator, student or company email gets nothing).
   //
-  // Every path answers identically (unknown username, inactive admin, no recovery email,
-  // cooldown, send failure), so this can't be used to find out which usernames exist.
-  // Failures are only logged.
+  // Every path answers identically (unknown email, not an admin, inactive, cooldown, send failure),
+  // so this can't be used to find out which emails are admins. Failures are only logged.
   fns.adminRequestPasswordReset = onCall({ region: REGION, secrets: [resendApiKey] }, async (request) => {
-    const ident = clean(request.data?.username).toLowerCase();
-    if (!ident || ident.length > 254) throw new HttpsError("invalid-argument", "Enter your username.");
+    const email = clean(request.data?.email).toLowerCase();
+    if (!EMAIL_RE.test(email) || email.length > 254) throw new HttpsError("invalid-argument", "Enter a valid email address.");
 
     const genericOk = { sent: true };
     try {
+      let user;
+      try { user = await getAuth().getUserByEmail(email); }
+      catch (error) {
+        if (error?.code !== "auth/user-not-found") console.error("Admin reset: getUserByEmail failed:", error);
+        return genericOk;
+      }
+
       const db = getFirestore();
-      let found = await db.collection("admins").where("username", "==", ident).limit(1).get();
-      if (found.empty) found = await db.collection("admins").where("email", "==", ident).limit(1).get();
-      if (found.empty) { console.log("Admin reset requested for unknown identifier."); return genericOk; }
+      const adminRef = db.collection("admins").doc(user.uid);
+      const adminSnap = await adminRef.get();
+      if (!adminSnap.exists || adminSnap.get("role") !== "admin" || adminSnap.get("status") !== "active") {
+        console.log("Admin reset skipped: that email is not an active admin.");
+        return genericOk;
+      }
 
-      const adminRef = found.docs[0].ref;
-      const uid = found.docs[0].id;
-      const a = found.docs[0].data();
-      if (a.role !== "admin" || a.status !== "active") { console.log(`Admin reset skipped for ${uid}: not an active admin.`); return genericOk; }
-
-      const loginEmailOnDoc = clean(a.email).toLowerCase();
-      const to = clean(a.recoveryEmail).toLowerCase()
-        || (loginEmailOnDoc && !loginEmailOnDoc.endsWith(`@${ADMIN_LOGIN_DOMAIN}`) ? loginEmailOnDoc : "");
-      if (!EMAIL_RE.test(to)) { console.error(`Admin reset: ${uid} has no usable recovery email.`); return genericOk; }
-
-      const lastSent = a.lastPasswordResetRequestAt ? a.lastPasswordResetRequestAt.toMillis() : 0;
-      if (Date.now() - lastSent < ADMIN_RESET_COOLDOWN_MS) { console.log(`Admin reset skipped for ${uid}: within cooldown.`); return genericOk; }
-
-      let loginEmail;
-      try { loginEmail = (await getAuth().getUser(uid)).email; }
-      catch (error) { console.error(`Admin reset: no Auth user for ${uid}:`, error); return genericOk; }
-      if (!loginEmail) { console.error(`Admin reset: Auth user ${uid} has no login email.`); return genericOk; }
+      const lastMs = adminSnap.get("lastPasswordResetRequestAt");
+      const lastSent = lastMs && lastMs.toMillis ? lastMs.toMillis() : 0;
+      if (Date.now() - lastSent < ADMIN_RESET_COOLDOWN_MS) { console.log(`Admin reset skipped for ${user.uid}: within cooldown.`); return genericOk; }
 
       let resetUrl;
-      try { resetUrl = await getAuth().generatePasswordResetLink(loginEmail, { url: "https://ojtern.web.app/admin" }); }
-      catch (error) { console.error(`Admin reset: link generation failed for ${uid}:`, error); return genericOk; }
+      try { resetUrl = await getAuth().generatePasswordResetLink(email, { url: "https://ojtern.web.app/admin" }); }
+      catch (error) { console.error(`Admin reset: link generation failed for ${user.uid}:`, error); return genericOk; }
 
-      const name = a.name || "there";
-      const who = a.username ? ` (username <strong>${a.username}</strong>)` : "";
-      const whoText = a.username ? ` (username ${a.username})` : "";
+      const name = adminSnap.get("name") || "there";
       const html = `
         <h2>Reset your OJTern administrator password</h2>
         <p>Hi <strong>${name}</strong>,</p>
-        <p>We received a request to reset the password for the OJTern administrator account${who}.</p>
+        <p>We received a request to reset the password for the OJTern administrator account (${email}).</p>
         <table role="presentation" cellpadding="0" cellspacing="0" style="margin: 20px 0;">
           <tr>
             <td style="background:#111111; border-radius:24px;">
@@ -276,7 +362,7 @@ module.exports = ({ sendMail, resendApiKey }) => {
             </td>
           </tr>
         </table>
-        <p>After resetting, sign in at the administrator page with your username and your new password.</p>
+        <p>After resetting, sign in at the administrator page with your email and your new password.</p>
         <p>If you didn't request this, you can safely ignore this email. Your password won't change.</p>
         <p>Best regards,<br/>OJTern Team</p>
       `;
@@ -284,23 +370,23 @@ module.exports = ({ sendMail, resendApiKey }) => {
 
 Hi ${name},
 
-We received a request to reset the password for the OJTern administrator account${whoText}.
+We received a request to reset the password for the OJTern administrator account (${email}).
 
 ${resetUrl}
 
-After resetting, sign in at the administrator page with your username and your new password.
+After resetting, sign in at the administrator page with your email and your new password.
 
 If you didn't request this, you can safely ignore this email. Your password won't change.
 
 Best regards,
 OJTern Team`;
 
-      try { await sendMail({ to, subject: "OJTern - Reset Your Administrator Password", html, text }); }
-      catch (error) { console.error(`Admin reset: Resend rejected the send for ${uid}:`, error); return genericOk; }
+      try { await sendMail({ to: email, subject: "OJTern - Reset Your Administrator Password", html, text }); }
+      catch (error) { console.error(`Admin reset: Resend rejected the send for ${user.uid}:`, error); return genericOk; }
 
       // Recorded only after a successful send, so a failed send doesn't block retrying.
       await adminRef.update({ lastPasswordResetRequestAt: FieldValue.serverTimestamp() });
-      console.log(`Admin password reset link sent for ${uid}`);
+      console.log(`Admin password reset link sent for ${user.uid}`);
       return genericOk;
     } catch (error) {
       console.error("Admin reset: UNHANDLED failure:", error);
@@ -308,47 +394,93 @@ OJTern Team`;
     }
   });
 
-  // ACCOUNT PROFILE: change the admin's display name and recovery email. The screen asks for the
-  // current password and re-authenticates right before calling this, and the token's auth_time must
-  // be recent, so a stolen open session can't quietly point password resets at another inbox.
-  // The previous recovery email is told about the change.
-  fns.adminUpdateProfile = onCall({ region: REGION, secrets: [resendApiKey] }, async (request) => {
+  // ACCOUNT PROFILE: the admin's display name. (The sign-in email is changed from the screen with Firebase's
+  // verifyBeforeUpdateEmail, which proves the new inbox is real before it takes effect.)
+  fns.adminUpdateProfile = onCall({ region: REGION }, async (request) => {
     const adminUser = await requireAdmin(request);
-
-    const authTime = Number(request.auth.token.auth_time || 0);
-    if (!authTime || Math.floor(Date.now() / 1000) - authTime > 300) {
-      throw new HttpsError("failed-precondition", "Please confirm your password again.");
-    }
-
     const name = clean(request.data?.name);
-    const recoveryEmail = clean(request.data?.recoveryEmail).toLowerCase();
     if (!name || name.length > 60) throw new HttpsError("invalid-argument", "Enter your name (up to 60 characters).");
-    if (!EMAIL_RE.test(recoveryEmail) || recoveryEmail.endsWith(`@${ADMIN_LOGIN_DOMAIN}`)) {
-      throw new HttpsError("invalid-argument", "Enter a real email address for password recovery.");
-    }
-
-    const ref = getFirestore().collection("admins").doc(adminUser.uid);
-    const before = (await ref.get()).data() || {};
-    await ref.update({ name, recoveryEmail, profileUpdatedAt: FieldValue.serverTimestamp() });
-
-    const oldEmail = clean(before.recoveryEmail).toLowerCase();
-    if (oldEmail && oldEmail !== recoveryEmail && EMAIL_RE.test(oldEmail)) {
-      try {
-        await sendMail({
-          to: oldEmail,
-          subject: "OJTern - Administrator recovery email changed",
-          html: `<h2>Recovery email changed</h2>
-            <p>The recovery email for the OJTern administrator account${before.username ? ` (username <strong>${before.username}</strong>)` : ""} was just changed.
-            Password reset links will now go to the new address.</p>
-            <p>If this wasn't you, sign in and change your password right away, or contact the person who manages the Firebase project.</p>
-            <p>Best regards,<br/>OJTern Team</p>`,
-          text: `The recovery email for the OJTern administrator account${before.username ? ` (username ${before.username})` : ""} was just changed. Password reset links will now go to the new address.\n\nIf this wasn't you, sign in and change your password right away, or contact the person who manages the Firebase project.\n\nBest regards,\nOJTern Team`,
-        });
-      } catch (error) {
-        console.error(`Admin profile: could not notify the old recovery email for ${adminUser.uid}:`, error);
-      }
-    }
+    await getFirestore().collection("admins").doc(adminUser.uid)
+      .update({ name, profileUpdatedAt: FieldValue.serverTimestamp() });
     return { ok: true };
+  });
+
+  // ACCOUNT PROFILE > ADD ACCOUNT: an admin adds another administrator (full access). The new admin
+  // gets an email with a link to set their own password. No password is shared.
+  fns.adminAddAdmin = onCall({ region: REGION, secrets: [resendApiKey] }, async (request) => {
+    const caller = await requireAdmin(request);
+    requireRecentSignIn(request);
+    const { email, name } = readNameAndEmail(request.data);
+    const db = getFirestore();
+    const uid = await createAdminAccount(db, { email, name, createdBy: caller.uid });
+    const mailed = await sendAdminInviteEmail(sendMail, { email, name, invitedBy: caller.name, transfer: false });
+    return { uid, email, mailed };
+  });
+
+  // ACCOUNT PROFILE > TRANSFER ACCOUNT: hands THIS admin role to someone else. The current admin keeps
+  // full access until the new person signs in for the first time (adminCompleteTransfer), so a mistyped
+  // email can never lock everyone out.
+  fns.adminTransferAdmin = onCall({ region: REGION, secrets: [resendApiKey] }, async (request) => {
+    const caller = await requireAdmin(request);
+    requireRecentSignIn(request);
+    const db = getFirestore();
+    const callerRef = db.collection("admins").doc(caller.uid);
+    const callerSnap = await callerRef.get();
+    if (callerSnap.get("transferPendingTo")) {
+      throw new HttpsError("failed-precondition", "A transfer is already pending. Cancel it first.");
+    }
+    const { email, name } = readNameAndEmail(request.data);
+    if (sameText(email, caller.email)) {
+      throw new HttpsError("invalid-argument", "That is your own email. Enter the new administrator's email.");
+    }
+    const uid = await createAdminAccount(db, { email, name, createdBy: caller.uid, extra: { transferFrom: caller.uid } });
+    await callerRef.update({
+      transferPendingTo: uid, transferPendingEmail: email, transferStartedAt: FieldValue.serverTimestamp(),
+    });
+    const mailed = await sendAdminInviteEmail(sendMail, { email, name, invitedBy: caller.name, transfer: true });
+    return { uid, email, mailed };
+  });
+
+  // Called by the NEW admin right after they sign in (the screen does it automatically). Signing in
+  // proves they own the email, so this is when the previous admin is switched off and signed out.
+  // Does nothing unless a transfer to the caller really is pending.
+  fns.adminCompleteTransfer = onCall({ region: REGION }, async (request) => {
+    const caller = await requireAdmin(request);
+    const db = getFirestore();
+    const meRef = db.collection("admins").doc(caller.uid);
+    const fromUid = clean((await meRef.get()).get("transferFrom"));
+    if (!fromUid) return { completed: false };
+    const oldRef = db.collection("admins").doc(fromUid);
+    const old = await oldRef.get();
+    if (!old.exists || old.get("transferPendingTo") !== caller.uid) return { completed: false };
+
+    await oldRef.update({
+      status: "transferred", transferredTo: caller.uid, transferredAt: FieldValue.serverTimestamp(),
+      transferPendingTo: FieldValue.delete(), transferPendingEmail: FieldValue.delete(), transferStartedAt: FieldValue.delete(),
+    });
+    await meRef.update({ transferFrom: FieldValue.delete(), transferredFrom: fromUid });
+    await getAuth().updateUser(fromUid, { disabled: true }).catch((e) => console.error("Transfer: could not disable the old admin login:", e));
+    await getAuth().revokeRefreshTokens(fromUid).catch((e) => console.error("Transfer: could not revoke the old admin's sessions:", e));
+    return { completed: true };
+  });
+
+  // Cancels a pending transfer. If the new person never signed in, their unused login is switched off.
+  fns.adminCancelTransfer = onCall({ region: REGION }, async (request) => {
+    const caller = await requireAdmin(request);
+    const db = getFirestore();
+    const meRef = db.collection("admins").doc(caller.uid);
+    const newUid = clean((await meRef.get()).get("transferPendingTo"));
+    if (!newUid) return { cancelled: false };
+
+    const newUser = await getAuth().getUser(newUid).catch(() => null);
+    if (newUser && !newUser.metadata?.lastSignInTime) {
+      await getAuth().updateUser(newUid, { disabled: true }).catch(() => {});
+      await db.collection("admins").doc(newUid).update({ status: "cancelled" }).catch(() => {});
+    }
+    await meRef.update({
+      transferPendingTo: FieldValue.delete(), transferPendingEmail: FieldValue.delete(), transferStartedAt: FieldValue.delete(),
+    });
+    return { cancelled: true };
   });
 
   // NOTIFICATION: "<name> completed their account setup". "<name> accepted your invitation" is already

@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useMemo } from "react";
 import { doc, onSnapshot, updateDoc } from "firebase/firestore";
 import { getAuth, reauthenticateWithCredential, EmailAuthProvider } from "firebase/auth";
 import { db } from "./firebase";
-import { initiateCoordinatorTransfer, initiateCoordinatorAddition, changePassword, requestCoordinatorEmailChange } from "./AuthService";
+import { changePassword, requestCoordinatorEmailChange } from "./AuthService";
 import { useDepartmentsPrograms } from "./departmentsPrograms";
 import { REGIONS } from "./philippineLocations";
 import { color, font, type, space, radius, shadow, ease, getThemedAsset } from "./theme";
@@ -359,7 +359,7 @@ const COORDINATOR_TERMS_SECTIONS = [
   {
     title: "2. Coordinator Role and Responsibilities",
     items: [
-      "Your Coordinator account is created by an authorized School administrator or by a transferring Coordinator, and grants you administrative access over Company verification, Student account creation, and internship monitoring within your assigned scope.",
+      "Your Coordinator account is created by an authorized School administrator, and grants you administrative access over Company verification, Student account creation, and internship monitoring within your assigned scope.",
       "You are expected to review Company registrations and Student records accurately, fairly, and in accordance with School policy.",
     ],
   },
@@ -368,7 +368,7 @@ const COORDINATOR_TERMS_SECTIONS = [
     items: [
       "You may review and approve or reject Company registrations assigned to your industry classification.",
       "You may create Student accounts, and are responsible for the accuracy of the information you provide during account creation.",
-      "You may add another Coordinator account or transfer your own Coordinator role to another authorized personnel, subject to the Platform's verification requirements.",
+      "Adding another Coordinator account, or transferring a Coordinator role to another authorized personnel, is done by the School administrator.",
     ],
   },
   {
@@ -1198,229 +1198,6 @@ const useBackdropClose = (onClose, disabled = false) => {
   };
 };
 
-// ── Add Account Modal ─────────────────────────────────────────────────────────
-const AddAccountModal = ({ onClose, currentUid, currentEmail, coordinatorDeptSelections = [] }) => {
-  const { departments, departmentNames } = useDepartmentsPrograms();
-  const [currentPass, setCurrentPass] = useState("");
-  const [email, setEmail]             = useState("");
-  const [errors, setErrors]           = useState({});
-  const [submitting, setSubmitting]   = useState(false);
-  const [submitError, setSubmitError] = useState("");
-  const [sent, setSent]               = useState(false);
-
-  const handleKeyDown = (e) => {
-    if (e.key === "Enter" && !submitting) {
-      handleSubmit();
-    }
-  };
-
-  const validate = () => {
-    const e = {};
-    if (!currentPass) e.currentPass = "Your current password is required to confirm this invitation.";
-    if (!email.trim()) e.email = "The new coordinator's email is required.";
-    setErrors(e);
-    return Object.keys(e).length === 0;
-  };
-
-  const handleSubmit = async () => {
-    if (!validate()) return;
-    setSubmitError("");
-    setSubmitting(true);
-    try {
-      // Only sends an invite — this account's own access is completely
-      // unaffected, both now and after the invited coordinator accepts.
-      await initiateCoordinatorAddition(currentUid, currentEmail, currentPass, email);
-      setSent(true);
-    } catch (err) {
-      setSubmitError(err.message || "The invitation didn't send. Try again.");
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const backdropClose = useBackdropClose(onClose, submitting);
-
-  return (
-    <div {...backdropClose} className="cap-modal cap-overlay" style={{ position: "fixed", inset: 0, background: "rgba(10,10,10,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: space.md }}>
-      <div className="cap-modal-inner cap-dialog">
-        <div className="cap-modal-body">
-          {sent ? (
-            <>
-              <ModalTitle sub={`Sent to ${email.trim().toLowerCase()}`}>Invitation sent</ModalTitle>
-              <p style={{ fontFamily: font.ui, ...type.body, color: inkBody, marginBottom: space.sm }}>
-                They'll set up their own name and password when they open the link.
-              </p>
-              <p style={{ fontFamily: font.ui, ...type.body, color: inkBody }}>
-                Your own account and access are unaffected.
-              </p>
-            </>
-          ) : (
-            <>
-              <div id="accadd-banner"><WarningBanner text="Invite an additional OJT Coordinator. They'll receive an email with an Accept link and set up their own login — your own account and access won't change." /></div>
-
-              <div id="accadd-identity">
-              <ModalTitle>Confirm your identity</ModalTitle>
-              <label style={labelStyle}>Your current password{reqMark}</label>
-              <PasswordInput value={currentPass} onChange={e => setCurrentPass(e.target.value)} onKeyDown={handleKeyDown} invalid={!!errors.currentPass} />
-              {errors.currentPass && <p style={errorTextStyle}>{errors.currentPass}</p>}
-              </div>
-
-              <hr style={{ border: "none", borderTop: `1px solid ${line}`, margin: `${space.lg} 0 ${space.md}` }} />
-
-              <ModalTitle>New coordinator</ModalTitle>
-
-              <div id="accadd-dept">
-              <label style={labelStyle}>Department and program</label>
-              <MultiDepartmentPicker
-                selections={coordinatorDeptSelections.length ? coordinatorDeptSelections : [{ department: "", program: "", specialization: "" }]}
-                onChange={() => {}}
-                readOnly={true}
-                errors={[]}
-                departments={departments}
-                departmentNames={departmentNames}
-              />
-              <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, margin: `6px 0 ${space.md} 6px` }}>
-                New accounts are added under your own department automatically.
-              </p>
-
-              </div>
-
-              <div id="accadd-email">
-              <label style={labelStyle}>Email address{reqMark}</label>
-              <input type="email" value={email} onChange={e => setEmail(e.target.value)} onKeyDown={handleKeyDown} placeholder="example@gmail.com"
-                style={{ ...fieldStyle, borderColor: errors.email ? danger : line, marginBottom: "6px" }} />
-              {errors.email && <p style={errorTextStyle}>{errors.email}</p>}
-              </div>
-
-              {submitError && <p style={{ ...errorTextStyle, textAlign: "center", marginTop: space.md }}>{submitError}</p>}
-            </>
-          )}
-        </div>
-        <div className="cap-modal-footer">
-          <div id="accadd-footer" className="cap-footer-btns">
-          <FooterGhostButton onClick={onClose}>{sent ? "Close" : "Cancel"}</FooterGhostButton>
-          {!sent && (
-            <FooterSolidButton onClick={handleSubmit} disabled={submitting}>
-              {submitting ? "Sending…" : "Send invitation"}
-            </FooterSolidButton>
-          )}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// ── Transfer Account Modal ────────────────────────────────────────────────────
-const TransferAccountModal = ({ onClose, currentUid, currentEmail, coordinatorDeptSelections = [] }) => {
-  const { departments, departmentNames } = useDepartmentsPrograms();
-  const [currentPass, setCurrentPass] = useState("");
-  const [email, setEmail]             = useState("");
-  const [errors, setErrors]           = useState({});
-  const [submitting, setSubmitting]   = useState(false);
-  const [submitError, setSubmitError] = useState("");
-  const [sent, setSent]               = useState(false);
-
-  const handleKeyDown = (e) => {
-    if (e.key === "Enter" && !submitting) {
-      handleSubmit();
-    }
-  };
-
-  const validate = () => {
-    const e = {};
-    if (!currentPass) e.currentPass = "Your current password is required to confirm this transfer.";
-    if (!email.trim()) e.email = "The new coordinator's email is required.";
-    setErrors(e);
-    return Object.keys(e).length === 0;
-  };
-
-  const handleSubmit = async () => {
-    if (!validate()) return;
-    setSubmitError("");
-    setSubmitting(true);
-    try {
-      // Only sends an invite — the current account keeps full access until
-      // the invited coordinator actually accepts it via the emailed link.
-      await initiateCoordinatorTransfer(currentUid, currentEmail, currentPass, email);
-      setSent(true);
-    } catch (err) {
-      setSubmitError(err.message || "The transfer invitation didn't send. Try again.");
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const backdropClose = useBackdropClose(onClose, submitting);
-
-  return (
-    <div {...backdropClose} className="cap-modal cap-overlay" style={{ position: "fixed", inset: 0, background: "rgba(10,10,10,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: space.md }}>
-      <div className="cap-modal-inner cap-dialog">
-        <div className="cap-modal-body">
-          {sent ? (
-            <>
-              <ModalTitle sub={`Sent to ${email.trim().toLowerCase()}`}>Invitation sent</ModalTitle>
-              <p style={{ fontFamily: font.ui, ...type.body, color: inkBody }}>
-                You keep access to your account until they open the link and finish setting up theirs. At that point your account is transferred and you're signed out automatically.
-              </p>
-            </>
-          ) : (
-            <>
-              <div id="acctransfer-banner"><WarningBanner text="Invite another OJT Coordinator to take over this account. They'll receive an email with an Accept link and set up their own login — your access won't change until they accept." /></div>
-
-              <div id="acctransfer-identity">
-              <ModalTitle>Confirm your identity</ModalTitle>
-              <label style={labelStyle}>Your current password{reqMark}</label>
-              <PasswordInput value={currentPass} onChange={e => setCurrentPass(e.target.value)} onKeyDown={handleKeyDown} invalid={!!errors.currentPass} />
-              {errors.currentPass && <p style={errorTextStyle}>{errors.currentPass}</p>}
-              </div>
-
-              <hr style={{ border: "none", borderTop: `1px solid ${line}`, margin: `${space.lg} 0 ${space.md}` }} />
-
-              <ModalTitle>New coordinator</ModalTitle>
-
-              <div id="acctransfer-dept">
-              <label style={labelStyle}>Department and program</label>
-              <MultiDepartmentPicker
-                selections={coordinatorDeptSelections.length ? coordinatorDeptSelections : [{ department: "", program: "", specialization: "" }]}
-                onChange={() => {}}
-                readOnly={true}
-                errors={[]}
-                departments={departments}
-                departmentNames={departmentNames}
-              />
-              <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, margin: `6px 0 ${space.md} 6px` }}>
-                The new coordinator inherits your department automatically.
-              </p>
-
-              </div>
-
-              <div id="acctransfer-email">
-              <label style={labelStyle}>Email address{reqMark}</label>
-              <input type="email" value={email} onChange={e => setEmail(e.target.value)} onKeyDown={handleKeyDown} placeholder="example@gmail.com"
-                style={{ ...fieldStyle, borderColor: errors.email ? danger : line, marginBottom: "6px" }} />
-              {errors.email && <p style={errorTextStyle}>{errors.email}</p>}
-              </div>
-
-              {submitError && <p style={{ ...errorTextStyle, textAlign: "center", marginTop: space.md }}>{submitError}</p>}
-            </>
-          )}
-        </div>
-        <div className="cap-modal-footer">
-          <div id="acctransfer-footer" className="cap-footer-btns">
-          <FooterGhostButton onClick={onClose}>{sent ? "Close" : "Cancel"}</FooterGhostButton>
-          {!sent && (
-            <FooterSolidButton onClick={handleSubmit} disabled={submitting}>
-              {submitting ? "Sending…" : "Send invitation"}
-            </FooterSolidButton>
-          )}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
-
 // ── Phone formatter ───────────────────────────────────────────────────────────
 const formatPhone = (raw) => {
   let digits = raw.replace(/\D/g, "");
@@ -2162,26 +1939,18 @@ const CoordinatorSaveSuccessModal = ({ onClose }) => (
 const CoordinatorAccountProfileScreen = ({ user, onLogout, viewIcon: themedViewIcon = blackViewIcon, onViewChange }) => {
   const [view, setView]                     = useState("main");
   const [showReset, setShowReset]           = useState(false);
-  const [showTransfer, setShowTransfer]     = useState(false);
-  const [showAddAccount, setShowAddAccount] = useState(false);
   const [editingInfo, setEditingInfo]       = useState(false);
   // Tells the Dashboard which part of Account Profile is showing, so its "?"
   // help button (and first-visit auto-tour) runs the matching steps:
   // "main" | "personalInfo" | "personalInfoEdit" | "terms" | "privacy" |
-  // "reset" | "add" | "transfer". Modals only open from the main menu.
+  // "reset". Modals only open from the main menu.
   const profileSubView =
       showReset      ? "reset"
-    : showAddAccount ? "add"
-    : showTransfer   ? "transfer"
     : view === "personalInfo" ? (editingInfo ? "personalInfoEdit" : "personalInfo")
     : view;
   useEffect(() => { onViewChange?.(profileSubView); }, [profileSubView]);
   useEffect(() => () => onViewChange?.("main"), []);
   const [profileName, setProfileName]       = useState("");
-  // The signed-in coordinator's own department(s) — used to auto-assign the
-  // department when adding or transferring an account, instead of letting
-  // the coordinator pick a different one.
-  const [coordinatorDeptSelections, setCoordinatorDeptSelections] = useState([]);
 
   useEffect(() => {
     const uid = user?.uid || getAuth().currentUser?.uid;
@@ -2190,7 +1959,6 @@ const CoordinatorAccountProfileScreen = ({ user, onLogout, viewIcon: themedViewI
       if (snap.exists()) {
         const d = snap.data();
         setProfileName(d.name || d.fullName || d.displayName || "");
-        setCoordinatorDeptSelections(d.deptSelections?.length ? d.deptSelections : []);
       }
     });
     return () => unsub();
@@ -2237,19 +2005,12 @@ const CoordinatorAccountProfileScreen = ({ user, onLogout, viewIcon: themedViewI
             <MenuRow icon="key" label="Reset Password" onClick={() => setShowReset(true)} viewIcon={themedViewIcon} />
           </MenuGroup>
 
-          <MenuGroup title="Account:" id="accprofile-account">
-            <MenuRow icon="addUser"  label="Add Account"      onClick={() => setShowAddAccount(true)} viewIcon={themedViewIcon} />
-            <MenuRow icon="transfer" label="Transfer Account" onClick={() => setShowTransfer(true)} viewIcon={themedViewIcon} />
-          </MenuGroup>
-
           <MenuGroup title="Legal:" id="accprofile-legal">
             <MenuRow icon="document" label="Terms & Condition" onClick={() => setView("terms")} viewIcon={themedViewIcon} />
             <MenuRow icon="shield"   label="Privacy Policy"    onClick={() => setView("privacy")} viewIcon={themedViewIcon} />
           </MenuGroup>
         </div>
 
-        {showTransfer   && <TransferAccountModal onClose={() => setShowTransfer(false)} currentUid={user?.uid} currentEmail={user?.email} coordinatorDeptSelections={coordinatorDeptSelections} />}
-        {showAddAccount && <AddAccountModal      onClose={() => setShowAddAccount(false)} currentUid={user?.uid} currentEmail={user?.email} coordinatorDeptSelections={coordinatorDeptSelections} />}
         {showReset      && <ResetPasswordModal   onClose={() => setShowReset(false)} user={user} onLogout={onLogout} />}
       </div>
     </div>

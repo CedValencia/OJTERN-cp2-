@@ -1,0 +1,26 @@
+{
+  "id": "/admin/",
+  "name": "OJTern Administrator",
+  "short_name": "OJTern Admin",
+  "description": "OJTern administrator: departments, programs and coordinators.",
+  "start_url": "/admin/",
+  "scope": "/admin/",
+  "display": "standalone",
+  "orientation": "any",
+  "theme_color": "#000000",
+  "background_color": "#ffffff",
+  "icons": [
+    {
+      "src": "/logo192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/logo512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
