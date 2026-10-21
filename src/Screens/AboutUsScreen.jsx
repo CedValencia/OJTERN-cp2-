@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import logo from "../icons/ojtern.png";
+import logo from "../icons/about_ojtern_logo.png";
 import photoMichael from "../icons/team/Valencia.png";
 import photoJames from "../icons/team/Day.png";
 import photoRose from "../icons/team/wing.png";
