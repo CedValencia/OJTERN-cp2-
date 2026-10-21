@@ -36,7 +36,7 @@ import { httpsCallable } from "firebase/functions";
 import { auth, db, functions } from "./firebase";
 import { DEFAULT_DEPARTMENTS, normalizeDept, splitLegacyProgram } from "./departmentsPrograms";
 import { color, font } from "./theme";
-import logo from "../icons/ojtern.png";
+import logo from "../icons/admin_ojtern_logo.png";
 import AboutUsScreen from "./AboutUsScreen";
 
 // ── Design tokens: the same ones the Student / Coordinator / Company dashboards use (theme.js) ──
@@ -364,7 +364,7 @@ const AdminSignIn = ({ onExit }) => {
       <AdminStyles />
       <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: "24px 16px", background: `linear-gradient(180deg, ${paper} 0%, ${paperCard} 100%)`, fontFamily: uiFont, color: inkText }}>
         <div style={{ width: "100%", maxWidth: "400px", textAlign: "center" }}>
-          <img src={logo} alt="OJTern" style={{ width: "104px", height: "104px", objectFit: "contain" }} />
+          <img src={logo} alt="OJTern" style={{ display: "block", margin: "0 auto", width: "130px", height: "130px", objectFit: "contain", }}/>
           <div style={{ fontFamily: logoFont, fontSize: "2.3rem", color: ink, letterSpacing: "0.03em", lineHeight: 1.1, marginBottom: "10px" }}>OJTern</div>
           <div style={{ display: "inline-block", padding: "6px 16px", borderRadius: "30px", background: ink, color: paper, fontSize: "0.78rem", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: "22px" }}>
             Administrator
