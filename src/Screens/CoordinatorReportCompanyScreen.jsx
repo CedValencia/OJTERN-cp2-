@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { doc, updateDoc, getDoc, getDocs, collection, query, where, onSnapshot, serverTimestamp } from "firebase/firestore";
 import { db } from "./firebase";
 import { color, font, type, space, radius, shadow, ease } from "./theme";
@@ -56,8 +56,9 @@ const ResponsiveStyles = () => (
       min-width: 0 !important;
       min-height: 100% !important;
       height: 100% !important;
-      overflow-y: auto !important;
-      overflow-x: hidden !important;
+      overflow: hidden !important;
+      display: flex !important;
+      flex-direction: column !important;
       background: ${page} !important;
       padding: clamp(16px, 4vw, 28px) clamp(16px, 4vw, 32px) !important;
       color: ${ink} !important;
@@ -333,6 +334,11 @@ const ResponsiveStyles = () => (
       color: ${ink} !important;
       margin: 0 !important;
     }
+
+    /* Header (title, tabs, search) is fixed; the list under it scrolls on its own */
+    .rc-fixed-head { flex-shrink: 0; position: relative; z-index: 30; }
+    .rc-list-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; margin: 0 calc(-1 * clamp(16px, 4vw, 32px)) calc(-1 * clamp(16px, 4vw, 28px)); padding: 0 clamp(16px, 4vw, 32px) clamp(16px, 4vw, 28px); }
+    @media (max-width: 560px) { .rc-list-scroll { margin: 0 -16px -16px; padding: 0 16px 16px; } }
 
     @media (max-width: 780px) {
       .rc-table-wrap { display: none !important; }
@@ -1754,6 +1760,49 @@ const resolveStudentUid = async (rawId) => {
   return String(rawId);
 };
 
+// ── Pagination: 10 rows per page ──────────────────────────────────────────────
+const PAGE_SIZE = 10;
+// The header (title, search, filters) is fixed; only the list under it scrolls, with its own scrollbar
+// (same idea as Account Profile in Admin). The list box reaches into the screen padding so its scrollbar sits at the edge.
+const PIN_PAD = "clamp(16px, 4vw, 28px)";
+const PIN_PAD_X = "clamp(16px, 4vw, 32px)";
+const fixedHead = { flexShrink: 0, position: "relative", zIndex: 30 };
+const listScroll = { flex: "1 1 auto", minHeight: 0, overflowY: "auto", margin: `0 calc(-1 * ${PIN_PAD_X}) calc(-1 * ${PIN_PAD})`, padding: `0 ${PIN_PAD_X} ${PIN_PAD}` };
+// Next/previous page: the list goes back to its start.
+const scrollListToTop = (scroller) => { if (scroller) scroller.scrollTo({ top: 0, behavior: "smooth" }); };
+// « ‹ 1 2 3 … 9 › » — same look as the Admin screens: current-page badge + page buttons in one rounded bar.
+const PaginationBar = ({ page: current, totalPages, onPage, from, to, total }) => {
+  const range = (a, b) => Array.from({ length: b - a + 1 }, (_, i) => a + i);
+  const items = totalPages <= 7 ? range(1, totalPages)
+    : current <= 4 ? [...range(1, 5), "gap-end", totalPages]
+    : current >= totalPages - 3 ? [1, "gap-start", ...range(totalPages - 4, totalPages)]
+    : [1, "gap-start", current - 1, current, current + 1, "gap-end", totalPages];
+  const btn = (on, disabled) => ({
+    minWidth: "36px", height: "36px", padding: "0 10px", borderRadius: "10px",
+    border: `1.5px solid ${on ? color.blush50 : color.wine700}`, background: on ? color.blush50 : color.white, color: on ? color.white : color.ink,
+    fontFamily: font.ui, fontSize: "0.82rem", fontWeight: 600, cursor: disabled ? "default" : "pointer", opacity: disabled ? 0.45 : 1,
+  });
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap-reverse", alignItems: "center", justifyContent: total != null ? "space-between" : "center", gap: "12px", padding: "20px 0 4px" }}>
+      {total != null && <span style={{ fontFamily: font.ui, fontSize: "0.8rem", color: color.inkMuted }}>Showing {from}–{to} of {total}</span>}
+      <nav aria-label="Pagination" style={{ marginLeft: "auto", display: "inline-flex", alignItems: "stretch", maxWidth: "100%", background: color.white, border: `1px solid ${color.wine700}`, borderRadius: "16px", boxShadow: "0 4px 16px rgba(20,20,20,0.06)", overflow: "hidden" }}>
+        <div title="Current page" style={{ display: "flex", alignItems: "center", justifyContent: "center", minWidth: "52px", padding: "0 14px", background: color.wine800, borderRight: `1px solid ${color.wine700}`, fontFamily: font.ui, fontSize: "0.9rem", fontWeight: 700, color: color.ink }}>
+          {String(current).padStart(2, "0")}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: "6px", padding: "10px 12px", flexWrap: "wrap", justifyContent: "center" }}>
+          <button type="button" aria-label="First page" title="First page" style={btn(false, current === 1)} disabled={current === 1} onClick={() => onPage(1)}>«</button>
+          <button type="button" aria-label="Previous page" title="Previous page" style={btn(false, current === 1)} disabled={current === 1} onClick={() => onPage(current - 1)}>‹</button>
+          {items.map((it) => (typeof it === "number"
+            ? <button key={it} type="button" style={btn(it === current, false)} aria-current={it === current ? "page" : undefined} onClick={() => onPage(it)}>{it}</button>
+            : <span key={it} style={{ color: color.inkMuted, padding: "0 4px" }}>…</span>))}
+          <button type="button" aria-label="Next page" title="Next page" style={btn(false, current === totalPages)} disabled={current === totalPages} onClick={() => onPage(current + 1)}>›</button>
+          <button type="button" aria-label="Last page" title="Last page" style={btn(false, current === totalPages)} disabled={current === totalPages} onClick={() => onPage(totalPages)}>»</button>
+        </div>
+      </nav>
+    </div>
+  );
+};
+
 const CoordinatorReportCompanyScreen = ({ reports = [], otherReports = [], onViewReport }) => {
   // Open on "All reports" when this coordinator's own industries have nothing:
   // an empty default list reads as "no reports exist", which is exactly the
@@ -1761,6 +1810,10 @@ const CoordinatorReportCompanyScreen = ({ reports = [], otherReports = [], onVie
   const [tab, setTab] = useState(() => (reports.length === 0 && otherReports.length > 0 ? "all" : "mine"));
   const [statusFilter, setStatusFilter] = useState("open");
   const [search, setSearch]             = useState("");
+  const [curPage, setCurPage]           = useState(1);
+  // Next/previous page: the list goes back to its start.
+  const scrollRef = useRef(null);
+  const goToPage = (n) => { setCurPage(n); requestAnimationFrame(() => scrollListToTop(scrollRef.current)); };
   // Companies and students are listed separately. Open on whichever has reports
   // (companies first) so the default view is never an empty list by accident.
   const [subject, setSubject] = useState(() => {
@@ -1798,6 +1851,14 @@ const CoordinatorReportCompanyScreen = ({ reports = [], otherReports = [], onVie
       return ao ? at - bt : bt - at;
     });
 
+  useEffect(() => { setCurPage(1); }, [tab, subject, statusFilter, search]);
+  // ── Pagination (10 per page) ──
+  const totalPages = Math.max(1, Math.ceil(shown.length / PAGE_SIZE));
+  const safePage = Math.min(curPage, totalPages);
+  const pageRows = shown.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  const showingFrom = shown.length ? (safePage - 1) * PAGE_SIZE + 1 : 0;
+  const showingTo = Math.min(safePage * PAGE_SIZE, shown.length);
+
   const statusCounts = {
     open:      inScope.filter(isOpenReport).length,
     resolved:  inScope.filter(r => r.status === "resolved").length,
@@ -1808,6 +1869,7 @@ const CoordinatorReportCompanyScreen = ({ reports = [], otherReports = [], onVie
   <>
     <ResponsiveStyles />
     <div className="rc-screen" style={{ background: page, color: ink }}>
+      <div className="rc-fixed-head">
 
       {/* Header — title and total are separate containers */}
       <div className="rc-header-row">
@@ -1946,6 +2008,9 @@ const CoordinatorReportCompanyScreen = ({ reports = [], otherReports = [], onVie
         />
       </div>
 
+      </div>
+
+      <div ref={scrollRef} className="rc-list-scroll">
       <div id="rc-report-list">
         {/* ── Desktop: table ── */}
         <div className="rc-table-wrap">
@@ -1959,7 +2024,7 @@ const CoordinatorReportCompanyScreen = ({ reports = [], otherReports = [], onVie
             </thead>
 
             <tbody>
-              {shown.map((r, i) => (
+              {pageRows.map((r, i) => (
                 <tr key={r.id || i}>
                   <td className="rc-td">{reportedNameOf(r)}</td>
                   <td className="rc-td">{r.concern}</td>
@@ -1989,7 +2054,7 @@ const CoordinatorReportCompanyScreen = ({ reports = [], otherReports = [], onVie
 
         {/* ── Mobile: cards ── */}
         <div className="rc-card-list">
-          {shown.map((r, i) => (
+          {pageRows.map((r, i) => (
             <div key={r.id || i} className="rc-card">
               <div className="rc-card-top">
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -2033,6 +2098,11 @@ const CoordinatorReportCompanyScreen = ({ reports = [], otherReports = [], onVie
             </div>
           )}
         </div>
+      </div>
+
+      {shown.length > 0 && (
+        <PaginationBar page={safePage} totalPages={totalPages} onPage={goToPage} from={showingFrom} to={showingTo} total={shown.length} />
+      )}
       </div>
 
     </div>

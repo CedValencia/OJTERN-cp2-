@@ -24,7 +24,7 @@
 // the abbreviation is fixed once created: student, company and coordinator docs
 // store these names as plain text, so changing one would orphan their records.
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   onAuthStateChanged, signInWithEmailAndPassword, signOut,
   EmailAuthProvider, reauthenticateWithCredential, updatePassword, verifyBeforeUpdateEmail,
@@ -35,8 +35,10 @@ import {
 import { httpsCallable } from "firebase/functions";
 import { auth, db, functions } from "./firebase";
 import { DEFAULT_DEPARTMENTS, normalizeDept, splitLegacyProgram } from "./departmentsPrograms";
-import { color, font } from "./theme";
-import logo from "../icons/admin_ojtern_logo.png";
+import { color, font, type, space, radius, ease } from "./theme";
+import { TERMS_TEXT, PRIVACY_TEXT, parseLegalDoc } from "./legalContent";
+import logo from "../icons/admin_ojtern_logo.png";               // sign-in screen (and anything else that shares it)
+import topbarLogo from "../icons/admin_topbar_logo.png";         // top-left logo beside the OJTern text: top bar + mobile menu
 import AboutUsScreen from "./AboutUsScreen";
 
 // ── Design tokens: the same ones the Student / Coordinator / Company dashboards use (theme.js) ──
@@ -176,6 +178,107 @@ const AdminStyles = () => (
     .adm-main { flex: 1; display: flex; flex-direction: column; overflow-y: auto; background: ${paperTint}; min-width: 0; min-height: 0; }
     .adm-input:focus, .adm-main select:focus, .adm-main input:focus { border-color: ${ink} !important; }
     .adm-main select, .adm-main input { transition: border-color 160ms ease; }
+
+    /* Departments tab: same shapes as Student Accounts (bar, rows, pop-up) */
+    .dp-bar {
+      background: linear-gradient(90deg, ${ink} 0%, ${inkDeep} 100%); border-radius: 20px; padding: 18px 22px; margin-bottom: 16px;
+      display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    }
+    .dp-search { display: flex; align-items: center; gap: 8px; background: ${paper}; border-radius: 999px; padding: 9px 16px; flex-shrink: 0; }
+    .dp-search input { border: none !important; background: transparent; outline: none; box-shadow: none; width: 200px; color: ${inkText}; font-family: ${uiFont}; font-size: 0.85rem; padding: 0; }
+    .dp-search input:focus { border: none !important; }
+    @media (max-width: 560px) { .dp-bar { padding: 14px; gap: 10px; } .dp-search input { width: 110px; } }
+    .dp-row {
+      display: flex; align-items: center; gap: 14px; background: ${paper}; border: 1px solid ${hairline}; border-radius: 16px;
+      padding: 14px 20px; cursor: pointer; min-width: 0; box-shadow: 0 2px 10px rgba(20,20,20,0.04);
+      transition: border-color 200ms ease, box-shadow 200ms ease;
+    }
+    .dp-row:hover { border-color: #BDBDBD; box-shadow: 0 6px 20px rgba(10,10,10,0.08); }
+    @media (max-width: 560px) { .dp-row { padding: 12px 14px; gap: 10px; } .dp-row-view { display: none; } }
+    .dp-modal { background: ${paper}; border: 1px solid ${hairline}; border-radius: 24px; width: 660px; max-width: calc(100vw - 32px); height: min(460px, 80vh); overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 8px 32px rgba(0,0,0,0.18); }
+    .dp-modal-header { flex: 0 0 auto; padding: 22px 28px 14px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid ${hairline}; }
+    .dp-modal-body { overflow-y: auto; overflow-x: hidden; padding: 6px 28px 22px; flex: 1 1 auto; min-height: 0; }
+    .dp-modal-footer { flex: 0 0 auto; background: ${paperCard}; border-top: 1px solid ${hairline}; padding: 14px 28px; display: flex; justify-content: flex-end; gap: 8px; }
+    @media (max-width: 560px) { .dp-modal-header { padding: 16px; } .dp-modal-body { padding: 4px 16px 18px; } .dp-modal-footer { padding: 12px 16px; } }
+
+    /* Button hover: Manage (light) and the primary Add a department / Invite a coordinator (dark) */
+    .adm-btn-light, .adm-btn-dark { transition: background 180ms ease, color 180ms ease, border-color 180ms ease, box-shadow 180ms ease, transform 120ms ease; }
+    .adm-btn-light:hover { background: ${ink} !important; color: ${paper} !important; border-color: ${ink} !important; box-shadow: 0 4px 12px rgba(0,0,0,0.22); }
+    .adm-btn-dark:hover  { background: ${paper} !important; color: ${ink} !important; box-shadow: 0 0 0 1.5px ${ink}, 0 6px 16px rgba(0,0,0,0.18) !important; }
+    .adm-btn-light:active, .adm-btn-dark:active { transform: scale(0.97); }
+    .adm-btn-light:disabled:hover, .adm-btn-dark:disabled:hover { transform: none; }
+
+    /* Account Profile: same look as the coordinator's (full-width banner, overlapping header card, pill menu rows) */
+    .ap-screen { width: 100%; }
+    .ap-fixed { display: flex; flex-direction: column; overflow: hidden; }
+    .ap-fixed .ap-header-wrap, .ap-fixed .ap-divider, .ap-fixed .ap-sub-header { flex-shrink: 0; }
+    .ap-fixed .ap-body, .ap-fixed .ap-sub-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+    .ap-header-wrap { position: relative; display: flex; justify-content: center; }
+    .ap-banner { position: absolute; top: 0; left: 0; right: 0; height: 98px; background: ${inkDeep}; border-radius: 0 0 40px 40px; }
+    .ap-header-card { position: relative; z-index: 2; margin-top: 66px; background: ${paper}; border: 1px solid ${hairline}; border-radius: 20px; padding: 56px 44px 20px; display: flex; flex-direction: column; align-items: center; box-shadow: 0 3px 10px rgba(20,20,20,0.12); min-width: 260px; }
+    .ap-avatar { position: absolute; top: -47px; width: 94px; height: 94px; border-radius: 50%; background: ${ink}; border: 3px solid ${paper}; display: flex; align-items: center; justify-content: center; z-index: 3; box-shadow: 0 3px 10px rgba(20,20,20,0.18); }
+    .ap-divider { height: 1px; background: ${hairline}; margin: 22px clamp(16px, 4vw, 32px) 22px; }
+    .ap-body { padding: 0 clamp(16px, 4vw, 32px) 40px; }
+    .ap-group { margin-bottom: 22px; }
+    .ap-group-title { font-family: ${uiFont}; font-size: 1rem; font-weight: 600; letter-spacing: -0.01em; color: ${inkText}; margin: 0 0 10px 8px; }
+    .ap-menu-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; width: 100%; text-align: left; font: inherit; cursor: pointer; background: ${paper}; border: 1px solid ${hairline}; border-radius: 999px; padding: 15px 22px; margin-bottom: 12px; box-shadow: 0 2px 10px rgba(20,20,20,0.04); transition: border-color 220ms ease, box-shadow 220ms ease; }
+    .ap-menu-row:last-child { margin-bottom: 0; }
+    .ap-menu-row:hover { border-color: #BDBDBD; box-shadow: 0 8px 22px rgba(10,10,10,0.08); }
+    .ap-row-icon { width: 34px; height: 34px; border-radius: 10px; background: ${paperCard}; border: 1px solid ${hairline}; display: flex; align-items: center; justify-content: center; flex-shrink: 0; color: ${inkText}; }
+    .ap-go { flex-shrink: 0; transition: transform 0.18s ease; }
+    .ap-go:hover { transform: scale(1.15); }
+    .ap-sub-header { display: flex; align-items: center; gap: 16px; background: ${inkDeep}; padding: 20px clamp(16px, 4vw, 32px); }
+    .ap-back { width: 40px; height: 40px; border-radius: 50%; background: #1f1f1f; border: 1px solid rgba(255,255,255,0.28); padding: 0; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: background 0.15s ease, transform 0.15s ease; }
+    .ap-back:hover { background: #2c2c2c; transform: scale(1.06); }
+    .ap-sub-body { padding: clamp(16px, 4vw, 28px) clamp(14px, 4vw, 32px) 40px; }
+    .ap-edit-btn { display: inline-flex; align-items: center; gap: 8px; background: ${paper}; border: 1px solid ${hairline}; border-radius: 999px; padding: 11px 22px; font-family: ${uiFont}; font-size: 1rem; font-weight: 500; color: ${inkText}; cursor: pointer; box-shadow: 0 2px 10px rgba(20,20,20,0.04); transition: border-color 200ms ease, box-shadow 200ms ease, background 200ms ease; }
+    .ap-edit-btn:hover { border-color: #BDBDBD; background: ${paperCard}; box-shadow: 0 6px 16px rgba(10,10,10,0.08); }
+    .ap-info-card { background: ${paper}; border: 1px solid ${hairline}; border-radius: 22px; padding: 16px 24px; margin-bottom: 14px; box-shadow: 0 2px 10px rgba(20,20,20,0.04); }
+    .ap-info-label { font-family: ${uiFont}; font-size: 0.85rem; color: ${inkMuted}; margin: 0 0 6px; }
+    .ap-info-value { font-family: ${uiFont}; font-size: 1.05rem; color: ${inkText}; margin: 0; overflow-wrap: anywhere; }
+    /* Account Profile pop-ups: white rounded panel, pill inputs, black footer. Fixed size, the body scrolls. */
+    .ap-overlay { position: fixed; inset: 0; background: rgba(10,10,10,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 16px; }
+    .ap-modal { background: ${paper}; border-radius: 24px; width: 420px; max-width: 88vw; height: min(max(62vh, 400px), 92vh); display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 12px 40px rgba(0,0,0,0.28); }
+    .ap-modal-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 22px 24px 16px; }
+    /* Thin, rounded scrollbar in every pop-up form (Account Profile pop-ups and the Departments / Coordinators ones) */
+    .ap-modal-body::-webkit-scrollbar, .dp-modal-body::-webkit-scrollbar { width: 6px; }
+    .ap-modal-body::-webkit-scrollbar-track, .dp-modal-body::-webkit-scrollbar-track { background: transparent; margin: 6px 0; }
+    .ap-modal-body::-webkit-scrollbar-thumb, .dp-modal-body::-webkit-scrollbar-thumb { background: #C6C6C6; border-radius: 999px; }
+    .ap-modal-body::-webkit-scrollbar-thumb:hover, .dp-modal-body::-webkit-scrollbar-thumb:hover { background: #A9A9A9; }
+    @supports not selector(::-webkit-scrollbar) { .ap-modal-body, .dp-modal-body { scrollbar-width: thin; scrollbar-color: #C6C6C6 transparent; } }
+    .ap-modal-footer { flex: 0 0 auto; background: ${inkDeep}; padding: 12px 24px; display: flex; justify-content: flex-end; gap: 10px; }
+    .ap-modal-title { font-family: ${uiFont}; font-size: 1.125rem; font-weight: 600; letter-spacing: -0.01em; color: ${inkText}; margin: 0; }
+    .ap-modal-sub { font-family: ${uiFont}; font-size: 0.85rem; color: ${inkMuted}; margin: 4px 0 0; line-height: 1.5; }
+    .ap-label { display: block; font-family: ${uiFont}; font-size: 0.9rem; font-weight: 500; color: ${inkText}; margin: 14px 0 6px; }
+    .ap-field { position: relative; }
+    .ap-input { width: 100%; box-sizing: border-box; height: 46px; border-radius: 999px; border: 1.5px solid transparent; background: ${paperCard}; padding: 0 18px; font-family: ${uiFont}; font-size: 0.9rem; color: ${inkText}; outline: none; transition: border-color 160ms ease, background 160ms ease; }
+    .ap-input:focus { border-color: ${ink} !important; background: ${paper}; }
+    .ap-field .ap-input { padding-right: 46px; }
+    .ap-eye { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: none; border: none; padding: 6px; cursor: pointer; display: flex; color: ${inkMuted}; }
+    .ap-eye:hover { color: ${inkText}; }
+    .ap-hr { border: none; border-top: 1px solid ${hairline}; margin: 16px 0 0; }
+    .ap-fbtn { font-family: ${uiFont}; font-size: 0.9rem; font-weight: 500; border-radius: 999px; padding: 9px 22px; cursor: pointer; transition: background 160ms ease, color 160ms ease, border-color 160ms ease; }
+    .ap-fbtn.ghost { background: transparent; color: rgba(255,255,255,0.88); border: 1px solid rgba(255,255,255,0.3); }
+    .ap-fbtn.ghost:hover { background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.5); }
+    .ap-fbtn.solid { background: ${paper}; color: ${ink}; border: 1px solid ${paper}; }
+    .ap-fbtn.solid:hover { background: #E6E6E6; border-color: #E6E6E6; }
+    .ap-fbtn:disabled { opacity: 0.55; cursor: not-allowed; }
+    @media (max-width: 480px) { .ap-modal { max-width: 90vw; height: min(70vh, 520px); } .ap-modal-body { padding: 18px 18px 12px; } .ap-modal-footer { padding: 10px 18px; } }
+    .ap-name-input { width: 100%; box-sizing: border-box; border-radius: 999px; border: 2px solid #C8C8C8; background: ${paper}; padding: 9px 18px; font-family: ${uiFont}; font-size: 1.05rem; color: ${inkText}; outline: none; transition: border-color 160ms ease; }
+    .ap-name-input:focus { border-color: ${ink}; }
+    @media (max-width: 480px) { .ap-header-card { padding: 56px 22px 16px; min-width: unset; width: 90%; } .ap-menu-row { padding: 12px 16px; } }
+
+    /* Manage Coordinators: table in the Report Company style, cards on narrow screens */
+    .mc-wrap { width: 100%; overflow-x: auto; border: 1px solid ${hairline}; border-radius: 18px; background: ${paper}; }
+    .mc-table { width: 100%; min-width: 680px; border-collapse: separate; border-spacing: 0; font-size: 0.9rem; background: ${paper}; }
+    .mc-th { padding: 13px 14px; text-align: left; color: #000; background: #F4F4F4; border-bottom: 1px solid ${hairline}; font-family: ${uiFont}; font-size: 1rem; font-weight: 700; letter-spacing: 0.02em; white-space: nowrap; }
+    .mc-td { padding: 15px 14px; color: ${inkText}; background: ${paper}; font-family: ${uiFont}; font-weight: 500; border-bottom: 1px solid ${hairline}; vertical-align: middle; }
+    .mc-table tbody tr:last-child .mc-td { border-bottom: none; }
+    .mc-table tbody tr:hover .mc-td { background: #FAFAFA; }
+    .mc-cards { display: none; flex-direction: column; gap: 10px; }
+    .mc-card { background: ${paper}; border: 1px solid ${hairline}; border-radius: 18px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+    .mc-card-label { font-family: ${uiFont}; font-size: 0.66rem; color: ${inkMuted}; margin: 0 0 3px 0; }
+    @media (max-width: 780px) { .mc-wrap { display: none; } .mc-cards { display: flex; } }
   `}</style>
 );
 
@@ -189,7 +292,7 @@ const NAV = [
     ),
   },
   {
-    key: "coordinators", label: "Coordinators",
+    key: "coordinators", label: "Manage Coordinators",
     icon: (c) => (
       <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
         <circle cx="9" cy="8" r="3.5" /><path d="M2.5 20c0-3.5 3-6 6.5-6s6.5 2.5 6.5 6" /><circle cx="17.5" cy="9" r="2.5" /><path d="M17 14c2.5 0 4.5 1.8 4.5 4.5" />
@@ -422,6 +525,128 @@ const AdminSignIn = ({ onExit }) => {
   );
 };
 
+// ═══════════════ CustomSelect: the dropdown used in the Student Accounts forms ═══════════════
+// Replaces the browser's native <select> list (which can't be styled and spills past the pop-up) with
+// our own: white card, 12px corners, soft shadow, hover + selected tints. It opens up or down,
+// whichever side has more room inside the nearest scrolling container, and caps its height to fit,
+// so it never goes past the edge of the pop-up. Keyboard: arrows, Enter/Space, Escape.
+const CS_MAX_LIST_HEIGHT = 240;
+const CS_MIN_LIST_HEIGHT = 96;
+const CS_EDGE_GAP = 8;
+const csNormalize = (o) =>
+  o !== null && typeof o === "object"
+    ? { value: String(o.value ?? ""), label: String(o.label ?? o.value ?? "") }
+    : { value: String(o ?? ""), label: String(o ?? "") };
+const csFindClipParent = (el) => {
+  for (let p = el?.parentElement; p && p !== document.body; p = p.parentElement) {
+    const oy = getComputedStyle(p).overflowY;
+    if (oy === "auto" || oy === "scroll" || oy === "hidden" || oy === "clip") return p;
+  }
+  return null;
+};
+
+function CustomSelect({ value, onChange, options = [], placeholder = "Select…", showPlaceholderOption = true, disabled = false, hasError = false, ariaLabel }) {
+  const [open, setOpen] = useState(false);
+  const [openUp, setOpenUp] = useState(false);
+  const [maxHeight, setMaxH] = useState(CS_MAX_LIST_HEIGHT);
+  const [active, setActive] = useState(-1);
+  const wrapRef = useRef(null);
+  const listRef = useRef(null);
+
+  const items = [
+    ...(showPlaceholderOption ? [{ value: "", label: placeholder, isPlaceholder: true }] : []),
+    ...options.map(csNormalize),
+  ];
+  const current = String(value ?? "");
+  const selected = items.find((i) => !i.isPlaceholder && i.value === current);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("touchstart", onDown, { passive: true });
+    return () => { document.removeEventListener("mousedown", onDown); document.removeEventListener("touchstart", onDown); };
+  }, [open]);
+
+  React.useLayoutEffect(() => {
+    if (!open || !wrapRef.current) return;
+    const rect = wrapRef.current.getBoundingClientRect();
+    const clip = csFindClipParent(wrapRef.current);
+    const bounds = clip ? clip.getBoundingClientRect() : { top: 0, bottom: window.innerHeight };
+    const top = Math.max(bounds.top, 0);
+    const bottom = Math.min(bounds.bottom, window.innerHeight);
+    const below = bottom - rect.bottom - CS_EDGE_GAP;
+    const above = rect.top - top - CS_EDGE_GAP;
+    const wanted = Math.min(CS_MAX_LIST_HEIGHT, items.length * 36 + 8);
+    const up = below < wanted && above > below;
+    setOpenUp(up);
+    setMaxH(Math.max(CS_MIN_LIST_HEIGHT, Math.min(CS_MAX_LIST_HEIGHT, up ? above : below)));
+    const idx = items.findIndex((i) => i.value === current);
+    setActive(idx >= 0 ? idx : 0);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  useEffect(() => {
+    if (!open || active < 0 || !listRef.current) return;
+    listRef.current.children[active]?.scrollIntoView({ block: "nearest" });
+  }, [open, active]);
+
+  const choose = (item) => { onChange?.(item.value); setOpen(false); };
+
+  const onKeyDown = (e) => {
+    if (disabled) return;
+    if (e.key === "Escape") { if (open) { e.stopPropagation(); setOpen(false); } return; }
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      if (!open) { setOpen(true); return; }
+      setActive((a) => { const n = items.length; return e.key === "ArrowDown" ? (a + 1) % n : (a - 1 + n) % n; });
+      return;
+    }
+    if ((e.key === "Enter" || e.key === " ") && open && active >= 0) { e.preventDefault(); choose(items[active]); }
+  };
+
+  const trigger = {
+    ...S.input,
+    textAlign: "left", cursor: disabled ? "not-allowed" : "pointer", outline: "none",
+    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingRight: "32px",
+    background: disabled ? paperCard : paper,
+    color: selected ? inkText : inkMuted,
+    borderColor: hasError ? C.danger : open ? ink : hairline,
+  };
+
+  return (
+    <div ref={wrapRef} style={{ position: "relative", width: "100%" }}>
+      <button type="button" disabled={disabled} aria-haspopup="listbox" aria-expanded={open} aria-label={ariaLabel}
+        onClick={() => !disabled && setOpen((o) => !o)} onKeyDown={onKeyDown} style={trigger}>
+        {selected ? selected.label : (disabled ? "\u00A0" : placeholder)}
+      </button>
+      <span aria-hidden="true" style={{ position: "absolute", right: "12px", top: "50%", transform: `translateY(-50%) rotate(${open ? 180 : 0}deg)`, transition: "transform 160ms ease", pointerEvents: "none", display: "flex", color: disabled ? "#BDBDBD" : inkMuted }}>
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M7 10l5 5 5-5z" /></svg>
+      </span>
+      {open && !disabled && (
+        <div ref={listRef} role="listbox" style={{
+          position: "absolute", left: 0, right: 0, [openUp ? "bottom" : "top"]: "calc(100% + 4px)",
+          background: paper, borderRadius: "12px", boxShadow: "0 8px 24px rgba(0,0,0,0.18)",
+          maxHeight: `${maxHeight}px`, overflowY: "auto", zIndex: 2000, padding: "4px 0",
+        }}>
+          {items.map((item, i) => {
+            const isSel = !item.isPlaceholder && item.value === current;
+            const bg = i === active ? "#F5F5F5" : isSel ? paperCard : paper;
+            return (
+              <div key={`${item.value}-${i}`} role="option" aria-selected={isSel}
+                onMouseDown={(e) => e.preventDefault()} onClick={() => choose(item)} onMouseEnter={() => setActive(i)}
+                style={{ padding: "8px 14px", fontFamily: uiFont, fontSize: "0.82rem", lineHeight: 1.4, cursor: "pointer", background: bg, color: item.isPlaceholder ? inkMuted : inkText, fontWeight: isSel ? 600 : 400, whiteSpace: "normal", overflowWrap: "anywhere" }}>
+                {item.label}
+              </div>
+            );
+          })}
+          {items.length === 0 && <div style={{ padding: "10px 14px", fontFamily: uiFont, fontSize: "0.8rem", color: inkMuted }}>No options</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ═══════════════ Department / program / major picker rows ═══════════════
 // value: [{ department, program, specialization }]
 const DeptSelectionsEditor = ({ depts, value, onChange }) => {
@@ -434,30 +659,24 @@ const DeptSelectionsEditor = ({ depts, value, onChange }) => {
         const prog = progs.find((p) => p.name === row.program);
         const specs = prog?.specializations || [];
         return (
-          <div key={i} style={{ display: "flex", flexWrap: "wrap", gap: "8px", alignItems: "flex-end", marginBottom: "8px" }}>
+          <div key={i} style={{ display: "flex", flexWrap: "wrap", gap: "8px", alignItems: "flex-end", marginBottom: "8px", ...(i > 0 ? { borderTop: `1px solid ${hairline}`, marginTop: "14px", paddingTop: "6px" } : null) }}>
             <div style={{ flex: "1 1 220px" }}>
               <label style={S.label}>Department<Req /></label>
-              <select value={row.department} style={S.input}
-                onChange={(e) => setRow(i, { department: e.target.value, program: "", specialization: "" })}>
-                <option value="">Select department</option>
-                {depts.map((d) => <option key={d.id} value={d.name}>{d.name}{d.abbr ? ` (${d.abbr})` : ""}</option>)}
-              </select>
+              <CustomSelect value={row.department} placeholder="Select department"
+                onChange={(v) => setRow(i, { department: v, program: "", specialization: "" })}
+                options={depts.map((d) => ({ value: d.name, label: `${d.name}${d.abbr ? ` (${d.abbr})` : ""}` }))} />
             </div>
             <div style={{ flex: "1 1 220px" }}>
-              <label style={S.label}>Program</label>
-              <select value={row.program} disabled={!dept} style={S.input}
-                onChange={(e) => setRow(i, { program: e.target.value, specialization: "" })}>
-                <option value="">All programs in this department</option>
-                {progs.map((p) => <option key={p.name} value={p.name}>{p.name}</option>)}
-              </select>
+              <label style={S.label}>Program<Req /></label>
+              <CustomSelect value={row.program} disabled={!dept} placeholder="All programs in this department"
+                onChange={(v) => setRow(i, { program: v, specialization: "" })}
+                options={progs.map((p) => p.name)} />
             </div>
             {specs.length > 0 && (
               <div style={{ flex: "1 1 180px" }}>
                 <label style={S.label}>Major</label>
-                <select value={row.specialization} style={S.input} onChange={(e) => setRow(i, { specialization: e.target.value })}>
-                  <option value="">All majors</option>
-                  {specs.map((m) => <option key={m} value={m}>{m}</option>)}
-                </select>
+                <CustomSelect value={row.specialization} placeholder="All majors"
+                  onChange={(v) => setRow(i, { specialization: v })} options={specs} />
               </div>
             )}
             {value.length > 1 && (
@@ -492,10 +711,106 @@ const AddInline = ({ placeholder, onAdd }) => {
   );
 };
 
+// Pop-up shell for the Departments tab (same look as the New Student modal in Student Accounts).
+const DeptModal = ({ title, onClose, children, footer }) => {
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(10,10,10,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: "clamp(16px, 5vw, 24px)" }}>
+      <div role="dialog" aria-modal="true" aria-label={title} className="dp-modal">
+        <div className="dp-modal-header">
+          <h2 style={{ fontFamily: uiFont, fontSize: "clamp(1.125rem, 4vw, 1.375rem)", fontWeight: 600, letterSpacing: "-0.01em", color: inkText, margin: 0, minWidth: 0, overflowWrap: "anywhere" }}>{title}</h2>
+          <button type="button" onClick={onClose} aria-label="Close" style={{ background: paperCard, border: `1px solid ${hairline}`, borderRadius: "50%", width: "30px", height: "30px", color: inkMuted, fontSize: "0.9rem", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>✕</button>
+        </div>
+        <div className="dp-modal-body">{children}</div>
+        <div className="dp-modal-footer">{footer}</div>
+      </div>
+    </div>
+  );
+};
+
+// Filter button + panel for Departments & Programs: Department → Program → Major, all built from the live data.
+const CascadeFilter = ({ depts, filters, programOptions, majorOptions, onPick, onClear }) => {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  const hasFilter = !!(filters.department || filters.program || filters.major);
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [open]);
+  const chip = (on) => ({ padding: "5px 12px", borderRadius: "999px", fontFamily: uiFont, fontSize: "0.78rem", cursor: "pointer", userSelect: "none", textAlign: "left", background: on ? ink : paperCard, color: on ? paper : inkText, border: `1px solid ${on ? ink : hairline}` });
+  const label = { fontFamily: uiFont, fontSize: "0.8rem", fontWeight: 700, color: inkText, margin: "0 0 8px" };
+  const rule = <hr style={{ border: "none", borderTop: `1px solid ${hairline}`, margin: "0 0 12px" }} />;
+  return (
+    <div ref={ref} style={{ position: "relative" }}>
+      <button type="button" title="Filters" aria-label="Filters" aria-expanded={open} onClick={() => setOpen((v) => !v)}
+        style={{ width: "40px", height: "40px", borderRadius: "999px", border: hasFilter ? `2px solid ${paperCard}` : "none", background: hasFilter ? paperCard : paper, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", padding: 0 }}>
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={hasFilter ? ink : inkMuted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" /></svg>
+      </button>
+      {open && (
+        <div style={{ position: "absolute", top: "48px", right: 0, width: "min(300px, 80vw)", maxHeight: "min(70vh, 520px)", overflowY: "auto", background: paper, border: `1px solid ${hairline}`, borderRadius: "16px", boxShadow: "0 12px 32px rgba(0,0,0,0.22)", zIndex: 100, padding: "14px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
+            <span style={{ fontFamily: uiFont, fontSize: "1rem", fontWeight: 700, color: inkText }}>Filters</span>
+            <button type="button" onClick={onClear} style={{ background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: uiFont, fontSize: "0.8rem", color: inkMuted, textDecoration: "underline" }}>Clear all</button>
+          </div>
+          <p style={label}>Department</p>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "14px" }}>
+            {depts.length === 0 && <span style={{ fontSize: "0.78rem", color: inkMuted }}>No departments yet</span>}
+            {depts.map((d) => (
+              <button key={d.id} type="button" title={d.name} style={chip(filters.department === d.name)}
+                onClick={() => onPick({ department: filters.department === d.name ? "" : d.name, program: "", major: "" })}>{d.abbr || d.name}</button>
+            ))}
+          </div>
+          {!filters.department && <p style={{ fontFamily: uiFont, fontSize: "0.76rem", color: inkMuted, margin: 0 }}>Pick a department to filter by its programs and majors.</p>}
+          {programOptions.length > 0 && (
+            <>
+              {rule}
+              <p style={label}>Program</p>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "14px" }}>
+                {programOptions.map((n) => (
+                  <button key={n} type="button" style={chip(filters.program === n)}
+                    onClick={() => onPick({ program: filters.program === n ? "" : n, major: "" })}>{n}</button>
+                ))}
+              </div>
+            </>
+          )}
+          {majorOptions.length > 0 && (
+            <>
+              {rule}
+              <p style={label}>Major</p>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                {majorOptions.map((m) => (
+                  <button key={m} type="button" style={chip(filters.major === m)}
+                    onClick={() => onPick({ major: filters.major === m ? "" : m })}>{m}</button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const DepartmentsTab = ({ depts, loaded, flash }) => {
   const [form, setForm] = useState({ name: "", abbr: "", program: "", majors: "" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  // The screen fills the area under the top bar; only the list inside it scrolls.
+  const screenRef = useRef(null);
+  const fitH = useFillHeight(screenRef, "tab", true);
+  const scrollRef = useRef(null);
+  const goToPage = (n) => { setPage(n); requestAnimationFrame(() => scrollListToTop(scrollRef.current)); };
+  const [showAdd, setShowAdd] = useState(false);
+  const [managingId, setManagingId] = useState(null);
+  const [filters, setFilters] = useState({ department: "", program: "", major: "" });
   const [confirm, confirmDialog] = useConfirm();
   const sorted = useMemo(() => [...depts].sort((a, b) => a.name.localeCompare(b.name)), [depts]);
   const notSeeded = loaded && depts.length === 0;
@@ -538,7 +853,7 @@ const DepartmentsTab = ({ depts, loaded, flash }) => {
       `${name} added.`
     );
     setBusy(false);
-    if (ok) setForm({ name: "", abbr: "", program: "", majors: "" });
+    if (ok) { setForm({ name: "", abbr: "", program: "", majors: "" }); setShowAdd(false); }
   };
 
   const addProgram = async (d, name) => {
@@ -555,10 +870,75 @@ const DepartmentsTab = ({ depts, loaded, flash }) => {
     return run(() => updateDoc(doc(db, "departments", d.id), { programs }), `Major added to ${programName}.`);
   };
 
+  // ── List: search + pagination (10 per page), same idea as the Student Accounts list ──
+  const PAGE_SIZE = 10;
+  const q = norm(search).toLowerCase();
+  // Filter options come from the live departments, so anything added later shows up here by itself.
+  // Same as Manage Coordinators: Department first; its Programs appear once a department is picked,
+  // and that program's Majors appear once a program is picked.
+  const hasFilter = !!(filters.department || filters.program || filters.major);
+  const scopeDepts = filters.department ? sorted.filter((d) => d.name === filters.department) : sorted;
+  const uniq = (list) => [...new Set(list)].sort((a, b) => a.localeCompare(b));
+  const programOptions = filters.department ? uniq(scopeDepts.flatMap((d) => programsOf(d).map((p) => p.name))) : [];
+  const majorOptions = filters.program ? uniq(scopeDepts.flatMap((d) => programsOf(d)).filter((p) => p.name === filters.program).flatMap((p) => p.specializations)) : [];
+  const matchesFilter = (d) => {
+    if (filters.department && d.name !== filters.department) return false;
+    const progs = programsOf(d).filter((p) => !filters.program || same(p.name, filters.program));
+    if (filters.program && progs.length === 0) return false;
+    if (filters.major && !progs.some((p) => p.specializations.some((m) => same(m, filters.major)))) return false;
+    return true;
+  };
+  // Search looks at the department name, its abbreviation, every program and every major.
+  // Each word typed must match somewhere, so "computer studies", "ccs" or "bs information" all work.
+  const words = q.split(/\s+/).filter(Boolean);
+  const matchesSearch = (d) => {
+    if (words.length === 0) return true;
+    const hay = [d.name, d.abbr, ...programsOf(d).flatMap((p) => [p.name, ...p.specializations])]
+      .map((x) => String(x || "").toLowerCase()).join(" | ");
+    return words.every((w) => hay.includes(w));
+  };
+  const filtered = useMemo(() => sorted.filter((d) => matchesFilter(d) && matchesSearch(d)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [sorted, q, filters]);
+  const setFilter = (patch) => { setFilters((f) => ({ ...f, ...patch })); setPage(1); };
+  const clearFilters = () => { setFilters({ department: "", program: "", major: "" }); setPage(1); };
+  const totalPrograms = useMemo(() => depts.reduce((n, d) => n + programsOf(d).length, 0), [depts]);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const pageRows = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  const showingFrom = filtered.length ? (safePage - 1) * PAGE_SIZE + 1 : 0;
+  const showingTo = Math.min(safePage * PAGE_SIZE, filtered.length);
+  const pageItems = (() => {
+    // Up to 7 pages: show all. More: 1 2 3 4 5 … last near the start, 1 … last-4 … last near the end, 1 … p-1 p p+1 … last in the middle.
+    const range = (a, b) => Array.from({ length: b - a + 1 }, (_, i) => a + i);
+    if (totalPages <= 7) return range(1, totalPages);
+    if (safePage <= 4) return [...range(1, 5), "gap-end", totalPages];
+    if (safePage >= totalPages - 3) return [1, "gap-start", ...range(totalPages - 4, totalPages)];
+    return [1, "gap-start", safePage - 1, safePage, safePage + 1, "gap-end", totalPages];
+  })();
+  const managing = managingId ? depts.find((d) => d.id === managingId) : null;
+  const modalOpen = showAdd || !!managing;
+
+  const openAdd = () => { setError(""); setForm({ name: "", abbr: "", program: "", majors: "" }); setShowAdd(true); };
+  const closeAdd = async () => {
+    // Ask only when something was typed: nothing to lose otherwise.
+    if ((form.name || form.abbr || form.program || form.majors)
+      && !(await confirm({ title: "Cancel", body: "Are you sure you want to cancel? What you entered will be discarded.", confirmLabel: "Discard", cancelLabel: "Keep editing", tone: "danger" }))) return;
+    setShowAdd(false); setError("");
+  };
+
+  const errorBox = error ? <div role="alert" style={S.err}>{error}</div> : null;
+  const pageBtn = (on, disabled) => ({
+    minWidth: "36px", height: "36px", padding: "0 10px", borderRadius: "10px",
+    border: `1.5px solid ${on ? ink : hairline}`, background: on ? ink : paper, color: on ? paper : inkText,
+    fontFamily: uiFont, fontSize: "0.82rem", fontWeight: 600, cursor: disabled ? "default" : "pointer", opacity: disabled ? 0.45 : 1,
+  });
+
   return (
-    <div>
+    <div ref={screenRef} style={{ display: "flex", flexDirection: "column", height: fitH ? `${fitH}px` : undefined }}>
       {confirmDialog}
-      {error && <div role="alert" style={S.err}>{error}</div>}
+      <div style={tabHeadStyle}>
+      {!modalOpen && errorBox}
 
       {notSeeded && (
         <div style={{ ...S.card, borderColor: C.danger }}>
@@ -571,9 +951,119 @@ const DepartmentsTab = ({ depts, loaded, flash }) => {
         </div>
       )}
 
+      {/* Floating dark header bar: same shape as Student Accounts */}
+      <div className="dp-bar">
+        <div style={{ minWidth: 0, flex: "1 1 auto" }}>
+          <span style={{ fontFamily: uiFont, fontSize: "clamp(1.1rem, 3.5vw, 1.375rem)", fontWeight: 600, letterSpacing: "-0.01em", color: paper, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>Departments & Programs</span>
+          <p style={{ fontFamily: uiFont, fontSize: "0.8rem", color: "rgba(255,255,255,0.7)", margin: "2px 0 0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {filtered.length} of {depts.length} department{depts.length !== 1 ? "s" : ""} · {totalPrograms} program{totalPrograms !== 1 ? "s" : ""}
+          </p>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: "10px", flexShrink: 0 }}>
+          <div className="dp-search">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={inkMuted} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
+            <input value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} placeholder="Search department or program" name="dp-search" autoComplete="off" spellCheck={false} />
+            {search && <button type="button" aria-label="Clear search" onClick={() => { setSearch(""); setPage(1); }} style={{ background: "none", border: "none", color: inkMuted, cursor: "pointer", fontSize: "0.9rem", padding: 0, lineHeight: 1 }}>✕</button>}
+          </div>
+          <CascadeFilter depts={sorted} filters={filters} programOptions={programOptions} majorOptions={majorOptions} onPick={setFilter} onClear={clearFilters} />
+        </div>
+      </div>
+
+      {/* Toolbar */}
       {!notSeeded && (
-        <div style={S.card}>
-          <h2 style={S.h2}>Add a department</h2>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "12px", flexWrap: "wrap", marginBottom: "16px" }}>
+          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+            {hasFilter && (
+              <>
+                {[
+                  filters.department && { label: sorted.find((d) => d.name === filters.department)?.abbr || filters.department, clear: () => setFilter({ department: "", program: "", major: "" }) },
+                  filters.program && { label: filters.program, clear: () => setFilter({ program: "", major: "" }) },
+                  filters.major && { label: filters.major, clear: () => setFilter({ major: "" }) },
+                ].filter(Boolean).map(({ label, clear }) => (
+                  <span key={label} style={{ background: paper, color: inkText, border: `1px solid ${hairline}`, borderRadius: "999px", padding: "4px 12px", fontFamily: uiFont, fontSize: "0.78rem", display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                    {label}<span role="button" aria-label={`Remove filter ${label}`} onClick={clear} style={{ cursor: "pointer", color: inkMuted }}>✕</span>
+                  </span>
+                ))}
+                <button type="button" onClick={clearFilters} style={{ background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: uiFont, fontSize: "0.78rem", color: inkMuted, textDecoration: "underline" }}>Clear all</button>
+              </>
+            )}
+          </div>
+          <button type="button" className="adm-btn-dark" style={S.btn} onClick={openAdd}>Add a department</button>
+        </div>
+      )}
+
+      </div>
+
+      <div ref={scrollRef} style={tabScrollStyle}>
+      {/* Department list: full-width rows */}
+      {pageRows.length > 0 ? (
+        <>
+          <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+            {pageRows.map((d) => {
+              const progs = programsOf(d);
+              const majorCount = progs.reduce((n, p) => n + p.specializations.length, 0);
+              const meta = `${progs.length} program${progs.length !== 1 ? "s" : ""} · ${majorCount} major${majorCount !== 1 ? "s" : ""}`;
+              return (
+                <div key={d.id} className="dp-row" role="button" tabIndex={0} onClick={() => { setError(""); setManagingId(d.id); }}
+                  onKeyDown={(e) => { if (e.key === "Enter") { setError(""); setManagingId(d.id); } }}>
+                  <div style={{ width: "45px", height: "45px", borderRadius: "50%", background: paperCard, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={inkText} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M3 21h18" /><path d="M5 21V7l7-4 7 4v14" /><path d="M9 21v-6h6v6" />
+                    </svg>
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <h3 style={{ fontFamily: uiFont, fontSize: "1rem", fontWeight: 600, letterSpacing: "-0.01em", color: inkText, margin: 0, lineHeight: 1.35, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {d.name}{d.abbr && <span style={{ color: inkMuted, fontWeight: 600 }}> ({d.abbr})</span>}
+                    </h3>
+                    <p style={{ fontFamily: uiFont, fontSize: "0.8rem", color: inkMuted, margin: "2px 0 0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{meta}</p>
+                  </div>
+                  <button type="button" className="dp-row-view adm-btn-light" style={S.btn2} onClick={(e) => { e.stopPropagation(); setError(""); setManagingId(d.id); }}>Manage</button>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Pagination */}
+          <div style={{ display: "flex", flexWrap: "wrap-reverse", alignItems: "center", justifyContent: "space-between", gap: "12px", padding: "20px 0 4px" }}>
+            <span style={{ fontFamily: uiFont, fontSize: "0.8rem", color: inkMuted }}>Showing {showingFrom}–{showingTo} of {filtered.length}</span>
+            {/* Pill bar: current page badge + « ‹ 1 2 3 4 5 … 10 › » (always shown, buttons disable at the ends) */}
+            <nav aria-label="Pagination" style={{ marginLeft: "auto", display: "inline-flex", alignItems: "stretch", maxWidth: "100%", background: paper, border: `1px solid ${hairline}`, borderRadius: "16px", boxShadow: "0 4px 16px rgba(20,20,20,0.06)", overflow: "hidden" }}>
+              <div title="Current page" style={{ display: "flex", alignItems: "center", justifyContent: "center", minWidth: "52px", padding: "0 14px", background: paperCard, borderRight: `1px solid ${hairline}`, fontFamily: uiFont, fontSize: "0.9rem", fontWeight: 700, color: inkText }}>
+                {String(safePage).padStart(2, "0")}
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: "6px", padding: "10px 12px", flexWrap: "wrap", justifyContent: "center" }}>
+                <button type="button" aria-label="First page" title="First page" style={pageBtn(false, safePage === 1)} disabled={safePage === 1} onClick={() => goToPage(1)}>«</button>
+                <button type="button" aria-label="Previous page" title="Previous page" style={pageBtn(false, safePage === 1)} disabled={safePage === 1} onClick={() => goToPage(safePage - 1)}>‹</button>
+                {pageItems.map((it) => (typeof it === "number"
+                  ? <button key={it} type="button" style={pageBtn(it === safePage, false)} aria-current={it === safePage ? "page" : undefined} onClick={() => goToPage(it)}>{it}</button>
+                  : <span key={it} style={{ color: inkMuted, padding: "0 4px" }}>…</span>))}
+                <button type="button" aria-label="Next page" title="Next page" style={pageBtn(false, safePage === totalPages)} disabled={safePage === totalPages} onClick={() => goToPage(safePage + 1)}>›</button>
+                <button type="button" aria-label="Last page" title="Last page" style={pageBtn(false, safePage === totalPages)} disabled={safePage === totalPages} onClick={() => goToPage(totalPages)}>»</button>
+              </div>
+            </nav>
+          </div>
+        </>
+      ) : (
+        !notSeeded && (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", padding: "72px 24px", gap: "4px", background: paper, border: `1px dashed ${hairline}`, borderRadius: "20px" }}>
+            <p style={{ fontFamily: uiFont, fontSize: "1.0625rem", fontWeight: 600, color: inkText, margin: 0 }}>{depts.length === 0 ? "No departments yet" : "No departments match this search"}</p>
+            <p style={{ fontFamily: uiFont, fontSize: "0.82rem", color: inkMuted, margin: 0, maxWidth: "44ch" }}>
+              {depts.length === 0 ? "Use Add a department to create the first one." : "Try a different search, or clear a filter."}
+            </p>
+          </div>
+        )
+      )}
+      </div>
+
+      {/* ── Add a department (pop-up form) ── */}
+      {showAdd && (
+        <DeptModal title="Add a department" onClose={closeAdd}
+          footer={(
+            <>
+              <button type="button" style={S.btn2} disabled={busy} onClick={closeAdd}>Cancel</button>
+              <button type="button" style={{ ...S.btn, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={addDepartment}>{busy ? "Adding…" : "Add department"}</button>
+            </>
+          )}>
           <p style={S.help}>Name and abbreviation can’t be changed after saving, so double-check them. You can add more programs and majors later; a major is always added to a specific program.</p>
           <div style={{ display: "flex", flexWrap: "wrap", gap: "10px" }}>
             <div style={{ flex: "2 1 260px" }}>
@@ -584,7 +1074,7 @@ const DepartmentsTab = ({ depts, loaded, flash }) => {
               <label style={S.label}>Abbreviation<Req /></label>
               <input style={S.input} value={form.abbr} placeholder="CON" maxLength={10} onChange={(e) => setForm({ ...form, abbr: e.target.value.toUpperCase() })} />
             </div>
-            <div style={{ flex: "2 1 260px" }}>
+            <div style={{ flex: "1 1 100%" }}>
               <label style={S.label}>First program<Req /></label>
               <input style={S.input} value={form.program} placeholder="Bachelor of Science in Nursing" onChange={(e) => setForm({ ...form, program: e.target.value })} />
             </div>
@@ -594,14 +1084,15 @@ const DepartmentsTab = ({ depts, loaded, flash }) => {
               <p style={{ ...S.help, margin: "6px 0 0" }}>Don’t put the major in the program name — write “Bachelor of Secondary Education” here and “English” above.</p>
             </div>
           </div>
-          <button type="button" style={{ ...S.btn, marginTop: "14px", opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={addDepartment}>Add department</button>
-        </div>
+          {errorBox}
+        </DeptModal>
       )}
 
-      {sorted.map((d) => (
-        <div key={d.id} style={S.card}>
-          <h2 style={S.h2}>{d.name} {d.abbr && <span style={{ color: C.muted, fontWeight: 600 }}>({d.abbr})</span>}</h2>
-          {programsOf(d).map((p) => (
+      {/* ── Programs & majors of one department (pop-up) ── */}
+      {managing && (
+        <DeptModal title={`${managing.name}${managing.abbr ? ` (${managing.abbr})` : ""}`} onClose={() => { setManagingId(null); setError(""); }}
+          footer={<button type="button" style={S.btn} onClick={() => { setManagingId(null); setError(""); }}>Done</button>}>
+          {programsOf(managing).map((p) => (
             <div key={p.name} style={{ borderTop: `1px solid ${C.line}`, padding: "10px 0" }}>
               <div style={{ fontWeight: 600, fontSize: "0.88rem" }}>{p.name}</div>
               <div style={{ marginTop: "6px" }}>
@@ -609,28 +1100,96 @@ const DepartmentsTab = ({ depts, loaded, flash }) => {
                   ? <span style={{ fontSize: "0.78rem", color: C.muted }}>No majors</span>
                   : p.specializations.map((m) => <span key={m} style={S.chip}>{m}</span>)}
               </div>
-              <AddInline placeholder="Add a major to this program" onAdd={(v) => addMajor(d, p.name, v)} />
+              <AddInline placeholder="Add a major to this program" onAdd={(v) => addMajor(managing, p.name, v)} />
             </div>
           ))}
           <div style={{ borderTop: `1px solid ${C.line}`, paddingTop: "10px" }}>
-            <div style={{ fontSize: "0.8rem", fontWeight: 600 }}>Add a program to {d.abbr || d.name}</div>
-            <AddInline placeholder="Program name" onAdd={(v) => addProgram(d, v)} />
+            <div style={{ fontSize: "0.8rem", fontWeight: 600 }}>Add a program to {managing.abbr || managing.name}</div>
+            <AddInline placeholder="Program name" onAdd={(v) => addProgram(managing, v)} />
           </div>
-        </div>
-      ))}
+          {errorBox}
+        </DeptModal>
+      )}
     </div>
   );
 };
 
-// ═══════════════════════════ Coordinators tab ═══════════════════════════
+// Departments / Manage Coordinators: the header bar + filters are fixed, only the list under them scrolls
+// (same idea as Account Profile). The list box reaches into the screen padding so its scrollbar sits at the edge.
+const tabHeadStyle = { flexShrink: 0, position: "relative", zIndex: 30 };
+const tabScrollStyle = { flex: "1 1 auto", minHeight: 0, overflowY: "auto", margin: "0 calc(-1 * clamp(16px, 4vw, 32px)) calc(-1 * clamp(16px, 4vw, 28px))", padding: "0 clamp(16px, 4vw, 32px) clamp(16px, 4vw, 28px)" };
+// Next/previous page: the list goes back to its start.
+const scrollListToTop = (scroller) => { if (scroller) scroller.scrollTo({ top: 0, behavior: "smooth" }); };
+
+// Page bar used by the list screens: current-page badge + « ‹ 1 2 3 4 5 … 10 › » (always shown, buttons disable at the ends).
+const PaginationBar = ({ page, totalPages, onPage, from, to, total }) => {
+  const range = (a, b) => Array.from({ length: b - a + 1 }, (_, i) => a + i);
+  const items = totalPages <= 7 ? range(1, totalPages)
+    : page <= 4 ? [...range(1, 5), "gap-end", totalPages]
+    : page >= totalPages - 3 ? [1, "gap-start", ...range(totalPages - 4, totalPages)]
+    : [1, "gap-start", page - 1, page, page + 1, "gap-end", totalPages];
+  const btn = (on, disabled) => ({
+    minWidth: "36px", height: "36px", padding: "0 10px", borderRadius: "10px",
+    border: `1.5px solid ${on ? ink : hairline}`, background: on ? ink : paper, color: on ? paper : inkText,
+    fontFamily: uiFont, fontSize: "0.82rem", fontWeight: 600, cursor: disabled ? "default" : "pointer", opacity: disabled ? 0.45 : 1,
+  });
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap-reverse", alignItems: "center", justifyContent: "space-between", gap: "12px", padding: "20px 0 4px" }}>
+      <span style={{ fontFamily: uiFont, fontSize: "0.8rem", color: inkMuted }}>Showing {from}–{to} of {total}</span>
+      <nav aria-label="Pagination" style={{ marginLeft: "auto", display: "inline-flex", alignItems: "stretch", maxWidth: "100%", background: paper, border: `1px solid ${hairline}`, borderRadius: "16px", boxShadow: "0 4px 16px rgba(20,20,20,0.06)", overflow: "hidden" }}>
+        <div title="Current page" style={{ display: "flex", alignItems: "center", justifyContent: "center", minWidth: "52px", padding: "0 14px", background: paperCard, borderRight: `1px solid ${hairline}`, fontFamily: uiFont, fontSize: "0.9rem", fontWeight: 700, color: inkText }}>
+          {String(page).padStart(2, "0")}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: "6px", padding: "10px 12px", flexWrap: "wrap", justifyContent: "center" }}>
+          <button type="button" aria-label="First page" title="First page" style={btn(false, page === 1)} disabled={page === 1} onClick={() => onPage(1)}>«</button>
+          <button type="button" aria-label="Previous page" title="Previous page" style={btn(false, page === 1)} disabled={page === 1} onClick={() => onPage(page - 1)}>‹</button>
+          {items.map((it) => (typeof it === "number"
+            ? <button key={it} type="button" style={btn(it === page, false)} aria-current={it === page ? "page" : undefined} onClick={() => onPage(it)}>{it}</button>
+            : <span key={it} style={{ color: inkMuted, padding: "0 4px" }}>…</span>))}
+          <button type="button" aria-label="Next page" title="Next page" style={btn(false, page === totalPages)} disabled={page === totalPages} onClick={() => onPage(page + 1)}>›</button>
+          <button type="button" aria-label="Last page" title="Last page" style={btn(false, page === totalPages)} disabled={page === totalPages} onClick={() => onPage(totalPages)}>»</button>
+        </div>
+      </nav>
+    </div>
+  );
+};
+
+// ═══════════════════════════ Manage Coordinators tab ═══════════════════════════
+// List style follows the Report Company screen (table with Name/Email, Department, Status, Action;
+// cards on narrow screens). Inviting and managing happen in pop-ups, like Departments & Programs.
+const statusBadge = (status) => {
+  const s = String(status || "").toLowerCase();
+  const bg = s === "active" ? C.ok : s === "pending" ? "#8a5a00" : ["disabled", "suspended", "inactive", "cancelled"].includes(s) ? C.danger : inkMuted;
+  const label = s ? s.charAt(0).toUpperCase() + s.slice(1) : "—";
+  return <span style={{ fontFamily: uiFont, fontSize: "0.7rem", fontWeight: 700, background: bg, color: "white", borderRadius: "12px", padding: "3px 10px", whiteSpace: "nowrap" }}>{label}</span>;
+};
+
 const CoordinatorsTab = ({ admin, depts, flash }) => {
+  const PAGE_SIZE = 10;
   const [coordinators, setCoordinators] = useState([]);
   const [invites, setInvites] = useState([]);
   const [email, setEmail] = useState("");
   const [sel, setSel] = useState(emptySel());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [editingUid, setEditingUid] = useState(null);
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  // The screen fills the area under the top bar; only the list inside it scrolls.
+  const screenRef = useRef(null);
+  const fitH = useFillHeight(screenRef, "tab", true);
+  const scrollRef = useRef(null);
+  const goToPage = (n) => { setPage(n); requestAnimationFrame(() => scrollListToTop(scrollRef.current)); };
+  const [showInvite, setShowInvite] = useState(false);
+  const [managingKey, setManagingKey] = useState(null);   // "c:<uid>" | "i:<inviteId>"
+  const [filters, setFilters] = useState({ department: "", program: "", major: "" });
+  const [showFilter, setShowFilter] = useState(false);
+  const filterRef = useRef(null);
+  useEffect(() => {
+    if (!showFilter) return;
+    const onDown = (e) => { if (filterRef.current && !filterRef.current.contains(e.target)) setShowFilter(false); };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [showFilter]);
   const [editSel, setEditSel] = useState(emptySel());
   const [confirm, confirmDialog] = useConfirm();
 
@@ -667,7 +1226,7 @@ const CoordinatorsTab = ({ admin, depts, flash }) => {
     setBusy(true);
     const res = await call("adminInviteCoordinator", { email: to, deptSelections: sel });
     setBusy(false);
-    if (res) { flash(`Invitation sent to ${to}. They set their own name and password from the email link.`); setEmail(""); setSel(emptySel()); }
+    if (res) { flash(`Invitation sent to ${to}. They set their own name and password from the email link.`); setEmail(""); setSel(emptySel()); setShowInvite(false); }
   };
 
   const saveDepts = async (uid) => {
@@ -681,7 +1240,7 @@ const CoordinatorsTab = ({ admin, depts, flash }) => {
     setBusy(true);
     const res = await call("adminSetCoordinatorDepartments", { uid, deptSelections: editSel });
     setBusy(false);
-    if (res) { flash("Coordinator department updated."); setEditingUid(null); }
+    if (res) { flash("Coordinator department updated."); setManagingKey(null); }
   };
 
   const resendInvite = async (v) => {
@@ -700,85 +1259,280 @@ const CoordinatorsTab = ({ admin, depts, flash }) => {
       confirmLabel: "Cancel invitation", cancelLabel: "Keep it", tone: "danger",
     }))) return;
     setError("");
-    try { await updateDoc(doc(db, "coordinatorInvites", id), { status: "cancelled" }); flash("Invitation cancelled."); }
+    try { await updateDoc(doc(db, "coordinatorInvites", id), { status: "cancelled" }); flash("Invitation cancelled."); setManagingKey(null); }
     catch (e) { console.error(e); setError("Could not cancel the invitation."); }
   };
 
+  // One list: pending invitations first (they need action), then the coordinators.
+  const rows = useMemo(() => [
+    ...invites.map((v) => ({ key: `i:${v.id}`, kind: "invite", name: "", email: v.toEmail || "", status: "pending", sels: v.deptSelections || [], ref: v })),
+    ...coordinators.map((c) => ({ key: `c:${c.uid}`, kind: "coord", name: c.name || "", email: c.email || "", status: c.status || "", sels: c.deptSelections || [], ref: c })),
+  ], [invites, coordinators]);
+
+  // Search is by coordinator name only. Department / Program / Major are chosen in the filter, and the
+  // options come straight from the live departments list, so new departments, programs and majors show up on their own.
+  const q = norm(search).toLowerCase();
+  const hasFilter = !!(filters.department || filters.program || filters.major);
+  const filterDept = depts.find((d) => d.name === filters.department) || null;
+  const filterPrograms = filterDept ? programsOf(filterDept) : [];
+  const filterMajors = filterPrograms.find((p) => p.name === filters.program)?.specializations || [];
+  const sortedDepts = useMemo(() => [...depts].sort((a, b) => a.name.localeCompare(b.name)), [depts]);
+  // A selection with no program (or no major) means "all of them", so it also matches a specific program / major.
+  const matchesFilter = (r) => !hasFilter || r.sels.some((raw) => {
+    const s = normSel(raw);
+    const deptOk = !filters.department || same(s.department, filters.department) || (!!filterDept?.abbr && same(s.department, filterDept.abbr));
+    const progOk = !filters.program || !s.program || same(s.program, filters.program);
+    const majorOk = !filters.major || !s.specialization || same(s.specialization, filters.major);
+    return deptOk && progOk && majorOk;
+  });
+  const filtered = useMemo(() => rows.filter((r) => (!q || String(r.name || "").toLowerCase().includes(q)) && matchesFilter(r)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [rows, q, filters, depts]);
+  const setFilter = (patch) => { setFilters((f) => ({ ...f, ...patch })); setPage(1); };
+  const clearFilters = () => { setFilters({ department: "", program: "", major: "" }); setPage(1); };
+  const filterChip = (on) => ({ padding: "5px 12px", borderRadius: "999px", fontFamily: uiFont, fontSize: "0.78rem", cursor: "pointer", userSelect: "none", textAlign: "left", background: on ? ink : paperCard, color: on ? paper : inkText, border: `1px solid ${on ? ink : hairline}` });
+  const filterLabel = { fontFamily: uiFont, fontSize: "0.8rem", fontWeight: 700, color: inkText, margin: "0 0 8px" };
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const pageRows = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  const showingFrom = filtered.length ? (safePage - 1) * PAGE_SIZE + 1 : 0;
+  const showingTo = Math.min(safePage * PAGE_SIZE, filtered.length);
+
+  const managing = managingKey ? rows.find((r) => r.key === managingKey) : null;
+  const modalOpen = showInvite || !!managing;
+  const dirty = managing?.kind === "coord" && selSig(editSel) !== selSig(initialSel(managing.ref));
+
+  const openInvite = () => { setError(""); setEmail(""); setSel(emptySel()); setShowInvite(true); };
+  const closeInvite = async () => {
+    if ((email || sel.some((r) => r.department))
+      && !(await confirm({ title: "Cancel", body: "Are you sure you want to cancel? What you entered will be discarded.", confirmLabel: "Discard", cancelLabel: "Keep editing", tone: "danger" }))) return;
+    setShowInvite(false); setError("");
+  };
+  const openManage = (r) => { setError(""); setEditSel(r.kind === "coord" ? initialSel(r.ref) : emptySel()); setManagingKey(r.key); };
+  const closeManage = async () => {
+    // Only ask when something was actually changed; nothing to lose otherwise.
+    if (dirty && !(await confirm({ title: "Cancel changes", body: "Are you sure you want to cancel? Your changes will be discarded.", confirmLabel: "Discard changes", cancelLabel: "Keep editing", tone: "danger" }))) return;
+    setManagingKey(null); setError("");
+  };
+
+  const errorBox = error ? <div role="alert" style={S.err}>{error}</div> : null;
+  const nameOf = (r) => r.name || (r.kind === "invite" ? "Awaiting sign-up" : "(name not set yet)");
+  const deptCell = (r) => {
+    if (r.sels.length === 0) return <span style={{ fontSize: "0.82rem", color: C.danger }}>No department assigned</span>;
+    const more = r.sels.length - 1;
+    return (
+      <span title={r.sels.map(describeSel).join("\n")} style={{ fontSize: "0.88rem" }}>
+        {describeSel(r.sels[0])}{more > 0 && <span style={{ color: inkMuted, fontWeight: 600 }}> +{more} more</span>}
+      </span>
+    );
+  };
+  const nameBlock = (r) => (
+    <div style={{ minWidth: 0 }}>
+      <div style={{ fontWeight: 600, fontSize: "0.95rem", color: inkText, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontStyle: r.name ? "normal" : "italic" }}>{nameOf(r)}</div>
+      <div style={{ fontSize: "0.8rem", color: inkMuted, marginTop: "2px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.email || "—"}</div>
+    </div>
+  );
+
   return (
-    <div>
+    <div ref={screenRef} style={{ display: "flex", flexDirection: "column", height: fitH ? `${fitH}px` : undefined }}>
       {confirmDialog}
-      {error && <div role="alert" style={S.err}>{error}</div>}
-
-      <div style={S.card}>
-        <h2 style={S.h2}>Invite a coordinator</h2>
-        <p style={S.help}>
-          Pick the department (and optionally the program/major) they will handle. They receive an email link and set their own
-          name and password — no password is ever shared. Works for brand-new departments too.
-        </p>
-        <label style={S.label}>Email address<Req /></label>
-        <input style={{ ...S.input, maxWidth: "420px" }} type="email" value={email} placeholder="name@school.edu.ph" onChange={(e) => setEmail(e.target.value)} />
-        <div style={{ marginTop: "6px" }}><DeptSelectionsEditor depts={depts} value={sel} onChange={setSel} /></div>
-        <button type="button" style={{ ...S.btn, marginTop: "14px", opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={invite}>Send invitation</button>
-      </div>
-
-      {invites.length > 0 && (
-        <div style={S.card}>
-          <h2 style={S.h2}>Pending invitations</h2>
-          {invites.map((v) => (
-            <div key={v.id} style={{ display: "flex", flexWrap: "wrap", gap: "8px", alignItems: "center", justifyContent: "space-between", borderTop: `1px solid ${C.line}`, padding: "10px 0" }}>
-              <div>
-                <div style={{ fontWeight: 600, fontSize: "0.88rem" }}>{v.toEmail}</div>
-                <div style={{ fontSize: "0.78rem", color: C.muted }}>{(v.deptSelections || []).map(describeSel).join(" · ")}</div>
-                {v.createdAt?.toMillis && <div style={{ fontSize: "0.75rem", color: C.muted }}>Sent {timeAgo(v.createdAt.toMillis())}</div>}
-              </div>
-              <div style={{ display: "flex", gap: "8px" }}>
-                <button type="button" style={S.btn2} disabled={busy} onClick={() => resendInvite(v)}>Resend</button>
-                <button type="button" style={S.btn2} onClick={() => cancelInvite(v.id)}>Cancel</button>
-              </div>
-            </div>
-          ))}
+      <div style={tabHeadStyle}>
+      {!modalOpen && errorBox}
+      {/* Floating dark header bar: same shape as Student Accounts / Departments */}
+      <div className="dp-bar">
+        <div style={{ minWidth: 0, flex: "1 1 auto" }}>
+          <span style={{ fontFamily: uiFont, fontSize: "clamp(1.1rem, 3.5vw, 1.375rem)", fontWeight: 600, letterSpacing: "-0.01em", color: paper, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>Manage Coordinators</span>
+          <p style={{ fontFamily: uiFont, fontSize: "0.8rem", color: "rgba(255,255,255,0.7)", margin: "2px 0 0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {filtered.length} of {rows.length} · {coordinators.length} coordinator{coordinators.length !== 1 ? "s" : ""}, {invites.length} pending invitation{invites.length !== 1 ? "s" : ""}
+          </p>
         </div>
-      )}
-
-      <div style={S.card}>
-        <h2 style={S.h2}>Coordinators ({coordinators.length})</h2>
-        {coordinators.map((c) => (
-          <div key={c.uid} style={{ borderTop: `1px solid ${C.line}`, padding: "12px 0" }}>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", justifyContent: "space-between", alignItems: "center" }}>
-              <div>
-                <div style={{ fontWeight: 600, fontSize: "0.9rem" }}>{c.name || "(name not set yet)"} <span style={{ ...S.chip, marginLeft: "6px" }}>{c.status || "—"}</span></div>
-                <div style={{ fontSize: "0.78rem", color: C.muted }}>{c.email}</div>
-              </div>
-              {editingUid !== c.uid && (
-                <button type="button" style={S.btn2} onClick={() => { setEditingUid(c.uid); setEditSel(c.deptSelections?.length ? c.deptSelections.map((raw) => { const s = normSel(raw); return { department: s.department || "", program: s.program || "", specialization: s.specialization || "" }; }) : emptySel()); }}>
-                  Manage
-                </button>
-              )}
-            </div>
-            {editingUid === c.uid ? (
-              <div style={{ marginTop: "8px" }}>
-                <DeptSelectionsEditor depts={depts} value={editSel} onChange={setEditSel} />
-                <div style={{ display: "flex", gap: "8px", marginTop: "10px" }}>
-                  <button type="button" style={S.btn} disabled={busy} onClick={() => saveDepts(c.uid)}>Save</button>
-                  <button type="button" style={S.btn2} onClick={async () => {
-                    // Only ask when something was actually changed; nothing to lose otherwise.
-                    if (selSig(editSel) !== selSig(initialSel(c))
-                      && !(await confirm({ title: "Cancel changes", body: "Are you sure you want to cancel? Your changes will be discarded.", confirmLabel: "Discard changes", cancelLabel: "Keep editing", tone: "danger" }))) return;
-                    setEditingUid(null);
-                  }}>Cancel</button>
+        <div style={{ display: "flex", alignItems: "center", gap: "10px", flexShrink: 0 }}>
+          <div className="dp-search">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={inkMuted} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
+            <input value={search} name="mc-search" autoComplete="off" spellCheck={false} onChange={(e) => { setSearch(e.target.value); setPage(1); }} placeholder="Search coordinator name" />
+            {search && <button type="button" aria-label="Clear search" onClick={() => { setSearch(""); setPage(1); }} style={{ background: "none", border: "none", color: inkMuted, cursor: "pointer", fontSize: "0.9rem", padding: 0, lineHeight: 1 }}>✕</button>}
+          </div>
+          <div ref={filterRef} style={{ position: "relative" }}>
+            <button type="button" title="Filters" aria-label="Filters" aria-expanded={showFilter} onClick={() => setShowFilter((v) => !v)}
+              style={{ width: "40px", height: "40px", borderRadius: "999px", border: hasFilter ? `2px solid ${paperCard}` : "none", background: hasFilter ? paperCard : paper, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", padding: 0 }}>
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={hasFilter ? ink : inkMuted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" /></svg>
+            </button>
+            {showFilter && (
+              <div style={{ position: "absolute", top: "48px", right: 0, width: "min(300px, 80vw)", maxHeight: "min(70vh, 520px)", overflowY: "auto", background: paper, border: `1px solid ${hairline}`, borderRadius: "16px", boxShadow: "0 12px 32px rgba(0,0,0,0.22)", zIndex: 100, padding: "14px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
+                  <span style={{ fontFamily: uiFont, fontSize: "1rem", fontWeight: 700, color: inkText }}>Filters</span>
+                  <button type="button" onClick={clearFilters} style={{ background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: uiFont, fontSize: "0.8rem", color: inkMuted, textDecoration: "underline" }}>Clear all</button>
                 </div>
-              </div>
-            ) : (
-              <div style={{ marginTop: "6px" }}>
-                {(c.deptSelections || []).length === 0
-                  ? <span style={{ fontSize: "0.78rem", color: C.danger }}>No department assigned</span>
-                  : c.deptSelections.map((s, i) => <span key={i} style={S.chip}>{describeSel(s)}</span>)}
+
+                <p style={filterLabel}>Department</p>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "14px" }}>
+                  {sortedDepts.length === 0 && <span style={{ fontSize: "0.78rem", color: inkMuted }}>No departments yet</span>}
+                  {sortedDepts.map((d) => (
+                    <button key={d.id} type="button" title={d.name} style={filterChip(filters.department === d.name)}
+                      onClick={() => setFilter({ department: filters.department === d.name ? "" : d.name, program: "", major: "" })}>{d.abbr || d.name}</button>
+                  ))}
+                </div>
+
+                {filterDept && (
+                  <>
+                    <hr style={{ border: "none", borderTop: `1px solid ${hairline}`, margin: "0 0 12px" }} />
+                    <p style={filterLabel}>Program</p>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "14px" }}>
+                      {filterPrograms.map((pr) => (
+                        <button key={pr.name} type="button" style={filterChip(filters.program === pr.name)}
+                          onClick={() => setFilter({ program: filters.program === pr.name ? "" : pr.name, major: "" })}>{pr.name}</button>
+                      ))}
+                    </div>
+                  </>
+                )}
+
+                {filters.program && filterMajors.length > 0 && (
+                  <>
+                    <hr style={{ border: "none", borderTop: `1px solid ${hairline}`, margin: "0 0 12px" }} />
+                    <p style={filterLabel}>Major</p>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                      {filterMajors.map((m) => (
+                        <button key={m} type="button" style={filterChip(filters.major === m)}
+                          onClick={() => setFilter({ major: filters.major === m ? "" : m })}>{m}</button>
+                      ))}
+                    </div>
+                  </>
+                )}
+
+                {!filterDept && <p style={{ fontFamily: uiFont, fontSize: "0.76rem", color: inkMuted, margin: 0 }}>Pick a department to filter by its programs and majors.</p>}
               </div>
             )}
           </div>
-        ))}
-        {coordinators.length === 0 && <p style={S.help}>No coordinators yet.</p>}
+        </div>
       </div>
+
+      {/* Toolbar */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "12px", flexWrap: "wrap", marginBottom: "16px" }}>
+        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+          {hasFilter && (
+            <>
+              {[
+                filters.department && { label: filterDept?.abbr || filters.department, clear: () => setFilter({ department: "", program: "", major: "" }) },
+                filters.program && { label: filters.program, clear: () => setFilter({ program: "", major: "" }) },
+                filters.major && { label: filters.major, clear: () => setFilter({ major: "" }) },
+              ].filter(Boolean).map(({ label, clear }) => (
+                <span key={label} style={{ background: paper, color: inkText, border: `1px solid ${hairline}`, borderRadius: "999px", padding: "4px 12px", fontFamily: uiFont, fontSize: "0.78rem", display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                  {label}<span role="button" aria-label={`Remove filter ${label}`} onClick={clear} style={{ cursor: "pointer", color: inkMuted }}>✕</span>
+                </span>
+              ))}
+              <button type="button" onClick={clearFilters} style={{ background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: uiFont, fontSize: "0.78rem", color: inkMuted, textDecoration: "underline" }}>Clear all</button>
+            </>
+          )}
+        </div>
+        <button type="button" className="adm-btn-dark" style={S.btn} onClick={openInvite}>Invite a coordinator</button>
+      </div>
+
+      </div>
+
+      <div ref={scrollRef} style={tabScrollStyle}>
+      {/* List */}
+      {pageRows.length > 0 ? (
+        <>
+          {/* Desktop: table */}
+          <div className="mc-wrap">
+            <table className="mc-table">
+              <thead>
+                <tr>{["Name", "Department", "Status", "Action"].map((h) => <th key={h} className="mc-th">{h}</th>)}</tr>
+              </thead>
+              <tbody>
+                {pageRows.map((r) => (
+                  <tr key={r.key}>
+                    <td className="mc-td" style={{ maxWidth: "340px" }}>{nameBlock(r)}</td>
+                    <td className="mc-td">{deptCell(r)}</td>
+                    <td className="mc-td">{statusBadge(r.status)}</td>
+                    <td className="mc-td"><button type="button" className="adm-btn-light" style={S.btn2} onClick={() => openManage(r)}>Manage</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Mobile: cards */}
+          <div className="mc-cards">
+            {pageRows.map((r) => (
+              <div key={r.key} className="mc-card">
+                {nameBlock(r)}
+                <div>
+                  <p className="mc-card-label">Department</p>
+                  {deptCell(r)}
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "12px", paddingTop: "8px", borderTop: `1px solid ${hairline}` }}>
+                  {statusBadge(r.status)}
+                  <button type="button" className="adm-btn-light" style={S.btn2} onClick={() => openManage(r)}>Manage</button>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <PaginationBar page={safePage} totalPages={totalPages} onPage={goToPage} from={showingFrom} to={showingTo} total={filtered.length} />
+        </>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", padding: "72px 24px", gap: "4px", background: paper, border: `1px dashed ${hairline}`, borderRadius: "20px" }}>
+          <p style={{ fontFamily: uiFont, fontSize: "1.0625rem", fontWeight: 600, color: inkText, margin: 0 }}>{rows.length === 0 ? "No coordinators yet" : "No coordinators match this search"}</p>
+          <p style={{ fontFamily: uiFont, fontSize: "0.82rem", color: inkMuted, margin: 0, maxWidth: "44ch" }}>
+            {rows.length === 0 ? "Use Invite a coordinator to send the first invitation." : "Try a different name, or clear a filter."}
+          </p>
+        </div>
+      )}
+      </div>
+
+      {/* ── Invite a coordinator (pop-up form) ── */}
+      {showInvite && (
+        <DeptModal title="Invite a coordinator" onClose={closeInvite}
+          footer={(
+            <>
+              <button type="button" style={S.btn2} disabled={busy} onClick={closeInvite}>Cancel</button>
+              <button type="button" style={{ ...S.btn, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={invite}>{busy ? "Sending…" : "Send invitation"}</button>
+            </>
+          )}>
+          <p style={S.help}>
+            Pick the department (and optionally the program/major) they will handle. They receive an email link and set their own
+            name and password — no password is ever shared. Works for brand-new departments too.
+          </p>
+          <label style={S.label}>Email address<Req /></label>
+          <input style={S.input} type="email" name="invite-email" autoComplete="off" value={email} placeholder="name@school.edu.ph" onChange={(e) => setEmail(e.target.value)} />
+          <div style={{ marginTop: "6px" }}><DeptSelectionsEditor depts={depts} value={sel} onChange={setSel} /></div>
+          {errorBox}
+        </DeptModal>
+      )}
+
+      {/* ── Manage: summary + departments (pop-up) ── */}
+      {managing && (
+        <DeptModal title={managing.kind === "invite" ? "Pending invitation" : "Coordinator"} onClose={closeManage}
+          footer={managing.kind === "coord" ? (
+            <>
+              <button type="button" style={S.btn2} disabled={busy} onClick={closeManage}>Cancel</button>
+              <button type="button" style={{ ...S.btn, opacity: busy || !dirty ? 0.5 : 1 }} disabled={busy || !dirty} onClick={() => saveDepts(managing.ref.uid)}>{busy ? "Saving…" : "Save changes"}</button>
+            </>
+          ) : (
+            <>
+              <button type="button" style={{ ...S.btn2, color: C.danger, borderColor: C.danger }} disabled={busy} onClick={() => cancelInvite(managing.ref.id)}>Cancel invitation</button>
+              <button type="button" style={S.btn2} disabled={busy} onClick={() => resendInvite(managing.ref)}>Resend</button>
+              <button type="button" style={S.btn} onClick={closeManage}>Close</button>
+            </>
+          )}>
+          <InfoRow label="Name">{managing.name || <span style={{ color: inkMuted }}>{managing.kind === "invite" ? "Not signed up yet" : "(name not set yet)"}</span>}</InfoRow>
+          <InfoRow label="Email">{managing.email || "—"}</InfoRow>
+          <InfoRow label="Status">{statusBadge(managing.status)}</InfoRow>
+          {managing.kind === "invite" && managing.ref.createdAt?.toMillis && <InfoRow label="Invitation sent">{timeAgo(managing.ref.createdAt.toMillis())}</InfoRow>}
+          {managing.kind === "invite" ? (
+            <InfoRow label="Department">
+              {managing.sels.length === 0 ? <span style={{ color: C.danger }}>No department assigned</span> : managing.sels.map((s, i) => <span key={i} style={S.chip}>{describeSel(s)}</span>)}
+            </InfoRow>
+          ) : (
+            <div style={{ borderTop: `1px solid ${hairline}`, paddingTop: "12px" }}>
+              <span style={{ fontFamily: FONT, fontSize: "0.82rem", fontWeight: 600, color: inkMuted }}>Departments</span>
+              <div style={{ marginTop: "6px" }}><DeptSelectionsEditor depts={depts} value={editSel} onChange={setEditSel} /></div>
+            </div>
+          )}
+          {errorBox}
+        </DeptModal>
+      )}
     </div>
   );
 };
@@ -902,20 +1656,63 @@ const emailChangeMessage = (err) => {
 // system out. No password is shared: the SERVER emails the new person a "set your password" link.
 // Server side: functions/adminFunctions.js (adminAddAdmin, adminTransferAdmin, adminCancelTransfer,
 // adminCompleteTransfer).
-const AdminAccountsCard = ({ pending, onChanged, flash, confirm }) => {
-  const [mode, setMode] = useState(null);            // null | "add" | "transfer"
+// Pop-up shell + inputs for the Account Profile forms.
+const ApModal = ({ title, sub, onClose, footer, children }) => {
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  return (
+    <div className="ap-overlay">
+      <div role="dialog" aria-modal="true" aria-label={title} className="ap-modal">
+        <div className="ap-modal-body">
+          <h2 className="ap-modal-title">{title}</h2>
+          {sub && <p className="ap-modal-sub">{sub}</p>}
+          {children}
+        </div>
+        <div className="ap-modal-footer">{footer}</div>
+      </div>
+    </div>
+  );
+};
+const ApInput = ({ label, ...rest }) => (
+  <>
+    <label className="ap-label">{label}<Req /></label>
+    <input className="ap-input" {...rest} />
+  </>
+);
+const ApPassword = ({ label, ...rest }) => {
+  const [show, setShow] = useState(false);
+  return (
+    <>
+      <label className="ap-label">{label}<Req /></label>
+      <div className="ap-field">
+        <input className="ap-input" type={show ? "text" : "password"} {...rest} />
+        <button type="button" className="ap-eye" aria-label={show ? "Hide password" : "Show password"} onClick={() => setShow((v) => !v)}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            {show
+              ? <><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" /></>
+              : <><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" /><line x1="1" y1="1" x2="23" y2="23" /></>}
+          </svg>
+        </button>
+      </div>
+    </>
+  );
+};
+
+const AdminAccountModal = ({ mode, pending, onChanged, flash, confirm, onClose }) => {   // mode: "add" | "transfer"
   const [form, setForm] = useState({ name: "", email: "", password: "" });
   const [ack, setAck] = useState(false);
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const open = (m) => { setMode(m); setForm({ name: "", email: "", password: "" }); setAck(false); setError(""); setInfo(""); };
   const close = async () => {
     // Asking only when something was typed: nothing to lose otherwise.
-    if ((form.name || form.email || form.password)
+    if (!info && (form.name || form.email || form.password)
       && !(await confirm({ title: "Cancel", body: "Are you sure you want to cancel? What you entered will be discarded.", confirmLabel: "Discard", cancelLabel: "Keep editing", tone: "danger" }))) return;
-    setMode(null); setError("");
+    onClose();
   };
 
   const submit = async () => {
@@ -936,7 +1733,6 @@ const AdminAccountsCard = ({ pending, onChanged, flash, confirm }) => {
       const res = await httpsCallable(functions, mode === "add" ? "adminAddAdmin" : "adminTransferAdmin")({ name, email });
       const mailed = res?.data?.mailed !== false;
       const done = mode === "add" ? "Administrator account created." : "Transfer started.";
-      setMode(null);
       onChanged();
       flash(done);
       setInfo(mailed
@@ -956,6 +1752,7 @@ const AdminAccountsCard = ({ pending, onChanged, flash, confirm }) => {
       await httpsCallable(functions, "adminCancelTransfer")();
       onChanged();
       flash("Transfer cancelled.");
+      onClose();
     } catch (err) {
       setError(err?.message || "Could not cancel the transfer.");
     } finally {
@@ -963,60 +1760,263 @@ const AdminAccountsCard = ({ pending, onChanged, flash, confirm }) => {
     }
   };
 
+  const transferPending = mode === "transfer" && !!pending;
+  const showForm = !info && !transferPending;
   return (
-    <div style={S.card}>
-      <h2 style={S.h2}>Administrator accounts</h2>
-      <p style={S.help}>
-        Add another administrator, or hand your administrator role to someone else. They set their own password from an emailed link, so no password is ever shared.
-      </p>
-
-      {pending && (
-        <div role="status" style={{ ...S.okMsg, margin: "0 0 14px" }}>
+    <ApModal title={mode === "add" ? "Add administrator account" : "Transfer administrator account"} onClose={close}
+      sub={mode === "add"
+        ? "They set their own password from an emailed link, so no password is ever shared."
+        : "You keep access until they open the emailed link, set a password and sign in once. After that your account is switched off and you are signed out."}
+      footer={showForm ? (
+        <>
+          <button type="button" className="ap-fbtn ghost" disabled={busy} onClick={close}>Cancel</button>
+          <button type="button" className="ap-fbtn solid" disabled={busy} onClick={submit}>
+            {busy ? "Working…" : mode === "add" ? "Create and send link" : "Start transfer"}
+          </button>
+        </>
+      ) : <button type="button" className="ap-fbtn solid" onClick={onClose}>Close</button>}>
+      {transferPending && (
+        <div role="status" style={{ ...S.okMsg, margin: "16px 0 14px" }}>
           Transfer to <strong>{pending.email || "the new administrator"}</strong> is pending. You keep full access until they sign in for the first time; then your account is switched off.
           <div style={{ marginTop: "10px" }}>
-            <button type="button" style={{ ...S.btn2, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={cancelTransfer}>Cancel transfer</button>
+            <button type="button" className="adm-btn-light" style={{ ...S.btn2, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={cancelTransfer}>Cancel transfer</button>
           </div>
         </div>
       )}
-      {info && !pending && <div role="status" style={{ ...S.okMsg, margin: "0 0 14px" }}>{info}</div>}
-      {error && !mode && <div role="alert" style={S.err}>{error}</div>}
-
-      {!mode && (
-        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-          <button type="button" style={S.btn} onClick={() => open("add")}>Add account</button>
-          <button type="button" style={{ ...S.btn2, opacity: pending ? 0.5 : 1 }} disabled={!!pending} title={pending ? "A transfer is already pending" : undefined} onClick={() => open("transfer")}>Transfer account</button>
-        </div>
-      )}
-
-      {mode && (
+      {error && transferPending && <div role="alert" style={S.err}>{error}</div>}
+      {info && <div role="status" style={{ ...S.okMsg, margin: "16px 0 14px" }}>{info}</div>}
+      {showForm && (
         <div>
-          <h3 style={{ ...S.label, fontSize: "0.9rem", marginTop: 0 }}>{mode === "add" ? "Add an administrator account" : "Transfer your administrator account"}</h3>
+          <ApInput label="Name" maxLength={60} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+          <ApInput label="Email" type="email" autoComplete="off" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+          <ApPassword label="Your current password" autoComplete="current-password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
           {mode === "transfer" && (
-            <p style={S.help}>Enter the person who will take over. You keep access until they open the emailed link, set a password and sign in once. After that your account is switched off and you are signed out.</p>
-          )}
-          <label style={S.label}>Name<Req /></label>
-          <input style={{ ...S.input, maxWidth: "420px" }} maxLength={60} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-          <label style={S.label}>Email<Req /></label>
-          <input style={{ ...S.input, maxWidth: "420px" }} type="email" autoComplete="off" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
-          <label style={S.label}>Your current password<Req /></label>
-          <input style={{ ...S.input, maxWidth: "420px" }} type="password" autoComplete="current-password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
-          {mode === "transfer" && (
-            <label style={{ display: "flex", gap: "8px", alignItems: "flex-start", marginTop: "14px", fontFamily: FONT, fontSize: "0.82rem", maxWidth: "460px" }}>
+            <label style={{ display: "flex", gap: "8px", alignItems: "flex-start", marginTop: "18px", fontFamily: FONT, fontSize: "0.85rem" }}>
               <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} style={{ marginTop: "3px" }} />
               <span>I understand my administrator access will end once they sign in.</span>
             </label>
           )}
           {error && <div role="alert" style={S.err}>{error}</div>}
-          <div style={{ display: "flex", gap: "8px", marginTop: "14px" }}>
-            <button type="button" style={{ ...S.btn, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={submit}>
-              {busy ? "Working…" : mode === "add" ? "Create and send link" : "Start transfer"}
-            </button>
-            <button type="button" style={S.btn2} disabled={busy} onClick={close}>Cancel</button>
-          </div>
         </div>
       )}
+    </ApModal>
+  );
+};
+
+// ── Terms & Conditions / Privacy Policy: same reading layout as the coordinator's Account Profile ──
+// (header bar, progress line, "On this page" rail, sectioned body). The text itself comes from legalContent.js.
+const ApLegalStyles = () => (
+  <style>{`
+    .ap-legal { display: flex; flex-direction: column; background: ${paperTint}; overflow: hidden; }
+    .ap-legal-progress { height: 3px; flex-shrink: 0; background: ${paperCard}; }
+    .ap-legal-fill { height: 100%; background: color-mix(in srgb, ${inkDeep} 55%, #ffffff); transition: width 120ms linear; }
+    .ap-legal-cols { flex: 1; min-height: 0; display: flex; }
+    .ap-legal-toc { width: clamp(130px, 30vw, 240px); flex-shrink: 0; overflow-y: auto; padding: clamp(22px, 3vw, 30px) 0 40px clamp(16px, 3vw, 28px); border-right: 1px solid ${hairline}; }
+    .ap-legal-toc-heading { font-family: ${uiFont}; font-size: 0.8125rem; font-weight: 500; color: ${inkMuted}; margin: 0 0 12px; }
+    .ap-legal-toc-btn { display: block; width: 100%; text-align: left; background: none; border: none; cursor: pointer; padding: 7px 0 7px 12px; font-family: ${uiFont}; font-size: 0.8125rem; line-height: 1.45; transition: border-color 160ms ${ease}, color 160ms ${ease}; }
+    .ap-legal-toc-btn:hover { color: ${inkText} !important; }
+    .ap-legal-scroll { flex: 1; min-width: 0; position: relative; overflow-y: auto; padding: clamp(32px, 4vw, 44px) clamp(16px, 4vw, 44px) 56px; }
+    @media (max-width: 480px) {
+      .ap-legal-toc { padding-left: 12px; padding-right: 8px; }
+      .ap-legal-toc-heading { font-size: 0.75rem; }
+      .ap-legal-toc-btn { font-size: 0.75rem; padding: 6px 0 6px 8px; }
+    }
+    @media (prefers-reduced-motion: reduce) { .ap-legal-fill, .ap-legal-toc-btn { transition: none !important; } }
+  `}</style>
+);
+
+// Email addresses in the text become Gmail compose links (a plain mailto: does nothing on most machines).
+const AP_EMAIL_SPLIT = /([\w.+-]+@[\w-]+\.[\w-]+)/g;
+const AP_IS_EMAIL    = /^[\w.+-]+@[\w-]+\.[\w-]+$/;
+const apLinkify = (text) =>
+  text.split(AP_EMAIL_SPLIT).map((part, i) => (AP_IS_EMAIL.test(part)
+    ? <a key={i} href={`https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(part)}`} target="_blank" rel="noopener noreferrer"
+        style={{ color: inkText, fontWeight: 500, textDecoration: "underline", textUnderlineOffset: "3px" }}>{part}</a>
+    : part));
+
+// legalContent.js text -> { meta: [...], sections: [{ title, blocks: [{ type: "p" | "h3" | "ul", ... }] }] }.
+// Lines that start with "- " (or a bullet) are list items, whichever way the text was written.
+const buildLegalSections = (raw) => {
+  const meta = [];
+  const sections = [];
+  let cur = null;
+  for (const b of parseLegalDoc(raw)) {
+    if (b.type === "meta") { meta.push(b.text.replace(/^Version:\s*Version/i, "Version")); continue; }
+    if (b.type === "h2") { cur = { title: b.text, blocks: [] }; sections.push(cur); continue; }
+    if (!cur) continue;
+    const addItems = (items) => {
+      const last = cur.blocks[cur.blocks.length - 1];
+      if (last && last.type === "ul") last.items.push(...items);
+      else cur.blocks.push({ type: "ul", items: [...items] });
+    };
+    if (b.type === "ul") { addItems(b.items); continue; }
+    if (b.type === "p" && /^[-•]\s+/.test(b.text)) { addItems([b.text.replace(/^[-•]\s+/, "")]); continue; }
+    cur.blocks.push(b);
+  }
+  return { meta, sections };
+};
+
+const ApLegalPanel = ({ title, raw, onBack }) => {
+  const rootRef = useRef(null);
+  const scrollRef = useRef(null);
+  const tocRef = useRef(null);
+  const [progress, setProgress] = useState(0);
+  const [activeId, setActiveId] = useState(null);
+  const [height, setHeight] = useState(null);
+  const { meta, sections } = useMemo(() => buildLegalSections(raw), [raw]);
+  const toc = useMemo(() => sections.map((sec, i) => ({ id: `ap-sec-${i}`, text: sec.title })), [sections]);
+
+  // The panel scrolls inside itself (like the coordinator's), so it takes the rest of the visible area.
+  useLayoutEffect(() => {
+    const el = rootRef.current;
+    const main = el?.closest(".adm-main");
+    if (!el || !main) return undefined;
+    const fit = () => {
+      main.scrollTop = 0;
+      const top = el.getBoundingClientRect().top - main.getBoundingClientRect().top;
+      setHeight(Math.max(360, main.clientHeight - top));
+    };
+    fit();
+    window.addEventListener("resize", fit);
+    return () => window.removeEventListener("resize", fit);
+  }, []);
+
+  useEffect(() => {
+    const box = scrollRef.current;
+    if (!box) return undefined;
+    const onScroll = () => {
+      const max = box.scrollHeight - box.clientHeight;
+      setProgress(max > 0 ? Math.min(100, (box.scrollTop / max) * 100) : 0);
+      const boxTop = box.getBoundingClientRect().top;
+      let current = null;
+      box.querySelectorAll("[data-heading]").forEach((h) => {
+        if (h.getBoundingClientRect().top - boxTop <= 90) current = h.getAttribute("data-heading");
+      });
+      if (max > 0 && box.scrollTop >= max - 2 && toc.length > 0) current = toc[toc.length - 1].id;
+      if (current) setActiveId(current);
+
+      // Keep the "On this page" rail moving together with the document: its scrollbar follows the
+      // reading progress, and the highlighted section is never left outside the rail's view.
+      const nav = tocRef.current;
+      if (nav) {
+        const navMax = nav.scrollHeight - nav.clientHeight;
+        if (navMax > 0) nav.scrollTop = (max > 0 ? box.scrollTop / max : 0) * navMax;
+        const li = current && document.getElementById(`ap-toc-${current}`);
+        if (li && navMax > 0) {
+          const nr = nav.getBoundingClientRect(), lr = li.getBoundingClientRect();
+          if (lr.top < nr.top + 12) nav.scrollTop -= nr.top + 12 - lr.top;
+          else if (lr.bottom > nr.bottom - 12) nav.scrollTop += lr.bottom - (nr.bottom - 12);
+        }
+      }
+    };
+    box.addEventListener("scroll", onScroll, { passive: true });
+    onScroll();
+    return () => box.removeEventListener("scroll", onScroll);
+  }, [toc, height]);
+
+  const scrollTo = (id) => {
+    const el = document.getElementById(id);
+    const box = scrollRef.current;
+    if (el && box) box.scrollTo({ top: el.offsetTop - 16, behavior: "smooth" });
+  };
+
+  const body = { fontFamily: uiFont, ...type.body, lineHeight: 1.7, color: color.inkBody, maxWidth: "74ch" };
+  return (
+    <div ref={rootRef} className="ap-screen ap-legal" style={{ height: height ? `${height}px` : "70vh" }}>
+      <ApLegalStyles />
+      <div className="ap-sub-header">
+        <button type="button" className="ap-back" aria-label="Back" onClick={onBack}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={paper} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
+        </button>
+        <span style={{ fontFamily: uiFont, fontSize: "clamp(1.25rem, 4vw, 1.625rem)", fontWeight: 600, letterSpacing: "-0.01em", color: paper }}>{title}</span>
+      </div>
+
+      <div className="ap-legal-progress"><div className="ap-legal-fill" style={{ width: `${progress}%` }} /></div>
+
+      <div className="ap-legal-cols">
+        {toc.length > 0 && (
+          <nav className="ap-legal-toc" aria-label="Sections" ref={tocRef}>
+            <p className="ap-legal-toc-heading">On this page</p>
+            <ol style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: "2px" }}>
+              {toc.map((item) => {
+                const on = activeId === item.id;
+                return (
+                  <li key={item.id} id={`ap-toc-${item.id}`}>
+                    <button type="button" className="ap-legal-toc-btn" onClick={() => scrollTo(item.id)}
+                      style={{ borderLeft: `2px solid ${on ? inkText : "transparent"}`, color: on ? inkText : inkMuted, fontWeight: on ? 600 : 400 }}>
+                      {item.text}
+                    </button>
+                  </li>
+                );
+              })}
+            </ol>
+          </nav>
+        )}
+
+        <div className="ap-legal-scroll" ref={scrollRef}>
+          <h1 style={{ fontFamily: uiFont, fontSize: "clamp(1.4rem, 4vw, 2rem)", fontWeight: 600, letterSpacing: "-0.02em", color: inkText, margin: `0 0 ${space.md}`, lineHeight: 1.2 }}>{title}</h1>
+          {meta.length > 0 && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: space.sm, marginBottom: space.xl }}>
+              {meta.map((m) => (
+                <span key={m} style={{ fontFamily: uiFont, ...type.helper, fontWeight: 500, color: paper, background: inkDeep, borderRadius: radius.pill, padding: "6px 15px" }}>{m}</span>
+              ))}
+            </div>
+          )}
+
+          {sections.map((sec, idx) => {
+            const id = `ap-sec-${idx}`;
+            const first = idx === 0;
+            return (
+              <section key={id}>
+                <h2 id={id} data-heading={id}
+                  style={{ fontFamily: uiFont, fontSize: "clamp(1.05rem, 3vw, 1.25rem)", fontWeight: 600, letterSpacing: "-0.01em", color: inkText,
+                    margin: first ? `0 0 ${space.sm}` : `${space.xl} 0 ${space.sm}`, paddingTop: first ? 0 : space.lg,
+                    borderTop: first ? "none" : `1px solid ${hairline}`, scrollMarginTop: space.lg }}>
+                  {sec.title}
+                </h2>
+                {sec.blocks.map((b, i) => {
+                  if (b.type === "h3") {
+                    return <h3 key={i} style={{ fontFamily: uiFont, fontSize: "clamp(0.95rem, 2.6vw, 1.05rem)", fontWeight: 600, color: inkText, margin: `${space.lg} 0 ${space.xs}` }}>{b.text}</h3>;
+                  }
+                  if (b.type === "ul") {
+                    return (
+                      <ul key={i} style={{ margin: `8px 0 ${space.md}`, paddingLeft: "22px" }}>
+                        {b.items.map((it, j) => <li key={j} style={{ ...body, marginBottom: "5px" }}>{apLinkify(it)}</li>)}
+                      </ul>
+                    );
+                  }
+                  return <p key={i} style={{ ...body, margin: `0 0 ${space.md}` }}>{apLinkify(b.text)}</p>;
+                })}
+              </section>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
+};
+
+// Sizes a screen to the visible area under the top bar, so only its inner part scrolls (like the coordinator's).
+const useFillHeight = (ref, dep, observe = false) => {
+  const [h, setH] = useState(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    const main = el?.closest(".adm-main");
+    if (!el || !main) return undefined;
+    const fit = () => {
+      main.scrollTop = 0;
+      const top = el.getBoundingClientRect().top - main.getBoundingClientRect().top;
+      const bottomPad = parseFloat(getComputedStyle(el.parentElement).paddingBottom) || 0;
+      setH(Math.max(360, main.clientHeight - top - bottomPad));
+    };
+    fit();
+    window.addEventListener("resize", fit);
+    // A notice appearing above the screen moves it down: measure again.
+    const ro = observe && typeof ResizeObserver !== "undefined" ? new ResizeObserver(fit) : null;
+    if (ro) ro.observe(el.parentElement);
+    return () => { window.removeEventListener("resize", fit); if (ro) ro.disconnect(); };
+  }, [dep]); // eslint-disable-line react-hooks/exhaustive-deps
+  return h;
 };
 
 const AccountProfile = ({ admin, flash }) => {
@@ -1037,6 +2037,10 @@ const AccountProfile = ({ admin, flash }) => {
   const [pwBusy, setPwBusy] = useState(false);
   const [pending, setPending] = useState(null);   // { email } while a transfer of this account is pending
   const [confirm, confirmDialog] = useConfirm();
+  const [view, setView] = useState("main");   // main | personal | terms | privacy
+  const screenRef = useRef(null);
+  const fitH = useFillHeight(screenRef, view);
+  const [modal, setModal] = useState(null);      // null | email | password | add | transfer
 
   const loadName = async () => {
     try {
@@ -1115,6 +2119,7 @@ const AccountProfile = ({ admin, flash }) => {
       await updatePassword(auth.currentUser, pw.next);
       setPw({ current: "", next: "", confirm: "" });
       flash("Password changed.");
+      setModal(null);
     } catch (err) {
       setPwError(err?.message || "Could not change the password.");
     } finally {
@@ -1122,71 +2127,178 @@ const AccountProfile = ({ admin, flash }) => {
     }
   };
 
-  return (
-    <div>
-      {confirmDialog}
-      <div style={S.card}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-          <h2 style={S.h2}>Personal information</h2>
-          {!editingName && <button type="button" style={S.btn2} onClick={() => { setNameDraft(name); setNameError(""); setEditingName(true); }}>Edit name</button>}
+  const openEmail = () => { setEmailForm({ email: "", password: "" }); setEmailError(""); setEmailInfo(""); setModal("email"); };
+  const openPassword = () => { setPw({ current: "", next: "", confirm: "" }); setPwError(""); setModal("password"); };
+  const dirty = (modal === "email" && !emailInfo && (emailForm.email || emailForm.password))
+    || (modal === "password" && (pw.current || pw.next || pw.confirm));
+  const closeModal = async () => {
+    if (dirty && !(await confirm({ title: "Cancel", body: "Are you sure you want to cancel? What you entered will be discarded.", confirmLabel: "Discard", cancelLabel: "Keep editing", tone: "danger" }))) return;
+    setModal(null);
+  };
+
+  const icons = {
+    person:   <><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></>,
+    mail:     <><rect x="3" y="5" width="18" height="14" rx="2" /><polyline points="3 7 12 13 21 7" /></>,
+    key:      <><path d="M21 2l-2 2m-7.6 7.6a5.5 5.5 0 1 1-7.8 7.8 5.5 5.5 0 0 1 7.8-7.8zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3" /></>,
+    addUser:  <><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><line x1="19" y1="8" x2="19" y2="14" /><line x1="22" y1="11" x2="16" y2="11" /></>,
+    document: <><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /></>,
+    shield:   <><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /><polyline points="9 12 11 14 15 10" /></>,
+    transfer: <><polyline points="17 1 21 5 17 9" /><path d="M3 11V9a4 4 0 0 1 4-4h14" /><polyline points="7 23 3 19 7 15" /><path d="M21 13v2a4 4 0 0 1-4 4H3" /></>,
+  };
+  const MenuRow = ({ icon, label, onClick }) => (
+    <button type="button" className="ap-menu-row" onClick={onClick}>
+      <span style={{ display: "flex", alignItems: "center", gap: "14px", minWidth: 0 }}>
+        <span className="ap-row-icon">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{icons[icon]}</svg>
+        </span>
+        <span style={{ fontFamily: uiFont, fontSize: "1rem", fontWeight: 500, letterSpacing: "-0.01em", color: inkText }}>{label}</span>
+      </span>
+      <svg className="ap-go" width="35" height="35" viewBox="0 0 36 36" aria-hidden="true">
+        <circle cx="18" cy="18" r="17" fill={ink} />
+        <path d="M11 18h14M19 12l6 6-6 6" stroke="#fff" strokeWidth="3" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    </button>
+  );
+
+  // Terms and Privacy open as their own screens, with the text from legalContent.js.
+  if (view === "terms")   return <ApLegalPanel title="Terms and conditions" raw={TERMS_TEXT} onBack={() => setView("main")} />;
+  if (view === "privacy") return <ApLegalPanel title="Privacy policy" raw={PRIVACY_TEXT} onBack={() => setView("main")} />;
+
+  // Personal Information opens as its own screen; everything else is a pop-up form on top of the menu.
+  if (view === "personal") {
+    return (
+      <div ref={screenRef} className="ap-screen ap-fixed" style={{ height: fitH ? `${fitH}px` : undefined }}>
+        {confirmDialog}
+        <div className="ap-sub-header">
+          <button type="button" className="ap-back" aria-label="Back" onClick={() => { setView("main"); setEditingName(false); setNameError(""); }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={paper} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
+          </button>
+          <span style={{ fontFamily: uiFont, fontSize: "clamp(1.25rem, 4vw, 1.625rem)", fontWeight: 600, letterSpacing: "-0.01em", color: paper }}>Personal Information</span>
         </div>
-        {loadError && <div role="alert" style={S.err}>{loadError}</div>}
-
-        {!editingName ? (
-          <InfoRow label="Name">{name || "—"}</InfoRow>
-        ) : (
-          <>
-            <label style={S.label}>Name<Req /></label>
-            <input style={{ ...S.input, maxWidth: "420px" }} value={nameDraft} maxLength={60} onChange={(e) => setNameDraft(e.target.value)} />
-            <FieldError>{nameError}</FieldError>
-            <div style={{ display: "flex", gap: "8px", marginTop: "14px" }}>
-              <button type="button" style={{ ...S.btn, opacity: savingName ? 0.6 : 1 }} disabled={savingName} onClick={saveName}>{savingName ? "Saving…" : "Save"}</button>
-              <button type="button" style={S.btn2} disabled={savingName} onClick={async () => {
-              if (norm(nameDraft) !== norm(name)
-                && !(await confirm({ title: "Cancel changes", body: "Are you sure you want to cancel? Your changes will be discarded.", confirmLabel: "Discard changes", cancelLabel: "Keep editing", tone: "danger" }))) return;
-              setEditingName(false);
-            }}>Cancel</button>
+        <div className="ap-sub-body">
+          {!editingName && (
+            <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "16px" }}>
+              <button type="button" className="ap-edit-btn" onClick={() => { setNameDraft(name); setNameError(""); setEditingName(true); }}>
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>
+                Edit
+              </button>
             </div>
-          </>
-        )}
-        <InfoRow label="Email">{admin.email || "—"}</InfoRow>
-        <InfoRow label="Role">Administrator</InfoRow>
+          )}
+          {loadError && <div role="alert" style={S.err}>{loadError}</div>}
+
+          <div className="ap-info-card">
+            <p className="ap-info-label">Name{editingName && <Req />}</p>
+            {!editingName ? (
+              <p className="ap-info-value">{name || "—"}</p>
+            ) : (
+              <>
+                <input className="ap-name-input" value={nameDraft} maxLength={60} autoFocus onChange={(e) => setNameDraft(e.target.value)} />
+                <FieldError>{nameError}</FieldError>
+              </>
+            )}
+          </div>
+          <div className="ap-info-card">
+            <p className="ap-info-label">Email address</p>
+            <p className="ap-info-value">{admin.email || "—"}</p>
+          </div>
+          <div className="ap-info-card">
+            <p className="ap-info-label">Role</p>
+            <p className="ap-info-value">Administrator</p>
+          </div>
+
+          {editingName && (
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px", marginTop: "4px" }}>
+              <button type="button" style={S.btn2} disabled={savingName} onClick={async () => {
+                if (norm(nameDraft) !== norm(name)
+                  && !(await confirm({ title: "Cancel changes", body: "Are you sure you want to cancel? Your changes will be discarded.", confirmLabel: "Discard changes", cancelLabel: "Keep editing", tone: "danger" }))) return;
+                setEditingName(false);
+              }}>Cancel</button>
+              <button type="button" style={{ ...S.btn, opacity: savingName ? 0.6 : 1 }} disabled={savingName} onClick={saveName}>{savingName ? "Saving…" : "Save"}</button>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div ref={screenRef} className="ap-screen ap-fixed" style={{ height: fitH ? `${fitH}px` : undefined }}>
+      {confirmDialog}
+
+      {/* Dark banner + overlapping profile card (same as the coordinator's Account Profile) */}
+      <div className="ap-header-wrap">
+        <div className="ap-banner" />
+        <div className="ap-header-card">
+          <div className="ap-avatar">
+            <svg width="46" height="46" viewBox="0 0 24 24" fill="none" stroke={paper} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>
+          </div>
+          <p style={{ fontFamily: uiFont, fontSize: "clamp(1rem, 4vw, 1.125rem)", fontWeight: 600, letterSpacing: "-0.01em", color: inkText, margin: 0, textAlign: "center" }}>{name || "—"}</p>
+        </div>
       </div>
 
-      <div style={S.card}>
-        <h2 style={S.h2}>Sign-in email</h2>
-        <p style={S.help}>
-          This is the email you sign in with, and where password reset links are sent. To change it, enter the new email and your
-          current password. We’ll send a verification link to the new address, and the change takes effect when you open it.
-        </p>
-        <label style={S.label}>New email<Req /></label>
-        <input style={{ ...S.input, maxWidth: "420px" }} type="email" autoComplete="off" value={emailForm.email} onChange={(e) => setEmailForm({ ...emailForm, email: e.target.value })} />
-        <label style={S.label}>Current password<Req /></label>
-        <input style={{ ...S.input, maxWidth: "420px" }} type="password" autoComplete="current-password" value={emailForm.password} onChange={(e) => setEmailForm({ ...emailForm, password: e.target.value })} />
-        {emailError && <div role="alert" style={S.err}>{emailError}</div>}
-        {emailInfo && <div role="status" style={{ ...S.okMsg, margin: "14px 0 0" }}>{emailInfo}</div>}
-        <button type="button" style={{ ...S.btn, marginTop: "14px", opacity: emailBusy ? 0.6 : 1 }} disabled={emailBusy} onClick={submitEmail}>
-          {emailBusy ? "Sending…" : "Send verification link"}
-        </button>
+      <div className="ap-divider" />
+
+      <div className="ap-body">
+        <div className="ap-group">
+          <p className="ap-group-title">Personal Information:</p>
+          <MenuRow icon="person" label="Personal Information" onClick={() => setView("personal")} />
+        </div>
+        <div className="ap-group">
+          <p className="ap-group-title">Security:</p>
+          <MenuRow icon="mail" label="Sign-in Email" onClick={openEmail} />
+          <MenuRow icon="key" label="Change Password" onClick={openPassword} />
+        </div>
+        <div className="ap-group">
+          <p className="ap-group-title">Administrator Accounts:</p>
+          <MenuRow icon="addUser" label="Add Account" onClick={() => setModal("add")} />
+          <MenuRow icon="transfer" label="Transfer Account" onClick={() => setModal("transfer")} />
+        </div>
+        <div className="ap-group">
+          <p className="ap-group-title">Legal:</p>
+          <MenuRow icon="document" label="Terms & Condition" onClick={() => setView("terms")} />
+          <MenuRow icon="shield" label="Privacy Policy" onClick={() => setView("privacy")} />
+        </div>
       </div>
 
-      <div style={S.card}>
-        <h2 style={S.h2}>Change password</h2>
-        <p style={S.help}>Enter your current password, then choose a new one.</p>
-        <label style={S.label}>Current password<Req /></label>
-        <input style={{ ...S.input, maxWidth: "420px" }} type="password" autoComplete="current-password" value={pw.current} onChange={(e) => setPw({ ...pw, current: e.target.value })} />
-        <label style={S.label}>New password<Req /></label>
-        <input style={{ ...S.input, maxWidth: "420px" }} type="password" autoComplete="new-password" value={pw.next} onChange={(e) => setPw({ ...pw, next: e.target.value })} />
-        <PasswordChecklist password={pw.next} />
-        <label style={S.label}>Confirm new password<Req /></label>
-        <input style={{ ...S.input, maxWidth: "420px" }} type="password" autoComplete="new-password" value={pw.confirm} onChange={(e) => setPw({ ...pw, confirm: e.target.value })} />
-        {pwError && <div role="alert" style={S.err}>{pwError}</div>}
-        <button type="button" style={{ ...S.btn, marginTop: "14px", opacity: pwBusy ? 0.6 : 1 }} disabled={pwBusy} onClick={submitPassword}>
-          {pwBusy ? "Saving…" : "Change password"}
-        </button>
-      </div>
+      {/* ── Pop-up forms ── */}
+      {modal === "email" && (
+        <ApModal title="Sign-in email" onClose={closeModal}
+          sub="This is the email you sign in with, and where password reset links are sent. We’ll send a verification link to the new address, and the change takes effect when you open it."
+          footer={emailInfo
+            ? <button type="button" className="ap-fbtn solid" onClick={() => setModal(null)}>Close</button>
+            : (
+              <>
+                <button type="button" className="ap-fbtn ghost" disabled={emailBusy} onClick={closeModal}>Cancel</button>
+                <button type="button" className="ap-fbtn solid" disabled={emailBusy} onClick={submitEmail}>{emailBusy ? "Sending…" : "Send verification link"}</button>
+              </>
+            )}>
+          <ApInput label="New email" type="email" autoComplete="off" value={emailForm.email} onChange={(e) => setEmailForm({ ...emailForm, email: e.target.value })} />
+          <ApPassword label="Current password" autoComplete="current-password" value={emailForm.password} onChange={(e) => setEmailForm({ ...emailForm, password: e.target.value })} />
+          {emailError && <div role="alert" style={S.err}>{emailError}</div>}
+          {emailInfo && <div role="status" style={{ ...S.okMsg, margin: "16px 0 0" }}>{emailInfo}</div>}
+        </ApModal>
+      )}
 
-      <AdminAccountsCard pending={pending} onChanged={loadName} flash={flash} confirm={confirm} />
+      {modal === "password" && (
+        <ApModal title="Change password" sub="Enter your current password, then choose a new one." onClose={closeModal}
+          footer={(
+            <>
+              <button type="button" className="ap-fbtn ghost" disabled={pwBusy} onClick={closeModal}>Cancel</button>
+              <button type="button" className="ap-fbtn solid" disabled={pwBusy} onClick={submitPassword}>{pwBusy ? "Saving…" : "Change password"}</button>
+            </>
+          )}>
+          <ApPassword label="Current password" autoComplete="current-password" value={pw.current} onChange={(e) => setPw({ ...pw, current: e.target.value })} />
+          <hr className="ap-hr" />
+          <ApPassword label="New password" autoComplete="new-password" value={pw.next} onChange={(e) => setPw({ ...pw, next: e.target.value })} />
+          <PasswordChecklist password={pw.next} />
+          <ApPassword label="Confirm new password" autoComplete="new-password" value={pw.confirm} onChange={(e) => setPw({ ...pw, confirm: e.target.value })} />
+          {pwError && <div role="alert" style={S.err}>{pwError}</div>}
+        </ApModal>
+      )}
+
+      {(modal === "add" || modal === "transfer") && (
+        <AdminAccountModal mode={modal} pending={pending} onChanged={loadName} flash={flash} confirm={confirm} onClose={() => setModal(null)} />
+      )}
     </div>
   );
 };
@@ -1197,7 +2309,7 @@ const AccountProfile = ({ admin, flash }) => {
 // and a light content area.
 const PAGE_TITLES = {
   departments:  { title: "Departments & Programs", sub: "Add departments, programs and majors. Changes show up across OJTern right away." },
-  coordinators: { title: "Coordinators",           sub: "Invite coordinators and choose which department each one handles." },
+  coordinators: { title: "Manage Coordinators",     sub: "Invite coordinators and choose which department each one handles." },
   accountprofile: { title: "Account Profile",      sub: "Your administrator details, password and administrator accounts." },
 };
 
@@ -1285,7 +2397,7 @@ const AdminDashboard = ({ admin }) => {
               </button>
             )}
             <div style={{ display: "flex", alignItems: "center", gap: "10px", flexShrink: 0 }}>
-              <img src={logo} alt="OJTern" style={{ width: "40px", height: "40px", objectFit: "contain", flexShrink: 0 }} />
+              <img src={topbarLogo} alt="OJTern" style={{ width: "40px", height: "40px", objectFit: "contain", flexShrink: 0 }} />
               <span style={{ fontFamily: logoFont, fontSize: "clamp(1.1rem, 3vw, 1.5rem)", color: paper, letterSpacing: "0.03em" }}>OJTern</span>
             </div>
           </div>
@@ -1315,7 +2427,7 @@ const AdminDashboard = ({ admin }) => {
               <div className={`adm-overlay ${drawerOpen ? "open" : ""}`} onClick={() => setDrawerOpen(false)} />
               <div className={`adm-drawer ${drawerOpen ? "open" : ""}`}>
                 <div style={{ background: `linear-gradient(90deg, ${ink} 0%, ${inkDeep} 100%)`, padding: "14px 20px", flexShrink: 0, display: "flex", alignItems: "center", gap: "10px" }}>
-                  <img src={logo} alt="OJTern" style={{ width: "32px", height: "32px", objectFit: "contain" }} />
+                  <img src={topbarLogo} alt="OJTern" style={{ width: "32px", height: "32px", objectFit: "contain" }} />
                   <span style={{ fontFamily: logoFont, fontSize: "1.2rem", color: paper }}>OJTern</span>
                 </div>
                 <SidebarNav activeNav={activeNav} onNavigate={navigate} onLogout={askLogout} />
@@ -1327,10 +2439,24 @@ const AdminDashboard = ({ admin }) => {
             {activeNav === "about" ? (
               <AboutUsScreen onBack={() => navigate("departments")} />
             ) : (
-              <div style={{ width: "100%", maxWidth: "1040px", margin: "0 auto", padding: isMobile ? "20px 14px 64px" : "28px 24px 64px", boxSizing: "border-box" }}>
-                <h1 style={{ fontFamily: uiFont, fontWeight: 600, fontSize: "clamp(1.5rem, 4vw, 2.2rem)", color: ink, letterSpacing: "-0.02em", margin: "0 0 4px" }}>{page.title}</h1>
-                <p style={{ fontFamily: uiFont, fontSize: "clamp(0.85rem, 2vw, 1rem)", color: inkMuted, margin: "0 0 22px" }}>{page.sub}</p>
-                {notice && <div role="status" style={S.okMsg}>{notice}</div>}
+              <div style={{
+                width: "100%",
+                // Departments and Manage Coordinators use the full width, like Student Accounts; the other tabs keep the narrow column.
+                maxWidth: (activeNav === "departments" || activeNav === "coordinators" || activeNav === "accountprofile") ? "none" : "1040px",
+                margin: "0 auto",
+                padding: activeNav === "accountprofile" ? "0"
+                  : (activeNav === "departments" || activeNav === "coordinators")
+                  ? "clamp(16px, 4vw, 28px) clamp(16px, 4vw, 32px) clamp(16px, 4vw, 28px)"
+                  : isMobile ? "20px 14px 64px" : "28px 24px 64px",
+                boxSizing: "border-box",
+              }}>
+                {activeNav !== "accountprofile" && (
+                  <>
+                    <h1 style={{ fontFamily: uiFont, fontWeight: 600, fontSize: "clamp(1.5rem, 4vw, 2.2rem)", color: ink, letterSpacing: "-0.02em", margin: "0 0 4px" }}>{page.title}</h1>
+                    <p style={{ fontFamily: uiFont, fontSize: "clamp(0.85rem, 2vw, 1rem)", color: inkMuted, margin: "0 0 22px" }}>{page.sub}</p>
+                  </>
+                )}
+                {notice && <div role="status" style={activeNav === "accountprofile" ? { ...S.okMsg, margin: "14px clamp(16px, 4vw, 32px) 0" } : S.okMsg}>{notice}</div>}
                 {activeNav === "departments" ? <DepartmentsTab depts={depts} loaded={loaded} flash={flash} />
                   : activeNav === "coordinators" ? <CoordinatorsTab admin={admin} depts={depts} flash={flash} />
                   : <AccountProfile admin={admin} flash={flash} />}

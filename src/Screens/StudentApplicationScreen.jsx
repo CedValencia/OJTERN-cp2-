@@ -2310,8 +2310,10 @@ const ResponsiveStyles = () => (
     /* ── List wrapper: same shape as CoordinatorStudentListScreen — vertical
        scroll only, padded scroll area over the page background ── */
     .sa-list-wrapper {
-      overflow-x: hidden;
-      overflow-y: auto;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
       width: 100%;
       flex: 1;
       background: ${page};
@@ -4515,6 +4517,49 @@ const ApplicationRow = ({ application, standing, onView, onDelete, companyProfil
 };
 
 // ─── MAIN APPLICATION SCREEN ──────────────────────────────────────────────────
+// ── Pagination: 10 rows per page ──────────────────────────────────────────────
+const PAGE_SIZE = 10;
+// The header (title, search, filters) is fixed; only the list under it scrolls, with its own scrollbar.
+// The list box reaches into the screen padding so its scrollbar sits at the edge.
+const PIN_PAD = "clamp(16px, 4vw, 28px)";
+const PIN_PAD_X = "clamp(16px, 4vw, 32px)";
+const fixedHead = { flexShrink: 0, position: "relative", zIndex: 30 };
+const listScroll = { flex: "1 1 auto", minHeight: 0, overflowY: "auto", margin: `0 calc(-1 * ${PIN_PAD_X}) calc(-1 * ${PIN_PAD})`, padding: `0 ${PIN_PAD_X} ${PIN_PAD}` };
+// Next/previous page: the list goes back to its start.
+const scrollListToTop = (scroller) => { if (scroller) scroller.scrollTo({ top: 0, behavior: "smooth" }); };
+// « ‹ 1 2 3 … 9 › » — same look as the Admin screens: current-page badge + page buttons in one rounded bar.
+const PaginationBar = ({ page: current, totalPages, onPage, from, to, total }) => {
+  const range = (a, b) => Array.from({ length: b - a + 1 }, (_, i) => a + i);
+  const items = totalPages <= 7 ? range(1, totalPages)
+    : current <= 4 ? [...range(1, 5), "gap-end", totalPages]
+    : current >= totalPages - 3 ? [1, "gap-start", ...range(totalPages - 4, totalPages)]
+    : [1, "gap-start", current - 1, current, current + 1, "gap-end", totalPages];
+  const btn = (on, disabled) => ({
+    minWidth: "36px", height: "36px", padding: "0 10px", borderRadius: "10px",
+    border: `1.5px solid ${on ? color.blush50 : color.wine700}`, background: on ? color.blush50 : color.white, color: on ? color.white : color.ink,
+    fontFamily: font.ui, fontSize: "0.82rem", fontWeight: 600, cursor: disabled ? "default" : "pointer", opacity: disabled ? 0.45 : 1,
+  });
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap-reverse", alignItems: "center", justifyContent: total != null ? "space-between" : "center", gap: "12px", padding: "20px 0 4px" }}>
+      {total != null && <span style={{ fontFamily: font.ui, fontSize: "0.8rem", color: color.inkMuted }}>Showing {from}–{to} of {total}</span>}
+      <nav aria-label="Pagination" style={{ marginLeft: "auto", display: "inline-flex", alignItems: "stretch", maxWidth: "100%", background: color.white, border: `1px solid ${color.wine700}`, borderRadius: "16px", boxShadow: "0 4px 16px rgba(20,20,20,0.06)", overflow: "hidden" }}>
+        <div title="Current page" style={{ display: "flex", alignItems: "center", justifyContent: "center", minWidth: "52px", padding: "0 14px", background: color.wine800, borderRight: `1px solid ${color.wine700}`, fontFamily: font.ui, fontSize: "0.9rem", fontWeight: 700, color: color.ink }}>
+          {String(current).padStart(2, "0")}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: "6px", padding: "10px 12px", flexWrap: "wrap", justifyContent: "center" }}>
+          <button type="button" aria-label="First page" title="First page" style={btn(false, current === 1)} disabled={current === 1} onClick={() => onPage(1)}>«</button>
+          <button type="button" aria-label="Previous page" title="Previous page" style={btn(false, current === 1)} disabled={current === 1} onClick={() => onPage(current - 1)}>‹</button>
+          {items.map((it) => (typeof it === "number"
+            ? <button key={it} type="button" style={btn(it === current, false)} aria-current={it === current ? "page" : undefined} onClick={() => onPage(it)}>{it}</button>
+            : <span key={it} style={{ color: color.inkMuted, padding: "0 4px" }}>…</span>))}
+          <button type="button" aria-label="Next page" title="Next page" style={btn(false, current === totalPages)} disabled={current === totalPages} onClick={() => onPage(current + 1)}>›</button>
+          <button type="button" aria-label="Last page" title="Last page" style={btn(false, current === totalPages)} disabled={current === totalPages} onClick={() => onPage(totalPages)}>»</button>
+        </div>
+      </nav>
+    </div>
+  );
+};
+
 const StudentApplicationScreen = ({ initialCompany, onModalClose, user, openApplicationId, onApplicationOpened, companyProfileIcon: themedCompanyIcon = blackCompanyProfileIcon, onViewChange }) => {
   const [search, setSearch]                     = useState("");
   const [showApply, setShowApply]               = useState(!!initialCompany);
@@ -4527,6 +4572,10 @@ const StudentApplicationScreen = ({ initialCompany, onModalClose, user, openAppl
   // Standing of each company applied to (suspended / blocked), watched live.
   const companyStandings = useCompanyStandings(applications.map(a => a.companyId));
   const [statusFilter, setStatusFilter]         = useState("All");
+  const [curPage, setCurPage]                   = useState(1);
+  // Next/previous page: the list goes back to its start.
+  const scrollRef = useRef(null);
+  const goToPage = (n) => { setCurPage(n); requestAnimationFrame(() => scrollListToTop(scrollRef.current)); };
   // Tells the Dashboard which part of Applications is showing, so its "?"
   // help button (and first-visit auto-tour) runs the matching steps:
   // "list" | "apply" | "view" | "edit". Reset to "list" on unmount.
@@ -4602,6 +4651,14 @@ const StudentApplicationScreen = ({ initialCompany, onModalClose, user, openAppl
     app.company.toLowerCase().includes(search.toLowerCase()) &&
     (statusFilter === "All" ? app.status !== WITHDRAWN : app.status === statusFilter)
   );
+
+  useEffect(() => { setCurPage(1); }, [search, statusFilter]);
+  // ── Pagination (10 per page) ──
+  const totalPages = Math.max(1, Math.ceil(filteredApplications.length / PAGE_SIZE));
+  const safePage = Math.min(curPage, totalPages);
+  const pageRows = filteredApplications.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  const showingFrom = filteredApplications.length ? (safePage - 1) * PAGE_SIZE + 1 : 0;
+  const showingTo = Math.min(safePage * PAGE_SIZE, filteredApplications.length);
 
   // Auto-open a specific application's details when navigated here with a
   // target id (e.g. clicking a "Recent Application" on the dashboard).
@@ -4811,6 +4868,7 @@ const StudentApplicationScreen = ({ initialCompany, onModalClose, user, openAppl
     <>
       <ResponsiveStyles />
       <div className="sa-list-wrapper">
+        <div style={fixedHead}>
 
         {/* Top bar — same floating dark panel as CoordinatorStudentListScreen */}
         <div className="sa-topbar">
@@ -4872,20 +4930,28 @@ const StudentApplicationScreen = ({ initialCompany, onModalClose, user, openAppl
           })}
         </div>
 
+        </div>
+
+        <div ref={scrollRef} style={listScroll}>
         {/* Application rows */}
         {!user?.uid ? (
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "72px 0" }}>
             <p style={{ fontFamily: font.ui, ...type.body, color: inkFaint }}>Loading applications…</p>
           </div>
         ) : filteredApplications.length > 0 ? (
+          <>
           <div className="sa-list-area" id="sapp-list">
-            {filteredApplications.map(application => (
+            {pageRows.map(application => (
               <ApplicationRow key={application.id} application={application} standing={companyStandings[application.companyId]} onView={handleView} onDelete={handleDelete} companyProfileIcon={themedCompanyIcon} postClosure={getPostClosure(application.postId, postsById)} canConfirmPlacement={!hasConfirmedPlacement} otherAccepted={otherAcceptedNames(application.id)} onConfirmPlacement={handleConfirmPlacement} />
             ))}
-            <p style={{ textAlign: "center", fontFamily: font.ui, ...type.helper, color: inkFaint, padding: "16px 0 0" }}>
-              No more recent applications!
-            </p>
+            {safePage === totalPages && (
+              <p style={{ textAlign: "center", fontFamily: font.ui, ...type.helper, color: inkFaint, padding: "16px 0 0" }}>
+                No more recent applications!
+              </p>
+            )}
           </div>
+          <PaginationBar page={safePage} totalPages={totalPages} onPage={goToPage} from={showingFrom} to={showingTo} total={filteredApplications.length} />
+          </>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", padding: "72px 24px", gap: space.xs, background: surface, border: `1px dashed ${color.wine400}`, borderRadius: radius.panel }}>
             <p style={{ fontFamily: font.ui, fontSize: "1.0625rem", fontWeight: 600, color: ink }}>
@@ -4898,6 +4964,7 @@ const StudentApplicationScreen = ({ initialCompany, onModalClose, user, openAppl
             </p>
           </div>
         )}
+        </div>
       </div>
 
       {viewingApplication && (

@@ -3274,6 +3274,49 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
   // own deptSelections (see findMatchingEntry above for the exact match rule
   // and per-department status bucketing).
 
+  // ── Pagination: 10 rows per page ──
+  const PAGE_SIZE = 10;
+// The header (title, search, filters) is fixed; only the list under it scrolls, with its own scrollbar
+// (same idea as Account Profile in Admin). The list box reaches into the screen padding so its scrollbar sits at the edge.
+const PIN_PAD = "clamp(16px, 4vw, 28px)";
+const PIN_PAD_X = "clamp(16px, 4vw, 32px)";
+const fixedHead = { flexShrink: 0, position: "relative", zIndex: 30 };
+const listScroll = { flex: "1 1 auto", minHeight: 0, overflowY: "auto", margin: `0 calc(-1 * ${PIN_PAD_X}) calc(-1 * ${PIN_PAD})`, padding: `0 ${PIN_PAD_X} ${PIN_PAD}` };
+// Next/previous page: the list goes back to its start.
+const scrollListToTop = (scroller) => { if (scroller) scroller.scrollTo({ top: 0, behavior: "smooth" }); };
+  // « ‹ 1 2 3 … 9 › » — same look as the Admin screens: current-page badge + page buttons in one rounded bar.
+  const PaginationBar = ({ page: current, totalPages, onPage, from, to, total }) => {
+    const range = (a, b) => Array.from({ length: b - a + 1 }, (_, i) => a + i);
+    const items = totalPages <= 7 ? range(1, totalPages)
+      : current <= 4 ? [...range(1, 5), "gap-end", totalPages]
+      : current >= totalPages - 3 ? [1, "gap-start", ...range(totalPages - 4, totalPages)]
+      : [1, "gap-start", current - 1, current, current + 1, "gap-end", totalPages];
+    const btn = (on, disabled) => ({
+      minWidth: "36px", height: "36px", padding: "0 10px", borderRadius: "10px",
+      border: `1.5px solid ${on ? color.blush50 : color.wine700}`, background: on ? color.blush50 : color.white, color: on ? color.white : color.ink,
+      fontFamily: font.ui, fontSize: "0.82rem", fontWeight: 600, cursor: disabled ? "default" : "pointer", opacity: disabled ? 0.45 : 1,
+    });
+    return (
+      <div style={{ display: "flex", flexWrap: "wrap-reverse", alignItems: "center", justifyContent: total != null ? "space-between" : "center", gap: "12px", padding: "20px 0 4px" }}>
+        {total != null && <span style={{ fontFamily: font.ui, fontSize: "0.8rem", color: color.inkMuted }}>Showing {from}–{to} of {total}</span>}
+        <nav aria-label="Pagination" style={{ marginLeft: "auto", display: "inline-flex", alignItems: "stretch", maxWidth: "100%", background: color.white, border: `1px solid ${color.wine700}`, borderRadius: "16px", boxShadow: "0 4px 16px rgba(20,20,20,0.06)", overflow: "hidden" }}>
+          <div title="Current page" style={{ display: "flex", alignItems: "center", justifyContent: "center", minWidth: "52px", padding: "0 14px", background: color.wine800, borderRight: `1px solid ${color.wine700}`, fontFamily: font.ui, fontSize: "0.9rem", fontWeight: 700, color: color.ink }}>
+            {String(current).padStart(2, "0")}
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: "6px", padding: "10px 12px", flexWrap: "wrap", justifyContent: "center" }}>
+            <button type="button" aria-label="First page" title="First page" style={btn(false, current === 1)} disabled={current === 1} onClick={() => onPage(1)}>«</button>
+            <button type="button" aria-label="Previous page" title="Previous page" style={btn(false, current === 1)} disabled={current === 1} onClick={() => onPage(current - 1)}>‹</button>
+            {items.map((it) => (typeof it === "number"
+              ? <button key={it} type="button" style={btn(it === current, false)} aria-current={it === current ? "page" : undefined} onClick={() => onPage(it)}>{it}</button>
+              : <span key={it} style={{ color: color.inkMuted, padding: "0 4px" }}>…</span>))}
+            <button type="button" aria-label="Next page" title="Next page" style={btn(false, current === totalPages)} disabled={current === totalPages} onClick={() => onPage(current + 1)}>›</button>
+            <button type="button" aria-label="Last page" title="Last page" style={btn(false, current === totalPages)} disabled={current === totalPages} onClick={() => onPage(totalPages)}>»</button>
+          </div>
+        </nav>
+      </div>
+    );
+  };
+
   // ── Main Screen ───────────────────────────────────────────────────────────────
   // Props:
   //   coordinatorUid  — the logged-in coordinator's Firebase UID
@@ -3304,6 +3347,14 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
     const [locationSearch,   setLocationSearch]       = useState("");
     const [loadError,        setLoadError]            = useState(false);
     const [retryCount,       setRetryCount]           = useState(0);
+    // One page counter per list (Registered / In Review / Withdrawn).
+    const [regPage, setRegPage] = useState(1);
+    const [revPage, setRevPage] = useState(1);
+    const [wdPage,  setWdPage]  = useState(1);
+    // Next/previous page: that list's section goes back to the top of the scrolling area.
+    const scrollRef = useRef(null);
+    const regTopRef = useRef(null), revTopRef = useRef(null), wdTopRef = useRef(null);
+    const pageTo = (setter) => (n) => { setter(n); requestAnimationFrame(() => scrollListToTop(scrollRef.current)); };
     const filterRef = useRef(null);
 
     // ── Step 1: live-watch the coordinator's own Department/Program profile ──
@@ -3473,6 +3524,22 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
     const filteredReview     = applyFilter(reviewList);
     const filteredWithdrawn  = applyFilter(withdrawnList);
 
+    // ── Pagination (10 per page, each list on its own) ──
+    useEffect(() => { setRegPage(1); setRevPage(1); setWdPage(1); }, [search, selectedIndustries, locationSearch]);
+    const pageOf = (list, cur) => {
+      const totalPages = Math.max(1, Math.ceil(list.length / PAGE_SIZE));
+      const safePage = Math.min(cur, totalPages);
+      return {
+        totalPages, safePage,
+        rows: list.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE),
+        from: list.length ? (safePage - 1) * PAGE_SIZE + 1 : 0,
+        to: Math.min(safePage * PAGE_SIZE, list.length),
+      };
+    };
+    const regP = pageOf(filteredRegistered, regPage);
+    const revP = pageOf(filteredReview, revPage);
+    const wdP  = pageOf(filteredWithdrawn, wdPage);
+
     // Industry filter options: derived from whatever companies are actually
     // in view (not from the coordinator's profile — Industry is company
     // info only now, it no longer drives who's assigned to a coordinator).
@@ -3606,7 +3673,10 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
           className="clist-list-wrapper"
           style={{
             flex: 1,
-            overflowY: "auto",
+            minHeight: 0,
+            display: "flex",
+            flexDirection: "column",
+            overflow: "hidden",
             background: color.wine900,
             position: "relative",
             padding: "clamp(16px, 4vw, 28px) clamp(16px, 4vw, 32px)",
@@ -3614,6 +3684,7 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
         >
 
           {/* Search + Filter bar — same layout as Find Company */}
+          <div style={fixedHead}>
           <div className="clist-search-bar" style={{ background: color.blush100, borderRadius: radius.panel }}>
             <div style={{ minWidth: 0, flex: "1 1 auto" }}>
               <span
@@ -3755,16 +3826,22 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
             </div>
           )}
 
+          </div>
+
+          <div ref={scrollRef} style={listScroll}>
           <div className="clist-content">
             {/* Registered Companies */}
-            <div id="clist-registered-section" style={{ marginBottom: "36px" }}>
+            <div id="clist-registered-section" ref={regTopRef} style={{ marginBottom: "36px" }}>
               <SectionHeader title="Registered Companies" count={filteredRegistered.length} />
               {filteredRegistered.length > 0 ? (
+                <>
                 <div className="clist-company-grid">
-                  {filteredRegistered.map(c => (
+                  {regP.rows.map(c => (
                     <CompanyCard key={c.id} company={c} isReview={false} onViewProfile={(company) => { setSelectedCompany(company); setView("profile"); setCameFromDashboard(false); }} />
                   ))}
                 </div>
+                <PaginationBar page={regP.safePage} totalPages={regP.totalPages} onPage={pageTo(setRegPage)} from={regP.from} to={regP.to} total={filteredRegistered.length} />
+                </>
               ) : (
                 <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#aaa", padding: "20px 0" }}>No registered companies match your filters.</p>
               )}
@@ -3773,14 +3850,17 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
             <hr style={{ border: "none", borderTop: "1.5px solid #ddd", marginBottom: "32px" }} />
 
             {/* Companies in Review */}
-            <div id="clist-review-section">
+            <div id="clist-review-section" ref={revTopRef}>
               <SectionHeader title="Companies in Review" count={filteredReview.length} />
               {filteredReview.length > 0 ? (
+                <>
                 <div className="clist-company-grid">
-                  {filteredReview.map(c => (
+                  {revP.rows.map(c => (
                     <CompanyCard key={c.id} company={c} isReview={true} onViewProfile={(company) => { setSelectedCompany(company); setView("profile"); setCameFromDashboard(false); }} />
                   ))}
                 </div>
+                <PaginationBar page={revP.safePage} totalPages={revP.totalPages} onPage={pageTo(setRevPage)} from={revP.from} to={revP.to} total={filteredReview.length} />
+                </>
               ) : (
                 <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#aaa", padding: "20px 0" }}>No companies in review match your filters.</p>
               )}
@@ -3792,14 +3872,15 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
             {withdrawnList.length > 0 && (
               <>
                 <hr style={{ border: "none", borderTop: "1.5px solid #ddd", margin: "32px 0" }} />
-                <div id="clist-withdrawn-section">
+                <div id="clist-withdrawn-section" ref={wdTopRef}>
                   <div onClick={() => setShowWithdrawn(v => !v)} style={{ cursor: "pointer" }} role="button" aria-expanded={showWithdrawn}>
                     <SectionHeader title={`${showWithdrawn ? "▾" : "▸"} Withdrawn`} count={filteredWithdrawn.length} />
                   </div>
                   {showWithdrawn && (
                     filteredWithdrawn.length > 0 ? (
+                      <>
                       <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginTop: "8px" }}>
-                        {filteredWithdrawn.map(c => (
+                        {wdP.rows.map(c => (
                           <div
                             key={c.id}
                             onClick={() => { setSelectedCompany(c); setView("profile"); setCameFromDashboard(false); }}
@@ -3819,6 +3900,8 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
                           </div>
                         ))}
                       </div>
+                      <PaginationBar page={wdP.safePage} totalPages={wdP.totalPages} onPage={pageTo(setWdPage)} from={wdP.from} to={wdP.to} total={filteredWithdrawn.length} />
+                      </>
                     ) : (
                       <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#aaa", padding: "20px 0" }}>No withdrawn companies match your filters.</p>
                     )
@@ -3826,6 +3909,7 @@ import { color, font, type, space, radius, shadow, ease } from "./theme";
                 </div>
               </>
             )}
+          </div>
           </div>
 
           {toast && (

@@ -942,6 +942,49 @@ const CompanyCard = ({ company, onViewProfile }) => {
 };
 
 // ── Main Screen ────────────────────────────────────────────────────────────────
+// ── Pagination: 10 rows per page ──────────────────────────────────────────────
+const PAGE_SIZE = 10;
+// The header (title, search, filters) is fixed; only the list under it scrolls, with its own scrollbar
+// (same idea as Account Profile in Admin). The list box reaches into the screen padding so its scrollbar sits at the edge.
+const PIN_PAD = "clamp(16px, 4vw, 28px)";
+const PIN_PAD_X = "clamp(16px, 4vw, 32px)";
+const fixedHead = { flexShrink: 0, position: "relative", zIndex: 30 };
+const listScroll = { flex: "1 1 auto", minHeight: 0, overflowY: "auto", margin: `0 calc(-1 * ${PIN_PAD_X}) calc(-1 * ${PIN_PAD})`, padding: `0 ${PIN_PAD_X} ${PIN_PAD}` };
+// Next/previous page: the list goes back to its start.
+const scrollListToTop = (scroller) => { if (scroller) scroller.scrollTo({ top: 0, behavior: "smooth" }); };
+// « ‹ 1 2 3 … 9 › » — same look as the Admin screens: current-page badge + page buttons in one rounded bar.
+const PaginationBar = ({ page: current, totalPages, onPage, from, to, total }) => {
+  const range = (a, b) => Array.from({ length: b - a + 1 }, (_, i) => a + i);
+  const items = totalPages <= 7 ? range(1, totalPages)
+    : current <= 4 ? [...range(1, 5), "gap-end", totalPages]
+    : current >= totalPages - 3 ? [1, "gap-start", ...range(totalPages - 4, totalPages)]
+    : [1, "gap-start", current - 1, current, current + 1, "gap-end", totalPages];
+  const btn = (on, disabled) => ({
+    minWidth: "36px", height: "36px", padding: "0 10px", borderRadius: "10px",
+    border: `1.5px solid ${on ? color.blush50 : color.wine700}`, background: on ? color.blush50 : color.white, color: on ? color.white : color.ink,
+    fontFamily: font.ui, fontSize: "0.82rem", fontWeight: 600, cursor: disabled ? "default" : "pointer", opacity: disabled ? 0.45 : 1,
+  });
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap-reverse", alignItems: "center", justifyContent: total != null ? "space-between" : "center", gap: "12px", padding: "20px 0 4px" }}>
+      {total != null && <span style={{ fontFamily: font.ui, fontSize: "0.8rem", color: color.inkMuted }}>Showing {from}–{to} of {total}</span>}
+      <nav aria-label="Pagination" style={{ marginLeft: "auto", display: "inline-flex", alignItems: "stretch", maxWidth: "100%", background: color.white, border: `1px solid ${color.wine700}`, borderRadius: "16px", boxShadow: "0 4px 16px rgba(20,20,20,0.06)", overflow: "hidden" }}>
+        <div title="Current page" style={{ display: "flex", alignItems: "center", justifyContent: "center", minWidth: "52px", padding: "0 14px", background: color.wine800, borderRight: `1px solid ${color.wine700}`, fontFamily: font.ui, fontSize: "0.9rem", fontWeight: 700, color: color.ink }}>
+          {String(current).padStart(2, "0")}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: "6px", padding: "10px 12px", flexWrap: "wrap", justifyContent: "center" }}>
+          <button type="button" aria-label="First page" title="First page" style={btn(false, current === 1)} disabled={current === 1} onClick={() => onPage(1)}>«</button>
+          <button type="button" aria-label="Previous page" title="Previous page" style={btn(false, current === 1)} disabled={current === 1} onClick={() => onPage(current - 1)}>‹</button>
+          {items.map((it) => (typeof it === "number"
+            ? <button key={it} type="button" style={btn(it === current, false)} aria-current={it === current ? "page" : undefined} onClick={() => onPage(it)}>{it}</button>
+            : <span key={it} style={{ color: color.inkMuted, padding: "0 4px" }}>…</span>))}
+          <button type="button" aria-label="Next page" title="Next page" style={btn(false, current === totalPages)} disabled={current === totalPages} onClick={() => onPage(current + 1)}>›</button>
+          <button type="button" aria-label="Last page" title="Last page" style={btn(false, current === totalPages)} disabled={current === totalPages} onClick={() => onPage(totalPages)}>»</button>
+        </div>
+      </nav>
+    </div>
+  );
+};
+
 const CoordinatorFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onMessageNow, initialCompanyId, onClearInitialCompany, onBackToOrigin, onVisitCompany, coordinator, onViewChange }) => {
   const { isMobile } = useBreakpoint();
   const { posts: companies, loading } = useOjtPosts();
@@ -960,6 +1003,10 @@ const CoordinatorFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onM
   const [showFilter, setShowFilter]           = useState(false);
   const [selectedIndustries, setSelectedIndustries] = useState([]);
   const [citySearch,          setCitySearch]          = useState("");
+  const [curPage, setCurPage] = useState(1);
+  // Next/previous page: the list goes back to its start.
+  const scrollRef = useRef(null);
+  const goToPage = (n) => { setCurPage(n); requestAnimationFrame(() => scrollListToTop(scrollRef.current)); };
   const filterRef = useRef(null);
 
   // Lets the Dashboard know whether we're on the list or a single post, so
@@ -1076,6 +1123,14 @@ const CoordinatorFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onM
     return matchSearch && matchIndustry && matchCity;
   });
 
+  useEffect(() => { setCurPage(1); }, [search, selectedIndustries, citySearch]);
+  // ── Pagination (10 per page) ──
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage = Math.min(curPage, totalPages);
+  const pageRows = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  const showingFrom = filtered.length ? (safePage - 1) * PAGE_SIZE + 1 : 0;
+  const showingTo = Math.min(safePage * PAGE_SIZE, filtered.length);
+
   const activeBadgeLabel = () => citySearch.trim() ? citySearch.trim() : null;
 
   const clearAllFilters = () => { setSelectedIndustries([]); setCitySearch(""); };
@@ -1115,8 +1170,9 @@ const CoordinatorFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onM
     <>
       <ResponsiveStyles />
       {/* Outer: vertical scroll only, no horizontal overflow */}
-      <div className="coord-list-wrapper" style={{ padding: "clamp(16px, 4vw, 28px) clamp(16px, 4vw, 32px)", overflowY: "auto", flex: 1, background: page }}>
+      <div className="coord-list-wrapper" style={{ padding: "clamp(16px, 4vw, 28px) clamp(16px, 4vw, 32px)", overflow: "hidden", display: "flex", flexDirection: "column", minHeight: 0, flex: 1, background: page }}>
 
+        <div style={fixedHead}>
         {/* Search + Filter bar */}
         <div className="coord-search-bar" style={{ background: panel, borderRadius: radius.panel }}>
           <div style={{ minWidth: 0, flex: "1 1 auto" }}>
@@ -1177,14 +1233,18 @@ const CoordinatorFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onM
           </div>
         )}
 
+        </div>
+
+        <div ref={scrollRef} style={listScroll}>
         {loading ? (
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "72px 0" }}>
             <p style={{ fontFamily: font.ui, ...type.body, color: inkFaint }}>Loading posts…</p>
           </div>
         ) : filtered.length > 0 ? (
-          /* CSS grid: 2-col on ≥768px, 1-col below — controlled entirely by .coord-company-grid */
+          <>
+          {/* CSS grid: 2-col on ≥768px, 1-col below — controlled entirely by .coord-company-grid */}
           <div id="findcompany-grid" className="coord-company-grid">
-            {filtered.map(c => (
+            {pageRows.map(c => (
               <CompanyCard
                 key={c.id}
                 company={c}
@@ -1192,6 +1252,8 @@ const CoordinatorFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onM
               />
             ))}
           </div>
+          <PaginationBar page={safePage} totalPages={totalPages} onPage={goToPage} from={showingFrom} to={showingTo} total={filtered.length} />
+          </>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "72px 24px", gap: space.sm, textAlign: "center", background: surface, border: `1px dashed ${color.wine400}`, borderRadius: radius.panel }}>
             <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke={inkFaint} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
@@ -1206,6 +1268,7 @@ const CoordinatorFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onM
             )}
           </div>
         )}
+        </div>
       </div>
     </>
   );

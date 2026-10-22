@@ -1477,6 +1477,43 @@ const ThreeDotMenu = ({ isDisabled, isExpired, onView, onToggleDisable, onDelete
   );
 };
 
+// ── Pagination: 10 posts per page ─────────────────────────────────────────────
+const PAGE_SIZE = 10;
+// Next/previous page: the list goes back to its start.
+const scrollListToTop = (scroller) => { if (scroller) scroller.scrollTo({ top: 0, behavior: "smooth" }); };
+// « ‹ 1 2 3 … 9 › » — always pinned to the RIGHT, on desktop and mobile alike.
+const PaginationBar = ({ page: current, totalPages, onPage, from, to, total }) => {
+  const range = (a, b) => Array.from({ length: b - a + 1 }, (_, i) => a + i);
+  const items = totalPages <= 7 ? range(1, totalPages)
+    : current <= 4 ? [...range(1, 5), "gap-end", totalPages]
+    : current >= totalPages - 3 ? [1, "gap-start", ...range(totalPages - 4, totalPages)]
+    : [1, "gap-start", current - 1, current, current + 1, "gap-end", totalPages];
+  const btn = (on, disabled) => ({
+    minWidth: "36px", height: "36px", padding: "0 10px", borderRadius: "10px",
+    border: `1.5px solid ${on ? inkDeep : "#c4c4c4"}`, background: on ? inkDeep : "white", color: on ? "white" : "#1a1a1a",
+    fontFamily: font.ui, fontSize: "0.82rem", fontWeight: 600, cursor: disabled ? "default" : "pointer", opacity: disabled ? 0.45 : 1,
+  });
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "8px", padding: "20px 0 4px" }}>
+      {total != null && <span style={{ fontFamily: font.ui, fontSize: "0.8rem", color: "#666", textAlign: "right" }}>Showing {from}–{to} of {total}</span>}
+      <nav aria-label="Pagination" style={{ display: "inline-flex", alignItems: "stretch", maxWidth: "100%", background: "white", border: "1px solid #c4c4c4", borderRadius: "16px", boxShadow: "0 4px 16px rgba(20,20,20,0.06)", overflow: "hidden" }}>
+        <div title="Current page" style={{ display: "flex", alignItems: "center", justifyContent: "center", minWidth: "52px", padding: "0 14px", background: "#efefef", borderRight: "1px solid #c4c4c4", fontFamily: font.ui, fontSize: "0.9rem", fontWeight: 700, color: "#1a1a1a" }}>
+          {String(current).padStart(2, "0")}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: "6px", padding: "10px 12px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+          <button type="button" aria-label="First page" title="First page" style={btn(false, current === 1)} disabled={current === 1} onClick={() => onPage(1)}>«</button>
+          <button type="button" aria-label="Previous page" title="Previous page" style={btn(false, current === 1)} disabled={current === 1} onClick={() => onPage(current - 1)}>‹</button>
+          {items.map((it) => (typeof it === "number"
+            ? <button key={it} type="button" style={btn(it === current, false)} aria-current={it === current ? "page" : undefined} onClick={() => onPage(it)}>{it}</button>
+            : <span key={it} style={{ color: "#666", padding: "0 4px" }}>…</span>))}
+          <button type="button" aria-label="Next page" title="Next page" style={btn(false, current === totalPages)} disabled={current === totalPages} onClick={() => onPage(current + 1)}>›</button>
+          <button type="button" aria-label="Last page" title="Last page" style={btn(false, current === totalPages)} disabled={current === totalPages} onClick={() => onPage(totalPages)}>»</button>
+        </div>
+      </nav>
+    </div>
+  );
+};
+
 // ── Post OJT Content ──────────────────────────────────────────────────────────
 const PostOJTContent = ({ user, openPostId, onPostOpened, onViewChange }) => {
   const [posts, setPosts]     = useState([]);
@@ -1565,6 +1602,16 @@ const PostOJTContent = ({ user, openPostId, onPostOpened, onViewChange }) => {
   const activePosts   = posts.filter(p => !p.archived);
   const archivedPosts = posts.filter(p => p.archived);
   const [showArchived, setShowArchived] = useState(false);
+
+  // ── Pagination (10 posts per page) ──
+  const [curPage, setCurPage] = useState(1);
+  const scrollRef = useRef(null);
+  const goToPage = (n) => { setCurPage(n); requestAnimationFrame(() => scrollListToTop(scrollRef.current)); };
+  const totalPages  = Math.max(1, Math.ceil(activePosts.length / PAGE_SIZE));
+  const safePage    = Math.min(curPage, totalPages);
+  const pageRows    = activePosts.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  const showingFrom = activePosts.length ? (safePage - 1) * PAGE_SIZE + 1 : 0;
+  const showingTo   = Math.min(safePage * PAGE_SIZE, activePosts.length);
 
   const handleSave = async (formData) => {
     if (!user?.uid) return;
@@ -1766,9 +1813,11 @@ const PostOJTContent = ({ user, openPostId, onPostOpened, onViewChange }) => {
   };
 
   return (
-    <div className="post-screen-padding" style={{ overflowY: "auto", flex: 1 }}>
-      <div style={{ background: "#e0e0e0", borderRadius: "16px", padding: "18px 20px", minHeight: "80vh" }}>
+    <div className="post-screen-padding" style={{ overflow: "hidden", flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+      <div style={{ background: "#e0e0e0", borderRadius: "16px", padding: "18px 20px", flex: 1, minHeight: 0, overflow: "hidden", display: "flex", flexDirection: "column" }}>
 
+        {/* Fixed header: title + Post button stay put; only the list below scrolls. */}
+        <div style={{ flexShrink: 0 }}>
         <div className="post-header-row">
           <h2 style={{ fontFamily: font.ui, fontWeight: 600, fontSize: "clamp(1.25rem, 3.6vw, 1.6rem)", letterSpacing: "-0.01em", margin: 0, color: "#1a1a1a" }}>
             Recent Post
@@ -1784,10 +1833,14 @@ const PostOJTContent = ({ user, openPostId, onPostOpened, onViewChange }) => {
         </div>
 
         <hr style={{ border: "none", borderTop: "2px solid #aaa", marginBottom: "16px" }} />
+        </div>
 
+        {/* Scrolling list: reaches into the box padding so its scrollbar sits at the edge. */}
+        <div ref={scrollRef} style={{ flex: "1 1 auto", minHeight: 0, overflowY: "auto", margin: "0 -20px -18px", padding: "0 20px 18px" }}>
         {activePosts.length > 0 ? (
+          <>
           <div id="cpost-list" className="post-grid">
-            {activePosts.map(post => {
+            {pageRows.map(post => {
               const expired = isPostExpired(post);
               // Wait for the company profile before judging, so the badge doesn't flash on load.
               const noApprovedTargets = !!companyProfile?.deptSelections && approvedTargetsOf(post).length === 0;
@@ -1850,6 +1903,8 @@ const PostOJTContent = ({ user, openPostId, onPostOpened, onViewChange }) => {
               );
             })}
           </div>
+          <PaginationBar page={safePage} totalPages={totalPages} onPage={goToPage} from={showingFrom} to={showingTo} total={activePosts.length} />
+          </>
         ) : (
           <div id="cpost-list" style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "80px" }}>
             <p style={{ fontFamily: font.ui, fontSize: "1rem", color: "#aaa" }}>No posts yet.</p>
@@ -1897,6 +1952,7 @@ const PostOJTContent = ({ user, openPostId, onPostOpened, onViewChange }) => {
             )}
           </div>
         )}
+        </div>
       </div>
 
       {modal && (

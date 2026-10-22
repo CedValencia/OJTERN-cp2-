@@ -375,6 +375,43 @@ const CoordinatorDetailsModal = ({ coordinator, onClose, onMessage, canMessage, 
 };
 
 // ── Main CompanyCoordinatorsScreen ────────────────────────────────────────────
+// ── Pagination: 10 rows per page ──────────────────────────────────────────────
+const PAGE_SIZE = 10;
+// Next/previous page: the list goes back to its start.
+const scrollListToTop = (scroller) => { if (scroller) scroller.scrollTo({ top: 0, behavior: "smooth" }); };
+// « ‹ 1 2 3 … 9 › » — same look as the Admin screens: current-page badge + page buttons in one rounded bar.
+const PaginationBar = ({ page: current, totalPages, onPage, from, to, total }) => {
+  const range = (a, b) => Array.from({ length: b - a + 1 }, (_, i) => a + i);
+  const items = totalPages <= 7 ? range(1, totalPages)
+    : current <= 4 ? [...range(1, 5), "gap-end", totalPages]
+    : current >= totalPages - 3 ? [1, "gap-start", ...range(totalPages - 4, totalPages)]
+    : [1, "gap-start", current - 1, current, current + 1, "gap-end", totalPages];
+  const btn = (on, disabled) => ({
+    minWidth: "36px", height: "36px", padding: "0 10px", borderRadius: "10px",
+    border: `1.5px solid ${on ? color.blush50 : color.wine700}`, background: on ? color.blush50 : color.white, color: on ? color.white : color.ink,
+    fontFamily: font.ui, fontSize: "0.82rem", fontWeight: 600, cursor: disabled ? "default" : "pointer", opacity: disabled ? 0.45 : 1,
+  });
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap-reverse", alignItems: "center", justifyContent: total != null ? "space-between" : "center", gap: "12px", padding: "20px 0 4px" }}>
+      {total != null && <span style={{ fontFamily: font.ui, fontSize: "0.8rem", color: color.inkMuted }}>Showing {from}–{to} of {total}</span>}
+      <nav aria-label="Pagination" style={{ marginLeft: "auto", display: "inline-flex", alignItems: "stretch", maxWidth: "100%", background: color.white, border: `1px solid ${color.wine700}`, borderRadius: "16px", boxShadow: "0 4px 16px rgba(20,20,20,0.06)", overflow: "hidden" }}>
+        <div title="Current page" style={{ display: "flex", alignItems: "center", justifyContent: "center", minWidth: "52px", padding: "0 14px", background: color.wine800, borderRight: `1px solid ${color.wine700}`, fontFamily: font.ui, fontSize: "0.9rem", fontWeight: 700, color: color.ink }}>
+          {String(current).padStart(2, "0")}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: "6px", padding: "10px 12px", flexWrap: "wrap", justifyContent: "center" }}>
+          <button type="button" aria-label="First page" title="First page" style={btn(false, current === 1)} disabled={current === 1} onClick={() => onPage(1)}>«</button>
+          <button type="button" aria-label="Previous page" title="Previous page" style={btn(false, current === 1)} disabled={current === 1} onClick={() => onPage(current - 1)}>‹</button>
+          {items.map((it) => (typeof it === "number"
+            ? <button key={it} type="button" style={btn(it === current, false)} aria-current={it === current ? "page" : undefined} onClick={() => onPage(it)}>{it}</button>
+            : <span key={it} style={{ color: color.inkMuted, padding: "0 4px" }}>…</span>))}
+          <button type="button" aria-label="Next page" title="Next page" style={btn(false, current === totalPages)} disabled={current === totalPages} onClick={() => onPage(current + 1)}>›</button>
+          <button type="button" aria-label="Last page" title="Last page" style={btn(false, current === totalPages)} disabled={current === totalPages} onClick={() => onPage(totalPages)}>»</button>
+        </div>
+      </nav>
+    </div>
+  );
+};
+
 const StudentCoordinatorsScreen = ({ embedded, user, onNavigateToMessages, onViewChange, userIcon: themedUserIcon = userIcon }) => {
   const isMobile = useIsMobile();
   // Coordinator icon size — same as the chat-list icon in CompanyMessagesScreen.
@@ -396,6 +433,10 @@ const StudentCoordinatorsScreen = ({ embedded, user, onNavigateToMessages, onVie
   const [filterCollege, setFilterCollege] = useState("");
   const [filterProgram, setFilterProgram] = useState("");
   const filterRef = useRef(null);
+  const [curPage, setCurPage] = useState(1);
+  // Next/previous page: the list goes back to its start.
+  const scrollRef = useRef(null);
+  const goToPage = (n) => { setCurPage(n); requestAnimationFrame(() => scrollListToTop(scrollRef.current)); };
 
   // List vs. open details window → Dashboard's "?" help button / auto-tour.
   const subView = selectedCoordinator ? "details" : "list";
@@ -548,6 +589,29 @@ const StudentCoordinatorsScreen = ({ embedded, user, onNavigateToMessages, onVie
     return a.localeCompare(b);
   });
 
+  useEffect(() => { setCurPage(1); }, [search, filterCollege, filterProgram]);
+
+  // ── Pagination (10 per page) ──
+  // Pages run over the college-ordered list; the rows of a page are grouped by college again.
+  const totalEntries = groupNames.reduce((n, g) => n + groups[g].length, 0);
+  const totalPages = Math.max(1, Math.ceil(totalEntries / PAGE_SIZE));
+  const safePage = Math.min(curPage, totalPages);
+  const showingFrom = totalEntries ? (safePage - 1) * PAGE_SIZE + 1 : 0;
+  const showingTo = Math.min(safePage * PAGE_SIZE, totalEntries);
+  const pagedGroups = (() => {
+    let skip = (safePage - 1) * PAGE_SIZE, left = PAGE_SIZE;
+    const out = [];
+    for (const g of groupNames) {
+      if (left <= 0) break;
+      const all = groups[g];
+      if (skip >= all.length) { skip -= all.length; continue; }
+      const rows = all.slice(skip, skip + left);
+      skip = 0; left -= rows.length;
+      out.push({ college: g, rows, total: all.length });
+    }
+    return out;
+  })();
+
   const handleMessage = (coordinator) => {
     setSelectedCoordinator(null);
     if (onNavigateToMessages) {
@@ -664,8 +728,9 @@ const StudentCoordinatorsScreen = ({ embedded, user, onNavigateToMessages, onVie
         </div>
       </header>
 
-      <main id="scoord-list" style={{ flex: 1, minHeight: 0, overflowY: "auto", overflowX: "hidden", padding: isMobile ? "18px 16px 28px" : "24px 32px 36px" }}>
-        {!listLoading && scoped.length > 0 && (
+      {/* Count + reset: stays fixed with the header — only the list below scrolls */}
+      {!listLoading && scoped.length > 0 && (
+        <div style={{ flexShrink: 0, padding: isMobile ? "18px 16px 0" : "24px 32px 0" }}>
           <div style={{
             display: "flex", alignItems: "center", justifyContent: "space-between",
             marginBottom: "18px", gap: "12px",
@@ -685,8 +750,10 @@ const StudentCoordinatorsScreen = ({ embedded, user, onNavigateToMessages, onVie
               </button>
             )}
           </div>
-        )}
+        </div>
+      )}
 
+      <main id="scoord-list" ref={scrollRef} style={{ flex: 1, minHeight: 0, overflowY: "auto", overflowX: "hidden", padding: isMobile ? "18px 16px 28px" : "24px 32px 36px", ...(!listLoading && scoped.length > 0 ? { paddingTop: 0 } : {}) }}>
         {listLoading && (
           <div style={{ maxWidth: "760px", margin: "50px auto", textAlign: "center" }}>
             <div style={{
@@ -726,8 +793,8 @@ const StudentCoordinatorsScreen = ({ embedded, user, onNavigateToMessages, onVie
           </div>
         )}
 
-        {groupNames.map((college, gIdx) => (
-          <section key={college} style={{ marginBottom: gIdx < groupNames.length - 1 ? "28px" : 0 }}>
+        {pagedGroups.map(({ college, rows, total }, gIdx) => (
+          <section key={college} style={{ marginBottom: gIdx < pagedGroups.length - 1 ? "28px" : 0 }}>
             <div style={{
               display: "flex", alignItems: "center", gap: "9px",
               marginBottom: "10px", paddingLeft: "2px",
@@ -746,7 +813,7 @@ const StudentCoordinatorsScreen = ({ embedded, user, onNavigateToMessages, onVie
                 display: "inline-flex", alignItems: "center", justifyContent: "center",
                 fontSize: "0.7rem", fontWeight: 600, flexShrink: 0,
               }}>
-                {groups[college].length}
+                {total}
               </span>
             </div>
 
@@ -755,7 +822,7 @@ const StudentCoordinatorsScreen = ({ embedded, user, onNavigateToMessages, onVie
               gridTemplateColumns: isMobile ? "minmax(0, 1fr)" : "repeat(auto-fit, minmax(280px, 1fr))",
               gap: "10px",
             }}>
-              {groups[college].map((coord) => (
+              {rows.map((coord) => (
                 <article
                   key={coord.id}
                   role="button"
@@ -815,6 +882,10 @@ const StudentCoordinatorsScreen = ({ embedded, user, onNavigateToMessages, onVie
             </div>
           </section>
         ))}
+
+        {!listLoading && totalEntries > 0 && (
+          <PaginationBar page={safePage} totalPages={totalPages} onPage={goToPage} from={showingFrom} to={showingTo} total={totalEntries} />
+        )}
       </main>
 
       {selectedCoordinator && (
