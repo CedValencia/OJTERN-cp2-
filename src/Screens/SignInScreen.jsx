@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import {
-  signIn,
-  logOut,
+  signInAuto,
   applyEmailVerification,
   resendCompanyActivation,
   getInitialAuthAction,
@@ -112,20 +111,20 @@ const EyeIcon = ({ show, onClick }) => (
   </button>
 );
 
+// There is no "Sign in as" choice any more: one field takes a Student ID or an email,
+// and AuthService.signInAuto works out the account type and the matching dashboard.
+// (A `role` / `onRoleChange` prop from the parent is accepted but ignored.)
+//
 // Props:
-//   role                 — which sign-in form to show; owned by SplashScreen's
-//                          role pills. Falls back to internal state if absent.
-//   onRoleChange         — notify the parent when the role changes here
 //   onGoSignUp           — switch to company sign-up
 //   onSignInCoordinator  — called when OJT Coordinator clicks Sign In
 //   onSignInStudent      — called when Student clicks Sign In
 //   onSignInCompany      — called when Company clicks Sign In
+//   onSignInAdmin        — called when an Administrator signs in (no separate /admin login needed)
 //   onForgotPassword     — called when Forgot Password is clicked
-const SignInScreen = ({ role: roleProp, onRoleChange, onGoSignUp, onSignInCoordinator, onSignInStudent, onSignInCompany, onForgotPassword }) => {
-  const [role, setRole]           = useState(roleProp ?? "coordinator");
+const SignInScreen = ({ onGoSignUp, onSignInCoordinator, onSignInStudent, onSignInCompany, onSignInAdmin, onForgotPassword }) => {
   const [showPass, setShowPass]   = useState(false);
-  const [email, setEmail]         = useState("");
-  const [studentId, setStudentId] = useState("");
+  const [identifier, setIdentifier] = useState("");   // Student ID or email
   const [password, setPassword]   = useState("");
   const [authError, setAuthError] = useState("");
   const [loading, setLoading]     = useState(false);
@@ -180,50 +179,24 @@ const SignInScreen = ({ role: roleProp, onRoleChange, onGoSignUp, onSignInCoordi
     window.history.replaceState({}, document.title, window.location.pathname);
   }, []);
 
-  const handleRoleChange = (newRole) => {
-    setRole(newRole);
-    setEmail("");
-    setStudentId("");
-    setPassword("");
-    setShowPass(false);
-    setAuthError("");
-    setResendStatus(null);
-    onRoleChange?.(newRole);
-  };
-
-  // The panel pills (in SplashScreen) are the source of truth when a role
-  // prop is supplied. Switching there clears the form exactly as the old
-  // radio group did.
-  const prevRoleProp = useRef(roleProp);
-  useEffect(() => {
-    if (roleProp == null || roleProp === prevRoleProp.current) return;
-    prevRoleProp.current = roleProp;
-    setRole(roleProp);
-    setEmail("");
-    setStudentId("");
-    setPassword("");
-    setShowPass(false);
-    setAuthError("");
-    setResendStatus(null);
-  }, [roleProp]);
 
   // Offer the resend only when it's actually the thing that would help: the
   // company role, on the specific "not activated yet" failure. Matching on the
   // exported sentinel rather than the message text so rewording the copy in
   // AuthService can't quietly detach this button from its trigger.
-  const showResend = role === "company" && authError === NOT_ACTIVATED_MESSAGE;
+  const showResend = authError === NOT_ACTIVATED_MESSAGE;   // only company accounts can hit this
 
   const handleResendActivation = async () => {
     setResendStatus(null);
 
-    if (!email.trim()) {
+    if (!identifier.trim()) {
       setResendStatus({ ok: false, message: "Please enter your email first." });
       return;
     }
 
     setResending(true);
     try {
-      await resendCompanyActivation(email);
+      await resendCompanyActivation(identifier.trim());
       // Intentionally worded so it says nothing about whether the address is
       // registered — the Cloud Function is deliberately non-committal too.
       setResendStatus({
@@ -243,12 +216,8 @@ const SignInScreen = ({ role: roleProp, onRoleChange, onGoSignUp, onSignInCoordi
     setResendStatus(null);
 
     // Basic field check
-    if (role === "student" && !studentId.trim()) {
-      setAuthError("Please enter your Student ID.");
-      return;
-    }
-    if (role !== "student" && !email.trim()) {
-      setAuthError("Please enter your email.");
+    if (!identifier.trim()) {
+      setAuthError("Please enter your Student ID or email.");
       return;
     }
     if (!password) {
@@ -258,26 +227,16 @@ const SignInScreen = ({ role: roleProp, onRoleChange, onGoSignUp, onSignInCoordi
 
     setLoading(true);
     try {
-      const identifier = role === "student" ? studentId : email;
+      // The account type is worked out from what was typed, then verified against the
+      // account's own role in Firestore; the user is sent to whichever dashboard
+      // that account belongs to.
+      const { userData } = await signInAuto(identifier, password);
 
-      const { userData } = await signIn(role, identifier, password);
-
-      // Defense-in-depth: only route to the dashboard matching the role the
-      // user actually selected in this form. AuthService.signIn already checks
-      // this, but we never want this screen to silently redirect someone to a
-      // different dashboard than the one they clicked, even if signIn's own
-      // check were ever bypassed by a future bug elsewhere.
       const actualRole = userData.role;
-      if (actualRole !== role) {
-        await logOut();
-        const label = role === "coordinator" ? "OJT Coordinator" : role.charAt(0).toUpperCase() + role.slice(1);
-        setAuthError(`This account is not registered as a ${label}.`);
-        return;
-      }
-
       if (actualRole === "coordinator") onSignInCoordinator(userData);
       else if (actualRole === "student") onSignInStudent?.(userData);
       else if (actualRole === "company") onSignInCompany?.(userData);
+      else if (actualRole === "admin") onSignInAdmin?.(userData);
 
     } catch (err) {
       setAuthError(err.message || "Sign-in failed. Please try again.");
@@ -285,14 +244,6 @@ const SignInScreen = ({ role: roleProp, onRoleChange, onGoSignUp, onSignInCoordi
       setLoading(false);
     }
   };
-
-  const roles = [
-    { key: "coordinator", label: "OJT Coordinator" },
-    { key: "student",     label: "Student"          },
-    { key: "company",     label: "Company"           },
-  ];
-
-  const roleLabel = roles.find(r => r.key === role)?.label ?? "";
 
   const inputStyle = (name) => ({
     width: "100%",
@@ -328,7 +279,7 @@ const SignInScreen = ({ role: roleProp, onRoleChange, onGoSignUp, onSignInCoordi
         lineHeight: 1.5,
         margin: "8px 0 26px",
       }}>
-        Signing in as <span style={{ color: color.onWine, fontWeight: 600 }}>{roleLabel}</span>.
+        Use your Student ID or email to continue.
       </p>
 
       {verifyStatus && (
@@ -350,62 +301,26 @@ const SignInScreen = ({ role: roleProp, onRoleChange, onGoSignUp, onSignInCoordi
         </div>
       )}
 
-      {/* Role selector — only rendered when this screen owns the choice.
-          When SplashScreen passes a role prop, the panel pills replace this. */}
-      {roleProp == null && (
-        <div style={{ display: "flex", gap: "8px", marginBottom: "22px" }}>
-          {roles.map(r => (
-            <button
-              key={r.key}
-              type="button"
-              onClick={() => handleRoleChange(r.key)}
-              className={`si-toggle-btn${role === r.key ? " si-toggle-btn--active" : ""}`}
-              style={{
-                flex: 1, padding: "11px 8px", borderRadius: radius.pill, cursor: "pointer",
-                fontSize: "0.8125rem", fontWeight: role === r.key ? 600 : 500,
-                border: `1.5px solid ${role === r.key ? "transparent" : color.blush300}`,
-              }}
-            >
-              {r.label}
-            </button>
-          ))}
-        </div>
-      )}
 
       <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-        {role === "student" ? (
-          <div style={{ position: "relative" }}>
-            <FieldIcon><UserIcon /></FieldIcon>
-            <input
-              type="text"
-              inputMode="numeric"
-              pattern="[0-9]*"
-              aria-label="Student ID"
-              placeholder="Student ID"
-              value={studentId}
-              onChange={e => setStudentId(e.target.value.replace(/\D/g, ""))}
-              onKeyDown={e => e.key === "Enter" && handleSignIn()}
-              onFocus={() => setFocused("studentId")}
-              onBlur={() => setFocused("")}
-              style={inputStyle("studentId")}
-            />
-          </div>
-        ) : (
-          <div style={{ position: "relative" }}>
-            <FieldIcon><MailIcon /></FieldIcon>
-            <input
-              type="email"
-              aria-label="Email"
-              placeholder="Email"
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-              onKeyDown={e => e.key === "Enter" && handleSignIn()}
-              onFocus={() => setFocused("email")}
-              onBlur={() => setFocused("")}
-              style={inputStyle("email")}
-            />
-          </div>
-        )}
+        <div style={{ position: "relative" }}>
+          <FieldIcon><UserIcon /></FieldIcon>
+          <input
+            type="text"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            autoComplete="username"
+            aria-label="Student ID or email"
+            placeholder="Student ID or email"
+            value={identifier}
+            onChange={e => setIdentifier(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && handleSignIn()}
+            onFocus={() => setFocused("identifier")}
+            onBlur={() => setFocused("")}
+            style={inputStyle("identifier")}
+          />
+        </div>
 
         <div style={{ position: "relative" }}>
           <FieldIcon><LockIcon /></FieldIcon>
@@ -515,9 +430,10 @@ const SignInScreen = ({ role: roleProp, onRoleChange, onGoSignUp, onSignInCoordi
         {loading ? "Signing in…" : "SIGN IN"}
       </button>
 
-      {role === "company" && (
+      {/* Only companies register themselves; students and coordinators are created for them. */}
+      {onGoSignUp && (
         <p style={{ textAlign: "center", fontSize: "0.875rem", color: color.onWineMuted, margin: "18px 0 0" }}>
-          Don't have an account?{" "}
+          Registering a company?{" "}
           <button
             type="button"
             onClick={onGoSignUp}

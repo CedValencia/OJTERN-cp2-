@@ -934,6 +934,13 @@ exports.deleteCoordinatorAuthOnDocDelete = onDocumentDeleted(
     const uid = deletedData.uid || coordinatorId;
 
     try {
+      // A coordinator who was promoted to admin shares this Auth login with admins/{uid}.
+      // Deleting it would lock them out of the admin dashboard, so keep the login.
+      const adminSnap = await getFirestore().collection("admins").doc(uid).get();
+      if (adminSnap.exists && adminSnap.get("status") === "active") {
+        console.log(`Kept Auth account for ${uid}: still an active admin`);
+        return;
+      }
       await getAuth().deleteUser(uid);
       console.log(`Deleted Auth account for coordinator: ${uid}`);
     } catch (error) {

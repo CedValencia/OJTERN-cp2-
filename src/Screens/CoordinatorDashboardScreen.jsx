@@ -6,6 +6,7 @@ import { db } from "./firebase";
 import { normalizeScope, AFFILIATION_STATUS } from "./affiliationService";
 import { PersonalInfoScreen, ResponsiveStyles } from "./CoordinatorAccountProfileScreen";
 import { useUnreadCount } from "./useChat";
+import DashboardSwitcher from "./DashboardSwitcher";
 import { color, font, ease, ACCENT_THEMES, ACCENT_THEME_ORDER, getSavedAccentThemeId, saveAccentThemeId, getAccentThemeVars, getThemedAsset } from "./theme";
 import { driver } from "driver.js";
 import "driver.js/dist/driver.css";
@@ -170,12 +171,29 @@ const DEPT_LABEL_TO_COLLEGE_KEY = {
 // the same set of students, regardless of program/major — the specific
 // program is just shown per-student in the Student List, not used to further
 // split which coordinator sees which student.
-const getAssignedCollegeKeys = (deptSelections) => {
+// `labelMap` is the live label -> key map from useDeptLabelMap() below. It falls back to the
+// hardcoded list, but a department an admin adds later (e.g. College of Nursing) is only
+// known to the live map, so callers inside components should always pass it.
+const getAssignedCollegeKeys = (deptSelections, labelMap = DEPT_LABEL_TO_COLLEGE_KEY) => {
   if (!Array.isArray(deptSelections)) return [];
   const keys = deptSelections
-    .map((sel) => DEPT_LABEL_TO_COLLEGE_KEY[sel?.department])
+    .map((sel) => labelMap[String(sel?.department || "").trim()])
     .filter(Boolean);
   return [...new Set(keys)];
+};
+
+// Hardcoded list + every department (and its abbreviation) currently in Firestore, so
+// departments added by the admin are scoped correctly without a code change.
+const useDeptLabelMap = () => {
+  const { departments, departmentNames } = useDepartmentsPrograms();
+  return React.useMemo(() => {
+    const map = { ...DEPT_LABEL_TO_COLLEGE_KEY };
+    (departmentNames || []).forEach(name => {
+      const abbr = departments?.[name]?.abbr;
+      if (abbr) map[name] = abbr;
+    });
+    return map;
+  }, [departments, departmentNames]);
 };
 
 // ── Time ago helper ────────────────────────────────────────────────────────────
@@ -2490,9 +2508,10 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
   // array keeps a stable reference across renders (it's used as a useEffect
   // dependency downstream, and a fresh array every render would resubscribe
   // Firestore listeners on every parent re-render).
+  const deptLabelMap = useDeptLabelMap();
   const coordinatorColleges = React.useMemo(
-    () => getAssignedCollegeKeys(coordinatorProfile?.deptSelections),
-    [coordinatorProfile?.deptSelections]
+    () => getAssignedCollegeKeys(coordinatorProfile?.deptSelections, deptLabelMap),
+    [coordinatorProfile?.deptSelections, deptLabelMap]
   );
 
   // Same idea for industries — used to scope "Recent Registered Company" on
@@ -2668,7 +2687,7 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
       .flatMap(list => list.map(pick))
       .map(label => String(label || "").trim())
       .filter(Boolean);
-    return [...new Set(labels.map(l => DEPT_LABEL_TO_COLLEGE_KEY[l]).filter(Boolean))];
+    return [...new Set(labels.map(l => deptLabelMap[l]).filter(Boolean))];
   };
 
   // ── Map company name -> industry, so reports (which only store a company
@@ -2775,13 +2794,13 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
       snap.docs.forEach(d => {
         const data = d.data();
         namesMap[d.id]  = data?.name || "Unknown";
-        scopesMap[d.id] = getAssignedCollegeKeys(data?.deptSelections);
+        scopesMap[d.id] = getAssignedCollegeKeys(data?.deptSelections, deptLabelMap);
       });
       setCoordinatorNames(namesMap);
       setCoordinatorScopes(scopesMap);
       setScopesLoaded(true);
     }).catch(err => console.error("Failed to load coordinator names:", err));
-  }, []);
+  }, [deptLabelMap]);
 
   // Only show activity from coordinators whose department/college scope
   // overlaps with the current coordinator's own scope.
@@ -3466,6 +3485,8 @@ const CoordinatorDashboardScreen = ({ user, onLogout }) => {
             </button>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: "4px", flexShrink: 0 }}>
+            {/* Coordinator / Admin switch — only for a coordinator who was also promoted to admin */}
+            <DashboardSwitcher current="coordinator" />
             {/* Activity Log */}
             <div style={{ position: "relative" }}>
               <div id="topbar-activity-log" className="topbar-icon-btn" style={{ cursor: "pointer", padding: "8px", position: "relative" }} onClick={handleToggleActivityDropdown} title="Activity Log">

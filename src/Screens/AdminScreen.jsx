@@ -27,13 +27,14 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   onAuthStateChanged, signInWithEmailAndPassword, signOut,
-  EmailAuthProvider, reauthenticateWithCredential, updatePassword, verifyBeforeUpdateEmail,
+  EmailAuthProvider, reauthenticateWithCredential, updatePassword,
 } from "firebase/auth";
 import {
   collection, doc, getDoc, onSnapshot, query, setDoc, updateDoc, where, serverTimestamp,
 } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { auth, db, functions } from "./firebase";
+import DashboardSwitcher from "./DashboardSwitcher";
 import { DEFAULT_DEPARTMENTS, normalizeDept, splitLegacyProgram } from "./departmentsPrograms";
 import { color, font, type, space, radius, ease } from "./theme";
 import { TERMS_TEXT, PRIVACY_TEXT, parseLegalDoc } from "./legalContent";
@@ -1192,6 +1193,12 @@ const CoordinatorsTab = ({ admin, depts, flash }) => {
   }, [showFilter]);
   const [editSel, setEditSel] = useState(emptySel());
   const [confirm, confirmDialog] = useConfirm();
+  // UIDs that already have an active admins/{uid} doc (so their row shows "Admin" instead of the button).
+  // If the rules don't let an admin list the collection this just stays empty; promoting is idempotent anyway.
+  const [adminUids, setAdminUids] = useState(() => new Set());
+  useEffect(() => onSnapshot(collection(db, "admins"),
+    (s) => setAdminUids(new Set(s.docs.filter((d) => d.get("status") === "active").map((d) => d.id))),
+    (e) => console.error("admins:", e)), []);
 
   // The selection a coordinator has on file, in the shape the editor uses (also what "unchanged" means).
   const initialSel = (c) => (c.deptSelections?.length
@@ -1241,6 +1248,24 @@ const CoordinatorsTab = ({ admin, depts, flash }) => {
     const res = await call("adminSetCoordinatorDepartments", { uid, deptSelections: editSel });
     setBusy(false);
     if (res) { flash("Coordinator department updated."); setManagingKey(null); }
+  };
+
+  // Gives this coordinator admin access with the SAME login. They keep their coordinator account and can
+  // switch dashboards from the top bar.
+  const promoteToAdmin = async (c) => {
+    const who = c.name || c.email || "this coordinator";
+    if (!(await confirm({
+      title: "Promote to admin",
+      body: `Are you sure you want to give ${who} admin access? They keep their coordinator account and sign in with the same email and password. Admins can manage departments and every coordinator.`,
+      confirmLabel: "Promote to admin",
+    }))) return;
+    setBusy(true);
+    const res = await call("adminPromoteCoordinator", { uid: c.uid });
+    setBusy(false);
+    if (res) {
+      setAdminUids((prev) => new Set(prev).add(c.uid));
+      flash(res.data?.alreadyAdmin ? `${who} is already an admin.` : `${who} is now an admin. They can switch dashboards from the top bar.`);
+    }
   };
 
   const resendInvite = async (v) => {
@@ -1519,6 +1544,13 @@ const CoordinatorsTab = ({ admin, depts, flash }) => {
           <InfoRow label="Name">{managing.name || <span style={{ color: inkMuted }}>{managing.kind === "invite" ? "Not signed up yet" : "(name not set yet)"}</span>}</InfoRow>
           <InfoRow label="Email">{managing.email || "—"}</InfoRow>
           <InfoRow label="Status">{statusBadge(managing.status)}</InfoRow>
+          {managing.kind === "coord" && (
+            <InfoRow label="Admin access">
+              {adminUids.has(managing.ref.uid)
+                ? <span style={S.chip}>Admin</span>
+                : <button type="button" className="adm-btn-light" style={S.btn2} disabled={busy} onClick={() => promoteToAdmin(managing.ref)}>Promote to Admin</button>}
+            </InfoRow>
+          )}
           {managing.kind === "invite" && managing.ref.createdAt?.toMillis && <InfoRow label="Invitation sent">{timeAgo(managing.ref.createdAt.toMillis())}</InfoRow>}
           {managing.kind === "invite" ? (
             <InfoRow label="Department">
@@ -1719,18 +1751,18 @@ const AdminAccountModal = ({ mode, pending, onChanged, flash, confirm, onClose }
     setError(""); setInfo("");
     const name = norm(form.name);
     const email = norm(form.email).toLowerCase();
-    if (!name) { setError("Enter the person's name."); return; }
+    if (mode === "add" && !name) { setError("Enter the person's name."); return; }
     if (!EMAIL_RE.test(email)) { setError("Enter a valid email address."); return; }
     if (email === norm(auth.currentUser?.email).toLowerCase()) { setError("That is your own email. Enter the other person's email."); return; }
     if (!form.password) { setError("Enter your current password to confirm."); return; }
     if (mode === "transfer" && !ack) { setError("Tick the box to confirm you understand."); return; }
     if (!(await confirm(mode === "add"
       ? { title: "Add administrator", body: `Are you sure you want to add ${name} (${email}) as an administrator? They will have full administrator access.`, confirmLabel: "Add account" }
-      : { title: "Transfer account", body: `Are you sure you want to transfer your administrator role to ${name} (${email})? Your access ends once they sign in for the first time.`, confirmLabel: "Start transfer", tone: "danger" }))) return;
+      : { title: "Transfer account", body: `Are you sure you want to transfer your administrator role to ${email}? Your access ends once they sign in for the first time.`, confirmLabel: "Start transfer", tone: "danger" }))) return;
     setBusy(true);
     try {
       await reauthenticate(form.password);
-      const res = await httpsCallable(functions, mode === "add" ? "adminAddAdmin" : "adminTransferAdmin")({ name, email });
+      const res = await httpsCallable(functions, mode === "add" ? "adminAddAdmin" : "adminTransferAdmin")(mode === "add" ? { name, email } : { email });
       const mailed = res?.data?.mailed !== false;
       const done = mode === "add" ? "Administrator account created." : "Transfer started.";
       onChanged();
@@ -1787,7 +1819,7 @@ const AdminAccountModal = ({ mode, pending, onChanged, flash, confirm, onClose }
       {info && <div role="status" style={{ ...S.okMsg, margin: "16px 0 14px" }}>{info}</div>}
       {showForm && (
         <div>
-          <ApInput label="Name" maxLength={60} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+          {mode === "add" && <ApInput label="Name" maxLength={60} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />}
           <ApInput label="Email" type="email" autoComplete="off" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
           <ApPassword label="Your current password" autoComplete="current-password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
           {mode === "transfer" && (
@@ -2031,6 +2063,8 @@ const AccountProfile = ({ admin, flash }) => {
   const [emailError, setEmailError] = useState("");
   const [emailInfo, setEmailInfo] = useState("");
   const [emailBusy, setEmailBusy] = useState(false);
+  const [emailStep, setEmailStep] = useState("form");   // form | code
+  const [emailCode, setEmailCode] = useState("");
 
   const [pw, setPw] = useState({ current: "", next: "", confirm: "" });
   const [pwError, setPwError] = useState("");
@@ -2073,34 +2107,47 @@ const AccountProfile = ({ admin, flash }) => {
   };
 
   // The email you type here becomes your sign-in email AND the address password reset links go to.
-  // Firebase first mails a verification link to the NEW address; the change only happens once it is
-  // opened, so a typo can never lock you out. Until then the current email keeps working.
+  // Step 1 mails a 6-digit code to the NEW address (server: adminSendRecoveryCode). Step 2 checks the
+  // code and switches the Firebase Auth email + admins/{uid}.email + recoveryEmail together
+  // (server: adminConfirmRecoveryCode), so login, "Forgot password" and this screen all use the same email.
   const submitEmail = async () => {
     setEmailError(""); setEmailInfo("");
     const next = norm(emailForm.email).toLowerCase();
     if (!EMAIL_RE.test(next)) { setEmailError("Enter a valid email address."); return; }
     if (next === norm(admin.email).toLowerCase()) { setEmailError("That is already your sign-in email."); return; }
     if (!emailForm.password) { setEmailError("Enter your current password to confirm."); return; }
-    if (!(await confirm({
-      title: "Change sign-in email",
-      body: `Are you sure you want to change your sign-in email to ${next}? We'll send a verification link to that address first, and the change only happens once it is opened.`,
-      confirmLabel: "Send link",
-    }))) return;
     setEmailBusy(true);
     try {
       await reauthenticate(emailForm.password);
-      try {
-        await verifyBeforeUpdateEmail(auth.currentUser, next, { url: `${window.location.origin}/admin` });
-      } catch (err) {
-        // The site isn't in Firebase's authorized domains for the return link: send it without one.
-        if (err?.code === "auth/unauthorized-continue-uri" || err?.code === "auth/invalid-continue-uri") {
-          await verifyBeforeUpdateEmail(auth.currentUser, next);
-        } else { throw err; }
-      }
-      setEmailForm({ email: "", password: "" });
-      setEmailInfo(`We sent a verification link to ${next}. Your sign-in email changes after you open it. Until then, keep signing in with ${admin.email}. After the change you will be asked to sign in again with the new email.`);
+      await httpsCallable(functions, "adminSendRecoveryCode")({ email: next });
+      setEmailCode("");
+      setEmailStep("code");
+      setEmailInfo(`We sent a 6-digit code to ${next}. It expires in 10 minutes.`);
     } catch (err) {
       setEmailError(emailChangeMessage(err));
+    } finally {
+      setEmailBusy(false);
+    }
+  };
+
+  const submitEmailCode = async () => {
+    setEmailError("");
+    const code = norm(emailCode);
+    if (!/^\d{6}$/.test(code)) { setEmailError("Enter the 6-digit code."); return; }
+    setEmailBusy(true);
+    try {
+      const res = await httpsCallable(functions, "adminConfirmRecoveryCode")({ code });
+      setModal(null);
+      setEmailForm({ email: "", password: "" }); setEmailCode(""); setEmailStep("form"); setEmailInfo("");
+      if (res?.data?.signInEmailChanged) {
+        // The server revoked the old sessions: sign out so they log in again with the new email.
+        flash(`Email changed to ${res.data.email}. Please sign in again with it.`);
+        setTimeout(() => { signOut(auth).catch(() => {}); }, 1800);
+      } else {
+        flash("Email confirmed.");
+      }
+    } catch (err) {
+      setEmailError(err?.message || "Could not confirm the code. Please try again.");
     } finally {
       setEmailBusy(false);
     }
@@ -2127,9 +2174,9 @@ const AccountProfile = ({ admin, flash }) => {
     }
   };
 
-  const openEmail = () => { setEmailForm({ email: "", password: "" }); setEmailError(""); setEmailInfo(""); setModal("email"); };
+  const openEmail = () => { setEmailForm({ email: "", password: "" }); setEmailCode(""); setEmailStep("form"); setEmailError(""); setEmailInfo(""); setModal("email"); };
   const openPassword = () => { setPw({ current: "", next: "", confirm: "" }); setPwError(""); setModal("password"); };
-  const dirty = (modal === "email" && !emailInfo && (emailForm.email || emailForm.password))
+  const dirty = (modal === "email" && (emailForm.email || emailForm.password || emailCode))
     || (modal === "password" && (pw.current || pw.next || pw.confirm));
   const closeModal = async () => {
     if (dirty && !(await confirm({ title: "Cancel", body: "Are you sure you want to cancel? What you entered will be discarded.", confirmLabel: "Discard", cancelLabel: "Keep editing", tone: "danger" }))) return;
@@ -2263,17 +2310,23 @@ const AccountProfile = ({ admin, flash }) => {
       {/* ── Pop-up forms ── */}
       {modal === "email" && (
         <ApModal title="Sign-in email" onClose={closeModal}
-          sub="This is the email you sign in with, and where password reset links are sent. We’ll send a verification link to the new address, and the change takes effect when you open it."
-          footer={emailInfo
-            ? <button type="button" className="ap-fbtn solid" onClick={() => setModal(null)}>Close</button>
-            : (
-              <>
-                <button type="button" className="ap-fbtn ghost" disabled={emailBusy} onClick={closeModal}>Cancel</button>
-                <button type="button" className="ap-fbtn solid" disabled={emailBusy} onClick={submitEmail}>{emailBusy ? "Sending…" : "Send verification link"}</button>
-              </>
-            )}>
-          <ApInput label="New email" type="email" autoComplete="off" value={emailForm.email} onChange={(e) => setEmailForm({ ...emailForm, email: e.target.value })} />
-          <ApPassword label="Current password" autoComplete="current-password" value={emailForm.password} onChange={(e) => setEmailForm({ ...emailForm, password: e.target.value })} />
+          sub="This is the email you sign in with, and where password reset links are sent. We’ll send a 6-digit code to the new address to confirm it’s yours."
+          footer={
+            <>
+              <button type="button" className="ap-fbtn ghost" disabled={emailBusy} onClick={closeModal}>Cancel</button>
+              {emailStep === "form"
+                ? <button type="button" className="ap-fbtn solid" disabled={emailBusy} onClick={submitEmail}>{emailBusy ? "Sending…" : "Send code"}</button>
+                : <button type="button" className="ap-fbtn solid" disabled={emailBusy} onClick={submitEmailCode}>{emailBusy ? "Checking…" : "Confirm"}</button>}
+            </>
+          }>
+          {emailStep === "form" ? (
+            <>
+              <ApInput label="New email" type="email" autoComplete="off" value={emailForm.email} onChange={(e) => setEmailForm({ ...emailForm, email: e.target.value })} />
+              <ApPassword label="Current password" autoComplete="current-password" value={emailForm.password} onChange={(e) => setEmailForm({ ...emailForm, password: e.target.value })} />
+            </>
+          ) : (
+            <ApInput label="6-digit code" type="text" inputMode="numeric" maxLength={6} autoComplete="one-time-code" value={emailCode} onChange={(e) => setEmailCode(e.target.value.replace(/\D/g, ""))} />
+          )}
           {emailError && <div role="alert" style={S.err}>{emailError}</div>}
           {emailInfo && <div role="status" style={{ ...S.okMsg, margin: "16px 0 0" }}>{emailInfo}</div>}
         </ApModal>
@@ -2371,8 +2424,12 @@ const AdminDashboard = ({ admin }) => {
   const askLogout = () => { setDrawerOpen(false); setShowLogout(true); };
   const confirmLogout = async () => {
     setShowLogout(false);
-    // Stays on the admin page: onAuthStateChanged in <AdminScreen> brings the sign-in form back.
-    try { await signOut(auth); } catch (e) { console.error("Logout failed:", e); }
+    // Signed out → back to the normal sign-in page (the same one everyone uses), not the /admin form.
+    // Only after a successful sign-out, otherwise the sign-in page would send a still-signed-in admin back here.
+    try {
+      await signOut(auth);
+      window.location.replace("/signin");
+    } catch (e) { console.error("Logout failed:", e); }
   };
 
   const page = PAGE_TITLES[activeNav] || PAGE_TITLES.departments;
@@ -2402,6 +2459,7 @@ const AdminDashboard = ({ admin }) => {
             </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: "4px", flexShrink: 0 }}>
+            <DashboardSwitcher current="admin" />
             {!isMobile && (
               <span style={{ fontFamily: uiFont, fontSize: "0.82rem", color: "rgba(255,255,255,0.8)", marginRight: "8px" }}>{admin.name || admin.email}</span>
             )}
@@ -2500,6 +2558,16 @@ const AdminScreen = ({ onExit }) => {
     }
     setChecking(false);
   }), []);
+
+  // Once an admin is signed in, keep "/admin" out of the address bar: show the site root instead.
+  // history.replaceState changes only the displayed URL (the router isn't told, so this screen stays
+  // mounted). On refresh the root page sees the signed-in admin and sends them back here, where
+  // this runs again. It is cosmetic only: access is enforced by firestore.rules and requireAdmin.
+  useEffect(() => {
+    if (admin && window.location.pathname.startsWith("/admin")) {
+      try { window.history.replaceState(window.history.state, "", "/"); } catch { /* keep the URL as is */ }
+    }
+  }, [admin]);
 
   if (checking) return <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", background: paperTint, color: inkMuted, fontFamily: uiFont }}>Loading…</div>;
   return admin ? <AdminDashboard admin={admin} /> : <AdminSignIn onExit={isStandalone() ? undefined : onExit} />;

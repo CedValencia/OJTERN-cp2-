@@ -123,8 +123,11 @@ const EXCEL_COLUMNS = [
 // optional per row. Templates downloaded before it existed (no Suffix column)
 // are still accepted — see LEGACY_IMPORT_LAYOUTS in parseFile.
 const IMPORT_TEMPLATE_COLUMNS = [
-  "Student ID", "Last Name", "First Name", "Middle Initial", "Suffix", "Sex",
+  "Student ID", "Last Name", "First Name", "Middle Initial", "Suffix",
 ];
+// Sex is no longer collected. Templates downloaded earlier still have a Sex
+// column after Suffix: they match IMPORT_TEMPLATE_COLUMNS above (a prefix match)
+// and the extra column is simply ignored.
 // There is no Department column any more: every imported student gets the
 // coordinator's own department (picked in the Import form only when the
 // coordinator has more than one). Older templates are still accepted; their
@@ -192,14 +195,6 @@ const sortBatchKeys = (keys) => [...keys].sort((a, b) => {
   if (b === BATCH_NONE) return -1;
   return batchStartYear(b) - batchStartYear(a);
 });
-
-// "m", "MALE", "Female", "f" → "Male" / "Female"; anything else → "".
-const normalizeSex = (value) => {
-  const raw = String(value || "").trim().toLowerCase();
-  if (raw === "m" || raw === "male") return "Male";
-  if (raw === "f" || raw === "female") return "Female";
-  return "";
-};
 
 // "Santos" or "S" → "S."; blank stays blank. The rest of the app (profile form,
 // fullName, exports) works with a middle initial. New students are entered as an
@@ -569,7 +564,6 @@ const validators = {
   college: (v) => (!v ? "Required" : ""),
   program: (v) => (!v ? "Required" : ""),
   yearSection: (v) => (!v ? "Required" : ""),
-  sex: (v) => (!v ? "Required" : ""),
   age: (v) => {
     if (!v) return "Required";
     const n = Number(v);
@@ -642,7 +636,7 @@ const excelInitialRule = (cell) =>
 const excelStudentIdRule = (cell) =>
   `AND(LEN(${cell})=9,SUMPRODUCT(--ISNUMBER(--MID(${cell},ROW($1:$9),1)))=9)`;
 
-// The sheet is PROTECTED and everything outside it is hidden: only Student ID … Sex
+// The sheet is PROTECTED and everything outside it is hidden: only Student ID … Suffix
 // on rows 3–200 are editable, so nobody can type outside the designated columns. Each editable column also has
 // an Excel validation rule that mirrors the checks the import runs, so a wrong
 // value is refused while typing instead of failing after Import. (xlsx-js-style
@@ -655,10 +649,10 @@ const buildImportTemplate = async (outType = "blob") => {
   const lastRow = IMPORT_TEMPLATE_LAST_ROW;
   const rows = [
     IMPORT_TEMPLATE_COLUMNS,
-    ["e.g. 201112345", "e.g. Dela Cruz", "e.g. Juan", "e.g. S. (or blank)", "e.g. Jr. (or blank)", "e.g. Male"],
+    ["e.g. 201112345", "e.g. Dela Cruz", "e.g. Juan", "e.g. S. (or blank)", "e.g. Jr. (or blank)"],
   ];
   const ws = XLSX.utils.aoa_to_sheet(rows);
-  ws["!cols"] = [{ wch: 15 }, { wch: 22 }, { wch: 22 }, { wch: 24 }, { wch: 18 }, { wch: 12 }];
+  ws["!cols"] = [{ wch: 15 }, { wch: 22 }, { wch: 22 }, { wch: 24 }, { wch: 18 }];
 
   for (let r = 2; r < lastRow; r++) {
     for (let c = 0; c < colCount; c++) {
@@ -705,8 +699,6 @@ const buildImportTemplate = async (outType = "blob") => {
       title: "Invalid middle initial", message: "Type one letter only, like S or S. Leave it blank if there is none.", prompt: "Optional. One letter, like S." }),
     rule({ name: "Suffix", type: "list", formula: `"${SUFFIX_OPTIONS.join(",")}"`,
       title: "Invalid suffix", message: "Choose a suffix from the list, or leave it blank.", prompt: "Optional. Jr., Sr., II, III … or leave blank." }),
-    rule({ name: "Sex", type: "list", formula: `"Male,Female"`,
-      title: "Invalid sex", message: "Choose Male or Female from the list.", prompt: "Choose Male or Female." }),
   ];
   const dataValidation = `<dataValidations count="${rules.length}">${rules.join("")}</dataValidations>`;
   const sheetProtection = '<sheetProtection sheet="1" objects="1" scenarios="1" formatColumns="0" formatRows="0"/>';
@@ -1056,11 +1048,11 @@ const useField = (initial = "", validatorKey) => {
 };
 
 // ── Program / Major picker ────────────────────────────────────────────────────
-// Department is never picked here — it comes from the coordinator. Program only
-// appears when the department has more than one, and Major only when the program
-// has majors; otherwise there is nothing to choose, so nothing is shown.
-// `programs` is the department's [{ name, specializations }] list. Leaving a
-// field blank is allowed: the student then sets it on first login.
+// Department comes from the coordinator. Program is always shown (disabled until a
+// department is chosen; pre-selected when the department has only one program), and
+// Major only when the chosen program has majors.
+// `programs` is the department's [{ name, specializations }] list. Leaving Program
+// blank is allowed when there are several: the student then sets it on first login.
 const programsOf = (departments, college) => (college ? (departments[college]?.programs || []) : []);
 const programMajorState = (programs, program) => {
   const single   = programs.length === 1 ? programs[0] : null;
@@ -1068,21 +1060,28 @@ const programMajorState = (programs, program) => {
   const majors   = (active?.specializations || []).filter(Boolean);
   return { showProgram: programs.length > 1, showMajor: majors.length > 0, majors, activeName: active?.name || "" };
 };
-const ProgramMajorFields = ({ programs, program, major, onProgram, onMajor, Label = FieldLabel }) => {
-  const { showProgram, showMajor, majors } = programMajorState(programs, program);
-  if (!showProgram && !showMajor) return null;
+const ProgramMajorFields = ({ programs, program, major, onProgram, onMajor, Label = FieldLabel, programError = "", majorError = "" }) => {
+  const { showMajor, majors, activeName } = programMajorState(programs, program);
+  const hasPrograms = programs.length > 0;
   return (
     <>
-      {showProgram && (
-        <div style={{ gridColumn: "1 / -1" }}>
-          <Label>Program</Label>
-          <StyledSelect value={program} onChange={onProgram} options={programs.map(p => p.name)} placeholder="Let the student choose" />
-        </div>
-      )}
+      <div style={{ gridColumn: "1 / -1" }}>
+        <Label>Program <span style={{ color: danger }}>*</span></Label>
+        <StyledSelect
+          value={program || activeName}
+          onChange={onProgram}
+          options={programs.map(p => p.name)}
+          placeholder={hasPrograms ? "Select program" : "Select a department first"}
+          disabled={!hasPrograms}
+          hasError={!!programError}
+        />
+        {programError && <p role="alert" style={{ fontFamily: font.ui, ...type.helper, color: danger, margin: "4px 0 0 14px" }}>{programError}</p>}
+      </div>
       {showMajor && (
         <div style={{ gridColumn: "1 / -1" }}>
-          <Label>Major</Label>
-          <StyledSelect value={major} onChange={onMajor} options={majors} placeholder="Not set" />
+          <Label>Major <span style={{ color: danger }}>*</span></Label>
+          <StyledSelect value={major} onChange={onMajor} options={majors} placeholder="Select major" hasError={!!majorError} />
+          {majorError && <p role="alert" style={{ fontFamily: font.ui, ...type.helper, color: danger, margin: "4px 0 0 14px" }}>{majorError}</p>}
         </div>
       )}
     </>
@@ -1107,7 +1106,8 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
   const batch         = useField(initial.batch || "", "batch");
   const firstName     = useField(initial.firstName || "", "firstName");
   const suffix        = useField(initial.suffix || "", "suffix");
-  const sex           = useField(initial.sex || "", "sex");
+  // Sex is no longer collected for new students. Existing records keep theirs.
+  const [sex]   = useState(initial.sex || "");   // display only — the coordinator no longer edits it
   const yearSection   = useField(initial.yearSection || "", "yearSection");
   const age           = useField(initial.age || "", "age");
 
@@ -1137,11 +1137,17 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
   const handleProgramChange = (val) => { setProgram(val); setMajor(""); setProgramTouched(true); };
   const programObjs = programsOf(departments, college);
   const pm = programMajorState(programObjs, program);
+  // The department's only program is filled in automatically; otherwise the
+  // coordinator must pick one.
+  const createProgram = programObjs.length === 1 ? programObjs[0].name : program;
+  const [majorTouched, setMajorTouched] = useState(false);
+  const createProgramError = programTouched && !createProgram ? "Required" : "";
+  const createMajorError   = majorTouched && pm.showMajor && !major ? "Required" : "";
 
   const allFields = isCreate
-    ? [studentId, lastName, firstName, middleName, suffix, yearSection, sex, batch]
-    : [studentId, lastName, middleInitial, firstName, suffix, sex, yearSection, age, batch];
-  const touchAll = () => { allFields.forEach(f => f.touch()); setCollegeTouched(true); if (!isCreate) setProgramTouched(true); };
+    ? [studentId, lastName, firstName, middleName, suffix, yearSection, batch]
+    : [studentId, lastName, middleInitial, firstName, suffix, yearSection, age, batch];
+  const touchAll = () => { allFields.forEach(f => f.touch()); setCollegeTouched(true); setProgramTouched(true); setMajorTouched(true); };
 
   const isValid = () => {
     if (validators.studentId(studentId.value)) return false;
@@ -1153,24 +1159,28 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
     if (isCreate) {
       if (validators.middleInitial(middleName.value)) return false;
       if (validators.suffix(suffix.value)) return false;
-      if (validators.sex(sex.value)) return false;
+      // Program and major are set here by the coordinator and are final: the
+      // student can no longer change them on first login.
+      if (!createProgram) return false;
+      if (pm.showMajor && !major) return false;
       return true;
     }
     if (validators.middleInitial(middleInitial.value)) return false;
     if (validators.suffix(suffix.value)) return false;
-    if (validators.sex(sex.value)) return false;
     // Age is the student's own field (set on their Personal Information), so
     // it's never validated or changed from here.
     if (!program) return false;
+    if (pm.showMajor && !major) return false;
     return true;
   };
 
   // Changing any of these rebuilds the DEFAULT password (see
   // generateStudentPassword), so the student is signed out and must log in
   // again with the updated Student ID + new default password.
-  // The department can't be edited, so only the name and Student ID can
-  // change the default password.
+  // The name, Student ID and department (editable only for a coordinator who
+  // handles more than one) can change the default password.
   const credentialsChanged = !isCreate && (
+    college !== String(initial.college || "") ||
     firstName.value.trim().toLowerCase() !== String(initial.firstName || "").trim().toLowerCase() ||
     lastName.value.trim().toLowerCase()  !== String(initial.lastName  || "").trim().toLowerCase() ||
     studentId.value.trim()               !== String(initial.studentId || "").trim()
@@ -1186,12 +1196,11 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
     try {
       if (isCreate) {
         // Same shape a bulk-imported row produces (see ImportModal.parseFile):
-        // program is filled in only when the department offers exactly one;
-        // sex, age, and email come from the student on first login. The
-        // suffix is optional and set here (it's part of the name on the list).
-        // Program: the only one the department has, else what was picked (blank =
-        // the student chooses on first login). Major only when one was picked.
-        const deptPrograms = programObjs.map(p => p.name).filter(Boolean);
+        // age and email come from the student on first login. The suffix is
+        // optional and set here (it's part of the name on the list).
+        // Department, program and major are set here and cannot be changed by
+        // the student: program is the department's only one, else what was
+        // picked; major is required when the program has majors.
         await onSubmit({
           studentId: studentId.value.trim(),
           lastName: lastName.value.trim(),
@@ -1201,8 +1210,7 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
           middleInitial: toMiddleInitial(middleName.value),
           yearSection: yearSection.value,
           college,
-          program: deptPrograms.length === 1 ? deptPrograms[0] : program,
-          sex: sex.value,
+          program: createProgram,
           batch: normalizeBatch(batch.value) || batch.value.trim(),
           specialization: pm.showMajor ? major : "", suffix: isRealSuffix(suffix.value) ? suffix.value : "", age: "",
         });
@@ -1220,7 +1228,7 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
         ...(program !== (initial.program || "")
           ? { specialization: pm.showMajor ? major : "" }
           : major !== (initial.specialization || "") ? { specialization: major } : {}),
-        yearSection: yearSection.value, sex: sex.value,
+        yearSection: yearSection.value,
         // No `age` — it's the student's own field (Personal Information).
         // Sinasadyang WALANG `email` dito. Sa create, si createStudentAccount
         // na ang gumagawa ng `<studentId>@pending.student` na placeholder at
@@ -1246,6 +1254,8 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
   };
 
   const locked = readOnly && !isEditing;
+  // Asterisks only show while the form can actually be edited (hidden in view mode).
+  const reqStar = locked ? null : <span style={{ color: danger }}>*</span>;
 
   // fullName — used for the modal header. Now includes the suffix (e.g. "Jr.")
   // and stays live: it recomputes from the current field values while editing,
@@ -1291,7 +1301,7 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
 
         <div className="sa-modal-body">
           <div id="sa-modal-studentid" style={{ marginBottom: "12px" }}>
-            <FieldLabel>Student ID</FieldLabel>
+            <FieldLabel>Student ID {reqStar}</FieldLabel>
             <div style={{ width: "min(220px, 100%)" }}>
               <StyledInput value={studentId.value} onChange={onStudentIdChange} placeholder="9-digit number" disabled={locked} hasError={!!studentId.error} />
               <FieldError msg={studentId.error} />
@@ -1303,12 +1313,12 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
               {/* Same fields, in the same order, as the import template. */}
               <div className="sa-name-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))" }}>
                 <div>
-                  <FieldLabel>Last name</FieldLabel>
+                  <FieldLabel>Last name {reqStar}</FieldLabel>
                   <StyledInput value={lastName.value} onChange={onLastNameChange} placeholder="Dela Cruz" hasError={!!lastName.error} />
                   <FieldError msg={lastName.error} />
                 </div>
                 <div>
-                  <FieldLabel>First name</FieldLabel>
+                  <FieldLabel>First name {reqStar}</FieldLabel>
                   <StyledInput value={firstName.value} onChange={onFirstNameChange} placeholder="Juan" hasError={!!firstName.error} />
                   <FieldError msg={firstName.error} />
                 </div>
@@ -1326,17 +1336,12 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
 
               <div className="sa-college-grid">
                 <div>
-                  <FieldLabel>Section</FieldLabel>
+                  <FieldLabel>Section {reqStar}</FieldLabel>
                   <StyledSelect value={yearSection.value} onChange={(v) => yearSection.onChange(v)} options={YEAR_SECTIONS} placeholder="Select section" hasError={!!yearSection.error} />
                   <FieldError msg={yearSection.error} />
                 </div>
                 <div>
-                  <FieldLabel>Sex</FieldLabel>
-                  <StyledSelect value={sex.value} onChange={(v) => sex.onChange(v)} options={SEX_OPTIONS} placeholder="Select sex" hasError={!!sex.error} />
-                  <FieldError msg={sex.error} />
-                </div>
-                <div>
-                  <FieldLabel>Batch</FieldLabel>
+                  <FieldLabel>Batch {reqStar}</FieldLabel>
                   <StyledInput value={batch.value} onChange={(v) => batch.onChange(v.replace(/[^\d-]/g, "").slice(0, 9))} placeholder="2026-2027" hasError={!!batch.error} />
                   <FieldError msg={batch.error} />
                   {!batch.error && batchHint(batch.value) && <p style={{ fontFamily: font.ui, ...type.helper, color: success, marginTop: "4px", paddingLeft: "14px" }}>{batchHint(batch.value)}</p>}
@@ -1345,7 +1350,7 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
                     Everyone else's students simply get their own department. */}
                 {coordinatorColleges.length > 1 && (
                   <div>
-                    <FieldLabel>Department</FieldLabel>
+                    <FieldLabel>Department {reqStar}</FieldLabel>
                     <StyledSelect
                       value={college}
                       onChange={handleCollegeChange}
@@ -1356,20 +1361,19 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
                     <FieldError msg={collegeError} />
                   </div>
                 )}
-                <ProgramMajorFields programs={programObjs} program={program} major={major} onProgram={handleProgramChange} onMajor={setMajor} />
+                <ProgramMajorFields programs={programObjs} program={program} major={major} onProgram={(v) => { handleProgramChange(v); setMajorTouched(false); }} onMajor={(v) => { setMajor(v); setMajorTouched(true); }} programError={createProgramError} majorError={createMajorError} />
               </div>
 
               <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, marginTop: space.sm, lineHeight: 1.6 }}>
                 {coordinatorColleges.length <= 1 && college ? `Added to ${college}, your department. ` : ""}
-                {pm.showProgram ? "Leave Program blank to let the student choose it on first login. " : ""}
-                The student adds {pm.showProgram ? "" : "their program, "}age, and personal email on their first login.
+                {reqStar} Required. Department, program and major are set here and the student can't change them. The student adds their age and personal email on their first login.
               </p>
             </>
           ) : (
           <>
           <div className="sa-name-grid">
             <div>
-              <FieldLabel>Last name</FieldLabel>
+              <FieldLabel>Last name {reqStar}</FieldLabel>
               <StyledInput value={lastName.value} onChange={onLastNameChange} placeholder="Dela Cruz" disabled={locked} hasError={!!lastName.error} />
               <FieldError msg={lastName.error} />
             </div>
@@ -1379,7 +1383,7 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
               <FieldError msg={middleInitial.error} />
             </div>
             <div>
-              <FieldLabel>First name</FieldLabel>
+              <FieldLabel>First name {reqStar}</FieldLabel>
               <StyledInput value={firstName.value} onChange={onFirstNameChange} placeholder="Juan" disabled={locked} hasError={!!firstName.error} />
               <FieldError msg={firstName.error} />
             </div>
@@ -1392,21 +1396,22 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
 
           <div id="sa-modal-department" className="sa-college-grid">
             <div>
-              <FieldLabel>Department</FieldLabel>
+              <FieldLabel>Department{coordinatorColleges.length > 1 && <> {reqStar}</>}</FieldLabel>
               {/* Locked to the coordinator's own department(s) — never the
                   full college list. Single department → static label so it
                   can't be changed. Multiple → dropdown, but restricted to
                   just the coordinator's assigned departments. */}
-              {/* Editing an existing student never changes the department —
-                  only a NEW student can be placed in one of the coordinator's
-                  departments. */}
-              {coordinatorColleges.length > 1 && !readOnly ? (
+              {/* A coordinator who handles more than one department can place a
+                  new student in, or move an existing one to, any of their own
+                  departments. With a single department it stays a fixed label. */}
+              {coordinatorColleges.length > 1 ? (
                 <>
                   <StyledSelect
                     value={college}
                     onChange={handleCollegeChange}
-                    options={coordinatorColleges.map(name => ({ value: name, label: name }))}
+                    options={(college && !coordinatorColleges.includes(college) ? [college, ...coordinatorColleges] : coordinatorColleges).map(name => ({ value: name, label: name }))}
                     placeholder="Select your department"
+                    disabled={locked}
                     hasError={!!collegeError}
                   />
                   <FieldError msg={collegeError} />
@@ -1422,35 +1427,36 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
               )}
             </div>
             <div>
-              <FieldLabel>Program</FieldLabel>
+              <FieldLabel>Program {reqStar}</FieldLabel>
               <StyledSelect value={program} onChange={handleProgramChange} options={programs} placeholder="Select program" disabled={locked || !college} hasError={!!programError} />
               <FieldError msg={programError} />
             </div>
             {/* Major — only when the program has majors (or one is already on file). */}
             {(pm.showMajor || major) && (
               <div style={{ gridColumn: "1 / -1" }}>
-                <FieldLabel>Major</FieldLabel>
+                <FieldLabel>Major{pm.showMajor && <> {reqStar}</>}</FieldLabel>
                 <StyledSelect
                   value={major}
-                  onChange={setMajor}
+                  onChange={(v) => { setMajor(v); setMajorTouched(true); }}
                   options={major && !pm.majors.includes(major) ? [...pm.majors, major] : pm.majors}
                   placeholder="Not set"
                   disabled={locked || !program}
+                  hasError={!!createMajorError}
                 />
+                <FieldError msg={createMajorError} />
               </div>
             )}
           </div>
 
           <div id="sa-modal-info" className="sa-info-grid">
             <div>
-              <FieldLabel>Year & section</FieldLabel>
+              <FieldLabel>Year & section {reqStar}</FieldLabel>
               <StyledSelect value={yearSection.value} onChange={(v) => yearSection.onChange(v)} options={YEAR_SECTIONS} placeholder="Select section" disabled={locked} hasError={!!yearSection.error} />
               <FieldError msg={yearSection.error} />
             </div>
             <div>
               <FieldLabel>Sex</FieldLabel>
-              <StyledSelect value={sex.value} onChange={(v) => sex.onChange(v)} options={SEX_OPTIONS} placeholder="Select sex" disabled={locked} hasError={!!sex.error} />
-              <FieldError msg={sex.error} />
+              <StyledSelect value={sex} onChange={() => {}} options={SEX_OPTIONS} placeholder="Not set" disabled />
             </div>
             <div>
               <FieldLabel>Birthdate</FieldLabel>
@@ -1467,11 +1473,17 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
               <StyledInput value={String(age.value ?? "")} onChange={onAgeChange} disabled hasError={false} />
             </div>
             <div>
-              <FieldLabel>Batch</FieldLabel>
+              <FieldLabel>Batch {reqStar}</FieldLabel>
               <StyledInput value={batch.value} onChange={(v) => batch.onChange(v.replace(/[^\d-]/g, "").slice(0, 9))} placeholder="2026-2027" disabled={locked} hasError={!!batch.error} />
               <FieldError msg={batch.error} />
             </div>
           </div>
+
+          {!locked && (
+            <p style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, marginTop: space.sm, lineHeight: 1.6 }}>
+            {reqStar} Required. Only the fields marked with an asterisk, plus Middle initial and Suffix, can be edited here. Sex, birthdate, age and personal email are set by the student.
+          </p>
+          )}
 
           </>
           )}
@@ -1571,14 +1583,6 @@ const validateRow = (row, rowIndex, seenIds = new Map(), existingIds = new Set()
   if (suffix === null) errs.push(`Row ${r}: Suffix "${row.suffix}" must be one of ${SUFFIX_OPTIONS.join(", ")} (or blank)`);
   else row.suffix = suffix;
 
-  if (!row.sex) {
-    errs.push(`Row ${r}: Sex is required`);
-  } else {
-    const sex = normalizeSex(row.sex);
-    if (!sex) errs.push(`Row ${r}: Sex "${row.sex}" must be Male or Female`);
-    else row.sex = sex; // normalize in place, e.g. "m" → "Male"
-  }
-
   // Section, batch, department, program and major are not checked per row: they
   // are chosen once in the import form and stamped onto every row.
   return errs;
@@ -1649,7 +1653,6 @@ const ImportModal = ({ onClose, onImport, coordinatorColleges = [], departments 
           middleName,
           middleInitial: toMiddleInitial(middleName),
           suffix:        cell("Suffix"),   // checked + normalized in validateRow
-          sex:           cell("Sex"),
           // Section and batch are typed once in the import form and stamped on
           // every row there — one import is one section of one batch.
           yearSection:   "",
@@ -1680,7 +1683,7 @@ const ImportModal = ({ onClose, onImport, coordinatorColleges = [], departments 
   const handleImport = () => {
     if (!canImport) return;
     // Same rule as the New Student form: the department's only program is filled
-    // in automatically; otherwise whatever was picked (blank = the student picks).
+    // in automatically; otherwise the coordinator must pick one.
     const resolvedProgram = programObjs.length === 1 ? programObjs[0].name : program;
     onImport(preview.valid.map(st => ({
       ...st,
@@ -1694,6 +1697,8 @@ const ImportModal = ({ onClose, onImport, coordinatorColleges = [], departments 
     !normalizedSection && "Section",
     !normalizedBatch && "Batch",
     !department && "Department",
+    department && programObjs.length !== 1 && !program && "Program",
+    department && pm.showMajor && !major && "Major",
   ].filter(Boolean);
   const canImport = !!preview && preview.valid.length > 0 && missing.length === 0;
 
@@ -2081,7 +2086,7 @@ const mapStudentDoc = (docSnap) => {
 // The email lives in the row's tooltip instead of the meta line: it's the one
 // field long enough to break the alignment everything else depends on.
 const StudentRow = ({ student: s, selectMode, isSelected, onToggleSelect, onView, onDelete, onArchive, onRestore, userIcon: themedUserIcon = blackUserIcon }) => {
-  const meta = [s.studentId, s.program, s.yearSection, s.sex].filter(Boolean).join(" · ");
+  const meta = [s.studentId, s.program, s.yearSection].filter(Boolean).join(" · ");
 
   return (
     <div

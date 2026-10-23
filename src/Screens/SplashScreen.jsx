@@ -373,71 +373,6 @@ const BrandLockup = ({ markPx, wordRem }) => (
   </div>
 );
 
-// Sign In / Sign Up segmented switch — outlined track with a sliding dark
-// thumb underneath the labels. The thumb animates its position via
-// transform (translateX) whenever `mode` changes, so switching between
-// Sign In and Sign Up glides instead of flipping instantly.
-const ModeSwitch = ({ mode, onChange }) => {
-  const options = [
-    { key: "signin", label: "Sign In" },
-    { key: "signup", label: "Sign Up" },
-  ];
-  const activeIndex = options.findIndex(o => o.key === mode);
-
-  return (
-    <div
-      role="tablist"
-      aria-label="Sign in or sign up"
-      style={{
-        position: "relative",
-        display: "flex", width: "100%", padding: "5px",
-        // The hub is sized for three role cards now, which is far wider than
-        // this control wants to be — cap it and centre it instead.
-        maxWidth: "420px", margin: "0 auto",
-        borderRadius: radius.pill,
-        border: `1.5px solid ${color.blush300}`,
-        background: "rgba(0,0,0,0.03)",
-        overflow: "hidden",
-      }}
-    >
-      {/* Sliding thumb — sits behind the labels, animates left/right */}
-      <div
-        aria-hidden="true"
-        style={{
-          position: "absolute",
-          top: "5px", bottom: "5px", left: "5px",
-          width: "calc(50% - 5px)",
-          borderRadius: radius.pill,
-          background: color.ink,
-          boxShadow: shadow.pill,
-          transform: `translateX(${activeIndex * 100}%)`,
-          transition: `transform 340ms ${ease}`,
-          zIndex: 0,
-        }}
-      />
-      {options.map(m => {
-        const active = mode === m.key;
-        return (
-          <button
-            key={m.key} type="button" role="tab" aria-selected={active}
-            onClick={() => onChange(m.key)} className="ojt-pill mode-switch-btn"
-            style={{
-              position: "relative", zIndex: 1,
-              flex: 1, padding: "12px 18px", borderRadius: radius.pill,
-              border: "none", background: "transparent", cursor: "pointer", whiteSpace: "nowrap",
-              fontSize: "1.0625rem", fontWeight: active ? 600 : 500,
-              color: active ? color.white : color.ink,
-              transition: `color 260ms ${ease}`,
-            }}
-          >
-            {m.label}
-          </button>
-        );
-      })}
-    </div>
-  );
-};
-
 // The three role cards. Three columns on desktop; on mobile they become
 // horizontal rows (icon left) rather than three squeezed columns, which
 // stops the description wrapping to four lines on a narrow screen.
@@ -698,6 +633,21 @@ const SplashScreen = () => {
             }
           }
 
+          // An administrator has no coordinators/students/companies doc. If this session
+          // belongs to an active admin (and isn't on a standalone link), send them to /admin.
+          if (!userData) {
+            const standalone = ["/admin", "/accept-invite", "/reset-password"].some(p => location.pathname.startsWith(p));
+            try {
+              const adminSnap = await getDoc(doc(db, "admins", firebaseUser.uid));
+              if (!standalone && adminSnap.exists() && adminSnap.data().role === "admin" && adminSnap.data().status === "active") {
+                hasRestored.current = true;
+                window.location.assign("/admin");
+              }
+            } catch (err) {
+              console.warn("[restore] hindi mabasa ang admins:", err?.code || err);
+            }
+          }
+
           // A timed suspension may have already expired since the last time
           // this company signed in — reflect that before deciding whether to
           // restore the session, same as signIn() does in AuthService.js.
@@ -780,10 +730,11 @@ const SplashScreen = () => {
     const settle = () => {
       if (deepLinked) {
         setMode(currentView === "forgot_password" ? "signin" : "signup");
-        setRole(prev => prev ?? "company");
+        if (currentView !== "forgot_password") setRole(prev => prev ?? "company");
         setStage("form");
       } else {
-        setStage("hub");
+        // Sign In is the default and no longer asks "Sign in as", so its form opens straight away.
+        setStage("form");
       }
     };
     if (prefersReducedMotion) { settle(); return; }
@@ -802,6 +753,17 @@ const SplashScreen = () => {
       navigate("/signin", { replace: true });
     }
   }, [authChecking, requiredRoleForView, isAuthorizedForView, navigate]);
+
+  // Itago ang path sa address bar — laging "/" ang nakikita ng user, kahit
+  // anong screen siya. Ang router ay gumagana pa rin sa sarili niyang location;
+  // ang browser URL lang ang pinapalitan. Exempt ang emailed links.
+  useEffect(() => {
+    const keep = ["/accept-invite", "/reset-password"].some(p => location.pathname.startsWith(p));
+    if (keep) return;
+    if (window.location.pathname !== "/" || window.location.search || window.location.hash) {
+      window.history.replaceState(window.history.state, "", "/");
+    }
+  }, [location.key, location.pathname]);
 
   // ══════════════════════════════════════════════════════════════════════════
   // Every hook above this line runs on EVERY render, no matter what. From this
@@ -932,32 +894,43 @@ const SplashScreen = () => {
     scrollToForm(wasOpen ? SWITCH_MS : OPEN_MS);
   };
 
+  // Neither side asks for a role any more.
+  //   • Sign In: one form takes a Student ID or an email, and the system works out which dashboard to
+  //     open (see signInAuto in AuthService).
+  //   • Sign Up: only companies can register themselves (coordinators and students are created for
+  //     them), so everyone who signs up is a company and goes straight to the company form.
   const handleModeChange = (nextMode) => {
+    if (nextMode === "signup" && mode === "signup") return;   // already there (e.g. mid company sign-up)
+    const wasOpen = stage === "form";
     setMode(nextMode);
-    if (role) {
-      const wasOpen = stage === "form";
-      setStage("form");
-      goToRoute(nextMode, role);
-      scrollToForm(wasOpen ? SWITCH_MS : OPEN_MS);
+    setStage("form");
+    if (nextMode === "signin") {
+      setRole(null);
+      goToRoute("signin", null);
+    } else {
+      setRole("company");
+      goToRoute("signup", "company");
     }
+    scrollToForm(wasOpen ? SWITCH_MS : OPEN_MS);
   };
+
+  // "Registering a company? Sign up" on the sign-in form.
+  const handleGoCompanySignUp = () => handleModeChange("signup");
 
   const formOpen = stage === "form";
   const hubReady = stage === "hub" || stage === "form";
 
-  // The Terms / Privacy / About Us links belong to the hub, not the forms —
-  // they fade in once the splash settles and fade back out the moment a form
-  // opens, so the form has the screen to itself. No delay on the way out so
-  // they clear before the panel slides in; the original 240ms delay stays on
-  // the way back in, keeping them in step with the rest of the hub entrance.
-  const infoVisible = hubReady && !formOpen;
+  // The Terms / Privacy / About Us links fade in once the splash settles and stay
+  // for good. The sign-in form now opens straight away (there is no role hub to
+  // return to), so they must not be tied to the form being closed any more.
+  const infoVisible = hubReady;
 
   const infoMenuBlock = (
     <div style={{
       position: "relative",
       zIndex: 30,
       opacity: infoVisible ? 1 : 0,
-      transition: `opacity 420ms ${ease} ${formOpen ? "0ms" : "240ms"}`,
+      transition: `opacity 420ms ${ease} 240ms`,
       pointerEvents: infoVisible ? "auto" : "none",
     }}>
       <InfoMenu onSelect={(key) => setLegalView(key)} />
@@ -992,13 +965,8 @@ const SplashScreen = () => {
 
   // Closes the form and returns the hub to centre. Clears any half-finished
   // sign-up draft so reopening starts clean.
-  const handleBack = () => {
-    setStage("hub");
-    setRole(null);
-    setStep1Data(null);
-    setEmailSent(false);
-    if (currentView !== "signin") navigate("/signin");
-  };
+  // Back from the company sign-up returns to the sign-in form.
+  const handleBack = () => handleModeChange("signin");
 
   const BackButton = () => (
   <button
@@ -1056,12 +1024,13 @@ const SplashScreen = () => {
     <>
       {currentView === "signin" && !invitedOnlySignup && (
         <SignInScreen
-          role={role ?? "coordinator"}
-          onRoleChange={setRole}
-          onGoSignUp={() => handleModeChange("signup")}
+          onGoSignUp={handleGoCompanySignUp}
           onSignInCoordinator={(userData) => { setCurrentUser(userData); navigate("/coordinator/dashboard"); }}
           onSignInStudent={(userData) => { setCurrentUser(userData); navigate("/student/dashboard"); }}
           onSignInCompany={(userData) => { setCurrentUser(userData); navigate("/company/dashboard"); }}
+          // The admin dashboard is its own page (AdminScreen), so go there with a full load.
+          // The Firebase session carries over, so there is no second sign-in.
+          onSignInAdmin={() => { window.location.assign("/admin"); }}
           onForgotPassword={() => navigate("/forgot-password")}
         />
       )}
@@ -1132,34 +1101,6 @@ const SplashScreen = () => {
     transition: `opacity 460ms ${ease} ${delay}ms, transform 460ms ${ease} ${delay}ms`,
   });
 
-  const hubControls = (
-    <div style={{
-      width: "100%",
-      maxWidth: `${G.hubMaxPx}px`,
-      display: "grid",
-      gridTemplateRows: hubReady ? "1fr" : "0fr",
-      transition: `grid-template-rows ${timing.rise}ms ${ease}`,
-    }}>
-      <div style={{ overflow: "hidden", minHeight: 0 }}>
-        <div style={{
-          display: "flex", flexDirection: "column", gap: "20px",
-          marginTop: "30px",
-          pointerEvents: hubReady ? "auto" : "none",
-        }}>
-          <div style={arrive(180)}>
-            <ModeSwitch mode={mode} onChange={handleModeChange} />
-          </div>
-          <div style={{
-            fontSize: "0.9375rem", fontWeight: 500, color: color.inkMuted, textAlign: "center",
-            ...arrive(260),
-          }}>
-            {mode === "signin" ? "Sign in as" : "Sign up as"}
-          </div>
-          <RolePills role={role} mode={mode} onSelect={handleRoleSelect} ready={hubReady} />
-        </div>
-      </div>
-    </div>
-  );
 
   // ── MOBILE layout ─────────────────────────────────────────────────────────
   // Same three stages stacked vertically: the lockup shrinks in place and the
@@ -1202,7 +1143,6 @@ const SplashScreen = () => {
                 markPx={stage === "splash" ? 170 : 96}
                 wordRem={stage === "splash" ? 3.4 : 2.1}
               />
-              {hubControls}
             </div>
 
             {/* Kept mounted rather than gated on `formOpen`, otherwise Back
@@ -1226,7 +1166,7 @@ const SplashScreen = () => {
                     pointerEvents: formOpen ? "auto" : "none",
                   }}
                 >
-                  <BackButton />
+                  {mode !== "signin" && <BackButton />}
                   <div style={formPanelStyle}>{formContent}</div>
                 </div>
               </div>
@@ -1268,7 +1208,6 @@ const SplashScreen = () => {
             pointerEvents: "auto",
           }}>
             <BrandLockup markPx={markPx} wordRem={wordRem} />
-            {hubControls}
           </div>
         </div>
 
@@ -1291,7 +1230,7 @@ const SplashScreen = () => {
           willChange: "transform",
           display: "flex", flexDirection: "column",
         }}>
-          <BackButton />
+          {mode !== "signin" && <BackButton />}
           <div style={formPanelStyle}>{formContent}</div>
         </div>
 

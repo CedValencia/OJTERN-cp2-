@@ -5,14 +5,21 @@
 // firestore.rules; admins are created by hand in the Firebase Console, or by an existing
 // admin with "Add account" / "Transfer account" in Account Profile: adminAddAdmin / adminTransferAdmin below).
 //
-// An admin signs in with their EMAIL + password (a normal Firebase Auth account). That same email
-// is where password reset links go. It is changed from Account Profile with Firebase's
-// verify-before-update flow, so there is nothing to keep in sync here.
+// An admin signs in with their EMAIL + password (a normal Firebase Auth account). It is changed from
+// Account Profile with Firebase's verify-before-update flow, so there is nothing to keep in sync here.
+//
+// FIRST-LOGIN EMAIL: on first login every admin must set their own email (the screen blocks the dashboard
+// until then). That address becomes BOTH their sign-in email (Firebase Auth email) and their recovery email
+// ("Forgot password" sends the reset link there). It is proven with a 6-digit code (adminSendRecoveryCode /
+// adminConfirmRecoveryCode) so a typo can never lock someone out. Typing the same email the account was
+// created with is allowed: it just gets verified. The pending code lives in adminRecoveryCodes/{uid}, which the client must
+// NOT be able to read (keep it out of firestore.rules; no rule = denied).
 //
 // admins/{uid} fields:
 //   role: "admin"   status: "active"   name: "OJT Office"
 // Written by Add / Transfer account (all optional, none of them needed by the screen to work):
 //   email, createdBy, createdAt                      who invited this admin
+//   recoveryEmail, recoveryEmailVerifiedAt           personal email for password reset links (set on first login)
 //   transferFrom                                     on the NEW admin until their first sign-in completes the transfer
 //   transferPendingTo / transferPendingEmail         on the CURRENT admin while a transfer to someone is pending
 //   status: "transferred" | "cancelled"              an old admin after a completed transfer / an unused account after a cancel
@@ -28,10 +35,14 @@ const crypto = require("crypto");
 
 const REGION = "asia-southeast1";
 const ADMIN_RESET_COOLDOWN_MS = 60 * 1000;
+const RECOVERY_CODE_TTL_MS = 10 * 60 * 1000;
+const RECOVERY_CODE_COOLDOWN_MS = 60 * 1000;
+const RECOVERY_CODE_MAX_TRIES = 5;
 const STALE_INVITE_AFTER_DAYS = 7;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const clean = (v) => String(v ?? "").trim();
 const sameText = (a, b) => clean(a).toLowerCase() === clean(b).toLowerCase();
+const hashRecoveryCode = (uid, code) => crypto.createHash("sha256").update(`${uid}:${code}`).digest("hex");
 
 // The caller must be signed in AND have an active admins/{uid} doc.
 const requireAdmin = async (request) => {
@@ -313,8 +324,59 @@ module.exports = ({ sendMail, resendApiKey }) => {
     return { ok: true };
   });
 
-  // ADMIN FORGOT PASSWORD: no sign-in needed (they can't sign in). Takes the admin's email, and if it
-  // belongs to an active admin account, mails a reset link to that same address. Only ADMIN accounts
+  // Gives an existing coordinator ADMIN access with the SAME Firebase Auth login (same UID, same email and
+  // password): it only writes admins/{uid}. coordinators/{uid} is left untouched, so the person keeps their
+  // Coordinator dashboard and can switch between the two from the top bar.
+  // Idempotent: promoting someone who is already an active admin changes nothing.
+  fns.adminPromoteCoordinator = onCall({ region: REGION }, async (request) => {
+    const caller = await requireAdmin(request);
+    const db = getFirestore();
+
+    const uid = clean(request.data?.uid);
+    if (!uid) throw new HttpsError("invalid-argument", "Missing coordinator.");
+
+    let authUser;
+    try { authUser = await getAuth().getUser(uid); }
+    catch (e) {
+      if (e?.code === "auth/user-not-found") throw new HttpsError("failed-precondition", "This coordinator has no login yet. They have to accept their invitation first.");
+      throw e;
+    }
+    if (authUser.disabled) throw new HttpsError("failed-precondition", "This coordinator's login is disabled.");
+
+    const coordRef = db.collection("coordinators").doc(uid);
+    const adminRef = db.collection("admins").doc(uid);
+
+    const alreadyAdmin = await db.runTransaction(async (tx) => {
+      const [coordSnap, adminSnap] = await Promise.all([tx.get(coordRef), tx.get(adminRef)]);
+      if (!coordSnap.exists) throw new HttpsError("not-found", "Coordinator not found.");
+      if (coordSnap.get("role") !== "coordinator") throw new HttpsError("failed-precondition", "That record is not a coordinator.");
+      const status = clean(coordSnap.get("status"));
+      if (["pending", "rejected", "transferred", "suspended", "blocked"].includes(status)) {
+        throw new HttpsError("failed-precondition", `A coordinator whose status is "${status}" can't be made an admin.`);
+      }
+
+      if (adminSnap.exists && adminSnap.get("role") === "admin" && adminSnap.get("status") === "active") return true;
+      // A leftover admins/{uid} that is transferred / cancelled is a different story: don't silently revive it.
+      if (adminSnap.exists) throw new HttpsError("failed-precondition", "This person already has an admin record that was switched off. Remove it first or contact the developer.");
+
+      tx.set(adminRef, {
+        role: "admin",
+        status: "active",
+        name: clean(coordSnap.get("name")) || clean(authUser.displayName),
+        email: clean(authUser.email || coordSnap.get("email")).toLowerCase(),   // Auth is the source of truth for the login email
+        promotedFromCoordinator: true,
+        createdBy: caller.uid,
+        createdAt: FieldValue.serverTimestamp(),
+      });
+      return false;
+    });
+
+    return { ok: true, alreadyAdmin };
+  });
+
+  // ADMIN FORGOT PASSWORD: no sign-in needed (they can't sign in). Takes the admin's SIGN-IN email, and if it
+  // belongs to an active admin account, mails the reset link to that admin's RECOVERY email (their personal
+  // address set on first login). Falls back to the sign-in email only if no recovery email is set. Only ADMIN accounts
   // are accepted here (a coordinator, student or company email gets nothing).
   //
   // Every path answers identically (unknown email, not an admin, inactive, cooldown, send failure),
@@ -340,15 +402,27 @@ module.exports = ({ sendMail, resendApiKey }) => {
         return genericOk;
       }
 
+      // Someone who is also a coordinator already gets the standard reset email from the main
+      // Forgot Password screen (same Auth account, same password), so don't send a second one.
+      // Only that screen asks for this; the /admin page's own Forgot Password still always sends.
+      if (request.data?.skipIfCoordinator === true) {
+        const coordSnap = await db.collection("coordinators").doc(user.uid).get();
+        if (coordSnap.exists && coordSnap.get("role") === "coordinator") {
+          console.log(`Admin reset skipped for ${user.uid}: also a coordinator, the coordinator reset email covers it.`);
+          return genericOk;
+        }
+      }
+
       const lastMs = adminSnap.get("lastPasswordResetRequestAt");
       const lastSent = lastMs && lastMs.toMillis ? lastMs.toMillis() : 0;
       if (Date.now() - lastSent < ADMIN_RESET_COOLDOWN_MS) { console.log(`Admin reset skipped for ${user.uid}: within cooldown.`); return genericOk; }
 
       let resetUrl;
-      try { resetUrl = await getAuth().generatePasswordResetLink(email, { url: "https://ojtern.web.app/admin" }); }
+      try { resetUrl = await getAuth().generatePasswordResetLink(email, { url: "https://ojtern.web.app/signin" }); }
       catch (error) { console.error(`Admin reset: link generation failed for ${user.uid}:`, error); return genericOk; }
 
       const name = adminSnap.get("name") || "there";
+      const sendTo = clean(adminSnap.get("recoveryEmail")).toLowerCase() || email;
       const html = `
         <h2>Reset your OJTern administrator password</h2>
         <p>Hi <strong>${name}</strong>,</p>
@@ -362,7 +436,7 @@ module.exports = ({ sendMail, resendApiKey }) => {
             </td>
           </tr>
         </table>
-        <p>After resetting, sign in at the administrator page with your email and your new password.</p>
+        <p>After resetting, sign in with your email and your new password.</p>
         <p>If you didn't request this, you can safely ignore this email. Your password won't change.</p>
         <p>Best regards,<br/>OJTern Team</p>
       `;
@@ -374,14 +448,14 @@ We received a request to reset the password for the OJTern administrator account
 
 ${resetUrl}
 
-After resetting, sign in at the administrator page with your email and your new password.
+After resetting, sign in with your email and your new password.
 
 If you didn't request this, you can safely ignore this email. Your password won't change.
 
 Best regards,
 OJTern Team`;
 
-      try { await sendMail({ to: email, subject: "OJTern - Reset Your Administrator Password", html, text }); }
+      try { await sendMail({ to: sendTo, subject: "OJTern - Reset Your Administrator Password", html, text }); }
       catch (error) { console.error(`Admin reset: Resend rejected the send for ${user.uid}:`, error); return genericOk; }
 
       // Recorded only after a successful send, so a failed send doesn't block retrying.
@@ -392,6 +466,114 @@ OJTern Team`;
       console.error("Admin reset: UNHANDLED failure:", error);
       return genericOk;
     }
+  });
+
+  // RECOVERY EMAIL step 1: mails a 6-digit code to the personal address the admin typed. Used on first login
+  // (nothing set yet) and from Account Profile (change). Changing an EXISTING recovery email needs a recent sign-in.
+  fns.adminSendRecoveryCode = onCall({ region: REGION, secrets: [resendApiKey] }, async (request) => {
+    const caller = await requireAdmin(request);
+    const email = clean(request.data?.email).toLowerCase();
+    if (!EMAIL_RE.test(email) || email.length > 254) throw new HttpsError("invalid-argument", "Enter a valid email address.");
+
+    // The address becomes the sign-in email, so it must not belong to another login already.
+    if (!sameText(email, caller.email)) {
+      let taken = null;
+      try { taken = await getAuth().getUserByEmail(email); }
+      catch (e) { if (e?.code !== "auth/user-not-found") throw e; }
+      if (taken && taken.uid !== caller.uid) throw new HttpsError("already-exists", "That email is already used by another OJTern account.");
+    }
+
+    const db = getFirestore();
+    const meSnap = await db.collection("admins").doc(caller.uid).get();
+    if (clean(meSnap.get("recoveryEmail"))) requireRecentSignIn(request);
+
+    const ref = db.collection("adminRecoveryCodes").doc(caller.uid);
+    const prev = await ref.get();
+    const sentAt = prev.exists && prev.get("sentAt") && prev.get("sentAt").toMillis ? prev.get("sentAt").toMillis() : 0;
+    if (Date.now() - sentAt < RECOVERY_CODE_COOLDOWN_MS) {
+      throw new HttpsError("resource-exhausted", "Please wait a minute before asking for another code.");
+    }
+
+    const code = String(crypto.randomInt(100000, 1000000));
+    const name = clean(meSnap.get("name")) || "there";
+    const html = `
+      <h2>Verify your email</h2>
+      <p>Hi <strong>${esc(name)}</strong>,</p>
+      <p>Use this code to set <strong>${esc(email)}</strong> as the email for your OJTern administrator account. You will sign in with it, and password reset links will be sent here.</p>
+      <p style="font-size:28px; letter-spacing:6px; font-weight:bold; margin:20px 0;">${code}</p>
+      <p>The code expires in 10 minutes. If you didn't ask for it, you can safely ignore this email.</p>
+      <p>Best regards,<br/>OJTern Team</p>
+    `;
+    const text = `Verify your recovery email
+
+Hi ${name},
+
+Use this code to set ${email} as the email for your OJTern administrator account. You will sign in with it, and password reset links will be sent here.
+
+${code}
+
+The code expires in 10 minutes. If you didn't ask for it, you can safely ignore this email.
+
+Best regards,
+OJTern Team`;
+    try { await sendMail({ to: email, subject: "OJTern - Verify Your Email", html, text }); }
+    catch (error) {
+      console.error(`Recovery code email failed for ${caller.uid}:`, error);
+      throw new HttpsError("unavailable", "We couldn't send the code. Please check the email address and try again.");
+    }
+    await ref.set({ email, codeHash: hashRecoveryCode(caller.uid, code), expiresAt: Date.now() + RECOVERY_CODE_TTL_MS, attempts: 0, sentAt: FieldValue.serverTimestamp() });
+    return { sent: true };
+  });
+
+  // RECOVERY EMAIL step 2: checks the code, then makes that address the admin's sign-in email (Firebase Auth +
+  // admins/{uid}.email) AND saves it as admins/{uid}.recoveryEmail. Returns signInEmailChanged: true when the
+  // sign-in email is now different; the screen then asks them to sign in again with it (the old login's sessions are revoked).
+  fns.adminConfirmRecoveryCode = onCall({ region: REGION }, async (request) => {
+    const caller = await requireAdmin(request);
+    const code = clean(request.data?.code);
+    if (!/^\d{6}$/.test(code)) throw new HttpsError("invalid-argument", "Enter the 6-digit code.");
+
+    const db = getFirestore();
+    const ref = db.collection("adminRecoveryCodes").doc(caller.uid);
+    const snap = await ref.get();
+    if (!snap.exists) throw new HttpsError("failed-precondition", "Request a new code first.");
+    if (Date.now() > Number(snap.get("expiresAt") || 0)) {
+      await ref.delete().catch(() => {});
+      throw new HttpsError("deadline-exceeded", "That code has expired. Request a new one.");
+    }
+    if (Number(snap.get("attempts") || 0) >= RECOVERY_CODE_MAX_TRIES) {
+      await ref.delete().catch(() => {});
+      throw new HttpsError("resource-exhausted", "Too many wrong attempts. Request a new code.");
+    }
+    const expected = Buffer.from(String(snap.get("codeHash") || ""));
+    const given = Buffer.from(hashRecoveryCode(caller.uid, code));
+    if (expected.length !== given.length || !crypto.timingSafeEqual(expected, given)) {
+      await ref.update({ attempts: FieldValue.increment(1) });
+      throw new HttpsError("invalid-argument", "That code isn't right.");
+    }
+
+    const email = clean(snap.get("email")).toLowerCase();
+    const adminRef = db.collection("admins").doc(caller.uid);
+    const changed = !sameText(email, caller.email);
+
+    if (changed) {
+      // Re-check right before the switch: someone may have taken the address since the code was sent.
+      let taken = null;
+      try { taken = await getAuth().getUserByEmail(email); }
+      catch (e) { if (e?.code !== "auth/user-not-found") throw e; }
+      if (taken && taken.uid !== caller.uid) throw new HttpsError("already-exists", "That email is already used by another OJTern account.");
+      // The code proved they own the inbox, so the address is marked verified.
+      await getAuth().updateUser(caller.uid, { email, emailVerified: true });
+    }
+    try {
+      await adminRef.update({ email, recoveryEmail: email, recoveryEmailVerifiedAt: FieldValue.serverTimestamp() });
+    } catch (e) {
+      if (changed) await getAuth().updateUser(caller.uid, { email: caller.email }).catch(() => {});   // keep Auth and Firestore in step
+      throw e;
+    }
+    if (changed) await getAuth().revokeRefreshTokens(caller.uid).catch((e) => console.error("Recovery email: could not revoke sessions:", e));
+    await ref.delete().catch(() => {});
+    return { ok: true, email, signInEmailChanged: changed };
   });
 
   // ACCOUNT PROFILE: the admin's display name. (The sign-in email is changed from the screen with Firebase's

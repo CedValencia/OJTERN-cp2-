@@ -549,13 +549,15 @@ export const formatBirthdate = (v) => {
   const b = parseBirthdate(v);
   return b ? b.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : "";
 };
-// "" = fine. Same 1–100 sanity range the old age field had, now applied to the derived age.
+// "" = fine. The system is for adults only: the derived age must be 18–100.
+export const MIN_AGE = 18;
 export const birthdateProblem = (v) => {
   if (!v) return "Birthdate is required.";
   if (!parseBirthdate(v)) return "Enter a valid date.";
   const age = ageFromBirthdate(v);
   if (age < 0) return "Birthdate can't be in the future.";
-  if (age < 1 || age > 100) return "That birthdate gives an age outside 1–100.";
+  if (age < MIN_AGE) return `You must be at least ${MIN_AGE} years old to use this system. Please enter your real birthdate.`;
+  if (age > 100) return "That birthdate gives an age over 100. Please check the year.";
   return "";
 };
 const toIsoDate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -581,7 +583,7 @@ export const missingProfileFields = (data = {}) =>
         // are not sent back through first-login setup; the birthdate is asked
         // for the next time they edit their information.
         const n = Number(data?.age);
-        return !(Number.isInteger(n) && n >= 1);
+        return !(Number.isInteger(n) && n >= MIN_AGE);
       }
       return !String(value ?? "").trim();
     })
@@ -613,9 +615,8 @@ const PersonalInfoScreen = ({ onBack, user, setupMode = false, onSetupComplete, 
   const editingRef = useRef(setupMode);
   // Always fill the form from the first snapshot, even when it opens in edit mode.
   const hasLoadedRef = useRef(false);
-  // Program comes from the coordinator's import only when the department offers exactly one;
-  // otherwise it's blank and the student picks it on first login. Locked only if already filled.
-  const [programMissingAtLoad, setProgramMissingAtLoad] = useState(false);
+  // Department, program and major are set by the coordinator when the account is
+  // created. The student never edits them here, not even on first login.
   useEffect(() => { editingRef.current = editing; }, [editing]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving]   = useState(false);
@@ -629,6 +630,7 @@ const PersonalInfoScreen = ({ onBack, user, setupMode = false, onSetupComplete, 
     suffix:         "",
     collegeCode:    "",   // holds the full College name now (e.g. "College of Computer Studies") — see LEGACY_COLLEGE_CODE_MAP below for why the field name still says "Code"
     programCode:    "",   // holds the full Program name now
+    specialization: "",   // the student's major, if their program has any (set by the coordinator)
     yearSection:    "",
     sex:            "",
     age:            "",   // read-only: derived from birthdate (legacy typed age until it is set)
@@ -682,7 +684,6 @@ const PersonalInfoScreen = ({ onBack, user, setupMode = false, onSetupComplete, 
         const d = snap.data();
         const rawCollege = d.college || "";
         const rawProgram = d.program || "";
-        setProgramMissingAtLoad(!String(LEGACY_PROGRAM_CODE_MAP[rawProgram] || rawProgram).trim());
         setForm({
           studentId:      d.studentId      || "",
           lastName:       d.lastName       || "",
@@ -691,6 +692,7 @@ const PersonalInfoScreen = ({ onBack, user, setupMode = false, onSetupComplete, 
           suffix:         d.suffix         || "",
           collegeCode:    LEGACY_COLLEGE_CODE_MAP[rawCollege] || rawCollege,
           programCode:    LEGACY_PROGRAM_CODE_MAP[rawProgram] || rawProgram,
+          specialization: d.specialization || "",
           yearSection:    d.yearSection    || "",
           sex:            d.sex            || "",
           age:            String(d.age     || ""),
@@ -743,14 +745,14 @@ const PersonalInfoScreen = ({ onBack, user, setupMode = false, onSetupComplete, 
   // Age shown next to the birthdate: derived, never typed.
   const derivedAge  = ageFromBirthdate(form.birthdate);
   const displayAge  = derivedAge !== null && derivedAge >= 0 ? String(derivedAge) : (form.age || "");
+  // The picker still offers every year up to today; under-18 birthdates are caught by
+  // birthdateProblem() (error shown + save blocked) instead of being hidden from the picker.
   const todayIso    = toIsoDate(new Date());
   const oldestIso   = toIsoDate(new Date(new Date().getFullYear() - 100, new Date().getMonth(), new Date().getDate()));
 
   const validate = () => {
     const e = {};
     if (!form.firstName.trim()) e.firstName = "First name is required.";
-    if (!form.collegeCode) e.collegeCode = "College is required.";
-    if (!form.programCode) e.programCode = "Program is required.";
     if (!form.lastName.trim())  e.lastName  = "Last name is required.";
     const miErr = validateMiddleInitial(form.middleInitial);
     if (miErr) e.middleInitial = miErr;
@@ -767,16 +769,13 @@ const PersonalInfoScreen = ({ onBack, user, setupMode = false, onSetupComplete, 
   };
 
   // Which fields a student may change themselves. Everything else (name,
-  // suffix, college, program, year & section, sex, Student ID) is school
+  // suffix, department, program, major, year & section, Student ID) is school
   // record data owned by the coordinator — a student editing those would put
-  // their account out of step with the coordinator's list. During first-login
-  // setup the whole form stays open, because that's where the details the
-  // coordinator's import didn't provide get filled in.
-  const STUDENT_EDITABLE_FIELDS = ["birthdate", "personalEmail"];
-  // First-login setup too: only Birthdate and Email address can be changed, plus Program when the
-  // coordinator's import left it blank. Every other field is plain read-only text.
-  const canEditField = (field) =>
-    STUDENT_EDITABLE_FIELDS.includes(field) || (setupMode && field === "programCode" && programMissingAtLoad);
+  // their account out of step with the coordinator's list. That includes
+  // first-login setup: department, program and major are never editable here.
+  // What the student fills in themselves: Sex, Birthdate and Email address.
+  const STUDENT_EDITABLE_FIELDS = ["sex", "birthdate", "personalEmail"];
+  const canEditField = (field) => STUDENT_EDITABLE_FIELDS.includes(field);
 
   // Brings the first field with an error into view — an error scrolled above
   // the fold otherwise makes Save look like it did nothing.
@@ -824,15 +823,15 @@ const PersonalInfoScreen = ({ onBack, user, setupMode = false, onSetupComplete, 
         inUse.code = "email-in-use";
         throw inUse;
       }
-      // Only what the STUDENT owns is written: birthdate + the age derived from it (and program when the
-      // coordinator's import left it blank). Name, Student ID, department,
-      // section and sex are the coordinator's — and are edited from the
+      // Only what the STUDENT owns is written: sex, birthdate + the age derived from it.
+      // Name, Student ID, department, program, major and
+      // section are the coordinator's — and are edited from the
       // coordinator's Student Accounts screen. Writing the whole form here
       // could overwrite a coordinator's newer correction with a stale copy.
       const profileUpdate = {
         birthdate:         form.birthdate,
         age:               ageFromBirthdate(form.birthdate),
-        ...(canEditField("programCode") ? { program: form.programCode } : {}),
+        sex:               form.sex,
         // Clears the one-time "review your information" step after a
         // coordinator reset (see computeSetupStage in StudentDashboardScreen).
         mustReviewProfile: false,
@@ -1104,25 +1103,17 @@ const PersonalInfoScreen = ({ onBack, user, setupMode = false, onSetupComplete, 
 
           {/* Program */}
           <div id="spinfo-program" className="sap-info-row">
-            {fieldLabel("Program", canEditField("programCode"))}
-            {editing && canEditField("programCode") ? (
-              <>
-                <select
-                  value={form.programCode}
-                  onChange={e => handleProgramChange(e.target.value)}
-                  style={errors.programCode ? selectErrorStyle : selectStyle}
-                >
-                  <option value="">Select</option>
-                  {programEntriesForSelect.map(([code, label]) => (
-                    <option key={code} value={code}>{label}</option>
-                  ))}
-                </select>
-                {errText(errors.programCode)}
-              </>
-            ) : (
-              <span style={rowValue}>{programLabel}</span>
-            )}
+            {fieldLabel("Program")}
+            <span style={rowValue}>{programLabel}</span>
           </div>
+
+          {/* Major — only when the coordinator set one. Read-only. */}
+          {form.specialization && (
+            <div id="spinfo-major" className="sap-info-row">
+              {fieldLabel("Major")}
+              <span style={rowValue}>{form.specialization}</span>
+            </div>
+          )}
 
           {/* Year and section */}
           <div id="spinfo-section" className="sap-info-row">
@@ -1148,7 +1139,7 @@ const PersonalInfoScreen = ({ onBack, user, setupMode = false, onSetupComplete, 
 
           {/* Sex */}
           <div id="spinfo-sex" className="sap-info-row">
-            {fieldLabel("Sex")}
+            {fieldLabel("Sex", canEditField("sex"))}
             {editing && canEditField("sex") ? (
               <>
                 <select

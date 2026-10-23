@@ -170,6 +170,68 @@ const isSuspensionExpired = (data) => {
   return Number.isFinite(expiry) && Date.now() >= expiry;
 };
 
+// Works out WHICH kind of account a sign-in identifier belongs to, so the sign-in
+// screen doesn't have to ask "Sign in as...":
+//   • only digits                → a Student ID            → "student"
+//   • an email in companies      → a company account       → "company"
+//   • an email in coordinators   → a coordinator           → "coordinator"
+//   • any other email            → an administrator        → "admin"
+// companies and coordinators are public-readable (see firestore.rules), so this works
+// before anyone is signed in; admins/{uid} is NOT, so an admin is whatever is left, and
+// signInAsAdmin() proves it after the password check. A promoted coordinator (who has both)
+// is found in coordinators and lands on the Coordinator dashboard; the dashboard switcher
+// takes them to Admin. This only PICKS the sign-in path: the password and the account's own
+// role/status are always verified afterwards, so a wrong guess can't open the wrong dashboard.
+export const detectSignInRole = async (identifier) => {
+  const id = String(identifier || "").trim();
+  if (/^\d+$/.test(id)) return "student";
+  const email = id.toLowerCase();
+  const byEmail = (col) => getDocs(query(collection(db, col), where("email", "==", email)));
+  if (!(await byEmail("companies")).empty) return "company";
+  if (!(await byEmail("coordinators")).empty) return "coordinator";
+  return "admin";
+};
+
+// Administrator sign-in (admins/{uid}). Same Firebase Auth email + password as everyone else;
+// the only difference is which Firestore doc proves the role. Resolves to the same
+// { user, userData } shape as signIn(), with userData.role === "admin".
+const signInAsAdmin = async (identifier, password) => {
+  const email = String(identifier || "").trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throw new Error("Please enter a valid email address.");
+  }
+
+  let cred;
+  try {
+    cred = await signInWithEmailAndPassword(auth, email, password);
+  } catch (err) {
+    if (err.code === "auth/user-not-found" || err.code === "auth/wrong-password" || err.code === "auth/invalid-credential") {
+      throw new Error("Invalid credentials. Please check and try again.");
+    }
+    if (err.code === "auth/invalid-email") throw new Error("Please enter a valid email address.");
+    throw err;
+  }
+
+  const { user } = cred;
+  const adminSnap = await getDoc(doc(db, "admins", user.uid));
+  const isActiveAdmin = adminSnap.exists() && adminSnap.get("role") === "admin" && adminSnap.get("status") === "active";
+  if (isActiveAdmin) return { user, userData: { ...adminSnap.data(), uid: user.uid, role: "admin" } };
+
+  // Not an admin. If it is a coordinator whose Firestore email had drifted from their Auth email
+  // (so the pre-sign-in lookup missed them), hand over to the normal coordinator sign-in.
+  const coordSnap = await getDoc(doc(db, "coordinators", user.uid));
+  await signOut(auth);
+  if (coordSnap.exists() && coordSnap.get("role") === "coordinator") {
+    return signIn("coordinator", email, password);
+  }
+  throw new Error("Invalid credentials. Please check and try again.");
+};
+
+export const signInAuto = async (identifier, password) => {
+  const role = await detectSignInRole(identifier);
+  return role === "admin" ? signInAsAdmin(identifier, password) : signIn(role, identifier, password);
+};
+
 export const signIn = async (role, emailOrStudentId, password) => {
   const collectionMap = {
     coordinator: "coordinators",
@@ -194,6 +256,18 @@ export const signIn = async (role, emailOrStudentId, password) => {
     }
 
     loginEmail = studentData.email;
+  }
+
+  // Coordinators and companies sign in with an EMAIL. If what was typed isn't
+  // email-shaped (most often a Student ID entered on the wrong role tab), stop
+  // here with a readable message instead of letting Firebase Auth reject it
+  // with a raw "auth/invalid-email" error.
+  if (role !== "student" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(loginEmail || "").trim())) {
+    throw new Error(
+      /^[\d-]+$/.test(String(loginEmail || "").trim())
+        ? "That looks like a Student ID. Please select the Student role to sign in with it."
+        : "Please enter a valid email address."
+    );
   }
 
   // For companies — check Firestore status BEFORE attempting Auth sign-in
@@ -239,6 +313,9 @@ export const signIn = async (role, emailOrStudentId, password) => {
       err.code === "auth/invalid-credential"
     ) {
      throw new Error("Invalid credentials. Please check and try again.");
+    }
+    if (err.code === "auth/invalid-email") {
+      throw new Error("Please enter a valid email address.");
     }
     throw err;
   }
