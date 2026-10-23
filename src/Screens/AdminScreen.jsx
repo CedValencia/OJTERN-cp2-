@@ -313,8 +313,8 @@ const NAV = [
 const SidebarNav = ({ activeNav, onNavigate, onLogout }) => (
   <>
     {/* Role of the signed-in account, same spot the other dashboards use */}
-    <div style={{ padding: "16px 22px 12px", flexShrink: 0 }}>
-      <span style={{ fontFamily: uiFont, fontSize: "1.15rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: inkText }}>
+    <div style={{ padding: "14px 22px 8px", flexShrink: 0 }}>
+      <span style={{ fontFamily: uiFont, fontSize: "0.72rem", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: inkMuted }}>
         Administrator
       </span>
     </div>
@@ -2142,7 +2142,7 @@ const AccountProfile = ({ admin, flash }) => {
       if (res?.data?.signInEmailChanged) {
         // The server revoked the old sessions: sign out so they log in again with the new email.
         flash(`Email changed to ${res.data.email}. Please sign in again with it.`);
-        setTimeout(() => { signOut(auth).catch(() => {}); }, 1800);
+        setTimeout(() => { signOut(auth).catch(() => {}).finally(() => window.location.replace("/signin")); }, 1800);
       } else {
         flash("Email confirmed.");
       }
@@ -2538,14 +2538,22 @@ const isStandalone = () =>
 const AdminScreen = ({ onExit }) => {
   const [admin, setAdmin] = useState(null);
   const [checking, setChecking] = useState(true);
+  // True once this session was a signed-in admin. If the session then ends for any reason
+  // (changed sign-in email, revoked session, transfer, logout), go to the normal sign-in page
+  // instead of falling back to this separate /admin form.
+  const wasAdmin = useRef(false);
 
   useEffect(() => onAuthStateChanged(auth, async (u) => {
-    if (!u) { setAdmin(null); setChecking(false); return; }
+    if (!u) {
+      if (wasAdmin.current) { window.location.replace("/signin"); return; }
+      setAdmin(null); setChecking(false); return;
+    }
     try {
       // A coordinator/student/company who happens to be signed in is simply not an admin here:
       // we show the admin sign-in form and do NOT sign them out.
       const snap = await getDoc(doc(db, "admins", u.uid));
       const ok = snap.exists() && snap.get("role") === "admin" && snap.get("status") === "active";
+      wasAdmin.current = !!ok;
       setAdmin(ok ? { uid: u.uid, name: snap.get("name") || "", email: u.email || "" } : null);
       // The new administrator of a pending transfer: signing in proves they own the email, so this is
       // the moment the previous administrator's account is switched off (server-side, and a no-op unless

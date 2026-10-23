@@ -98,8 +98,10 @@ const CoordinatorAvatar = ({ size = 44, icon = userIcon }) => (
 );
 
 // ── FilterPanel ───────────────────────────────────────────────────────────────
-const FilterPanel = ({ filterRef, filterCollege, filterProgram, setFilterCollege, setFilterProgram }) => {
-  const colleges = Object.keys(COLLEGE_DATA);
+const FilterPanel = ({ filterRef, filterCollege, filterProgram, setFilterCollege, setFilterProgram, allowedColleges }) => {
+  // Only the student's own college is offered; the other colleges are never listed.
+  const allowedLower = (allowedColleges || []).map(c => String(c).trim().toLowerCase());
+  const colleges = Object.keys(COLLEGE_DATA).filter(c => !allowedLower.length || allowedLower.includes(c.toLowerCase()));
   const programs = filterCollege
     ? Object.keys(COLLEGE_DATA[filterCollege]?.programs || {})
     : [];
@@ -542,6 +544,19 @@ const StudentCoordinatorsScreen = ({ embedded, user, onNavigateToMessages, onVie
     ? []
     : coordinators
         .filter(c => (c.colleges || []).some(col => companyDeptsLower.includes(String(col).trim().toLowerCase())))
+        // A coordinator may handle several colleges, but this student only belongs to
+        // one. Keep just the student's own college(s) (and that college's programs) so
+        // the coordinator is not also listed under the colleges the student isn't in.
+        .map(c => {
+          const inStudentCollege = (name) => companyDeptsLower.includes(String(name).trim().toLowerCase());
+          const sels = Array.isArray(c.department) ? c.department.filter(sel => inStudentCollege(sel?.department)) : [];
+          const selPrograms = [...new Set(sels.map(sel => sel?.program).filter(Boolean))];
+          return {
+            ...c,
+            colleges: (c.colleges || []).filter(inStudentCollege),
+            programs: selPrograms.length ? selPrograms : (c.programs || []),
+          };
+        })
         .map(c => ({ ...c, relation: coordinatorRelation(c, studentScope) }))
         // Your coordinator first, then the previous one, then the rest.
         .sort((a, b) => (RELATION_ORDER[a.relation] ?? 2) - (RELATION_ORDER[b.relation] ?? 2) || a.name.localeCompare(b.name));
@@ -718,6 +733,7 @@ const StudentCoordinatorsScreen = ({ embedded, user, onNavigateToMessages, onVie
             {showFilter && (
               <FilterPanel
                 filterRef={undefined}
+                allowedColleges={companyDepartments || []}
                 filterCollege={filterCollege}
                 filterProgram={filterProgram}
                 setFilterCollege={setFilterCollege}

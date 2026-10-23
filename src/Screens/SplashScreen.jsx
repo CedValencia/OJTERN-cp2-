@@ -679,6 +679,21 @@ const SplashScreen = () => {
             // session shouldn't bounce someone away from a reset link they just clicked.
             const onPublicStandaloneRoute = ["/accept-invite", "/reset-password"].some(p => location.pathname.startsWith(p));
             if (!onDashboardRoute && !onPublicStandaloneRoute) {
+              // Someone who is both a coordinator and an administrator and was on the Admin
+              // dashboard when they refreshed goes back to Admin, not to the coordinator one.
+              let lastDashboard = null;
+              try { lastDashboard = sessionStorage.getItem("ojtern:lastDashboard"); } catch { /* ignore */ }
+              if (userData.role === "coordinator" && lastDashboard === "admin") {
+                try {
+                  const adminSnap = await getDoc(doc(db, "admins", firebaseUser.uid));
+                  if (adminSnap.exists() && adminSnap.data().role === "admin" && adminSnap.data().status === "active") {
+                    window.location.assign("/admin");
+                    return;
+                  }
+                } catch (err) {
+                  console.warn("[restore] hindi mabasa ang admins:", err?.code || err);
+                }
+              }
               if (userData.role === "coordinator") navigate("/coordinator/dashboard");
               else if (userData.role === "student")  navigate("/student/dashboard");
               else if (userData.role === "company")  navigate("/company/dashboard");

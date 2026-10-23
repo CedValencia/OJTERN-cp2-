@@ -554,7 +554,22 @@ const AboutUsScreen = ({ onBack }) => (
           Have questions, feedback, or need help with your account? We'd love
           to hear from you.
         </p>
-        <a href="mailto:ojtern@gmail.com" className="au-cta-btn">✉️ Contact Us</a>
+        {/* Desktop: open a Gmail compose window addressed to OJTern straight away (a plain
+            mailto: does nothing when the computer has no mail app set up). Phones keep the
+            mailto: link, which opens their Gmail/Mail app. */}
+        <a
+          href="mailto:ojtern@gmail.com?subject=OJTern%20Inquiry"
+          className="au-cta-btn"
+          onClick={(e) => {
+            if (/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) return;
+            e.preventDefault();
+            window.open(
+              "https://mail.google.com/mail/?view=cm&fs=1&to=ojtern%40gmail.com&su=OJTern%20Inquiry",
+              "_blank",
+              "noopener,noreferrer"
+            );
+          }}
+        >✉️ Contact Us</a>
       </div>
 
       <p className="au-footer-note">© 2026 OJTern. All rights reserved. · ojtern@gmail.com</p>
