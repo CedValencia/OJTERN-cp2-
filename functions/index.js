@@ -969,6 +969,25 @@ const INVITE_COPY = {
     heading: "Coordinator Invitation",
     body: (invite) => `<strong>${invite.fromName || invite.fromEmail}</strong> is inviting you to join OJTern as an additional OJT Coordinator.`,
   },
+  // Sent by adminAddAdmin (adminFunctions.js). The person enters their own name + password on the
+  // Accept Invitation page; acceptCoordinatorInvite hands "admin" invites to acceptAdminInvite below.
+  admin: {
+    subject: "OJTern - You've Been Invited as an Administrator",
+    heading: "Administrator Invitation",
+    body: (invite) => `<strong>${invite.fromName || invite.fromEmail}</strong> is inviting you to join OJTern as an administrator.`,
+    cta: "Click below to accept the invitation. On the next page you will enter your name and choose your password:",
+    plain: "is inviting you to join OJTern as an administrator",
+    plainCta: "Accept the invitation, then enter your name and choose your password here:",
+  },
+  // Sent by adminTransferAdmin (adminFunctions.js): an "admin" invite with transfer: true.
+  admin_transfer: {
+    subject: "OJTern - You're Taking Over as Administrator",
+    heading: "Administrator Handoff Invitation",
+    body: (invite) => `<strong>${invite.fromName || invite.fromEmail}</strong> is handing the OJTern administrator role over to you.`,
+    cta: "Click below to accept the invitation. On the next page you will enter your name and choose your password:",
+    plain: "is handing the OJTern administrator role over to you",
+    plainCta: "Accept the invitation, then enter your name and choose your password here:",
+  },
 };
 
 // Fires when the client creates a coordinatorInvites doc
@@ -983,7 +1002,9 @@ exports.sendCoordinatorInviteEmail = onDocumentCreated(
     const inviteId = event.params.inviteId;
     if (!invite || invite.status !== "pending") return;
 
-    const copy = INVITE_COPY[invite.type] || INVITE_COPY.add;
+    const copy = invite.type === "admin" && invite.transfer === true
+      ? INVITE_COPY.admin_transfer
+      : (INVITE_COPY[invite.type] || INVITE_COPY.add);
     const acceptUrl = `https://ojtern.web.app/accept-invite?id=${inviteId}&token=${invite.token}`;
     const fromWho = invite.fromName || invite.fromEmail;
 
@@ -991,7 +1012,7 @@ exports.sendCoordinatorInviteEmail = onDocumentCreated(
       <h2>${copy.heading}</h2>
       <p>Hi,</p>
       <p>${copy.body(invite)}</p>
-      <p>Click below to accept the invitation and set up your own account:</p>
+      <p>${copy.cta || "Click below to accept the invitation and set up your own account:"}</p>
       <p>
         <a href="${acceptUrl}" style="display:inline-block;padding:12px 24px;background:#111111;color:#ffffff;text-decoration:none;border-radius:24px;">
           Accept Invitation
@@ -1004,9 +1025,9 @@ exports.sendCoordinatorInviteEmail = onDocumentCreated(
 
 Hi,
 
-${fromWho} is ${invite.type === "transfer" ? "transferring their OJT Coordinator account on OJTern to you" : "inviting you to join OJTern as an additional OJT Coordinator"}.
+${fromWho} ${copy.plain || (invite.type === "transfer" ? "is transferring their OJT Coordinator account on OJTern to you" : "is inviting you to join OJTern as an additional OJT Coordinator")}.
 
-Accept the invitation and set up your account here:
+${copy.plainCta || "Accept the invitation and set up your account here:"}
 ${acceptUrl}
 
 If you weren't expecting this, you can safely ignore this email — no account will be created unless you click the link above and complete setup.
@@ -1560,6 +1581,82 @@ exports.getCoordinatorInvite = onCall({ region: "asia-southeast1" }, async (requ
   };
 });
 
+// ADMIN invites (type "admin", created by adminAddAdmin): the person enters their own name + password on
+// the Accept Invitation page, and only THEN does their login + admins/{uid} get created. Nothing exists
+// before that, so a mistyped email never leaves a usable account behind.
+const acceptAdminInvite = async ({ db, inviteRef, inviteId, invite, name, password }) => {
+  const cleanName = String(name).trim();
+  if (!cleanName || cleanName.length > 60) {
+    throw new HttpsError("invalid-argument", "Enter your name (up to 60 characters).");
+  }
+  const email = String(invite.toEmail || "").trim().toLowerCase();
+
+  // The admin who sent it must still be an active admin (e.g. not switched off by a transfer meanwhile).
+  const inviterRef = db.collection("admins").doc(invite.fromUid);
+  const inviter = await inviterRef.get();
+  if (!inviter.exists || inviter.get("role") !== "admin" || inviter.get("status") !== "active") {
+    throw new HttpsError("failed-precondition", "This invitation is no longer valid.");
+  }
+  // A transfer invitation is only valid while it is still the one the sender is waiting on.
+  const isTransfer = invite.transfer === true;
+  if (isTransfer && inviter.get("transferPendingInvite") !== inviteId) {
+    throw new HttpsError("failed-precondition", "This invitation is no longer valid.");
+  }
+
+  let newUser;
+  try {
+    newUser = await getAuth().createUser({ email, password, displayName: cleanName });
+  } catch (err) {
+    console.error(`acceptAdminInvite: createUser failed for ${email}:`, err);
+    const code = err && err.code;
+    if (code === "auth/email-already-exists") {
+      throw new HttpsError("already-exists", "A login with that email already exists in OJTern. Ask the administrator to remove the old account first, or use another email.");
+    }
+    if (code === "auth/invalid-password" || code === "auth/weak-password") {
+      throw new HttpsError("invalid-argument", "That password isn't accepted. Please choose a stronger one.");
+    }
+    if (code === "auth/invalid-email") {
+      throw new HttpsError("invalid-argument", "That email address isn't valid.");
+    }
+    throw new HttpsError("internal", "Could not create the account. Please try again, or contact the administrator.");
+  }
+
+  try {
+    await db.collection("admins").doc(newUser.uid).set({
+      role: "admin", status: "active", name: cleanName, email,
+      createdBy: invite.fromUid, createdAt: FieldValue.serverTimestamp(),
+      // Transfer: the new admin's first sign-in runs adminCompleteTransfer, which switches the sender off.
+      ...(isTransfer ? { transferFrom: invite.fromUid } : {}),
+    });
+    if (isTransfer) {
+      await inviterRef.update({ transferPendingTo: newUser.uid, transferPendingInvite: FieldValue.delete() });
+    }
+  } catch (err) {
+    console.error(`acceptAdminInvite: writing admins/${newUser.uid} failed:`, err);
+    await db.collection("admins").doc(newUser.uid).delete().catch(() => {});
+    await getAuth().deleteUser(newUser.uid).catch(() => {});   // never leave a login without its admins/{uid} doc
+    throw new HttpsError("internal", "Failed to create the administrator profile.");
+  }
+
+  await inviteRef.update({ status: "accepted", acceptedAt: FieldValue.serverTimestamp() })
+    .catch((err) => console.error(`acceptAdminInvite: could not mark invite ${inviteId} accepted:`, err));
+
+  // Same notice (and bell title) as an accepted coordinator invite; it goes to the admin who invited.
+  await db.collection("notifications").add({
+    type:          "coordinator_invite_accepted",
+    recipientRole: "admin",
+    recipientId:   invite.fromUid,
+    inviterId:     invite.fromUid,
+    message:       isTransfer
+      ? `${cleanName} (${email}) accepted your invitation. Your administrator access ends once they sign in for the first time.`
+      : `${cleanName} (${email}) accepted your invitation and is now an administrator.`,
+    read:          false,
+    createdAt:     FieldValue.serverTimestamp(),
+  }).catch((err) => console.error("Failed to notify inviter about accepted admin invite:", err));
+
+  return { uid: newUser.uid };
+};
+
 // Called from the Accept Invitation screen once the incoming coordinator has
 // chosen their own name + password. Runs entirely server-side with Admin SDK
 // privileges: creates their Auth account + Firestore profile, marks the
@@ -1592,6 +1689,11 @@ exports.acceptCoordinatorInvite = onCall({ region: "asia-southeast1" }, async (r
   }
   if (invite.status !== "pending") {
     throw new HttpsError("failed-precondition", "This invitation is no longer valid.");
+  }
+
+  // Administrator invitation: separate account type, handled above.
+  if (invite.type === "admin") {
+    return acceptAdminInvite({ db, inviteRef, inviteId, invite, name, password });
   }
 
   const normalizedEmail = invite.toEmail;

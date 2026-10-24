@@ -1212,7 +1212,7 @@ const CoordinatorsTab = ({ admin, depts, flash }) => {
 
   useEffect(() => onSnapshot(
     query(collection(db, "coordinatorInvites"), where("fromUid", "==", admin.uid), where("status", "==", "pending")),
-    (s) => setInvites(s.docs.map((d) => ({ id: d.id, ...d.data() }))),
+    (s) => setInvites(s.docs.map((d) => ({ id: d.id, ...d.data() })).filter((v) => v.type !== "admin")),   // admin invitations live in Account Profile, not here
     (e) => console.error("invites:", e)), [admin.uid]);
 
   const call = async (name, payload) => {
@@ -1685,7 +1685,7 @@ const emailChangeMessage = (err) => {
 // ??? Administrator accounts: Add account / Transfer account ???
 // Add: invites another administrator (full access). Transfer: hands THIS administrator role to someone
 // else; you keep access until they sign in for the first time, so a mistyped email can never lock the
-// system out. No password is shared: the SERVER emails the new person a "set your password" link.
+// system out. No password is shared. Both: the new person gets an "Accept Invitation" email and types their own name + password on that page.
 // Server side: functions/adminFunctions.js (adminAddAdmin, adminTransferAdmin, adminCancelTransfer,
 // adminCompleteTransfer).
 // Pop-up shell + inputs for the Account Profile forms.
@@ -1734,41 +1734,69 @@ const ApPassword = ({ label, ...rest }) => {
 };
 
 const AdminAccountModal = ({ mode, pending, onChanged, flash, confirm, onClose }) => {   // mode: "add" | "transfer"
-  const [form, setForm] = useState({ name: "", email: "", password: "" });
+  const [form, setForm] = useState({ email: "", password: "" });
   const [ack, setAck] = useState(false);
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
   const [busy, setBusy] = useState(false);
+  const [waiting, setWaiting] = useState([]);   // added admins who have not signed in yet (add mode)
+
+  const loadWaiting = async () => {
+    if (mode !== "add") return;
+    try { const r = await httpsCallable(functions, "adminListPendingAdmins")(); setWaiting(r?.data?.pending || []); }
+    catch (e) { console.error(e); }
+  };
+  useEffect(() => { loadWaiting(); }, [mode]);   // eslint-disable-line react-hooks/exhaustive-deps
+
+  const cancelAdded = async (w) => {
+    if (!(await confirm({ title: "Cancel invitation", body: `Are you sure you want to cancel the invitation sent to ${w.email}? Their link will stop working and the email can be used again.`, confirmLabel: "Cancel invitation", cancelLabel: "Keep it", tone: "danger" }))) return;
+    setBusy(true); setError("");
+    try {
+      await httpsCallable(functions, "adminCancelAddedAdmin")({ uid: w.uid });
+      flash("Invitation cancelled.");
+      await loadWaiting();
+    } catch (err) {
+      setError(err?.message || "Could not cancel the invitation.");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const close = async () => {
     // Asking only when something was typed: nothing to lose otherwise.
-    if (!info && (form.name || form.email || form.password)
+    if (!info && (form.email || form.password)
       && !(await confirm({ title: "Cancel", body: "Are you sure you want to cancel? What you entered will be discarded.", confirmLabel: "Discard", cancelLabel: "Keep editing", tone: "danger" }))) return;
     onClose();
   };
 
   const submit = async () => {
     setError(""); setInfo("");
-    const name = norm(form.name);
     const email = norm(form.email).toLowerCase();
-    if (mode === "add" && !name) { setError("Enter the person's name."); return; }
     if (!EMAIL_RE.test(email)) { setError("Enter a valid email address."); return; }
     if (email === norm(auth.currentUser?.email).toLowerCase()) { setError("That is your own email. Enter the other person's email."); return; }
     if (!form.password) { setError("Enter your current password to confirm."); return; }
     if (mode === "transfer" && !ack) { setError("Tick the box to confirm you understand."); return; }
     if (!(await confirm(mode === "add"
-      ? { title: "Add administrator", body: `Are you sure you want to add ${name} (${email}) as an administrator? They will have full administrator access.`, confirmLabel: "Add account" }
-      : { title: "Transfer account", body: `Are you sure you want to transfer your administrator role to ${email}? Your access ends once they sign in for the first time.`, confirmLabel: "Start transfer", tone: "danger" }))) return;
+      ? { title: "Add administrator", body: `Are you sure you want to add ${email} as an administrator? They will have full administrator access.`, confirmLabel: "Add account" }
+      : { title: "Transfer account", body: `Are you sure you want to transfer your administrator role to ${email}? Your access ends once they accept the invitation and sign in for the first time.`, confirmLabel: "Start transfer", tone: "danger" }))) return;
     setBusy(true);
     try {
       await reauthenticate(form.password);
-      const res = await httpsCallable(functions, mode === "add" ? "adminAddAdmin" : "adminTransferAdmin")(mode === "add" ? { name, email } : { email });
+      const res = await httpsCallable(functions, mode === "add" ? "adminAddAdmin" : "adminTransferAdmin")({ email });
       const mailed = res?.data?.mailed !== false;
-      const done = mode === "add" ? "Administrator account created." : "Transfer started.";
+      const promoted = res?.data?.promoted === true;   // the email was an existing coordinator: same login, now also an admin
+      const done = mode === "add" ? (promoted ? "Administrator access given." : "Invitation sent.") : "Transfer started.";
       onChanged();
+      loadWaiting();
       flash(done);
-      setInfo(mailed
-        ? `We emailed ${email} a link to set their password. ${mode === "transfer" ? "Your access ends once they sign in for the first time." : "They can sign in after that."}`
+      setInfo(promoted && mode === "transfer"
+        ? `${email} is an existing coordinator, so the transfer uses the login they already have. Your access ends once they sign in to the administrator page.${mailed ? "" : " We couldn’t send them the notice email, so please tell them yourself."}`
+        : promoted
+        ? `${email} is an existing coordinator, so they now also have administrator access. They sign in with the email and password they already use.${mailed ? "" : " We couldn’t send them the notice email, so please tell them yourself."}`
+        : mailed
+        ? (mode === "add"
+          ? `We emailed ${email} an invitation. They click Accept Invitation, enter their name and choose a password, and then they can sign in.`
+          : `We emailed ${email} an invitation. They click Accept Invitation, enter their name and choose a password, and then sign in. Your access ends once they sign in for the first time.`)
         : `The account was created, but we couldn’t send the email. Ask ${email} to use “Forgot password” on the sign-in page.`);
     } catch (err) {
       setError(err?.message || "Something went wrong. Please try again.");
@@ -1778,7 +1806,7 @@ const AdminAccountModal = ({ mode, pending, onChanged, flash, confirm, onClose }
   };
 
   const cancelTransfer = async () => {
-    if (!(await confirm({ title: "Cancel transfer", body: `Are you sure you want to cancel the transfer${pending?.email ? ` to ${pending.email}` : ""}? Their account will be switched off if they haven't signed in yet.`, confirmLabel: "Cancel transfer", cancelLabel: "Keep it", tone: "danger" }))) return;
+    if (!(await confirm({ title: "Cancel transfer", body: `Are you sure you want to cancel the transfer${pending?.email ? ` to ${pending.email}` : ""}? Their invitation link will stop working, or their account will be switched off if they already accepted but haven't signed in yet.`, confirmLabel: "Cancel transfer", cancelLabel: "Keep it", tone: "danger" }))) return;
     setBusy(true); setError("");
     try {
       await httpsCallable(functions, "adminCancelTransfer")();
@@ -1797,29 +1825,40 @@ const AdminAccountModal = ({ mode, pending, onChanged, flash, confirm, onClose }
   return (
     <ApModal title={mode === "add" ? "Add administrator account" : "Transfer administrator account"} onClose={close}
       sub={mode === "add"
-        ? "They set their own password from an emailed link, so no password is ever shared."
-        : "You keep access until they open the emailed link, set a password and sign in once. After that your account is switched off and you are signed out."}
+        ? "They get an email with an Accept Invitation button, then enter their own name and password. Nothing is shared."
+        : "They get an email with an Accept Invitation button, then enter their own name and password. You keep access until they sign in once. After that your account is switched off and you are signed out."}
       footer={showForm ? (
         <>
           <button type="button" className="ap-fbtn ghost" disabled={busy} onClick={close}>Cancel</button>
           <button type="button" className="ap-fbtn solid" disabled={busy} onClick={submit}>
-            {busy ? "Working…" : mode === "add" ? "Create and send link" : "Start transfer"}
+            {busy ? "Working…" : mode === "add" ? "Send invitation" : "Start transfer"}
           </button>
         </>
       ) : <button type="button" className="ap-fbtn solid" onClick={onClose}>Close</button>}>
       {transferPending && (
         <div role="status" style={{ ...S.okMsg, margin: "16px 0 14px" }}>
-          Transfer to <strong>{pending.email || "the new administrator"}</strong> is pending. You keep full access until they sign in for the first time; then your account is switched off.
+          Transfer to <strong>{pending.email || "the new administrator"}</strong> is pending. You keep full access until they accept the invitation and sign in for the first time; then your account is switched off.
           <div style={{ marginTop: "10px" }}>
             <button type="button" className="adm-btn-light" style={{ ...S.btn2, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={cancelTransfer}>Cancel transfer</button>
           </div>
         </div>
       )}
       {error && transferPending && <div role="alert" style={S.err}>{error}</div>}
+      {mode === "add" && waiting.length > 0 && (
+        <div style={{ marginTop: "18px", fontFamily: FONT, fontSize: "0.85rem" }}>
+          <div style={{ fontWeight: 600, marginBottom: "6px" }}>Waiting to accept the invitation</div>
+          {waiting.map((w) => (
+            <div key={w.uid} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "10px", padding: "6px 0" }}>
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{w.email}</span>
+              <button type="button" className="adm-btn-light" style={{ ...S.btn2, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={() => cancelAdded(w)}>Cancel invitation</button>
+            </div>
+          ))}
+          {error && <div role="alert" style={S.err}>{error}</div>}
+        </div>
+      )}
       {info && <div role="status" style={{ ...S.okMsg, margin: "16px 0 14px" }}>{info}</div>}
       {showForm && (
         <div>
-          {mode === "add" && <ApInput label="Name" maxLength={60} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />}
           <ApInput label="Email" type="email" autoComplete="off" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
           <ApPassword label="Your current password" autoComplete="current-password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
           {mode === "transfer" && (
@@ -2081,7 +2120,7 @@ const AccountProfile = ({ admin, flash }) => {
       const snap = await getDoc(doc(db, "admins", admin.uid));
       const d = snap.data() || {};
       setName(d.name || "");
-      setPending(d.transferPendingTo ? { email: d.transferPendingEmail || "" } : null);
+      setPending(d.transferPendingTo || d.transferPendingInvite ? { email: d.transferPendingEmail || "" } : null);
       setLoadError("");
     } catch (e) {
       console.error(e);
@@ -2366,7 +2405,40 @@ const PAGE_TITLES = {
   accountprofile: { title: "Account Profile",      sub: "Your administrator details, password and administrator accounts." },
 };
 
-const AdminDashboard = ({ admin }) => {
+// A newly added administrator has no name yet: they type it here the first time they sign in
+// (like a coordinator does when accepting an invitation). It cannot be skipped.
+const AdminNameGate = ({ onSaved }) => {
+  const [name, setName] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const save = async () => {
+    const v = norm(name);
+    if (!v) { setError("Enter your name."); return; }
+    if (v.length > 60) { setError("Name can be up to 60 characters."); return; }
+    setBusy(true); setError("");
+    try {
+      await httpsCallable(functions, "adminUpdateProfile")({ name: v });
+      onSaved(v);
+    } catch (err) {
+      setError(err?.message || "Could not save your name. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <ApModal title="Welcome to OJTern" onClose={() => {}}
+      sub="Enter your name to finish setting up your administrator account."
+      footer={<button type="button" className="ap-fbtn solid" disabled={busy} onClick={save}>{busy ? "Saving…" : "Continue"}</button>}>
+      <ApInput label="Your name" maxLength={60} autoFocus autoComplete="name" value={name}
+        onChange={(e) => setName(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") save(); }} />
+      {error && <div role="alert" style={S.err}>{error}</div>}
+    </ApModal>
+  );
+};
+
+const AdminDashboard = ({ admin: adminProp }) => {
+  const [savedName, setSavedName] = useState(adminProp.name || "");
+  const admin = { ...adminProp, name: savedName };
   const { isMobile, isDesktop } = useBreakpoint();
   const showDrawer = !isDesktop;
   const [activeNav, setActiveNav] = useState("departments");
@@ -2437,6 +2509,7 @@ const AdminDashboard = ({ admin }) => {
   return (
     <>
       <AdminStyles />
+      {!norm(savedName) && <AdminNameGate onSaved={setSavedName} />}
       {showLogout && <LogoutConfirmModal onConfirm={confirmLogout} onCancel={() => setShowLogout(false)} />}
       <div style={{ width: "100vw", height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden", fontFamily: uiFont }}>
 

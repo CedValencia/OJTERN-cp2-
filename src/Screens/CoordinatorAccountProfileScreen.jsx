@@ -3,7 +3,6 @@ import { doc, onSnapshot, updateDoc } from "firebase/firestore";
 import { getAuth, reauthenticateWithCredential, EmailAuthProvider } from "firebase/auth";
 import { db } from "./firebase";
 import { changePassword, requestCoordinatorEmailChange } from "./AuthService";
-import { useDepartmentsPrograms } from "./departmentsPrograms";
 import { REGIONS } from "./philippineLocations";
 import { color, font, type, space, radius, shadow, ease, getThemedAsset } from "./theme";
 
@@ -1320,7 +1319,6 @@ const CoordinatorEmailChangeConfirmModal = ({ newEmail, uid, onCancel, onDone })
 
 // ── Personal Info Screen ──────────────────────────────────────────────────────
 const PersonalInfoScreen = ({ user, onBack, onSaved, mandatory = false, onEditingChange }) => {
-  const { departments, departmentNames } = useDepartmentsPrograms();
   const [editing, setEditing]           = useState(!!mandatory);
   // Lets the Account Profile screen (→ Dashboard's "?" tour) know whether
   // the details are being viewed or filled in, so each gets its own steps.
@@ -1338,7 +1336,6 @@ const PersonalInfoScreen = ({ user, onBack, onSaved, mandatory = false, onEditin
   const emptyLoc = { province: "", city: "", barangay: "", street: "" };
   const [loc, setLoc] = useState({ ...emptyLoc, ...(user?.addressDetails || {}) });
   const [errors, setErrors]     = useState({});
-  const [deptErrors, setDeptErrors] = useState([]);
   const [saving, setSaving]     = useState(false);
   const [saveError, setSaveError] = useState("");
   const [showSaveSuccess, setShowSaveSuccess] = useState(false);
@@ -1366,9 +1363,6 @@ const PersonalInfoScreen = ({ user, onBack, onSaved, mandatory = false, onEditin
   // mirror it into a ref that's always current.
   const editingRef = useRef(editing);
   useEffect(() => { editingRef.current = editing; }, [editing]);
-  // Same idea for the department picker (editable on first login): load it
-  // from Firestore once, then don't overwrite what the coordinator is picking.
-  const deptLoadedRef = useRef(false);
   const locLoadedRef  = useRef(false);
 
   // ── Always reflect the latest Firestore data, not a stale `user` prop ────
@@ -1380,10 +1374,8 @@ const PersonalInfoScreen = ({ user, onBack, onSaved, mandatory = false, onEditin
       if (!snap.exists()) return;
       const d = snap.data();
       setName(d.name || "");
-      if (!deptLoadedRef.current || !editingRef.current) {
-        setDeptSelections(d.deptSelections?.length ? d.deptSelections : [{ department: "", program: "", specialization: "" }]);
-        deptLoadedRef.current = true;
-      }
+      // Department is set by the administrator and is never editable here: always mirror Firestore.
+      setDeptSelections(d.deptSelections?.length ? d.deptSelections : [{ department: "", program: "", specialization: "" }]);
       setSex(d.sex || "");
       setContact(d.contact || "");
       // Only sync the visible email input from Firestore while NOT actively
@@ -1432,25 +1424,8 @@ const PersonalInfoScreen = ({ user, onBack, onSaved, mandatory = false, onEditin
     else if (!loc.city) e.city = "Select a city or municipality.";
     else if ((cityData?.barangays?.length ?? 0) > 0 && !loc.barangay) e.barangay = "Select a barangay.";
 
-    // Department is only editable on first login (mandatory), so only check it then.
-    let deptOk = true;
-    if (mandatory) {
-      const dErrs = deptSelections.map(entry => {
-        const err = {};
-        if (!entry.department) err.department = true;
-        else if (!entry.program) err.program = true;
-        else {
-          const specs = (departments[entry.department]?.programs ?? []).find(p => p.name === entry.program)?.specializations ?? [];
-          if (specs.length > 0 && !entry.specialization) err.specialization = true;
-        }
-        return err;
-      });
-      deptOk = dErrs.every(err => Object.keys(err).length === 0);
-      setDeptErrors(dErrs);
-    }
-
     setErrors(e);
-    return Object.keys(e).length === 0 && deptOk;
+    return Object.keys(e).length === 0;
   };
 
   const handleSave = async () => {
@@ -1489,14 +1464,11 @@ const PersonalInfoScreen = ({ user, onBack, onSaved, mandatory = false, onEditin
         address:        [loc.street, loc.barangay, loc.city, loc.province].map(x => (x || "").trim()).filter(Boolean).join(", "),
         addressDetails: { region: regionOfProvince(loc.province), ...loc },
       };
-      if (mandatory) {
-        payload.profileComplete = true;
-        payload.deptSelections = deptSelections;
-      }
+      // deptSelections is deliberately NOT written: the department stays exactly as the administrator set it.
+      if (mandatory) payload.profileComplete = true;
       await updateDoc(doc(db, "coordinators", uid), payload);
       setEditing(false);
       setErrors({});
-      setDeptErrors([]);
       // Show the confirmation modal first; only notify the parent (which,
       // in the mandatory first-login flow, immediately unmounts this
       // screen) once the coordinator has dismissed it — otherwise the
@@ -1534,7 +1506,6 @@ const PersonalInfoScreen = ({ user, onBack, onSaved, mandatory = false, onEditin
   const inlineInputErrorStyle = { ...inlineInputStyle, borderBottom: `1.5px solid ${danger}` };
   const inlineErrText = { color: danger, fontSize: "0.75rem", fontFamily: font.ui, margin: "4px 0 0" };
 
-  const deptViewLabel = (entry) => [entry.department, entry.program, entry.specialization].filter(Boolean).join(" · ");
 
   return (
     <div className="cap-screen" style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden", background: page }}>
@@ -1574,28 +1545,22 @@ const PersonalInfoScreen = ({ user, onBack, onSaved, mandatory = false, onEditin
             )}
           </div>
 
-          {/* Department — editable on first login (mandatory setup); read-only afterwards */}
-          <div id="pinfo-dept" className="cap-info-row">
-            <span style={rowLabel}>Department{editing && mandatory && <Req />}</span>
-            {editing && mandatory ? (
-              <MultiDepartmentPicker
-                selections={deptSelections}
-                onChange={(next) => { setDeptSelections(next); setDeptErrors([]); }}
-                readOnly={false}
-                errors={deptErrors}
-                departments={departments}
-                departmentNames={departmentNames}
-              />
-            ) : deptSelections.length === 1 ? (
-              <p style={rowValue}>{deptViewLabel(deptSelections[0]) || "—"}</p>
-            ) : (
-              <ul style={{ margin: "2px 0 0", paddingLeft: "18px" }}>
-                {deptSelections.map((entry, i) => (
-                  <li key={i} style={{ fontFamily: font.ui, ...type.body, color: ink, marginBottom: "2px" }}>{deptViewLabel(entry) || "—"}</li>
-                ))}
-              </ul>
-            )}
-          </div>
+          {/* Department / Program / Major — assigned by the administrator; read-only here (also on first login).
+              Each is its own row; a coordinator with several assignments gets one group per assignment. */}
+          {deptSelections.map((entry, i) => {
+            const rows = [
+              { key: "dept", label: "Department", value: entry.department || "—" },
+              { key: "prog", label: "Program",    value: entry.program || (entry.department ? "All programs" : "—") },
+              ...(entry.specialization ? [{ key: "major", label: "Major", value: entry.specialization }] : []),
+            ];
+            const suffix = deptSelections.length > 1 ? ` ${i + 1}` : "";
+            return rows.map((r) => (
+              <div key={`${i}-${r.key}`} id={i === 0 && r.key === "dept" ? "pinfo-dept" : undefined} className="cap-info-row">
+                <span style={rowLabel}>{r.label}{r.key === "dept" ? suffix : ""}</span>
+                <p style={rowValue}>{r.value}</p>
+              </div>
+            ));
+          })}
 
           {/* Sex */}
           <div id="pinfo-sex" className="cap-info-row">
@@ -1683,7 +1648,7 @@ const PersonalInfoScreen = ({ user, onBack, onSaved, mandatory = false, onEditin
             <div className="cap-save-row">
               <div id="pinfo-save" style={{ display: "flex", gap: space.sm, flexWrap: "wrap" }}>
               {!mandatory && (
-                <button onClick={() => { setEditing(false); setErrors({}); setDeptErrors([]); }}
+                <button onClick={() => { setEditing(false); setErrors({}); }}
                   style={{ padding: "9px 20px", borderRadius: radius.pill, background: "transparent", color: inkMuted, border: `1px solid ${line}`, fontFamily: font.ui, ...type.control, cursor: "pointer" }}>Cancel</button>
               )}
               <button onClick={handleSave} disabled={saving}

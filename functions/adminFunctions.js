@@ -17,12 +17,18 @@
 //
 // admins/{uid} fields:
 //   role: "admin"   status: "active"   name: "OJT Office"
+// ADD ACCOUNT and TRANSFER ACCOUNT are both invitation based: adminAddAdmin / adminTransferAdmin only write a
+// coordinatorInvites doc (type "admin"; a transfer also has transfer: true). The "Accept Invitation" email is
+// sent by sendCoordinatorInviteEmail (index.js). The login and admins/{uid} are created by
+// acceptCoordinatorInvite -> acceptAdminInvite (index.js) once the person enters their own name and password
+// on the Accept Invitation page. For a transfer, the old admin keeps access until the new one's first sign-in.
 // Written by Add / Transfer account (all optional, none of them needed by the screen to work):
 //   email, createdBy, createdAt                      who invited this admin
 //   recoveryEmail, recoveryEmailVerifiedAt           personal email for password reset links (set on first login)
 //   transferFrom                                     on the NEW admin until their first sign-in completes the transfer
-//   transferPendingTo / transferPendingEmail         on the CURRENT admin while a transfer to someone is pending
-//   status: "transferred" | "cancelled"              an old admin after a completed transfer / an unused account after a cancel
+//   transferPendingInvite / transferPendingEmail     on the CURRENT admin while the transfer invitation is not accepted yet
+//   transferPendingTo (+ transferPendingEmail)       on the CURRENT admin once it was accepted (until the new admin's first sign-in)
+//   status: "transferred" | "cancelled"              an old admin after a completed transfer / an unused account after a cancel (only if it could not be deleted)
 //
 // Loaded from the bottom of index.js, which hands over its shared mail helper:
 //   Object.assign(exports, require("./adminFunctions")({ sendMail, resendApiKey }));
@@ -58,6 +64,37 @@ const requireAdmin = async (request) => {
   };
 };
 
+// ── Program names, read exactly like the screens do ─────────────────────────────
+// Port of normalizeDept / splitLegacyProgram in src/departmentsPrograms.js (keep the two in sync).
+// Firestore may still hold old names ("BS Business Administration", "BS Education — Major in English").
+// The screens show them as program + major (Bachelor of Science in Business Administration, ...), so the
+// server must compare against that same cleaned form or it rejects what the dropdowns offer.
+const LEGACY_MAJOR = /^(.+?)\s+[—–-]\s+Major in\s+(.+)$/i;
+const PROGRAM_RENAMES = {
+  "bs business administration": "Bachelor of Science in Business Administration",
+  "bs education":               "Bachelor of Secondary Education",
+};
+const canonProgram = (n) => PROGRAM_RENAMES[String(n).trim().toLowerCase()] || String(n).trim();
+const splitLegacyProgram = (name) => {
+  const raw = clean(name);
+  const m = LEGACY_MAJOR.exec(raw);
+  return { program: canonProgram(m ? m[1] : raw), specialization: m ? m[2].trim() : "" };
+};
+const normalizePrograms = (rawPrograms) => {
+  const programs = [];
+  for (const p of Array.isArray(rawPrograms) ? rawPrograms : []) {
+    const raw = String((typeof p === "string" ? p : p?.name) ?? "").trim();
+    const m = LEGACY_MAJOR.exec(raw);
+    const name = canonProgram(m ? m[1] : raw);
+    if (!name) continue;
+    let entry = programs.find((x) => sameText(x.name, name));
+    if (!entry) { entry = { name, specializations: [] }; programs.push(entry); }
+    const specs = [...(typeof p === "string" ? [] : p?.specializations || []), m ? m[2].trim() : ""].map(clean).filter(Boolean);
+    specs.forEach((sp) => { if (!entry.specializations.some((x) => sameText(x, sp))) entry.specializations.push(sp); });
+  }
+  return programs;
+};
+
 // Checks every { department, program, specialization } against the live
 // `departments` collection and returns a cleaned copy. Program and major are
 // optional: an empty program means "the whole department".
@@ -73,12 +110,7 @@ const validateDeptSelections = async (db, input) => {
   }
   const catalog = snap.docs.map((d) => {
     const data = d.data();
-    const programs = (Array.isArray(data.programs) ? data.programs : [])
-      .map((p) => (typeof p === "string"
-        ? { name: clean(p), specializations: [] }
-        : { name: clean(p?.name), specializations: (p?.specializations || []).map(clean) }))
-      .filter((p) => p.name);
-    return { name: clean(data.name || d.id), programs };
+    return { name: clean(data.name || d.id), programs: normalizePrograms(data.programs) };
   });
 
   const out = [];
@@ -89,12 +121,15 @@ const validateDeptSelections = async (db, input) => {
     let program = "";
     let specialization = "";
     if (clean(sel?.program)) {
-      const prog = dept.programs.find((p) => sameText(p.name, sel.program));
-      if (!prog) throw new HttpsError("invalid-argument", `"${clean(sel.program)}" is not a program of ${dept.name}.`);
+      // A saved selection may still carry an old combined name: read it as program + major, like the screens do.
+      const legacy = splitLegacyProgram(sel.program);
+      const wantedSpec = clean(sel?.specialization) || legacy.specialization;
+      const prog = dept.programs.find((p) => sameText(p.name, legacy.program));
+      if (!prog) throw new HttpsError("invalid-argument", `"${legacy.program}" is not a program of ${dept.name}.`);
       program = prog.name;
-      if (clean(sel?.specialization)) {
-        const spec = prog.specializations.find((s) => sameText(s, sel.specialization));
-        if (!spec) throw new HttpsError("invalid-argument", `"${clean(sel.specialization)}" is not a major of ${prog.name}.`);
+      if (wantedSpec) {
+        const spec = prog.specializations.find((s) => sameText(s, wantedSpec));
+        if (!spec) throw new HttpsError("invalid-argument", `"${wantedSpec}" is not a major of ${prog.name}.`);
         specialization = spec;
       }
     } else if (clean(sel?.specialization)) {
@@ -162,7 +197,9 @@ const sendStaleInviteReminders = async (db, now = Date.now()) => {
   return sent;
 };
 
-const ADMIN_PAGE_URL = "https://ojtern.web.app/admin";
+// Admins sign in on the normal sign-in page: signInAuto() recognises an administrator and opens the admin
+// dashboard, so no emailed link needs to point at the separate /admin form any more.
+const ADMIN_PAGE_URL = "https://ojtern.web.app/signin";
 const RECENT_SIGN_IN_SECONDS = 5 * 60;
 const esc = (v) => clean(v).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
@@ -175,84 +212,84 @@ const requireRecentSignIn = (request) => {
   }
 };
 
+// Only the email is needed. The new administrator types their own name the first time they sign in.
 const readNameAndEmail = (data) => {
   const email = clean(data?.email).toLowerCase();
-  const name = clean(data?.name);
   if (!EMAIL_RE.test(email) || email.length > 254) throw new HttpsError("invalid-argument", "Enter a valid email address.");
-  if (!name || name.length > 60) throw new HttpsError("invalid-argument", "Enter the person's name (up to 60 characters).");
-  return { email, name };
+  return { email, name: "" };
 };
 
-// Creates the Auth login (a random password nobody ever sees) and admins/{uid}. The person sets their
-// own password from the emailed link, so no password is created for anyone to share.
-const createAdminAccount = async (db, { email, name, createdBy, extra = {} }) => {
-  const auth = getAuth();
-  let existing = null;
-  try { existing = await auth.getUserByEmail(email); }
-  catch (e) { if (e?.code !== "auth/user-not-found") throw e; }
-  if (existing) {
-    throw new HttpsError("already-exists", "That email already has a login in OJTern. Use a different email, or remove the leftover under Authentication > Users in the Firebase Console.");
-  }
-  const user = await auth.createUser({
-    email, displayName: name, emailVerified: false,
-    password: crypto.randomBytes(24).toString("base64url") + "aA1!",
-  });
-  try {
-    await db.collection("admins").doc(user.uid).set({
-      role: "admin", status: "active", name, email,
-      createdBy, createdAt: FieldValue.serverTimestamp(), ...extra,
-    });
-  } catch (e) {
-    await auth.deleteUser(user.uid).catch(() => {});   // never leave a login without its admins/{uid} doc
+// Gives an existing coordinator ADMIN access with the SAME Firebase Auth login (see adminPromoteCoordinator).
+// Returns true if they were already an active admin (nothing is written then).
+const promoteCoordinatorToAdmin = async (db, callerUid, uid) => {
+  const coordRef = db.collection("coordinators").doc(uid);
+  const adminRef = db.collection("admins").doc(uid);
+  let authUser;
+  try { authUser = await getAuth().getUser(uid); }
+  catch (e) {
+    if (e?.code === "auth/user-not-found") throw new HttpsError("failed-precondition", "This coordinator has no login yet. They have to accept their invitation first.");
     throw e;
   }
-  return user.uid;
+  if (authUser.disabled) throw new HttpsError("failed-precondition", "This coordinator's login is disabled.");
+
+
+  const alreadyAdmin = await db.runTransaction(async (tx) => {
+    const [coordSnap, adminSnap] = await Promise.all([tx.get(coordRef), tx.get(adminRef)]);
+    if (!coordSnap.exists) throw new HttpsError("not-found", "Coordinator not found.");
+    if (coordSnap.get("role") !== "coordinator") throw new HttpsError("failed-precondition", "That record is not a coordinator.");
+    const status = clean(coordSnap.get("status"));
+    if (["pending", "rejected", "transferred", "suspended", "blocked"].includes(status)) {
+      throw new HttpsError("failed-precondition", `A coordinator whose status is "${status}" can't be made an admin.`);
+    }
+
+    if (adminSnap.exists && adminSnap.get("role") === "admin" && adminSnap.get("status") === "active") return true;
+    // A leftover admins/{uid} that is transferred / cancelled is a different story: don't silently revive it.
+    if (adminSnap.exists) throw new HttpsError("failed-precondition", "This person already has an admin record that was switched off. Remove it first or contact the developer.");
+
+    tx.set(adminRef, {
+      role: "admin",
+      status: "active",
+      name: clean(coordSnap.get("name")) || clean(authUser.displayName),
+      email: clean(authUser.email || coordSnap.get("email")).toLowerCase(),   // Auth is the source of truth for the login email
+      promotedFromCoordinator: true,
+      createdBy: callerUid,
+      createdAt: FieldValue.serverTimestamp(),
+    });
+    return false;
+  });
+
+  return alreadyAdmin;
 };
 
-// Emails the new admin a "set your password" link. Returns false (and only logs) if it could not be
-// sent: the account already exists by then, and they can use "Forgot password" on the sign-in page.
-const sendAdminInviteEmail = async (sendMail, { email, name, invitedBy, transfer }) => {
+// Tells an existing coordinator they now also have administrator access. No password link: they keep
+// signing in with the email and password they already have.
+const sendAdminPromotedEmail = async (sendMail, { email, name, invitedBy }) => {
   try {
-    const link = await getAuth().generatePasswordResetLink(email, { url: ADMIN_PAGE_URL });
     const who = esc(invitedBy) || "An OJTern administrator";
-    const intro = transfer
-      ? `${who} is handing the OJTern administrator role over to you.`
-      : `${who} added you as an OJTern administrator.`;
     const html = `
-      <h2>${transfer ? "You're taking over as OJTern administrator" : "You've been added as an OJTern administrator"}</h2>
-      <p>Hi <strong>${esc(name)}</strong>,</p>
-      <p>${intro} Set your password to activate the account (${esc(email)}).</p>
-      <table role="presentation" cellpadding="0" cellspacing="0" style="margin: 20px 0;">
-        <tr>
-          <td style="background:#111111; border-radius:24px;">
-            <a href="${link}" style="display:inline-block; padding:13px 32px; font-family:Arial, Helvetica, sans-serif; font-size:15px; font-weight:bold; color:#ffffff; text-decoration:none; border-radius:24px;">
-              Set Your Password
-            </a>
-          </td>
-        </tr>
-      </table>
-      <p>After that, sign in at the administrator page with your email and your new password.</p>
-      <p>If you weren't expecting this, you can safely ignore this email.</p>
+      <h2>You now have OJTern administrator access</h2>
+      <p>Hi${name ? ` <strong>${esc(name)}</strong>` : " there"},</p>
+      <p>${who} gave your account (${esc(email)}) administrator access. Nothing changes with your login: use the same email and password you already have.</p>
+      <p>Sign in at <a href="${ADMIN_PAGE_URL}">${ADMIN_PAGE_URL}</a> and you will be taken to the administrator dashboard. Your coordinator account stays as it is.</p>
+      <p>If you weren't expecting this, please contact the OJTern administrator.</p>
       <p>Best regards,<br/>OJTern Team</p>
     `;
-    const text = `${transfer ? "You're taking over as OJTern administrator" : "You've been added as an OJTern administrator"}
+    const text = `You now have OJTern administrator access
 
-Hi ${name},
+Hi${name ? ` ${name}` : " there"},
 
-${intro.replace(/&amp;|&lt;|&gt;|&quot;/g, "")} Set your password to activate the account (${email}).
+${clean(invitedBy) || "An OJTern administrator"} gave your account (${email}) administrator access. Nothing changes with your login: use the same email and password you already have.
 
-${link}
+Sign in at ${ADMIN_PAGE_URL} and you will be taken to the administrator dashboard. Your coordinator account stays as it is.
 
-After that, sign in at the administrator page with your email and your new password.
-
-If you weren't expecting this, you can safely ignore this email.
+If you weren't expecting this, please contact the OJTern administrator.
 
 Best regards,
 OJTern Team`;
-    await sendMail({ to: email, subject: transfer ? "OJTern - You're Taking Over as Administrator" : "OJTern - You've Been Added as an Administrator", html, text });
+    await sendMail({ to: email, subject: "OJTern - You Now Have Administrator Access", html, text });
     return true;
   } catch (error) {
-    console.error(`Admin invite email failed for ${email}:`, error);
+    console.error(`Admin promoted email failed for ${email}:`, error);
     return false;
   }
 };
@@ -335,42 +372,7 @@ module.exports = ({ sendMail, resendApiKey }) => {
     const uid = clean(request.data?.uid);
     if (!uid) throw new HttpsError("invalid-argument", "Missing coordinator.");
 
-    let authUser;
-    try { authUser = await getAuth().getUser(uid); }
-    catch (e) {
-      if (e?.code === "auth/user-not-found") throw new HttpsError("failed-precondition", "This coordinator has no login yet. They have to accept their invitation first.");
-      throw e;
-    }
-    if (authUser.disabled) throw new HttpsError("failed-precondition", "This coordinator's login is disabled.");
-
-    const coordRef = db.collection("coordinators").doc(uid);
-    const adminRef = db.collection("admins").doc(uid);
-
-    const alreadyAdmin = await db.runTransaction(async (tx) => {
-      const [coordSnap, adminSnap] = await Promise.all([tx.get(coordRef), tx.get(adminRef)]);
-      if (!coordSnap.exists) throw new HttpsError("not-found", "Coordinator not found.");
-      if (coordSnap.get("role") !== "coordinator") throw new HttpsError("failed-precondition", "That record is not a coordinator.");
-      const status = clean(coordSnap.get("status"));
-      if (["pending", "rejected", "transferred", "suspended", "blocked"].includes(status)) {
-        throw new HttpsError("failed-precondition", `A coordinator whose status is "${status}" can't be made an admin.`);
-      }
-
-      if (adminSnap.exists && adminSnap.get("role") === "admin" && adminSnap.get("status") === "active") return true;
-      // A leftover admins/{uid} that is transferred / cancelled is a different story: don't silently revive it.
-      if (adminSnap.exists) throw new HttpsError("failed-precondition", "This person already has an admin record that was switched off. Remove it first or contact the developer.");
-
-      tx.set(adminRef, {
-        role: "admin",
-        status: "active",
-        name: clean(coordSnap.get("name")) || clean(authUser.displayName),
-        email: clean(authUser.email || coordSnap.get("email")).toLowerCase(),   // Auth is the source of truth for the login email
-        promotedFromCoordinator: true,
-        createdBy: caller.uid,
-        createdAt: FieldValue.serverTimestamp(),
-      });
-      return false;
-    });
-
+    const alreadyAdmin = await promoteCoordinatorToAdmin(db, caller.uid, uid);
     return { ok: true, alreadyAdmin };
   });
 
@@ -584,19 +586,125 @@ OJTern Team`;
     if (!name || name.length > 60) throw new HttpsError("invalid-argument", "Enter your name (up to 60 characters).");
     await getFirestore().collection("admins").doc(adminUser.uid)
       .update({ name, profileUpdatedAt: FieldValue.serverTimestamp() });
+    await getAuth().updateUser(adminUser.uid, { displayName: name }).catch((e) => console.error("adminUpdateProfile: could not update displayName:", e));
     return { ok: true };
   });
 
-  // ACCOUNT PROFILE > ADD ACCOUNT: an admin adds another administrator (full access). The new admin
-  // gets an email with a link to set their own password. No password is shared.
+  // ACCOUNT PROFILE > ADD ACCOUNT: an admin invites another administrator (full access). Only the email is
+  // typed here. The person gets an "Accept Invitation" email; after clicking it they enter their own name
+  // and password, and only then is their account created. No password is shared.
   fns.adminAddAdmin = onCall({ region: REGION, secrets: [resendApiKey] }, async (request) => {
     const caller = await requireAdmin(request);
     requireRecentSignIn(request);
     const { email, name } = readNameAndEmail(request.data);
     const db = getFirestore();
-    const uid = await createAdminAccount(db, { email, name, createdBy: caller.uid });
-    const mailed = await sendAdminInviteEmail(sendMail, { email, name, invitedBy: caller.name, transfer: false });
-    return { uid, email, mailed };
+
+    // The email already belongs to a coordinator: give THAT account admin access (same login and
+    // password) instead of failing with "already has a login". Other existing logins (student, company)
+    // still get the normal "already has a login" error below.
+    let existing = null;
+    try { existing = await getAuth().getUserByEmail(email); }
+    catch (e) { if (e?.code !== "auth/user-not-found") throw e; }
+    if (existing) {
+      const coord = await db.collection("coordinators").doc(existing.uid).get();
+      if (coord.exists && coord.get("role") === "coordinator") {
+        if (existing.disabled) throw new HttpsError("failed-precondition", "This coordinator's login is disabled.");
+        const alreadyAdmin = await promoteCoordinatorToAdmin(db, caller.uid, existing.uid);
+        if (alreadyAdmin) throw new HttpsError("already-exists", "That person is already an administrator.");
+        const promotedName = clean(coord.get("name")) || clean(existing.displayName);
+        const mailed = await sendAdminPromotedEmail(sendMail, { email, name: promotedName, invitedBy: caller.name });
+        return { uid: existing.uid, email, mailed, promoted: true };
+      }
+    }
+
+    // An email with some OTHER login (student, company, an existing admin...) can't be invited.
+    if (existing) {
+      throw new HttpsError("already-exists", "That email already has a login in OJTern. Use a different email, or remove the leftover under Authentication > Users in the Firebase Console.");
+    }
+
+    // Only the latest invite for an email stays valid.
+    const older = await db.collection("coordinatorInvites")
+      .where("toEmail", "==", email).where("status", "==", "pending").get();
+    await Promise.all(older.docs.map((d) => d.ref.update({ status: "cancelled" })));
+
+    // sendCoordinatorInviteEmail (index.js) fires on this write and mails the Accept Invitation link.
+    const ref = await db.collection("coordinatorInvites").add({
+      type:               "admin",
+      fromUid:            caller.uid,
+      fromEmail:          caller.email,
+      fromName:           caller.name || "OJTern Administrator",
+      toEmail:            email,
+      deptSelections:     [],
+      assignedIndustries: [],
+      token:              crypto.randomBytes(24).toString("hex"),
+      status:             "pending",
+      createdByAdmin:     true,
+      createdAt:          FieldValue.serverTimestamp(),
+    });
+    return { inviteId: ref.id, email, mailed: true };
+  });
+
+  // Pending admin invitations THIS admin sent (not accepted yet), plus any older-style added admins whose login
+  // was created up front but who never signed in. The screen lists them with a Cancel button.
+  // `uid` is the invite id for invitations (adminCancelAddedAdmin accepts both kinds).
+  fns.adminListPendingAdmins = onCall({ region: REGION }, async (request) => {
+    const caller = await requireAdmin(request);
+    const db = getFirestore();
+    const out = [];
+    const invites = await db.collection("coordinatorInvites")
+      .where("fromUid", "==", caller.uid).where("type", "==", "admin").where("status", "==", "pending").get();
+    for (const d of invites.docs) {
+      if (d.get("transfer") === true) continue;   // a transfer invitation is shown (and cancelled) under Transfer account
+      out.push({ uid: d.id, email: clean(d.get("toEmail")) });
+    }
+
+    const snap = await db.collection("admins").where("createdBy", "==", caller.uid).get();
+    for (const d of snap.docs) {
+      const x = d.data();
+      if (x.status !== "active" || x.promotedFromCoordinator === true || x.transferFrom) continue;
+      const u = await getAuth().getUser(d.id).catch(() => null);
+      if (!u || u.metadata?.lastSignInTime) continue;
+      out.push({ uid: d.id, email: clean(x.email || u.email) });
+    }
+    return { pending: out };
+  });
+
+  // Cancels an added admin who has not signed in yet: the unused login and admins/{uid} are deleted, so the same
+  // email can be used again (Add, Transfer or Invite coordinator). If deleting the login fails it is switched off instead.
+  fns.adminCancelAddedAdmin = onCall({ region: REGION }, async (request) => {
+    const caller = await requireAdmin(request);
+    const db = getFirestore();
+    const uid = clean(request.data?.uid);
+    if (!uid) throw new HttpsError("invalid-argument", "Missing administrator.");
+
+    // A pending invitation (nothing was created yet): just switch the invite off so its link stops working.
+    const inviteRef = db.collection("coordinatorInvites").doc(uid);
+    const inviteSnap = await inviteRef.get();
+    if (inviteSnap.exists) {
+      if (inviteSnap.get("type") !== "admin" || inviteSnap.get("fromUid") !== caller.uid || inviteSnap.get("status") !== "pending") {
+        throw new HttpsError("failed-precondition", "That invitation can't be cancelled here.");
+      }
+      if (inviteSnap.get("transfer") === true) throw new HttpsError("failed-precondition", "Cancel it from Transfer account instead.");
+      await inviteRef.update({ status: "cancelled", cancelledAt: FieldValue.serverTimestamp() });
+      return { cancelled: true };
+    }
+
+    const ref = db.collection("admins").doc(uid);
+    const snap = await ref.get();
+    if (!snap.exists || snap.get("createdBy") !== caller.uid || snap.get("promotedFromCoordinator") === true || snap.get("transferFrom")) {
+      throw new HttpsError("failed-precondition", "That invitation can't be cancelled here.");
+    }
+    const user = await getAuth().getUser(uid).catch(() => null);
+    if (user?.metadata?.lastSignInTime) throw new HttpsError("failed-precondition", "They already signed in, so this can no longer be cancelled.");
+    try {
+      if (user) await getAuth().deleteUser(uid);
+      await ref.delete().catch(() => {});
+    } catch (e) {
+      console.error("Cancel added admin: could not delete the unused login, disabling it instead:", e);
+      await getAuth().updateUser(uid, { disabled: true }).catch(() => {});
+      await ref.update({ status: "cancelled" }).catch(() => {});
+    }
+    return { cancelled: true };
   });
 
   // ACCOUNT PROFILE > TRANSFER ACCOUNT: hands THIS admin role to someone else. The current admin keeps
@@ -608,19 +716,62 @@ OJTern Team`;
     const db = getFirestore();
     const callerRef = db.collection("admins").doc(caller.uid);
     const callerSnap = await callerRef.get();
-    if (callerSnap.get("transferPendingTo")) {
+    if (callerSnap.get("transferPendingTo") || callerSnap.get("transferPendingInvite")) {
       throw new HttpsError("failed-precondition", "A transfer is already pending. Cancel it first.");
     }
     const { email, name } = readNameAndEmail(request.data);
     if (sameText(email, caller.email)) {
       throw new HttpsError("invalid-argument", "That is your own email. Enter the new administrator's email.");
     }
-    const uid = await createAdminAccount(db, { email, name, createdBy: caller.uid, extra: { transferFrom: caller.uid } });
-    await callerRef.update({
-      transferPendingTo: uid, transferPendingEmail: email, transferStartedAt: FieldValue.serverTimestamp(),
+    // The email already belongs to a coordinator: hand the admin role to THAT account (same login and
+    // password) instead of failing with "already has a login". Other existing logins still fail below.
+    let existing = null;
+    try { existing = await getAuth().getUserByEmail(email); }
+    catch (e) { if (e?.code !== "auth/user-not-found") throw e; }
+    const coord = existing ? await db.collection("coordinators").doc(existing.uid).get() : null;
+    if (coord && coord.exists && coord.get("role") === "coordinator") {
+      if (existing.disabled) throw new HttpsError("failed-precondition", "This coordinator's login is disabled.");
+      const alreadyAdmin = await promoteCoordinatorToAdmin(db, caller.uid, existing.uid);
+      if (alreadyAdmin) throw new HttpsError("already-exists", "That person is already an administrator.");
+      await db.collection("admins").doc(existing.uid).update({ transferFrom: caller.uid });
+      await callerRef.update({
+        transferPendingTo: existing.uid, transferPendingEmail: email, transferStartedAt: FieldValue.serverTimestamp(),
+      });
+      const promotedName = clean(coord.get("name")) || clean(existing.displayName);
+      const mailed = await sendAdminPromotedEmail(sendMail, { email, name: promotedName, invitedBy: caller.name });
+      return { uid: existing.uid, email, mailed, promoted: true };
+    }
+
+    // An email with some OTHER login (student, company, an existing admin...) can't receive the role.
+    if (existing) {
+      throw new HttpsError("already-exists", "That email already has a login in OJTern. Use a different email, or remove the leftover under Authentication > Users in the Firebase Console.");
+    }
+
+    // Only the latest invite for an email stays valid.
+    const older = await db.collection("coordinatorInvites")
+      .where("toEmail", "==", email).where("status", "==", "pending").get();
+    await Promise.all(older.docs.map((d) => d.ref.update({ status: "cancelled" })));
+
+    // Same as Add account: sendCoordinatorInviteEmail (index.js) mails the Accept Invitation link. Nothing is
+    // created until they accept (acceptAdminInvite), which also links the new admin to this one.
+    const ref = await db.collection("coordinatorInvites").add({
+      type:               "admin",
+      transfer:           true,
+      fromUid:            caller.uid,
+      fromEmail:          caller.email,
+      fromName:           caller.name || "OJTern Administrator",
+      toEmail:            email,
+      deptSelections:     [],
+      assignedIndustries: [],
+      token:              crypto.randomBytes(24).toString("hex"),
+      status:             "pending",
+      createdByAdmin:     true,
+      createdAt:          FieldValue.serverTimestamp(),
     });
-    const mailed = await sendAdminInviteEmail(sendMail, { email, name, invitedBy: caller.name, transfer: true });
-    return { uid, email, mailed };
+    await callerRef.update({
+      transferPendingInvite: ref.id, transferPendingEmail: email, transferStartedAt: FieldValue.serverTimestamp(),
+    });
+    return { inviteId: ref.id, email, mailed: true };
   });
 
   // Called by the NEW admin right after they sign in (the screen does it automatically). Signing in
@@ -638,7 +789,7 @@ OJTern Team`;
 
     await oldRef.update({
       status: "transferred", transferredTo: caller.uid, transferredAt: FieldValue.serverTimestamp(),
-      transferPendingTo: FieldValue.delete(), transferPendingEmail: FieldValue.delete(), transferStartedAt: FieldValue.delete(),
+      transferPendingTo: FieldValue.delete(), transferPendingInvite: FieldValue.delete(), transferPendingEmail: FieldValue.delete(), transferStartedAt: FieldValue.delete(),
     });
     await meRef.update({ transferFrom: FieldValue.delete(), transferredFrom: fromUid });
     await getAuth().updateUser(fromUid, { disabled: true }).catch((e) => console.error("Transfer: could not disable the old admin login:", e));
@@ -646,22 +797,50 @@ OJTern Team`;
     return { completed: true };
   });
 
-  // Cancels a pending transfer. If the new person never signed in, their unused login is switched off.
+  // Cancels a pending transfer. While the invitation is not accepted yet, only the invitation is switched off
+  // (nothing else exists). After that, if the new person never signed in, their unused login and admins doc are
+  // deleted so the email can be reused.
   fns.adminCancelTransfer = onCall({ region: REGION }, async (request) => {
     const caller = await requireAdmin(request);
     const db = getFirestore();
     const meRef = db.collection("admins").doc(caller.uid);
-    const newUid = clean((await meRef.get()).get("transferPendingTo"));
+    const meSnap = await meRef.get();
+    const inviteId = clean(meSnap.get("transferPendingInvite"));
+    const newUid = clean(meSnap.get("transferPendingTo"));
+    const clearPending = () => meRef.update({
+      transferPendingTo: FieldValue.delete(), transferPendingInvite: FieldValue.delete(),
+      transferPendingEmail: FieldValue.delete(), transferStartedAt: FieldValue.delete(),
+    });
+    if (inviteId && !newUid) {
+      const inviteRef = db.collection("coordinatorInvites").doc(inviteId);
+      const inviteSnap = await inviteRef.get();
+      if (inviteSnap.exists && inviteSnap.get("status") === "pending" && inviteSnap.get("fromUid") === caller.uid) {
+        await inviteRef.update({ status: "cancelled", cancelledAt: FieldValue.serverTimestamp() });
+      }
+      await clearPending();
+      return { cancelled: true };
+    }
     if (!newUid) return { cancelled: false };
 
+    const newAdminSnap = await db.collection("admins").doc(newUid).get();
     const newUser = await getAuth().getUser(newUid).catch(() => null);
-    if (newUser && !newUser.metadata?.lastSignInTime) {
-      await getAuth().updateUser(newUid, { disabled: true }).catch(() => {});
-      await db.collection("admins").doc(newUid).update({ status: "cancelled" }).catch(() => {});
+    if (newAdminSnap.exists && newAdminSnap.get("promotedFromCoordinator") === true) {
+      // An existing coordinator: keep their login (they still use it as a coordinator), remove only the admin access.
+      await db.collection("admins").doc(newUid).delete();
+    } else if (newUser && !newUser.metadata?.lastSignInTime) {
+      // Never used: remove the login and its admins/{uid} doc completely, so the same email can be used
+      // again for Add / Transfer (a leftover disabled login would block it with "already has a login").
+      // If deleting the login fails, fall back to switching it off like before.
+      try {
+        await getAuth().deleteUser(newUid);
+        await db.collection("admins").doc(newUid).delete().catch(() => {});
+      } catch (e) {
+        console.error("Cancel transfer: could not delete the unused admin login, disabling it instead:", e);
+        await getAuth().updateUser(newUid, { disabled: true }).catch(() => {});
+        await db.collection("admins").doc(newUid).update({ status: "cancelled" }).catch(() => {});
+      }
     }
-    await meRef.update({
-      transferPendingTo: FieldValue.delete(), transferPendingEmail: FieldValue.delete(), transferStartedAt: FieldValue.delete(),
-    });
+    await clearPending();
     return { cancelled: true };
   });
 
