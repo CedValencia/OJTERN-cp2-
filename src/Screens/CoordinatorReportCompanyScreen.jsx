@@ -1808,7 +1808,7 @@ const CoordinatorReportCompanyScreen = ({ reports = [], otherReports = [], onVie
   // an empty default list reads as "no reports exist", which is exactly the
   // confusion the second tab is meant to prevent.
   const [tab, setTab] = useState(() => (reports.length === 0 && otherReports.length > 0 ? "all" : "mine"));
-  const [statusFilter, setStatusFilter] = useState("open");
+  const [statusFilter, setStatusFilter] = useState("all");
   const [search, setSearch]             = useState("");
   const [curPage, setCurPage]           = useState(1);
   // Next/previous page: the list goes back to its start.

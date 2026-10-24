@@ -2368,6 +2368,62 @@ const ResponsiveStyles = () => (
     @media (max-width: 560px) {
       .sa-app-row { padding: 12px 14px; }
     }
+    /* ── Applications table: Name / Date Applied / Status / Action. Same look
+       as the Student List table; cards take over on phones. ── */
+    .sa-table-wrap {
+      width: 100%;
+      overflow-x: auto;
+      border: 1px solid ${line};
+      border-radius: 18px;
+      background: ${surface};
+    }
+    .sa-table {
+      width: 100%;
+      min-width: 820px;
+      border-collapse: separate;
+      border-spacing: 0;
+      font-size: 0.90rem;
+      background: ${surface};
+    }
+    .sa-th {
+      padding: 13px 14px;
+      text-align: left;
+      color: ${ink};
+      background: ${lineSoft};
+      border-bottom: 1px solid ${line};
+      font-family: ${font.ui};
+      font-size: 1rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      white-space: nowrap;
+    }
+    .sa-td {
+      padding: 15px 14px;
+      color: ${ink};
+      background: ${surface};
+      font-family: ${font.ui};
+      font-weight: 500;
+      border-bottom: 1px solid ${line};
+      vertical-align: middle;
+    }
+    .sa-table tbody tr:last-child .sa-td { border-bottom: none; }
+    .sa-table tbody tr:hover .sa-td { background: ${color.hoverWash}; }
+    .sa-card-list { display: none; flex-direction: column; gap: 10px; }
+    .sa-card {
+      background: ${surface};
+      border: 1px solid ${line};
+      border-radius: 18px;
+      padding: 14px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    @media (max-width: 780px) {
+      .sa-table-wrap { display: none; }
+      .sa-card-list { display: flex; }
+    }
+
     .sa-list-wrapper :focus-visible {
       outline: none;
       box-shadow: ${shadow.focus};
@@ -3788,10 +3844,12 @@ export const ApplyModal = ({ company, onClose, onSuccessClose, onSubmit, user })
 };
 
 // ─── VIEW APPLICATION MODAL ───────────────────────────────────────────────────
-const ViewApplicationModal = ({ application, standing, onClose, onSave, onEditingChange, postClosure = null, canConfirmPlacement = false, otherAccepted = [], onConfirmPlacement }) => {
+const ViewApplicationModal = ({ application, standing, onClose, onSave, onEditingChange, postClosure = null, canConfirmPlacement = false, otherAccepted = [], onConfirmPlacement, onDelete }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [confirmingPlacement, setConfirmingPlacement] = useState(false);
   const [placementBusy, setPlacementBusy] = useState(false);
+  const [confirmingWithdraw, setConfirmingWithdraw] = useState(false);
+  const [withdrawing, setWithdrawing] = useState(false);
   useEffect(() => { onEditingChange?.(isEditing); }, [isEditing]);
   useEffect(() => () => onEditingChange?.(false), []);
   const f = useApplicationForm(application.data);
@@ -3850,6 +3908,11 @@ const ViewApplicationModal = ({ application, standing, onClose, onSave, onEditin
   const canEdit = (application.status || "Pending") === "Pending"
     && !application.affiliationWithdrawn
     && companyStanding.isActive;
+  // Withdraw replaces Delete — records are never removed. Not offered once the
+  // application is already Withdrawn or Declined, and a confirmed placement
+  // can't be withdrawn by the student (changes go through the coordinator).
+  const canWithdraw = application.status !== WITHDRAWN && application.status !== "Declined"
+    && !(application.status === "Accepted" && application.placementConfirmed && companyStanding.state !== "blocked");
   // "Still in progress" (Pending, In Review, To Interview) keeps a white
   // footer, same as a still-pending report in CoordinatorReportCompanyScreen.
   // Once the outcome is final (Accepted / Declined), the footer switches to
@@ -3943,6 +4006,20 @@ const ViewApplicationModal = ({ application, standing, onClose, onSave, onEditin
               await onConfirmPlacement?.(application.id);
               setPlacementBusy(false);
               setConfirmingPlacement(false);
+            }}
+          />
+        )}
+        {confirmingWithdraw && (
+          <DeleteConfirmPopup
+            companyName={application.company}
+            status={application.status}
+            deleting={withdrawing}
+            onCancel={() => setConfirmingWithdraw(false)}
+            onConfirm={async (withdrawal) => {
+              setWithdrawing(true);
+              await onDelete?.(application.id, withdrawal);
+              setWithdrawing(false);
+              setConfirmingWithdraw(false);
             }}
           />
         )}
@@ -4163,6 +4240,15 @@ const ViewApplicationModal = ({ application, standing, onClose, onSave, onEditin
           {isEditing && saveError && (
             <p style={{ width: "100%", textAlign: "right", fontFamily: font.ui, ...type.helper, color: color.danger, margin: "0 0 4px" }}>{saveError}</p>
           )}
+          {!isEditing && canWithdraw && (
+            <button
+              onClick={() => setConfirmingWithdraw(true)}
+              className="sa-btn"
+              style={{ marginRight: "auto", background: color.white, color: "#c62828", borderColor: "#c62828" }}
+              onMouseEnter={e => { e.currentTarget.style.background = "#c62828"; e.currentTarget.style.color = "#ffffff"; }}
+              onMouseLeave={e => { e.currentTarget.style.background = color.white; e.currentTarget.style.color = "#c62828"; }}
+            >Withdraw</button>
+          )}
           {isEditing ? (
             <>
               <button onClick={() => setIsEditing(false)} disabled={saving} className="sa-btn sa-btn-ghost">Cancel</button>
@@ -4369,152 +4455,122 @@ const DeleteConfirmPopup = ({ companyName, status, onCancel, onConfirm, deleting
   );
 };
 
-// ─── APPLICATION ROW ──────────────────────────────────────────────────────────
-const ApplicationRow = ({ application, standing, onView, onDelete, companyProfileIcon: themedCompanyIcon = blackCompanyProfileIcon, postClosure = null, canConfirmPlacement = false, otherAccepted = [], onConfirmPlacement }) => {
-  const companyStanding = standing || { isActive: true, canProceed: true, state: "active", message: "" };
-  const [showMenu, setShowMenu] = useState(false);
-  const [confirmingPlacement, setConfirmingPlacement] = useState(false);
-  const [placementBusy, setPlacementBusy] = useState(false);
-  const [confirming, setConfirming] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  const menuRef = useRef(null);
+// ─── APPLICATIONS TABLE ───────────────────────────────────────────────────────
+// Name | Date Applied | Status | Remarks | Action. The row only has a View button — Confirm
+// as my OJT placement and Withdraw live inside the View modal.
 
-  useEffect(() => {
-    const handler = (e) => { if (menuRef.current && !menuRef.current.contains(e.target)) setShowMenu(false); };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
+// "Month Day, Year", e.g. "October 10, 2026".
+const formatAppliedDate = (ts) => {
+  if (!ts?.seconds) return "—";
+  const d = new Date(ts.seconds * 1000);
+  return d.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+};
 
-  const handleConfirmDelete = async (withdrawal) => {
-    setDeleting(true);
-    await onDelete(application.id, withdrawal);
-    setDeleting(false);
-    setConfirming(false);
-  };
+const ViewButton = ({ onClick }) => (
+  <button
+    onClick={onClick}
+    aria-label="View application"
+    style={{
+      padding: "5px 16px", borderRadius: "16px",
+      border: `1.5px solid ${panelDeep}`, background: color.white, color: panelDeep,
+      fontFamily: font.ui, fontSize: "0.78rem",
+      cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0,
+    }}
+  >View</button>
+);
 
+const badgeBase = {
+  fontFamily: font.ui, fontSize: "0.7rem", fontWeight: 700,
+  borderRadius: "12px", padding: "3px 10px", whiteSpace: "nowrap", flexShrink: 0,
+};
+
+const ApplicationStatus = ({ application }) => {
   const sc = STATUS_COLORS[application.status] || { bg: color.wine400, color: ink };
-  const meta = { fontFamily: font.ui, ...type.helper, color: inkMuted, whiteSpace: "nowrap", flexShrink: 0 };
+  return <span style={{ ...badgeBase, background: sc.bg, color: sc.color, alignSelf: "flex-start" }}>{application.status}</span>;
+};
 
+// Remarks: the notices that used to sit under the company name in the old row —
+// confirmed placement, post expired/closed (+ "your application stays on
+// record"), and company-left-the-program. Blank ("—") when there's nothing to say.
+const ApplicationRemarks = ({ application, standing, postClosure = null, dashWhenEmpty = false, center = false }) => {
+  const companyStanding = standing || { isActive: true, canProceed: true, state: "active", message: "" };
+  const showConfirmed = application.status === "Accepted" && application.placementConfirmed && companyStanding.state !== "blocked";
+  // Post expired/closed — independent of any affiliation change. The
+  // application keeps its own status; this only says the post itself is
+  // no longer open. Not shown on applications the student withdrew.
+  const showClosure = !!postClosure && application.status !== WITHDRAWN;
+  const showAffiliation = !!application.affiliationWithdrawn;
+  if (!showConfirmed && !showClosure && !showAffiliation) {
+    return dashWhenEmpty ? <span style={{ color: inkFaint }}>—</span> : null;
+  }
   return (
-    <>
-      <div
-        className="sa-app-row"
-        style={{ display: "flex", alignItems: "center", gap: "14px", cursor: "pointer", position: "relative" }}
-        onClick={() => onView(application)}
-      >
-        {/* Raised white chip behind the icon — same look as CompanyAvatar on the dashboards */}
-        <div style={{
-          width: 42, height: 42, flexShrink: 0, borderRadius: "50%",
-          display: "flex", alignItems: "center", justifyContent: "center",
-          background: color.white,
-          boxShadow: "0 1px 3px rgba(20,20,20,0.18), 0 1px 2px rgba(20,20,20,0.10)",
-        }}>
-          <img src={themedCompanyIcon} alt="" style={{ width: 42, height: 42, objectFit: "contain" }} />
-        </div>
-        <div style={{ width: "1px", height: "30px", background: line, flexShrink: 0 }} />
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <p style={{ fontFamily: font.ui, ...type.label, color: ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{application.company}</p>
-          {application.createdAt?.seconds && (
-            <div style={{ marginTop: "3px" }}>
-              <span style={meta}>Applied {new Date(application.createdAt.seconds * 1000).toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" })}</span>
-            </div>
-          )}
-          {/* Post expired/closed — independent of any affiliation change. The
-              application keeps its own status; this only says the post itself
-              is no longer open. Not shown on applications the student withdrew. */}
-          {postClosure && application.status !== WITHDRAWN && (
-            <div style={{ marginTop: "4px" }}>
-              <span style={{ fontFamily: font.ui, fontSize: "0.7rem", fontWeight: 600, color: "#555", background: "#EDEDED", border: "1px solid #D6D6D6", borderRadius: radius.pill, padding: "1px 8px", whiteSpace: "nowrap" }}>
-                {postClosure.label}
-              </span>
-              {/* Reassure the student right in the list: the post closing does
-                  NOT end their application while it's still in progress. */}
-              <p style={{ fontFamily: font.ui, fontSize: "0.72rem", color: inkMuted, margin: "3px 0 0", lineHeight: 1.4, whiteSpace: "normal" }}>
-                {["Pending", "In Review", "To Interview"].includes(application.status)
-                  ? "Your application is still active — the company can still update your status."
-                  : "Your application stays on record."}
-              </p>
-            </div>
-          )}
-          {application.affiliationWithdrawn && (
-            <div style={{ marginTop: "4px" }}>
-              <span style={{ fontFamily: font.ui, fontSize: "0.7rem", fontWeight: 600, color: "#8a5a00", background: "#FFF3D6", border: "1px solid #F0D48A", borderRadius: radius.pill, padding: "1px 8px", whiteSpace: "nowrap" }}>
-                Company is no longer in the program
-              </span>
-            </div>
-          )}
-          {application.status === "Accepted" && application.placementConfirmed && companyStanding.state !== "blocked" && (
-            <div style={{ marginTop: "4px" }}><ConfirmedPlacementBadge /></div>
-          )}
-        </div>
-        <span style={{ background: sc.bg, color: sc.color, borderRadius: radius.pill, padding: "3px 11px", fontFamily: font.ui, fontSize: "0.75rem", fontWeight: 500, flexShrink: 0, whiteSpace: "nowrap" }}>
-          {application.status}
+    <div style={{ display: "flex", alignItems: "center", justifyContent: center ? "center" : "flex-start", gap: "6px", flexWrap: "wrap" }}>
+      {showConfirmed && <ConfirmedPlacementBadge />}
+      {showClosure && (
+        <>
+          <span style={{ fontFamily: font.ui, fontSize: "0.7rem", fontWeight: 600, color: "#555", background: "#EDEDED", border: "1px solid #D6D6D6", borderRadius: radius.pill, padding: "1px 8px", whiteSpace: "nowrap" }}>
+            {postClosure.label}
+          </span>
+          {/* Reassure the student right in the list: the post closing does NOT
+              end their application while it's still in progress. */}
+          <span style={{ fontFamily: font.ui, fontSize: "0.72rem", color: inkMuted, lineHeight: 1.4 }}>
+            {["Pending", "In Review", "To Interview"].includes(application.status)
+              ? "Your application is still active — the company can still update your status."
+              : "Your application stays on record."}
+          </span>
+        </>
+      )}
+      {showAffiliation && (
+        <span style={{ fontFamily: font.ui, fontSize: "0.7rem", fontWeight: 600, color: "#8a5a00", background: "#FFF3D6", border: "1px solid #F0D48A", borderRadius: radius.pill, padding: "1px 8px", whiteSpace: "nowrap" }}>
+          Company is no longer in the program
         </span>
-        <div ref={menuRef} style={{ position: "relative", flexShrink: 0 }} onClick={e => e.stopPropagation()}>
-          <button onClick={() => setShowMenu(!showMenu)} aria-label="More options" style={{ background: "none", border: "none", cursor: "pointer", padding: "2px 6px", color: inkMuted, fontSize: "1.1rem", lineHeight: 1 }}>⋮</button>
-          {showMenu && (
-            <div style={{ position: "absolute", top: "26px", right: 0, background: surface, border: `1px solid ${line}`, borderRadius: radius.card, boxShadow: shadow.panel, overflow: "hidden", zIndex: 10, minWidth: "100px" }}>
-              <button onClick={() => { onView(application); setShowMenu(false); }}
-                style={{ width: "100%", border: "none", background: "transparent", padding: "9px 14px", textAlign: "left", cursor: "pointer", fontFamily: font.ui, ...type.helper, fontWeight: 500, color: ink }}
-                onMouseEnter={e => e.currentTarget.style.background = color.hoverWash}
-                onMouseLeave={e => e.currentTarget.style.background = "transparent"}>View</button>
-              {companyStanding.isActive && canConfirmPlacement && application.status === "Accepted" && !application.placementConfirmed && (
-                <>
-                <div style={{ height: "1px", background: line, margin: "0 8px" }} />
-                <button onClick={() => { setConfirmingPlacement(true); setShowMenu(false); }}
-                  style={{ width: "100%", border: "none", background: "transparent", padding: "9px 14px", textAlign: "left", cursor: "pointer", fontFamily: font.ui, ...type.helper, fontWeight: 600, color: "#2a7a2a", whiteSpace: "nowrap" }}
-                  onMouseEnter={e => e.currentTarget.style.background = color.hoverWash}
-                  onMouseLeave={e => e.currentTarget.style.background = "transparent"}>Confirm as my OJT placement</button>
-                </>
-              )}
-              {/* Withdraw replaces Delete — records are never removed. Not offered
-                  once the application is already Withdrawn or Declined. */}
-              {/* A confirmed placement can't be withdrawn by the student either —
-                  changes go through the coordinator. */}
-              {application.status !== WITHDRAWN && application.status !== "Declined" && !(application.status === "Accepted" && application.placementConfirmed && companyStanding.state !== "blocked") && (
-              <>
-              <div style={{ height: "1px", background: line, margin: "0 8px" }} />
-              <button
-                onClick={() => { setConfirming(true); setShowMenu(false); }}
-                style={{ width: "100%", border: "none", background: "transparent", padding: "9px 14px", textAlign: "left", cursor: "pointer", fontFamily: font.ui, ...type.helper, fontWeight: 500, color: color.danger }}
-                onMouseEnter={e => e.currentTarget.style.background = color.hoverWash}
-                onMouseLeave={e => e.currentTarget.style.background = "transparent"}
-              >
-                Withdraw
-              </button>
-              </>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {confirmingPlacement && (
-        <ConfirmPlacementPopup
-          companyName={application.company}
-          otherAccepted={otherAccepted}
-          confirming={placementBusy}
-          onCancel={() => setConfirmingPlacement(false)}
-          onConfirm={async () => {
-            setPlacementBusy(true);
-            await onConfirmPlacement?.(application.id);
-            setPlacementBusy(false);
-            setConfirmingPlacement(false);
-          }}
-        />
       )}
-      {confirming && (
-        <DeleteConfirmPopup
-          companyName={application.company}
-          status={application.status}
-          deleting={deleting}
-          onCancel={() => setConfirming(false)}
-          onConfirm={handleConfirmDelete}
-        />
-      )}
-    </>
+    </div>
   );
 };
+
+const ApplicationTable = ({ rows, standings, postsById, onView }) => (
+  <>
+    <div className="sa-table-wrap">
+      <table className="sa-table">
+        <thead>
+          <tr>
+            <th className="sa-th" style={{ width: "24%" }}>Name</th>
+            <th className="sa-th" style={{ width: "18%" }}>Date Applied</th>
+            <th className="sa-th" style={{ width: "12%" }}>Status</th>
+            <th className="sa-th" style={{ width: "36%", textAlign: "center" }}>Remarks</th>
+            <th className="sa-th" style={{ width: "10%" }}>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(a => (
+            <tr key={a.id}>
+              <td className="sa-td">{a.company}</td>
+              <td className="sa-td" style={{ whiteSpace: "nowrap" }}>{formatAppliedDate(a.createdAt)}</td>
+              <td className="sa-td"><ApplicationStatus application={a} /></td>
+              <td className="sa-td" style={{ textAlign: "center" }}><ApplicationRemarks application={a} standing={standings[a.companyId]} postClosure={getPostClosure(a.postId, postsById)} dashWhenEmpty center /></td>
+              <td className="sa-td"><ViewButton onClick={() => onView(a)} /></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+
+    <div className="sa-card-list">
+      {rows.map(a => (
+        <div key={a.id} className="sa-card">
+          <div style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: "8px" }}>
+            <span style={{ fontFamily: font.ui, fontSize: "0.9rem", fontWeight: 600, color: ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.company}</span>
+            <span style={{ fontFamily: font.ui, ...type.helper, color: inkMuted }}>Applied {formatAppliedDate(a.createdAt)}</span>
+            <ApplicationStatus application={a} />
+            <ApplicationRemarks application={a} standing={standings[a.companyId]} postClosure={getPostClosure(a.postId, postsById)} />
+          </div>
+          <ViewButton onClick={() => onView(a)} />
+        </div>
+      ))}
+    </div>
+  </>
+);
 
 // ─── MAIN APPLICATION SCREEN ──────────────────────────────────────────────────
 // ── Pagination: 10 rows per page ──────────────────────────────────────────────
@@ -4941,9 +4997,7 @@ const StudentApplicationScreen = ({ initialCompany, onModalClose, user, openAppl
         ) : filteredApplications.length > 0 ? (
           <>
           <div className="sa-list-area" id="sapp-list">
-            {pageRows.map(application => (
-              <ApplicationRow key={application.id} application={application} standing={companyStandings[application.companyId]} onView={handleView} onDelete={handleDelete} companyProfileIcon={themedCompanyIcon} postClosure={getPostClosure(application.postId, postsById)} canConfirmPlacement={!hasConfirmedPlacement} otherAccepted={otherAcceptedNames(application.id)} onConfirmPlacement={handleConfirmPlacement} />
-            ))}
+            <ApplicationTable rows={pageRows} standings={companyStandings} postsById={postsById} onView={handleView} />
             {safePage === totalPages && (
               <p style={{ textAlign: "center", fontFamily: font.ui, ...type.helper, color: inkFaint, padding: "16px 0 0" }}>
                 No more recent applications!
@@ -4979,6 +5033,7 @@ const StudentApplicationScreen = ({ initialCompany, onModalClose, user, openAppl
           canConfirmPlacement={!hasConfirmedPlacement}
           otherAccepted={otherAcceptedNames(viewingApplication.id)}
           onConfirmPlacement={handleConfirmPlacement}
+          onDelete={handleDelete}
         />
       )}
       {showApply && (

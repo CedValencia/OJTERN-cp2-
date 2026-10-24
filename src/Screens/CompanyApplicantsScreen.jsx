@@ -15,7 +15,6 @@ import aboutIcon          from "../icons/about.png";
 import downloadIcon       from "../icons/download.png";
 import pdfIcon            from "../icons/pdf.png";
 import imgIcon            from "../icons/img.png";
-import viewIcon           from "../icons/view.png";
 import reportIcon         from "../icons/report.png";
 import { standingOf, STANDING_TONE } from "./accountStanding";
 
@@ -247,6 +246,62 @@ const ResponsiveStyles = () => (
     }
     @media (max-width: 560px) {
       .ca-row { padding: 10px 14px 10px 14px; gap: 10px; }
+    }
+
+    /* Applicants table: Name / Status / Date Applied / Action. Same look as the
+       Student List table; cards take over on phones. */
+    .ca-table-wrap {
+      width: 100%;
+      overflow-x: auto;
+      border: 1px solid ${line};
+      border-radius: 18px;
+      background: ${surface};
+    }
+    .ca-table {
+      width: 100%;
+      min-width: 780px;
+      border-collapse: separate;
+      border-spacing: 0;
+      font-size: 0.90rem;
+      background: ${surface};
+    }
+    .ca-th {
+      padding: 13px 14px;
+      text-align: left;
+      color: ${ink};
+      background: ${lineSoft};
+      border-bottom: 1px solid ${line};
+      font-family: ${font.ui};
+      font-size: 1rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      white-space: nowrap;
+    }
+    .ca-td {
+      padding: 15px 14px;
+      color: ${ink};
+      background: ${surface};
+      font-family: ${font.ui};
+      font-weight: 500;
+      border-bottom: 1px solid ${line};
+      vertical-align: middle;
+    }
+    .ca-table tbody tr:last-child .ca-td { border-bottom: none; }
+    .ca-table tbody tr:hover .ca-td { background: ${color.hoverWash}; }
+    .ca-card-list { display: none; flex-direction: column; gap: 10px; }
+    .ca-card {
+      background: ${surface};
+      border: 1px solid ${line};
+      border-radius: 18px;
+      padding: 14px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    @media (max-width: 780px) {
+      .ca-table-wrap { display: none; }
+      .ca-card-list { display: flex; }
     }
 
     .ca-list-wrapper :focus-visible,
@@ -1325,6 +1380,102 @@ const PaginationBar = ({ page: current, totalPages, onPage, from, to, total }) =
   );
 };
 
+// ── Table pieces (same look as the Student List table) ───────────────────────
+// "Month Day, Year", e.g. "October 10, 2026". createdAt is the moment the
+// student sent the application; it is briefly empty while the server stamps it.
+const formatAppliedDate = (ts) => {
+  if (!ts?.seconds) return "—";
+  const d = new Date(ts.seconds * 1000);
+  return d.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+};
+
+const ViewButton = ({ onClick }) => (
+  <button
+    onClick={onClick}
+    aria-label="View applicant"
+    style={{
+      padding: "5px 16px", borderRadius: "16px",
+      border: `1.5px solid ${panelDeep}`, background: color.white, color: panelDeep,
+      fontFamily: font.ui, fontSize: "0.78rem",
+      cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0,
+    }}
+  >View</button>
+);
+
+const badgeBase = {
+  fontFamily: font.ui, fontSize: "0.7rem", fontWeight: 700,
+  borderRadius: "12px", padding: "3px 10px", whiteSpace: "nowrap", flexShrink: 0,
+};
+
+// Status of the application.
+const ApplicantStatus = ({ applicant }) => {
+  const sc = STATUS_COLORS[applicant.status] || { bg: color.wine400, color: ink };
+  return <span style={{ ...badgeBase, background: sc.bg, color: sc.color }}>{applicant.status}</span>;
+};
+
+// OJT Placement: once an application is Accepted, whether the student has
+// confirmed this company as their OJT placement. Blank for every other status.
+const PlacementStatus = ({ applicant }) => {
+  if (applicant.status !== "Accepted") return <span style={{ color: inkFaint }}>—</span>;
+  return applicant.placementConfirmed ? (
+    <span title="Confirmed by the student as their OJT placement" style={{ ...badgeBase, background: "#EAF6EE", color: "#1f5e36", border: "1px solid #BFE3CB" }}>
+      ✓ Confirmed
+    </span>
+  ) : (
+    <span title="The student hasn't confirmed this as their OJT placement yet" style={{ ...badgeBase, background: "#F2F2F2", color: "#555", border: "1px solid #D6D6D6" }}>
+      Not Confirmed
+    </span>
+  );
+};
+
+const ApplicantTable = ({ rows, onView }) => {
+  const nameOf = (a) => (buildFullName(a) !== "User" ? buildFullName(a) : "this applicant");
+  return (
+    <>
+      <div className="ca-table-wrap">
+        <table className="ca-table">
+          <thead>
+            <tr>
+              <th className="ca-th" style={{ width: "28%" }}>Name</th>
+              <th className="ca-th" style={{ width: "22%" }}>Date Applied</th>
+              <th className="ca-th" style={{ width: "16%" }}>Status</th>
+              <th className="ca-th" style={{ width: "20%" }}>OJT Placement</th>
+              <th className="ca-th" style={{ width: "14%" }}>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(a => (
+              <tr key={a.id}>
+                <td className="ca-td" title={a.program || undefined}>{nameOf(a)}</td>
+                <td className="ca-td" style={{ whiteSpace: "nowrap" }}>{formatAppliedDate(a.createdAt)}</td>
+                <td className="ca-td"><ApplicantStatus applicant={a} /></td>
+                <td className="ca-td"><PlacementStatus applicant={a} /></td>
+                <td className="ca-td"><ViewButton onClick={() => onView(a)} /></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="ca-card-list">
+        {rows.map(a => (
+          <div key={a.id} className="ca-card">
+            <div style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: "8px" }}>
+              <span style={{ fontFamily: font.ui, fontSize: "0.9rem", fontWeight: 600, color: ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{nameOf(a)}</span>
+              <span style={{ fontFamily: font.ui, ...type.helper, color: inkMuted }}>Applied {formatAppliedDate(a.createdAt)}</span>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+                <ApplicantStatus applicant={a} />
+                {a.status === "Accepted" && <PlacementStatus applicant={a} />}
+              </span>
+            </div>
+            <ViewButton onClick={() => onView(a)} />
+          </div>
+        ))}
+      </div>
+    </>
+  );
+};
+
 const CompanyApplicantsScreen = ({ embedded = false, onNavigateToMessages, user, openApplicantId, onApplicantOpened, initialStatusFilter, onStatusFilterApplied , onViewChange }) => {
   const [applicants, setApplicants] = useState([]);
 
@@ -1661,40 +1812,7 @@ const CompanyApplicantsScreen = ({ embedded = false, onNavigateToMessages, user,
       {filtered.length > 0 ? (
         <>
         <div id="capp-rows" className="ca-rows">
-          {pageRows.map(applicant => {
-            const fullName = buildFullName(applicant) !== "User" ? buildFullName(applicant) : "this applicant";
-            const sc = STATUS_COLORS[applicant.status] || { bg: color.wine400, color: ink };
-            return (
-              <div
-                key={applicant.id}
-                className="ca-row"
-                onClick={() => setViewingApplicant(applicant)}
-              >
-                <StudentAvatar size={42} />
-                <div style={{ width: "1px", height: "30px", background: line, flexShrink: 0 }} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <p style={{ fontFamily: font.ui, ...type.label, color: ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                    {fullName}
-                  </p>
-                  <div className="ca-row-meta">
-                    <span style={{ background: sc.bg, color: sc.color, borderRadius: radius.pill, padding: "2px 10px", fontFamily: font.ui, fontSize: "0.72rem", fontWeight: 500, whiteSpace: "nowrap", flexShrink: 0 }}>
-                      {applicant.status}
-                    </span>
-                    {applicant.status === "Accepted" && applicant.placementConfirmed && (
-                      <span style={{ background: "#EAF6EE", color: "#1f5e36", border: "1px solid #BFE3CB", borderRadius: radius.pill, padding: "1px 8px", fontFamily: font.ui, fontSize: "0.68rem", fontWeight: 600, whiteSpace: "nowrap", flexShrink: 0 }}>
-                        ✓ Confirmed
-                      </span>
-                    )}
-                    <span className="ca-row-program" style={{ color: color.wine400, fontSize: "0.7rem", flexShrink: 0 }}>·</span>
-                    <span className="ca-row-program" style={{ fontFamily: font.ui, ...type.helper, color: inkMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
-                      {applicant.program}
-                    </span>
-                  </div>
-                </div>
-                <img src={viewIcon} alt="view" style={{ width: "32px", height: "32px", objectFit: "contain", flexShrink: 0, opacity: 0.7 }} />
-              </div>
-            );
-          })}
+          <ApplicantTable rows={pageRows} onView={setViewingApplicant} />
         </div>
         <PaginationBar page={safePage} totalPages={totalPages} onPage={goToPage} from={showingFrom} to={showingTo} total={filtered.length} />
         </>

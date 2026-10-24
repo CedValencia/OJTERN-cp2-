@@ -432,51 +432,60 @@ const ResponsiveStyles = () => (
       .sp-search-input { width: 62px; }
     }
 
-    /* Full-width student rows */
-    /* Same card rows as Students Account (.sa-row there): rounded card,
-       roomier padding, bold name over a single "·"-joined meta line. */
-    .sp-rows {
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
+    /* Student table — same layout as the Report List screen: one table per
+       batch, with Name / Status / Action columns. Cards take over on phones. */
+    .sp-table-wrap {
+      width: 100%;
+      overflow-x: auto;
+      border: 1px solid ${line};
+      border-radius: 18px;
+      background: ${surface};
     }
-    .sp-row {
-      display: flex;
-      align-items: center;
-      gap: 14px;
+    .sp-table {
+      width: 100%;
+      min-width: 520px;
+      border-collapse: separate;
+      border-spacing: 0;
+      font-size: 0.90rem;
+      background: ${surface};
+    }
+    .sp-th {
+      padding: 13px 14px;
+      text-align: left;
+      color: ${ink};
+      background: ${lineSoft};
+      border-bottom: 1px solid ${line};
+      font-family: ${font.ui};
+      font-size: 1rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      white-space: nowrap;
+    }
+    .sp-td {
+      padding: 15px 14px;
+      color: ${ink};
+      background: ${surface};
+      font-family: ${font.ui};
+      font-weight: 500;
+      border-bottom: 1px solid ${line};
+      vertical-align: middle;
+    }
+    .sp-table tbody tr:last-child .sp-td { border-bottom: none; }
+    .sp-table tbody tr:hover .sp-td { background: ${color.hoverWash}; }
+    .sp-card-list { display: none; flex-direction: column; gap: 10px; }
+    .sp-card {
       background: ${surface};
       border: 1px solid ${line};
-      border-radius: ${radius.card};
-      padding: 14px 20px;
-      cursor: pointer;
-      min-width: 0;
-      box-shadow: ${shadow.input};
-      transition: border-color 200ms ${ease}, box-shadow 200ms ${ease};
-    }
-    .sp-row:hover {
-      border-color: ${color.hoverBorder};
-      box-shadow: 0 6px 20px rgba(10,10,10,0.08);
-    }
-    .sp-row-main    { flex: 1; min-width: 0; }
-    .sp-row-actions { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
-    /* Same hover-grow feel as .stat-view-btn on the dashboard's Students
-       Overview card, so the view icon here reacts the same way on hover. */
-    .sp-row-action { transition: transform 0.18s ${ease}, filter 0.18s ${ease}; }
-    .sp-row-action:hover { transform: scale(1.15); }
-    /* Row meta line: wraps gracefully on narrow screens */
-    .sp-row-meta {
+      border-radius: 18px;
+      padding: 14px 16px;
       display: flex;
       align-items: center;
-      gap: 6px;
-      margin-top: 3px;
-      flex-wrap: wrap;
-      row-gap: 2px;
+      justify-content: space-between;
+      gap: 12px;
     }
-    /* The "View placement" link is redundant on small screens — the whole
-       row is tappable, and the space is better spent on the name. */
-    @media (max-width: 560px) {
-      .sp-row { padding: 12px 14px; gap: 10px; }
-      .sp-row-action { display: none; }
+    @media (max-width: 780px) {
+      .sp-table-wrap { display: none; }
+      .sp-card-list { display: flex; }
     }
 
     .sp-list-wrapper :focus-visible,
@@ -551,9 +560,6 @@ const ResponsiveStyles = () => (
       .sp-detail-grid { grid-template-columns: 1fr; }
     }
 
-    @media (prefers-reduced-motion: reduce) {
-      .sp-row { transition: none; }
-    }
   `}</style>
 );
 
@@ -1182,9 +1188,91 @@ const PaginationBar = ({ page: current, totalPages, onPage, from, to, total }) =
   );
 };
 
+// ── Table pieces (same look as the Report List screen) ───────────────────────
+const ViewButton = ({ onClick }) => (
+  <button
+    onClick={onClick}
+    aria-label="View placement"
+    style={{
+      padding: "5px 16px", borderRadius: "16px",
+      border: `1.5px solid ${panelDeep}`, background: color.white, color: panelDeep,
+      fontFamily: font.ui, fontSize: "0.78rem",
+      cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0,
+    }}
+  >View</button>
+);
+
+const badgeBase = {
+  fontFamily: font.ui, fontSize: "0.7rem", fontWeight: 700,
+  borderRadius: "12px", padding: "3px 10px", whiteSpace: "nowrap", flexShrink: 0,
+};
+
+// Status = the student's most-advanced application (Pending, In Review, To
+// Interview, Accepted, Declined, Withdrawn) or "Not Applied Yet". A Follow-up
+// flag rides along when any application needs the coordinator.
+const StudentStatus = ({ apps, standings }) => {
+  const best = getBestApplication(apps);
+  const sc = best ? (STATUS_COLORS[best.status] || { bg: color.wine400, color: ink }) : null;
+  const followUp = needsFollowUp(apps, standings);
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+      {sc ? (
+        <span style={{ ...badgeBase, background: sc.bg, color: sc.color }}>{best.status}</span>
+      ) : (
+        <span style={{ ...badgeBase, background: inkFaint, color: "white" }}>Not Applied Yet</span>
+      )}
+      {followUp && (
+        <span
+          title={(apps || []).map((a, _i, all) => followUpReason(a, all, standings)).filter(Boolean).join("\n")}
+          style={{ ...badgeBase, background: "#FFF3D6", color: "#8a5a00", border: "1px solid #F0D48A" }}
+        >
+          ⚑ Follow-up
+        </span>
+      )}
+    </span>
+  );
+};
+
+const StudentTable = ({ rows, appsByStudent, standings, onView }) => (
+  <>
+    <div className="sp-table-wrap">
+      <table className="sp-table">
+        <thead>
+          <tr>
+            <th className="sp-th">Name</th>
+            <th className="sp-th" style={{ width: "260px" }}>Status</th>
+            <th className="sp-th" style={{ width: "110px" }}>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(s => (
+            <tr key={s.id}>
+              <td className="sp-td" title={s.college || undefined}>{getFullName(s)}</td>
+              <td className="sp-td"><StudentStatus apps={appsByStudent[s.id]} standings={standings} /></td>
+              <td className="sp-td"><ViewButton onClick={() => onView(s)} /></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+
+    <div className="sp-card-list">
+      {rows.map(s => (
+        <div key={s.id} className="sp-card">
+          <div style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: "8px" }}>
+            <span style={{ fontFamily: font.ui, fontSize: "0.9rem", fontWeight: 600, color: ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{getFullName(s)}</span>
+            <StudentStatus apps={appsByStudent[s.id]} standings={standings} />
+          </div>
+          <ViewButton onClick={() => onView(s)} />
+        </div>
+      ))}
+    </div>
+  </>
+);
+
 const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany, onMessageStudent, initialViewingStudentId, onClearInitialViewingStudent, userIcon: themedUserIcon = blackUserIcon, viewIcon: themedViewIcon = blackViewIcon, onViewingStudentChange, initialStatusFilter = "" }) => {
   const [search, setSearch]                 = useState("");
-  const [curPage, setCurPage]                 = useState(1);
+  const [curPage, setCurPage] = useState(1);
   // Next/previous page: the list goes back to its start.
   const scrollRef = useRef(null);
   const goToPage = (n) => { setCurPage(n); requestAnimationFrame(() => scrollListToTop(scrollRef.current)); };
@@ -1385,22 +1473,27 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
   })();
   useEffect(() => { setCurPage(1); }, [search, filters]);
 
-  // ── Pagination (10 students per page) ──
-  // Pages run over the batch-ordered list; the rows of a page are grouped by batch again.
+  // ── Pagination: ONE pager for the whole list, 10 students per page ──
+  // Students are laid out in batch order (newest first) and cut into pages of
+  // 10 in that order. A page shows only the batches that have students on it,
+  // so a batch can continue onto the next page.
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(curPage, totalPages);
-  const showingFrom = filtered.length ? (safePage - 1) * PAGE_SIZE + 1 : 0;
-  const showingTo = Math.min(safePage * PAGE_SIZE, filtered.length);
+  const pageStart = (safePage - 1) * PAGE_SIZE;
+  const pageEnd = pageStart + PAGE_SIZE;
+  const showingFrom = filtered.length ? pageStart + 1 : 0;
+  const showingTo = Math.min(pageEnd, filtered.length);
   const pagedGroups = (() => {
-    let skip = (safePage - 1) * PAGE_SIZE, left = PAGE_SIZE;
     const out = [];
-    for (const g of groupedByBatch) {
-      if (left <= 0) break;
-      if (skip >= g.rows.length) { skip -= g.rows.length; continue; }
-      const rows = g.rows.slice(skip, skip + left);
-      skip = 0; left -= rows.length;
-      out.push({ ...g, rows, all: g.rows, total: g.rows.length });
-    }
+    let offset = 0;
+    groupedByBatch.forEach(g => {
+      const gStart = offset;
+      offset += g.rows.length;
+      const from = Math.max(pageStart, gStart);
+      const to = Math.min(pageEnd, offset);
+      if (from >= to) return;
+      out.push({ ...g, all: g.rows, total: g.rows.length, rows: g.rows.slice(from - gStart, to - gStart) });
+    });
     return out;
   })();
 
@@ -1443,67 +1536,6 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
     } finally {
       setExportingPdf(false);
     }
-  };
-
-  // ── One full-width row per student ────────────────────────────────────────
-  const renderStudentRow = (student) => {
-    const fullName = getFullName(student);
-    // The row badge shows the single most-advanced application status,
-    // so a coordinator can scan placement progress without opening anyone.
-    const best = getBestApplication(applicationsByStudent[student.id]);
-    const sc   = best ? (STATUS_COLORS[best.status] || { bg: color.wine400, color: ink }) : null;
-    // Same single meta line as a Students Account row. College isn't in the
-    // line (same as there) but stays in the row's tooltip.
-    const metaText = [student.studentId, student.program, student.yearSection].filter(Boolean).join(" · ");
-
-    return (
-      <div key={student.id} className="sp-row" onClick={() => setViewingStudent(student)} title={student.college || undefined}>
-        <StudentAvatar size={45} userIcon={themedUserIcon} />
-        <div className="sp-row-main">
-          <h3 style={{
-            fontFamily: font.ui, fontSize: "1rem", fontWeight: 600,
-            letterSpacing: "-0.01em", color: ink, lineHeight: 1.35,
-            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-          }}>
-            {fullName}
-          </h3>
-          <p style={{
-            fontFamily: font.ui, ...type.helper, color: inkMuted, marginTop: "2px",
-            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-          }}>
-            {metaText || "—"}
-          </p>
-        </div>
-        <div className="sp-row-actions">
-        {needsFollowUp(applicationsByStudent[student.id], companyStandings) && (
-          <span
-            title={(applicationsByStudent[student.id] || []).map((a, _i, all) => followUpReason(a, all, companyStandings)).filter(Boolean).join("\n")}
-            style={{ background: "#FFF3D6", color: "#8a5a00", border: "1px solid #F0D48A", borderRadius: radius.pill, padding: "3px 10px", fontFamily: font.ui, fontSize: "0.72rem", fontWeight: 600, flexShrink: 0, whiteSpace: "nowrap" }}
-          >
-            ⚑ Follow-up
-          </span>
-        )}
-        {sc ? (
-          <span style={{ background: sc.bg, color: sc.color, borderRadius: radius.pill, padding: "3px 11px", fontFamily: font.ui, fontSize: "0.75rem", fontWeight: 500, flexShrink: 0 }}>
-            {best.status}
-          </span>
-        ) : (
-          <span style={{ background: surface, border: `1px solid ${line}`, color: inkMuted, borderRadius: radius.pill, padding: "3px 11px", fontFamily: font.ui, fontSize: "0.75rem", flexShrink: 0 }}>
-            Not applied
-          </span>
-        )}
-        <span
-          className="sp-row-action"
-          onClick={(e) => { e.stopPropagation(); setViewingStudent(student); }}
-          role="button"
-          aria-label="View placement"
-          style={{ display: "inline-flex", alignItems: "center", cursor: "pointer", flexShrink: 0 }}
-        >
-          <img src={themedViewIcon} alt="" style={{ width: "35px", height: "35px", objectFit: "contain" }} />
-        </span>
-        </div>
-      </div>
-    );
   };
 
   return (
@@ -1691,9 +1723,7 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
                     {group.total} student{group.total !== 1 ? "s" : ""}
                   </span>
                 </div>
-                <div className="sp-rows">
-                  {group.rows.map(renderStudentRow)}
-                </div>
+                <StudentTable rows={group.rows} appsByStudent={applicationsByStudent} standings={companyStandings} onView={setViewingStudent} />
               </section>
             ))}
           </div>

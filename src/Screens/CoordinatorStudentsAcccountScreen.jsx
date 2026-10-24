@@ -318,41 +318,60 @@ const ResponsiveStyles = () => (
       flex-wrap: wrap;
     }
 
-    /* Student list — full-width rows, so bulk-select checkboxes line up in
-       one vertical column and a whole section scans in a single glance. */
-    .sa-student-list {
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
+    /* Student table — same layout as the Report List screen: one table per
+       batch, with Name / Status / Action columns. Cards take over on phones. */
+    .sa-table-wrap {
+      width: 100%;
+      overflow-x: auto;
+      border: 1px solid ${line};
+      border-radius: 18px;
+      background: ${surface};
     }
-
-    .sa-row {
-      display: flex;
-      align-items: center;
-      gap: 14px;
+    .sa-table {
+      width: 100%;
+      min-width: 480px;
+      border-collapse: separate;
+      border-spacing: 0;
+      font-size: 0.90rem;
+      background: ${surface};
+    }
+    .sa-th {
+      padding: 13px 14px;
+      text-align: left;
+      color: ${ink};
+      background: ${lineSoft};
+      border-bottom: 1px solid ${line};
+      font-family: ${font.ui};
+      font-size: 1rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      white-space: nowrap;
+    }
+    .sa-td {
+      padding: 15px 14px;
+      color: ${ink};
+      background: ${surface};
+      font-family: ${font.ui};
+      font-weight: 500;
+      border-bottom: 1px solid ${line};
+      vertical-align: middle;
+    }
+    .sa-table tbody tr:last-child .sa-td { border-bottom: none; }
+    .sa-table tbody tr:hover .sa-td { background: ${color.hoverWash}; }
+    .sa-card-list { display: none; flex-direction: column; gap: 10px; }
+    .sa-card {
       background: ${surface};
       border: 1px solid ${line};
-      border-radius: ${radius.card};
-      padding: 14px 20px;
-      cursor: pointer;
-      min-width: 0;
-      box-shadow: ${shadow.input};
-      transition: border-color 200ms ${ease}, box-shadow 200ms ${ease};
+      border-radius: 18px;
+      padding: 14px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
     }
-    .sa-row:hover {
-      border-color: ${color.hoverBorder};
-      box-shadow: 0 6px 20px rgba(10,10,10,0.08);
-    }
-
-    .sa-row-main    { flex: 1; min-width: 0; }
-    .sa-row-actions { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
-
-    @media (max-width: 560px) {
-      .sa-row { padding: 12px 14px; gap: 10px; }
-      /* The section already shows in the meta line, and View lives in the
-         ⋮ menu, so both can go on narrow screens. */
-      .sa-row-badge,
-      .sa-row-view { display: none; }
+    @media (max-width: 780px) {
+      .sa-table-wrap { display: none; }
+      .sa-card-list { display: flex; }
     }
 
     .sa-list-wrapper :focus-visible,
@@ -393,6 +412,7 @@ const ResponsiveStyles = () => (
     }
     .sa-modal-body {
       overflow-y: auto;
+      overflow-x: hidden;
       padding: 18px 28px 22px;
       flex: 1;
     }
@@ -448,6 +468,23 @@ const ResponsiveStyles = () => (
       .sa-info-grid { grid-template-columns: 1fr; }
     }
 
+    /* Let grid cells shrink to the container instead of pushing it wider, and
+       stack every field vertically on phones. */
+    .sa-name-grid > *,
+    .sa-college-grid > *,
+    .sa-info-grid > * { min-width: 0; }
+    @media (max-width: 560px) {
+      .sa-name-grid,
+      .sa-college-grid,
+      .sa-info-grid { grid-template-columns: minmax(0, 1fr); }
+      /* Smaller footer buttons so Archive / Delete / Edit fit on one row */
+      .sa-modal-footer { gap: 6px; }
+      .sa-modal-footer button {
+        padding: 6px 14px !important;
+        font-size: 0.78rem !important;
+      }
+    }
+
     /* Import modal */
     .sa-import-inner {
       background: ${surface};
@@ -499,9 +536,6 @@ const ResponsiveStyles = () => (
       .sa-import-footer { padding: 12px 16px; flex-wrap: wrap; }
     }
 
-    @media (prefers-reduced-motion: reduce) {
-      .sa-row { transition: none; }
-    }
   `}</style>
 );
 
@@ -1092,7 +1126,7 @@ const SmallLabel = ({ children }) => (
 );
 
 // ── Student Form ───────────────────────────────────────────────────────────────
-const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submitLabel = "Create account", coordinatorColleges = [], departments = {} }) => {
+const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submitLabel = "Create account", coordinatorColleges = [], departments = {}, archived = false, onArchive, onRestore, onDelete }) => {
   const studentId     = useField(initial.studentId || "", "studentId");
   const lastName      = useField(initial.lastName || "", "lastName");
   const middleInitial = useField(initial.middleInitial || "", "middleInitial");
@@ -1311,7 +1345,7 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
           {isCreate ? (
             <>
               {/* Same fields, in the same order, as the import template. */}
-              <div className="sa-name-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))" }}>
+              <div className="sa-name-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(min(130px, 100%), 1fr))" }}>
                 <div>
                   <FieldLabel>Last name {reqStar}</FieldLabel>
                   <StyledInput value={lastName.value} onChange={onLastNameChange} placeholder="Dela Cruz" hasError={!!lastName.error} />
@@ -1515,7 +1549,7 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
         </div>
 
         {readOnly && (
-          <div className="sa-modal-footer">
+          <div className="sa-modal-footer" style={{ flexWrap: "wrap" }}>
             {isEditing ? (
               <>
                 <button onClick={onClose} disabled={saving} style={ghostBtn}>Cancel</button>
@@ -1525,7 +1559,14 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
               </>
             ) : (
               <>
-                <button onClick={onClose} style={ghostBtn}>Close</button>
+                {(onArchive || onRestore || onDelete) && (
+                  <div id="sa-modal-account-actions" style={{ marginRight: "auto", display: "flex", gap: space.sm, flexWrap: "wrap" }}>
+                    {archived
+                      ? onRestore && <button onClick={onRestore} style={ghostBtn}>Restore</button>
+                      : onArchive && <button onClick={onArchive} style={ghostBtn}>Archive</button>}
+                    {onDelete && <button onClick={onDelete} style={{ ...ghostBtn, color: danger, borderColor: danger }}>Delete</button>}
+                  </div>
+                )}
                 <button id="sa-modal-edit" onClick={() => setIsEditing(true)} style={primaryBtn}>Edit</button>
               </>
             )}
@@ -1993,51 +2034,6 @@ const StudentAvatar = ({ size = 34, userIcon: themedUserIcon = blackUserIcon }) 
   <img src={themedUserIcon} alt="" style={{ width: size, height: size, objectFit: "contain", flexShrink: 0 }} />
 );
 
-// ── Row overflow menu ─────────────────────────────────────────────────────────
-const StudentRowMenu = ({ onView, onDelete, onArchive, onRestore, archived }) => {
-  const [showMenu, setShowMenu] = useState(false);
-  const menuRef = useRef();
-
-  // Close the menu on any click/tap outside of it — not just when the
-  // ⋮ button is pressed again. Using mousedown (not click) so it closes
-  // before a click on the row underneath registers and opens the profile.
-  useEffect(() => {
-    if (!showMenu) return;
-    const handler = (e) => {
-      if (menuRef.current && !menuRef.current.contains(e.target)) setShowMenu(false);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [showMenu]);
-
-  const item = (label, onClick, isDanger) => (
-    <button
-      onClick={onClick}
-      style={{ width: "100%", border: "none", background: surface, padding: "10px 14px", textAlign: "left", cursor: "pointer", fontFamily: font.ui, ...type.helper, color: isDanger ? danger : inkBody }}
-      onMouseEnter={e => e.currentTarget.style.background = color.hoverWash}
-      onMouseLeave={e => e.currentTarget.style.background = surface}
-    >
-      {label}
-    </button>
-  );
-
-  return (
-    <div ref={menuRef} style={{ position: "relative" }}>
-      <button onClick={(e) => { e.stopPropagation(); setShowMenu(v => !v); }} aria-label="More actions" style={{ background: "none", border: "none", cursor: "pointer", padding: "2px 6px", color: inkMuted, fontSize: "1.1rem", lineHeight: 1 }}>⋮</button>
-      {showMenu && (
-        <div style={{ position: "absolute", top: "28px", right: 0, background: surface, border: `1px solid ${line}`, borderRadius: radius.card, boxShadow: shadow.panel, zIndex: 100, minWidth: "110px", overflow: "hidden" }}>
-          {item("View", (e) => { e.stopPropagation(); onView(); setShowMenu(false); })}
-          <div style={{ height: "1px", background: lineSoft }} />
-          {archived
-            ? item("Restore", (e) => { e.stopPropagation(); onRestore(); setShowMenu(false); })
-            : item("Archive", (e) => { e.stopPropagation(); onArchive(); setShowMenu(false); })}
-          {item("Delete", (e) => { e.stopPropagation(); onDelete(); setShowMenu(false); }, true)}
-        </div>
-      )}
-    </div>
-  );
-};
-
 // ── Checkbox ──────────────────────────────────────────────────────────────────
 const Checkbox = ({ checked, partial = false, onClick }) => (
   <div
@@ -2078,64 +2074,84 @@ const mapStudentDoc = (docSnap) => {
   };
 };
 
-// ── Student Row ───────────────────────────────────────────────────────────────
-// Full-width row, matching the Student List screen: avatar + name on top, a
-// single meta line under it, then the badge/action cluster on the right. Rows
-// rather than a card grid because bulk-select is the core workflow here — the
-// checkboxes stack into one vertical column, so a ticked set reads at a glance.
-// The email lives in the row's tooltip instead of the meta line: it's the one
-// field long enough to break the alignment everything else depends on.
-const StudentRow = ({ student: s, selectMode, isSelected, onToggleSelect, onView, onDelete, onArchive, onRestore, userIcon: themedUserIcon = blackUserIcon }) => {
-  const meta = [s.studentId, s.program, s.yearSection].filter(Boolean).join(" · ");
+// ── Student table (same look as the Report List screen) ──────────────────────
+// Columns: Name · Status (Active / Archived) · Action (View). Archive, Restore
+// and Delete are inside the View popup. The checkbox column only appears while
+// Select mode is on, so bulk export / archive / delete still work.
+const studentDisplayName = (s) =>
+  `${s.firstName} ${s.middleInitial ? s.middleInitial + " " : ""}${s.lastName}${isRealSuffix(s.suffix) ? ` ${s.suffix}` : ""}`;
 
-  return (
-    <div
-      className="sa-row"
-      onClick={() => onView(s)}
-      style={{ borderColor: isSelected ? panel : undefined }}
-    >
-      {selectMode && (
-        <div onClick={(e) => { e.stopPropagation(); onToggleSelect(s.id); }}>
-          <Checkbox checked={isSelected} />
-        </div>
-      )}
+const StudentStatusBadge = ({ archived }) => (
+  <span style={{
+    fontFamily: font.ui, fontSize: "0.7rem", fontWeight: 700,
+    background: archived ? inkFaint : success, color: "white",
+    borderRadius: "12px", padding: "3px 10px", whiteSpace: "nowrap", alignSelf: "flex-start",
+  }}>{archived ? "Archived" : "Active"}</span>
+);
 
-      <StudentAvatar size={45} userIcon={themedUserIcon} />
+const ViewButton = ({ onClick }) => (
+  <button
+    onClick={onClick}
+    style={{
+      padding: "5px 16px", borderRadius: "16px",
+      border: `1.5px solid ${panelDeep}`, background: color.white, color: panelDeep,
+      fontFamily: font.ui, fontSize: "0.78rem",
+      cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0,
+    }}
+  >View</button>
+);
 
-      <div className="sa-row-main">
-        <h3 style={{
-          fontFamily: font.ui, fontSize: "1rem", fontWeight: 600,
-          letterSpacing: "-0.01em", color: ink, lineHeight: 1.35,
-          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-        }}>
-          {s.firstName} {s.middleInitial ? s.middleInitial + " " : ""}{s.lastName}
-          {isRealSuffix(s.suffix) ? ` ${s.suffix}` : ""}
-        </h3>
-        <p
-          title={s.email}
-          style={{
-            fontFamily: font.ui, ...type.helper, color: inkMuted, marginTop: "2px",
-            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-          }}
-        >
-          {meta || "—"}
-        </p>
-      </div>
-
-      <div className="sa-row-actions">
-        <div onClick={(e) => e.stopPropagation()}>
-          <StudentRowMenu
-            onView={() => onView(s)}
-            onDelete={() => onDelete(s.id)}
-            onArchive={() => onArchive(s)}
-            onRestore={() => onRestore(s)}
-            archived={isArchivedStudent(s)}
-          />
-        </div>
-      </div>
+const StudentTable = ({ rows, selectMode, selected, onToggleSelect, onView }) => (
+  <>
+    <div className="sa-table-wrap">
+      <table className="sa-table">
+        <thead>
+          <tr>
+            {selectMode && <th className="sa-th" style={{ width: "44px" }} />}
+            <th className="sa-th">Name</th>
+            <th className="sa-th" style={{ width: "150px" }}>Status</th>
+            <th className="sa-th" style={{ width: "110px" }}>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(s => (
+            <tr key={s.id}>
+              {selectMode && (
+                <td className="sa-td">
+                  <div onClick={() => onToggleSelect(s.id)} style={{ display: "flex", cursor: "pointer" }}>
+                    <Checkbox checked={selected.has(s.id)} />
+                  </div>
+                </td>
+              )}
+              <td className="sa-td" title={s.email || undefined}>{studentDisplayName(s)}</td>
+              <td className="sa-td"><StudentStatusBadge archived={isArchivedStudent(s)} /></td>
+              <td className="sa-td"><ViewButton onClick={() => onView(s)} /></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
-  );
-};
+
+    <div className="sa-card-list">
+      {rows.map(s => (
+        <div key={s.id} className="sa-card" style={{ borderColor: selected.has(s.id) ? panel : undefined }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", minWidth: 0 }}>
+            {selectMode && (
+              <div onClick={() => onToggleSelect(s.id)} style={{ display: "flex", cursor: "pointer" }}>
+                <Checkbox checked={selected.has(s.id)} />
+              </div>
+            )}
+            <div style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: "8px" }}>
+              <span style={{ fontFamily: font.ui, fontSize: "0.9rem", fontWeight: 600, color: ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{studentDisplayName(s)}</span>
+              <StudentStatusBadge archived={isArchivedStudent(s)} />
+            </div>
+          </div>
+          <ViewButton onClick={() => onView(s)} />
+        </div>
+      ))}
+    </div>
+  </>
+);
 
 // ── Confirm / notice dialog ───────────────────────────────────────────────────
 const Dialog = ({ title, body, children, success: showSuccess = false }) => (
@@ -2364,22 +2380,27 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
   })();
   useEffect(() => { setCurPage(1); }, [search, filters, viewTab]);
 
-  // ── Pagination (10 students per page) ──
-  // Pages run over the batch-ordered list; the rows of a page are grouped by batch again.
+  // ── Pagination: ONE pager for the whole list, 10 students per page ──
+  // Students are laid out in batch order (newest first) and cut into pages of
+  // 10 in that order. A page shows only the batches that have students on it,
+  // so a batch can continue onto the next page.
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(curPage, totalPages);
-  const showingFrom = filtered.length ? (safePage - 1) * PAGE_SIZE + 1 : 0;
-  const showingTo = Math.min(safePage * PAGE_SIZE, filtered.length);
+  const pageStart = (safePage - 1) * PAGE_SIZE;
+  const pageEnd = pageStart + PAGE_SIZE;
+  const showingFrom = filtered.length ? pageStart + 1 : 0;
+  const showingTo = Math.min(pageEnd, filtered.length);
   const pagedGroups = (() => {
-    let skip = (safePage - 1) * PAGE_SIZE, left = PAGE_SIZE;
     const out = [];
-    for (const g of groupedByBatch) {
-      if (left <= 0) break;
-      if (skip >= g.rows.length) { skip -= g.rows.length; continue; }
-      const rows = g.rows.slice(skip, skip + left);
-      skip = 0; left -= rows.length;
-      out.push({ ...g, rows, all: g.rows, total: g.rows.length });
-    }
+    let offset = 0;
+    groupedByBatch.forEach(g => {
+      const gStart = offset;
+      offset += g.rows.length;
+      const from = Math.max(pageStart, gStart);
+      const to = Math.min(pageEnd, offset);
+      if (from >= to) return;
+      out.push({ ...g, all: g.rows, total: g.rows.length, rows: g.rows.slice(from - gStart, to - gStart) });
+    });
     return out;
   })();
 
@@ -2756,25 +2777,16 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
                     {group.total} student{group.total !== 1 ? "s" : ""}
                   </span>
                 </div>
-                <div className="sa-student-list">
-                  {group.rows.map(s => (
-                    <StudentRow
-                      key={s.id}
-                      student={s}
-                      selectMode={selectMode}
-                      isSelected={selected.has(s.id)}
-                      onToggleSelect={toggleSelect}
-                      onView={setViewingStudent}
-                      onDelete={handleDelete}
-                      onArchive={handleArchive}
-                      onRestore={handleRestore}
-                      userIcon={themedUserIcon}
-                    />
-                  ))}
-                </div>
+                <StudentTable
+                  rows={group.rows}
+                  selectMode={selectMode}
+                  selected={selected}
+                  onToggleSelect={toggleSelect}
+                  onView={setViewingStudent}
+                />
               </section>
             ))}
-            <PaginationBar page={safePage} totalPages={totalPages} onPage={goToPage} />
+            <PaginationBar page={safePage} totalPages={totalPages} onPage={goToPage} from={showingFrom} to={showingTo} total={filtered.length} />
             <p style={{ textAlign: "center", fontFamily: font.ui, ...type.helper, color: inkFaint, padding: "20px 0 4px" }}>
               Showing {filtered.length} of {pool.length} {viewTab === "archived" ? "archived" : "active"} student{pool.length !== 1 ? "s" : ""}
             </p>
@@ -2813,7 +2825,21 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
       </div>
 
       {showNewModal    && <StudentForm coordinatorColleges={normalizedCoordinatorColleges} departments={departments} onClose={() => setShowNewModal(false)} onSubmit={handleCreate} submitLabel="Create account" />}
-      {viewingStudent  && <StudentForm initial={viewingStudent} readOnly coordinatorColleges={normalizedCoordinatorColleges} departments={departments} onClose={() => setViewingStudent(null)} onSubmit={handleSave} />}
+      {viewingStudent  && (
+        <StudentForm
+          initial={viewingStudent}
+          readOnly
+          coordinatorColleges={normalizedCoordinatorColleges}
+          departments={departments}
+          onClose={() => setViewingStudent(null)}
+          onSubmit={handleSave}
+          archived={isArchivedStudent(viewingStudent)}
+          // Close the popup first, then ask for confirmation on the list.
+          onArchive={() => { const s = viewingStudent; setViewingStudent(null); handleArchive(s); }}
+          onRestore={() => { const s = viewingStudent; setViewingStudent(null); handleRestore(s); }}
+          onDelete={() => { const id = viewingStudent.id; setViewingStudent(null); handleDelete(id); }}
+        />
+      )}
       {showImportModal && <ImportModal existingIds={students.map(s => s.studentId)} coordinatorColleges={normalizedCoordinatorColleges} departments={departments} onClose={() => setShowImportModal(false)} onImport={handleImport} />}
 
       {/* ── Default password was reset by an edit ── */}
