@@ -1606,6 +1606,19 @@ const requestUserEmailChange = async (currentPassword, newEmail, uid, collection
     return { changed: false }; // nothing to do — not actually a change
   }
 
+  // Stop here if the address already belongs to another account (an admin's, say).
+  // Firebase's own verifyBeforeUpdateEmail() would NOT complain, it would just email the link
+  // to the other person, so this is checked on the server first (checkEmailAvailable).
+  try {
+    await httpsCallable(functions, "checkEmailAvailable")({ email: normalizedNewEmail });
+  } catch (err) {
+    if (err.code === "functions/already-exists" || err.code === "functions/invalid-argument") {
+      throw new Error(err.message);
+    }
+    console.error(`[requestUserEmailChange:${collectionName}] email availability check failed:`, { code: err.code, message: err.message });
+    throw new Error("Could not check if that email is available. Please try again.");
+  }
+
   // Reauthenticate with the CURRENT (still-active) Auth email — not the new
   // one, which isn't a recognized credential yet.
   const credential = EmailAuthProvider.credential(user.email, currentPassword);
@@ -1691,8 +1704,58 @@ export const requestCompanyEmailChange = (currentPassword, newEmail, uid) =>
  * @param {string} uid
  * @returns {Promise<{ changed: boolean, pendingEmail?: string }>}
  */
-export const requestCoordinatorEmailChange = (currentPassword, newEmail, uid) =>
-  requestUserEmailChange(currentPassword, newEmail, uid, "coordinators");
+export const requestCoordinatorEmailChange = async (currentPassword, newEmail, uid) => {
+  // Instant change, no confirmation link: re-check the password here, then the
+  // changeCoordinatorEmail Cloud Function (Admin SDK) swaps the login email and
+  // the coordinators/{uid}.email field together. See that function for why it is
+  // done on the server.
+  const user = auth.currentUser;
+  if (!user) throw new Error("No user is currently signed in.");
+  const normalizedNewEmail = newEmail.trim().toLowerCase();
+  if (normalizedNewEmail === (user.email || "").toLowerCase()) return { changed: false };
+
+  try {
+    await reauthenticateWithCredential(user, EmailAuthProvider.credential(user.email, currentPassword));
+  } catch (err) {
+    if (err.code === "auth/wrong-password" || err.code === "auth/invalid-credential") {
+      throw new Error("Your current password is incorrect.");
+    }
+    throw err;
+  }
+
+  try {
+    await httpsCallable(functions, "changeCoordinatorEmail")({ email: normalizedNewEmail });
+  } catch (err) {
+    if (err.code === "functions/already-exists" || err.code === "functions/invalid-argument" || err.code === "functions/failed-precondition") {
+      throw new Error(err.message);
+    }
+    console.error("[requestCoordinatorEmailChange] failed:", { code: err.code, message: err.message });
+    throw new Error("The email didn't update. Please try again.");
+  }
+
+  // Make sure the new email REALLY works for signing in before reporting success: sign in again
+  // with the NEW email and the same password (it must come back as this same account). If that
+  // fails for any reason, the change is undone so the coordinator can never be locked out.
+  const oldEmail = user.email;
+  try {
+    await user.reload();
+    if ((auth.currentUser?.email || "").toLowerCase() !== normalizedNewEmail) throw new Error("email not updated");
+    await reauthenticateWithCredential(auth.currentUser, EmailAuthProvider.credential(normalizedNewEmail, currentPassword));
+  } catch (err) {
+    console.error("[requestCoordinatorEmailChange] the new email could not be used to sign in, undoing:", { code: err.code, message: err.message });
+    try {
+      await httpsCallable(functions, "changeCoordinatorEmail")({ email: oldEmail.toLowerCase() });
+      await auth.currentUser?.reload();
+    } catch (undoErr) {
+      console.error("[requestCoordinatorEmailChange] could not undo:", { code: undoErr.code, message: undoErr.message });
+    }
+    throw new Error("We couldn't confirm that the new email works for signing in, so your email was not changed. Please try again.");
+  }
+
+  // The session stays signed in; refresh it so the app sees the new email straight away.
+  await auth.currentUser.getIdToken(true).catch(() => {});
+  return { changed: true, pendingEmail: null };
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ISOLATED ACCOUNT CREATION — create a Firebase Auth user WITHOUT switching

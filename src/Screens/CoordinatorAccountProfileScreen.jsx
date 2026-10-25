@@ -1241,11 +1241,11 @@ const MailIcon = () => (
 
 // ── Email Change Confirm Modal ────────────────────────────────────────────────
 // Changing a coordinator's login email needs the current password (Firebase
-// treats it as a sensitive Auth operation) and is usually a two-step,
-// verify-by-link process — see requestCoordinatorEmailChange in
-// AuthService.js for exactly why. This modal collects the password, kicks
-// that off, and shows the right outcome (verification-link-sent vs. changed
-// immediately). It is NOT a generic "Are you sure?" confirmation — it exists
+// treats it as a sensitive Auth operation). The new email takes effect right
+// away: there is no confirmation link to open in the inbox. See
+// requestCoordinatorEmailChange in AuthService.js. This modal collects the
+// password and shows any error (wrong password, email already used by another
+// account). It is NOT a generic "Are you sure?" confirmation — it exists
 // because Firebase requires a recent sign-in before it will touch the Auth
 // account's email at all.
 const CoordinatorEmailChangeConfirmModal = ({ newEmail, uid, onCancel, onDone }) => {
@@ -1264,19 +1264,11 @@ const CoordinatorEmailChangeConfirmModal = ({ newEmail, uid, onCancel, onDone })
     setError("");
     try {
       const result = await requestCoordinatorEmailChange(currentPass, newEmail, uid);
-      if (result.pendingEmail) {
-        // Verification-link path — Firestore's `email` field hasn't changed
-        // yet, so save everything else now rather than blocking the rest of
-        // the form's edits on an email confirmation that might take a while.
-        await onDone(uid);
-        setSent(true);
-      } else {
-        // Either nothing actually changed, or this project fell back to the
-        // immediate updateEmail() path (already fully applied) — either way
-        // there's nothing pending to explain, just finish the save normally.
-        await onDone(uid);
-        onCancel();
-      }
+      // The login email (and the coordinator record) is already changed on the
+      // server, so there is nothing pending: just finish saving the rest.
+      void result;
+      await onDone(uid);
+      onCancel();
     } catch (err) {
       setError(err.message || "The email didn't update. Try again.");
     } finally {
@@ -1302,7 +1294,7 @@ const CoordinatorEmailChangeConfirmModal = ({ newEmail, uid, onCancel, onDone })
         <div className="cap-modal-body">
           <ModalTitle sub={`Changing your login email to ${newEmail}`}>Verify your password</ModalTitle>
           <p style={{ fontFamily: font.ui, ...type.body, color: inkBody, marginBottom: space.md }}>
-            This is a security-sensitive change, so you need to confirm your current password before continuing.
+            This is a security-sensitive change, so you need to confirm your current password before continuing. Your new email takes effect right away; there is no link to confirm.
           </p>
           <label style={labelStyle}>Current password{reqMark}</label>
           <PasswordInput value={currentPass} onChange={e => { setCurrentPass(e.target.value); setError(""); }} onKeyDown={handleKeyDown} invalid={!!error} />
@@ -1348,7 +1340,6 @@ const PersonalInfoScreen = ({ user, onBack, onSaved, mandatory = false, onEditin
   // "confirmation sent" instead of silently pretending the change already
   // happened.
   const originalEmailRef = useRef(user?.email || "");
-  const [pendingEmail, setPendingEmail] = useState("");
   const [showEmailConfirm, setShowEmailConfirm] = useState(false);
 
   // The onSnapshot listener below stays subscribed for as long as this
@@ -1386,7 +1377,6 @@ const PersonalInfoScreen = ({ user, onBack, onSaved, mandatory = false, onEditin
         setEmail(d.email || "");
       }
       originalEmailRef.current = d.email || "";
-      setPendingEmail(d.pendingEmail || "");
       setAddress(d.address || "");
       if (!locLoadedRef.current || !editingRef.current) {
         setLoc({ ...emptyLoc, ...(d.addressDetails || {}) });
@@ -1435,8 +1425,8 @@ const PersonalInfoScreen = ({ user, onBack, onSaved, mandatory = false, onEditin
 
     // If the email field was edited, that's a Firebase Auth login-email
     // change, not a plain Firestore field update — it needs the current
-    // password AND isn't instant (see requestCoordinatorEmailChange in
-    // AuthService.js). Route to that flow instead of silently writing the
+    // password (see requestCoordinatorEmailChange in
+    // AuthService.js; it applies immediately). Route to that flow instead of silently writing the
     // new address to Firestore, which was the original bug: the Firestore
     // field changed but the real Auth login credential never did, so only
     // the OLD email kept working.
@@ -1600,14 +1590,6 @@ const PersonalInfoScreen = ({ user, onBack, onSaved, mandatory = false, onEditin
               </>
             ) : (
               <p style={rowValue}>{email || "—"}</p>
-            )}
-            {/* A pendingEmail on file means a verification link is still
-                waiting to be clicked — `email` above is still the real,
-                active login address until then. */}
-            {pendingEmail && (
-              <p style={{ fontFamily: font.ui, ...type.helper, color: warning, margin: "6px 0 0" }}>
-                Confirmation pending for {pendingEmail} — check that inbox to finish the change.
-              </p>
             )}
           </div>
 
@@ -1967,7 +1949,7 @@ const CoordinatorAccountProfileScreen = ({ user, onLogout, viewIcon: themedViewI
           </MenuGroup>
 
           <MenuGroup title="Security:" id="accprofile-security">
-            <MenuRow icon="key" label="Reset Password" onClick={() => setShowReset(true)} viewIcon={themedViewIcon} />
+            <MenuRow icon="key" label="Change Password" onClick={() => setShowReset(true)} viewIcon={themedViewIcon} />
           </MenuGroup>
 
           <MenuGroup title="Legal:" id="accprofile-legal">

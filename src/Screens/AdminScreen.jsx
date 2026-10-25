@@ -2560,7 +2560,7 @@ const AccountProfile = ({ admin, flash }) => {
         </div>
         <div className="ap-group">
           <p className="ap-group-title">Security:</p>
-          <MenuRow icon="mail" label="Sign-in Email" onClick={openEmail} />
+          <MenuRow icon="mail" label="Change Email" onClick={openEmail} />
           <MenuRow icon="key" label="Change Password" onClick={openPassword} />
         </div>
         <div className="ap-group">
@@ -2577,7 +2577,7 @@ const AccountProfile = ({ admin, flash }) => {
 
       {/* ── Pop-up forms ── */}
       {modal === "email" && (
-        <ApModal title="Sign-in email" onClose={closeModal}
+        <ApModal title="Change email" onClose={closeModal}
           sub="This is the email you sign in with, and where password reset links are sent. We’ll send a 6-digit code to the new address to confirm it’s yours."
           footer={
             <>

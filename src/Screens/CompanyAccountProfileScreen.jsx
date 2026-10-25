@@ -4701,7 +4701,7 @@ const CompanyAccountProfileScreen = ({ user, onLogout, onViewChange }) => {
           </MenuGroup>
 
           <MenuGroup id="cacc-security" title="Security:">
-            <MenuRow icon="key" label="Reset Password" onClick={() => setShowReset(true)} />
+            <MenuRow icon="key" label="Change Password" onClick={() => setShowReset(true)} />
           </MenuGroup>
 
           <MenuGroup id="cacc-legal" title="Legal:">

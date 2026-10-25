@@ -1899,3 +1899,80 @@ exports.deleteUnsentAttachments = onDocumentUpdated(
 // loaded here, at the end, because it reuses sendMail and resendApiKey from above.
 // ═══════════════════════════════════════════════════════════════════════════
 Object.assign(exports, require("./adminFunctions")({ sendMail, resendApiKey }));
+
+// ── checkEmailAvailable ──────────────────────────────────────────────────────
+// Used BEFORE a signed-in coordinator / company asks Firebase to email a "confirm your new
+// address" link. With email-enumeration protection on, verifyBeforeUpdateEmail() never says
+// the address already belongs to someone (it just sends the link to that person's inbox), so
+// the screen showed no error. The Admin SDK can look the address up, so the check lives here.
+// Signed-in callers only, and it only answers yes/no for the address being typed.
+exports.checkEmailAvailable = onCall({ region: "asia-southeast1" }, async (request) => {
+  const callerUid = request.auth && request.auth.uid;
+  if (!callerUid) throw new HttpsError("unauthenticated", "Please sign in again.");
+  const email = String((request.data && request.data.email) || "").trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new HttpsError("invalid-argument", "Please enter a valid email address.");
+  try {
+    const existing = await getAuth().getUserByEmail(email);
+    if (existing.uid !== callerUid) {
+      throw new HttpsError("already-exists", "That email address is already used by another OJTern account. Please use a different email.");
+    }
+  } catch (e) {
+    if (e instanceof HttpsError) throw e;
+    if (e && e.code === "auth/user-not-found") return { available: true };
+    console.error("checkEmailAvailable failed:", e);
+    throw new HttpsError("internal", "Could not check that email right now. Please try again.");
+  }
+  return { available: true };
+});
+
+// ── changeCoordinatorEmail ───────────────────────────────────────────────────
+// Changes a coordinator's login email right away, with NO "click the link we emailed you" step.
+// The screen first re-checks the person's current password (reauthenticateWithCredential), then calls this.
+// It runs with the Admin SDK because Firebase will not let the browser swap a login email instantly
+// on a project with email-enumeration protection. Only the signed-in coordinator's OWN account
+// can be changed, the sign-in must be recent, and an address another account uses is refused.
+exports.changeCoordinatorEmail = onCall({ region: "asia-southeast1" }, async (request) => {
+  const uid = request.auth && request.auth.uid;
+  if (!uid) throw new HttpsError("unauthenticated", "Please sign in again.");
+  const authTime = Number(request.auth.token && request.auth.token.auth_time) || 0;
+  if (Date.now() / 1000 - authTime > 300) {
+    throw new HttpsError("failed-precondition", "For your security, please enter your current password again.");
+  }
+  const email = String((request.data && request.data.email) || "").trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new HttpsError("invalid-argument", "Please enter a valid email address.");
+
+  const db = getFirestore();
+  const ref = db.collection("coordinators").doc(uid);
+  const snap = await ref.get();
+  if (!snap.exists || snap.get("role") !== "coordinator") throw new HttpsError("permission-denied", "Only a coordinator account can use this.");
+
+  try {
+    const existing = await getAuth().getUserByEmail(email);
+    if (existing.uid !== uid) throw new HttpsError("already-exists", "That email address is already used by another OJTern account. Please use a different email.");
+    return { ok: true, email, unchanged: true };
+  } catch (e) {
+    if (e instanceof HttpsError) throw e;
+    if (!(e && e.code === "auth/user-not-found")) {
+      console.error("changeCoordinatorEmail lookup failed:", e);
+      throw new HttpsError("internal", "Could not change the email right now. Please try again.");
+    }
+  }
+
+  const before = (await getAuth().getUser(uid)).email;
+  try {
+    await getAuth().updateUser(uid, { email });
+    await ref.update({ email, pendingEmail: FieldValue.delete(), emailChangedAt: FieldValue.serverTimestamp() });
+    // Prove it before saying yes: looking the new address up must find THIS account, and the
+    // coordinator record (used for the sign-in lookup and Forgot Password) must carry it too.
+    const [found, after] = await Promise.all([getAuth().getUserByEmail(email), ref.get()]);
+    if (found.uid !== uid || String(after.get("email") || "").toLowerCase() !== email) {
+      throw new Error("The new email could not be confirmed as the sign-in email.");
+    }
+  } catch (e) {
+    await getAuth().updateUser(uid, { email: before }).catch(() => {});   // keep Auth and Firestore in step
+    if (e && e.code === "auth/email-already-exists") throw new HttpsError("already-exists", "That email address is already used by another OJTern account. Please use a different email.");
+    console.error("changeCoordinatorEmail failed:", e);
+    throw new HttpsError("internal", "Could not change the email right now. Please try again.");
+  }
+  return { ok: true, email };
+});

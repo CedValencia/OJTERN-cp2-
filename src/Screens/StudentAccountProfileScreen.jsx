@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect, useMemo } from "react";
 import { doc, onSnapshot, runTransaction, serverTimestamp } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
-import { db } from "./firebase";
+import { httpsCallable } from "firebase/functions";
+import { db, functions } from "./firebase";
 import { changePassword } from "./AuthService";
 import { normalizeEmail, validatePersonalEmail, claimPersonalEmail, personalEmailErrorMessage, isEmailUsedByAnotherAccount } from "./studentPersonalEmail";
 import { useDepartmentsPrograms } from "./departmentsPrograms";
@@ -793,6 +794,21 @@ const PersonalInfoScreen = ({ onBack, user, setupMode = false, onSetupComplete, 
     else setTimeout(run, 0);
   };
 
+  // A personal email may not belong to ANY other OJTern account: another student's (checked by
+  // isEmailUsedByAnotherAccount) or an admin / coordinator / company login. The second part is
+  // asked of the server (checkEmailAvailable), because the rules do not let a student read
+  // admin accounts, which is how an admin's email used to get through.
+  const isEmailTaken = async (email) => {
+    if (await isEmailUsedByAnotherAccount(email, user?.uid)) return true;
+    try {
+      await httpsCallable(functions, "checkEmailAvailable")({ email });
+      return false;
+    } catch (err) {
+      if (err.code === "functions/already-exists") return true;
+      throw err;   // could not check: do not save an unchecked email
+    }
+  };
+
   const handleSave = async () => {
     if (saving) return;
     setSaveError("");
@@ -804,7 +820,7 @@ const PersonalInfoScreen = ({ onBack, user, setupMode = false, onSetupComplete, 
       // Still report a taken email now, so the student sees every problem at once.
       if (!fieldErrors.personalEmail && emailChanged) {
         try {
-          if (await isEmailUsedByAnotherAccount(nextPersonalEmail, user?.uid)) {
+          if (await isEmailTaken(nextPersonalEmail)) {
             setErrors(prev => ({ ...prev, personalEmail: personalEmailErrorMessage({ code: "email-in-use" }) }));
           }
         } catch (err) {
@@ -818,7 +834,7 @@ const PersonalInfoScreen = ({ onBack, user, setupMode = false, onSetupComplete, 
 
     setSaving(true);
     try {
-      if (emailChanged && await isEmailUsedByAnotherAccount(nextPersonalEmail, user?.uid)) {
+      if (emailChanged && await isEmailTaken(nextPersonalEmail)) {
         const inUse = new Error("Email already used by another account.");
         inUse.code = "email-in-use";
         throw inUse;
@@ -1738,7 +1754,7 @@ const StudentAccountProfileScreen = ({ user, onLogout, viewIcon: themedViewIcon 
           </MenuGroup>
 
           <MenuGroup id="sacc-security" title="Security:">
-            <MenuRow icon="key" label="Reset Password" onClick={() => setShowReset(true)} viewIcon={themedViewIcon} />
+            <MenuRow icon="key" label="Change Password" onClick={() => setShowReset(true)} viewIcon={themedViewIcon} />
           </MenuGroup>
 
           <MenuGroup id="sacc-legal" title="Legal:">
