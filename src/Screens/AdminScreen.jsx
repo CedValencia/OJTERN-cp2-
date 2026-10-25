@@ -3176,7 +3176,11 @@ const AccountProfile = ({ admin, flash }) => {
 
       {/* ── Pop-up forms ── */}
       {modal === "email" && (
+<<<<<<< HEAD
         <ApModal title="Sign-in email" onClose={closeModal} help={emailStep === "code" ? "profile:email-code" : "profile:email"}
+=======
+        <ApModal title="Change email" onClose={closeModal}
+>>>>>>> a72a81eca4eaa174564372c511cda9ba20e4ab57
           sub="This is the email you sign in with, and where password reset links are sent. We’ll send a 6-digit code to the new address to confirm it’s yours."
           footer={
             <>
