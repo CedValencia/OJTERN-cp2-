@@ -1903,7 +1903,10 @@ const PostOJTContent = ({ user, openPostId, onPostOpened, onViewChange }) => {
               );
             })}
           </div>
-          <PaginationBar page={safePage} totalPages={totalPages} onPage={goToPage} from={showingFrom} to={showingTo} total={activePosts.length} />
+          {/* Pagination: only shown when there are more than 10 posts */}
+          {activePosts.length > PAGE_SIZE && (
+            <PaginationBar page={safePage} totalPages={totalPages} onPage={goToPage} from={showingFrom} to={showingTo} total={activePosts.length} />
+          )}
           </>
         ) : (
           <div id="cpost-list" style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "80px" }}>

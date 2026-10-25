@@ -2100,7 +2100,8 @@ const CoordinatorReportCompanyScreen = ({ reports = [], otherReports = [], onVie
         </div>
       </div>
 
-      {shown.length > 0 && (
+      {/* Pagination: only shown when there are more than 10 reports */}
+      {shown.length > PAGE_SIZE && (
         <PaginationBar page={safePage} totalPages={totalPages} onPage={goToPage} from={showingFrom} to={showingTo} total={shown.length} />
       )}
       </div>

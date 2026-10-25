@@ -5004,7 +5004,10 @@ const StudentApplicationScreen = ({ initialCompany, onModalClose, user, openAppl
               </p>
             )}
           </div>
-          <PaginationBar page={safePage} totalPages={totalPages} onPage={goToPage} from={showingFrom} to={showingTo} total={filteredApplications.length} />
+          {/* Pagination: only shown when there are more than 10 applications */}
+          {filteredApplications.length > PAGE_SIZE && (
+            <PaginationBar page={safePage} totalPages={totalPages} onPage={goToPage} from={showingFrom} to={showingTo} total={filteredApplications.length} />
+          )}
           </>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", padding: "72px 24px", gap: space.xs, background: surface, border: `1px dashed ${color.wine400}`, borderRadius: radius.panel }}>

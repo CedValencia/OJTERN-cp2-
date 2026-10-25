@@ -1368,7 +1368,10 @@ const StudentFindCompanyScreen = ({ onReportSubmit, onNavigateToReports, onNavig
               />
             ))}
           </div>
-          <PaginationBar page={safePage} totalPages={totalPages} onPage={goToPage} from={showingFrom} to={showingTo} total={filtered.length} />
+          {/* Pagination: only shown when there are more than 10 posts */}
+          {filtered.length > PAGE_SIZE && (
+            <PaginationBar page={safePage} totalPages={totalPages} onPage={goToPage} from={showingFrom} to={showingTo} total={filtered.length} />
+          )}
           </>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "72px 24px", gap: space.sm, textAlign: "center", background: surface, border: `1px dashed ${color.wine400}`, borderRadius: radius.panel }}>

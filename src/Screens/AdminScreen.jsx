@@ -12,6 +12,8 @@
 //   Account Profile name, sign-in email, change password, and Add / Transfer an administrator account
 //                   (server side: functions/adminFunctions.js)
 //   About           the shared About Us page, via the (i) icon in the top bar
+//   Help            floating "?" button (bottom-right, draggable): a guided tour of whatever is on screen, including
+//                   every sub-screen and pop-up, and the sign-in screens (see the "Help" section below)
 //
 // What the admin can do:
 //   Departments  – add a department (with its first program), add programs and
@@ -44,6 +46,8 @@ import { TERMS_TEXT, PRIVACY_TEXT, parseLegalDoc } from "./legalContent";
 import logo from "../icons/admin_ojtern_logo.png";               // sign-in screen (and anything else that shares it)
 import topbarLogo from "../icons/admin_topbar_logo.png";         // top-left logo beside the OJTern text: top bar + mobile menu
 import AboutUsScreen from "./AboutUsScreen";
+import { driver } from "driver.js";
+import "driver.js/dist/driver.css";
 
 // ── Design tokens: the same ones the Student / Coordinator / Company dashboards use (theme.js) ──
 const ink       = color.blush50;    // #000000  top bar, active nav, primary buttons
@@ -139,6 +143,557 @@ const useBreakpoint = () => {
   return bp;
 };
 
+// ═══════════════════════════ Help: "Need help?" guided tours ═══════════════════════════
+// A floating "?" button (bottom-right, draggable) opens a short guided tour of whatever is on screen,
+// using driver.js (dimmed page, highlighted element, a popover with "1 of N", Previous / Next and ✕).
+// Every module, sub-screen and pop-up has its own tour, chosen like this:
+//   • pop-ups and sub-screens register themselves with useHelpTopic("<key>") while they are open;
+//     the most recently opened one wins, so the "?" button always explains what is on top;
+//   • with none open, the "?" button explains the current module (departments / coordinators / accountprofile / about).
+// The three main modules also start their tour by themselves the first time this admin opens them
+// (remembered per admin, in this browser); everything else is replay-only. The sign-in screens have
+// their own "?" button too.
+//
+// A step points at an element with a list of CSS selectors; the first match that is actually visible wins,
+// so one step can cover both the desktop and the mobile layout. A step whose target is not on screen
+// (no rows yet, a field that only appears in some state) is left out, so the tour never points at nothing.
+const helpStack = [];
+const useHelpTopic = (key, enabled = true) => {
+  useEffect(() => {
+    if (!key || !enabled) return undefined;
+    helpStack.push(key);
+    return () => { const i = helpStack.lastIndexOf(key); if (i >= 0) helpStack.splice(i, 1); };
+  }, [key, enabled]);
+};
+const currentHelpTopic = (fallback) => helpStack[helpStack.length - 1] || fallback;
+
+const TOUR_TOPBAR = [
+  { target: ['[aria-label="Activity Log"]'], title: "Activity Log", body: "Everything done recently in OJTern, newest first: coordinators' actions and yours. A badge counts what other people did since you last opened it." },
+  { target: ['[aria-label="Notifications"]'], title: "Notifications", body: "Updates land here, for example when a coordinator accepts an invitation, finishes setting up, or hasn't accepted after 7 days. Tap one to jump to Manage Coordinators. Closing the list marks them as read." },
+  { target: ['[aria-label="About"]'], title: "About OJTern", body: "Learn more about OJTern and the team behind it." },
+];
+
+const TOUR_PAGINATION = { target: ['nav[aria-label="Pagination"]'], title: "Pages", body: "Lists show 10 entries per page. Use the arrows or the page numbers to move through them." };
+
+const TOUR_MODAL_FOOTER_DP = { target: [".dp-modal-footer"], title: "Buttons", body: "The buttons for this pop-up are here. Cancel (or ✕ at the top) closes it; if you typed something, you are asked before it is discarded." };
+const TOUR_MODAL_FOOTER_AP = { target: [".ap-modal-footer"], title: "Buttons", body: "The buttons for this pop-up are here. Cancel closes it; if you typed something, you are asked before it is discarded." };
+
+const legalTour = (what) => [
+  { target: [".ap-legal .ap-back"], title: "Back", body: "Return to Account Profile." },
+  { target: [".ap-legal-progress"], title: "Reading progress", body: `This line fills up as you scroll through the ${what}.` },
+  { target: [".ap-legal-toc"], title: "On this page", body: "Jump straight to any section. The highlighted one follows where you are reading." },
+  { target: [".ap-legal-scroll"], title: "The text", body: "Scroll to read it. Email addresses in the text open a Gmail message to that address." },
+];
+
+const TOURS = {
+  // ── Main modules ──
+  departments: [
+    { target: ['[data-tour="seed"]'], title: "Seed default departments", body: "Shown only while the list is empty. Press it once to save the built-in departments before adding new ones, otherwise the default ones would disappear from every dropdown." },
+    { target: [".dp-search"], title: "Search", body: "Type a department, its abbreviation, a program or a major. Every word you type has to match somewhere, so \"ccs\" or \"bs information\" both work." },
+    { target: ['[data-tour="filter"]'], title: "Filter", body: "Pick a department first, then its programs appear, then that program's majors. Active filters show as chips under the header, with a Clear all option." },
+    { target: ['[data-tour="add-dept"]'], title: "Add a department", body: "Create a department together with its first program (majors are optional). The name and the abbreviation can both be edited later." },
+    { target: [".mc-table tbody tr:first-child", ".mc-cards .mc-card:first-child"], title: "Department list", body: "Each row is a department, shown with its abbreviation." },
+    { target: [".mc-table tbody .adm-btn-light", ".mc-cards .mc-card .adm-btn-light"], title: "Manage", body: "Opens the department. There you can rename it or its abbreviation, add programs, add majors to a program, and rename programs and majors. Nothing can be deleted." },
+    TOUR_PAGINATION,
+    ...TOUR_TOPBAR,
+  ],
+  coordinators: [
+    { target: [".dp-search"], title: "Search", body: "Search for a coordinator by name." },
+    { target: ['[data-tour="filter"]'], title: "Filter", body: "Show only the coordinators and pending invitations of one department, program or major. Programs and majors appear after you pick a department." },
+    { target: ['[data-tour="invite"]'], title: "Invite a coordinator", body: "Enter their email and choose the department (and optionally the program or major) they will handle. They receive an email link and set their own name and password, so no password is ever shared." },
+    { target: [".mc-table tbody tr:first-child", ".mc-cards .mc-card:first-child"], title: "Coordinators & invitations", body: "Each entry is either a coordinator or a pending invitation (those come first), shown with its department and status." },
+    { target: [".mc-table tbody .adm-btn-light", ".mc-cards .mc-card .adm-btn-light"], title: "Manage", body: "For a coordinator: change the departments they handle or promote them to Admin. For a pending invitation: resend it or cancel it." },
+    TOUR_PAGINATION,
+    ...TOUR_TOPBAR,
+  ],
+  accountprofile: [
+    { target: [".ap-header-card"], title: "Your profile", body: "The administrator account you are signed in with." },
+    { target: [".ap-body .ap-group:nth-child(1)"], title: "Personal Information", body: "View your details and edit your name." },
+    { target: [".ap-body .ap-group:nth-child(2)"], title: "Security", body: "Change your sign-in email (a 6-digit code is sent to the new address to confirm it) or your password." },
+    { target: [".ap-body .ap-group:nth-child(3)"], title: "Administrator accounts", body: "Add Account invites another administrator. Transfer Account hands your administrator role to someone else; your access ends once they sign in for the first time." },
+    { target: [".ap-body .ap-group:nth-child(4)"], title: "Legal", body: "Read the Terms & Conditions and the Privacy Policy." },
+    ...TOUR_TOPBAR,
+  ],
+  about: [
+    { target: [".adm-main"], title: "About OJTern", body: "This page tells you about OJTern and the team behind it. Scroll to read it." },
+    { title: "Need help?", body: "The \"?\" button explains whichever page you are on." },
+    ...TOUR_TOPBAR,
+  ],
+
+  // ── Sub-screens of Account Profile ──
+  "profile:personal": [
+    { target: [".ap-edit-btn"], title: "Edit", body: "Change your name. Your email and role are shown here but are changed elsewhere (Sign-in Email) or fixed." },
+    { target: ['[data-tour="info-name"]'], title: "Name", body: "The name other people see, for example in the Activity Log." },
+    { target: [".ap-name-input"], title: "Your new name", body: "Type it here (up to 60 characters), then press Save. Cancel keeps the old one." },
+    { target: ['[data-tour="info-email"]'], title: "Email address", body: "The email you sign in with. To change it, go back and open Sign-in Email." },
+    { target: ['[data-tour="info-role"]'], title: "Role", body: "Your account type." },
+    { target: [".ap-sub-header .ap-back"], title: "Back", body: "Return to the Account Profile menu." },
+  ],
+  "profile:terms": legalTour("terms and conditions"),
+  "profile:privacy": legalTour("privacy policy"),
+
+  // ── Pop-ups: Account Profile ──
+  "profile:name-gate": [
+    { target: ['[data-tour="gate-name"]'], title: "Your name", body: "Type the name you want to appear on your administrator account (up to 60 characters). This step cannot be skipped." },
+    TOUR_MODAL_FOOTER_AP,
+  ],
+  "profile:email": [
+    { target: ['[data-tour="email-new"]'], title: "New email", body: "The email you will sign in with from now on. Password reset links are sent to it too, so use one you can open." },
+    { target: ['[data-tour="email-pass"]'], title: "Current password", body: "Needed to confirm it's really you. Use the eye icon to show or hide what you type." },
+    { target: [".ap-modal-footer"], title: "Send code", body: "We email a 6-digit code to the new address. After you enter it, you are signed out and sign in again with the new email." },
+  ],
+  "profile:email-code": [
+    { target: ['[data-tour="email-code"]'], title: "6-digit code", body: "Enter the code we sent to the new email. It expires after 10 minutes. If it didn't arrive, check the spam folder, or Cancel and start again." },
+    { target: [".ap-modal-footer"], title: "Confirm", body: "Confirm switches your sign-in email, then signs you out so you can sign in with it." },
+  ],
+  "profile:password": [
+    { target: ['[data-tour="pw-current"]'], title: "Current password", body: "Needed first, to confirm it's really you." },
+    { target: ['[data-tour="pw-new"]'], title: "New password", body: "At least 8 characters with an uppercase letter, a lowercase letter, a number and a special character, and no spaces. A checklist appears as you type and ticks off each rule. It must differ from the current one." },
+    { target: ['[data-tour="pw-confirm"]'], title: "Confirm new password", body: "Type the new password again so a typo can't lock you out." },
+    { target: [".ap-modal-footer"], title: "Change password", body: "You are asked to confirm before it is changed." },
+  ],
+  "profile:add": [
+    { target: ['[data-tour="acct-email"]'], title: "Their email", body: "The person you are adding as an administrator, with full administrator access. They get an Accept Invitation email and choose their own name and password. If it's an existing coordinator, they simply gain admin access with the login they already have." },
+    { target: ['[data-tour="acct-pass"]'], title: "Your current password", body: "Needed to confirm it's really you." },
+    { target: [".ap-modal-body [role=\"status\"]"], title: "What happens next", body: "After sending, this shows what the new administrator needs to do." },
+    { target: [".ap-modal-footer"], title: "Send invitation", body: "You are asked to confirm before it is sent. Invitations that haven't been accepted yet are listed in this pop-up, where you can cancel them." },
+  ],
+  "profile:transfer": [
+    { target: ['[data-tour="acct-email"]'], title: "New administrator's email", body: "The person who will take over your administrator role. They get an Accept Invitation email and choose their own name and password." },
+    { target: ['[data-tour="acct-pass"]'], title: "Your current password", body: "Needed to confirm it's really you." },
+    { target: ['[data-tour="acct-ack"]'], title: "Confirm you understand", body: "Tick this box. You keep your access until they sign in for the first time; after that your account is switched off and you are signed out." },
+    { target: [".ap-modal-body [role=\"status\"]"], title: "Transfer pending", body: "While a transfer is waiting you can still use everything, and Cancel transfer stops it." },
+    { target: [".ap-modal-footer"], title: "Start transfer", body: "You are asked to confirm before it starts." },
+  ],
+
+  // ── Pop-ups: Departments & Programs ──
+  "departments:add": [
+    { target: ['[data-tour="dept-name"]'], title: "Department name", body: "The full name, for example College of Nursing." },
+    { target: ['[data-tour="dept-abbr"]'], title: "Abbreviation", body: "2 to 10 letters or numbers, for example CON. It must be different from every other department's." },
+    { target: ['[data-tour="dept-program"]'], title: "First program", body: "Every department starts with one program. More can be added later." },
+    { target: ['[data-tour="dept-majors"]'], title: "Majors (optional)", body: "Separate several with commas, or leave blank if the program has none. Don't put the major in the program name: write \"Bachelor of Secondary Education\" in the program and \"English\" here." },
+    TOUR_MODAL_FOOTER_DP,
+  ],
+  "departments:manage": [
+    { target: ['[data-tour="dept-names"]'], title: "Department name & abbreviation", body: "Press Edit to change either one. Renaming also updates the student accounts, coordinator assignments and company registrations that use the old name, so it can take a few seconds. Changing the abbreviation only changes the catalog." },
+    { target: ['[data-tour="program-block"]'], title: "Programs and majors", body: "Each program shows its majors. Press Edit to rename a program, or ✎ next to a major to rename it. Nothing can be deleted." },
+    { target: ['[data-tour="program-block"] input[placeholder="Add a major to this program"]'], title: "Add a major", body: "Type the major's name and press Add (or Enter). It is added to that program only." },
+    { target: ['[data-tour="add-program"]'], title: "Add a program", body: "Type the program's name and press Add. Majors can be added to it afterwards." },
+    TOUR_MODAL_FOOTER_DP,
+  ],
+
+  // ── Pop-ups: Manage Coordinators ──
+  "coordinators:invite": [
+    { target: ['.dp-modal-body input[name="invite-email"]'], title: "Email address", body: "Where the invitation is sent. They open the link and set their own name and password." },
+    { target: ['[data-tour="invite-depts"]'], title: "Department, program and major", body: "Choose the department they will handle. Leave Program or Major unchosen to cover all of them. Choosing a program shows its majors." },
+    { target: ['[data-tour="invite-depts"] > div > button'], title: "Add another department", body: "A coordinator can handle several departments. Each extra row has a Remove button." },
+    TOUR_MODAL_FOOTER_DP,
+  ],
+  "coordinators:manage-coordinator": [
+    { target: [".dp-modal-body > div:first-child"], title: "Coordinator details", body: "Their name, email and status." },
+    { target: [".dp-modal-body .adm-btn-light"], title: "Promote to Admin", body: "Gives them administrator access with the same login. They keep their coordinator account and can switch dashboards from the top bar. Shown only if they aren't an admin yet." },
+    { target: ['[data-tour="manage-depts"]'], title: "Departments they handle", body: "Change the department, program or major of each row, add another row, or remove one." },
+    { target: [".dp-modal-footer"], title: "Save changes", body: "Save changes turns on once something is different. You are asked to confirm before it is saved." },
+  ],
+  "coordinators:manage-invite": [
+    { target: [".dp-modal-body > div:first-child"], title: "Pending invitation", body: "The email the invitation went to, and how long ago it was sent. They haven't signed up yet." },
+    { target: [".dp-modal-footer"], title: "Cancel, Resend or Close", body: "Cancel invitation makes the link stop working. Resend sends a fresh email, and the earlier link stops working. Close just closes this pop-up." },
+  ],
+
+  // ── Sign-in screens (before the dashboard) ──
+  signin: [
+    { target: ["#ad-email"], title: "Email", body: "The email of your administrator account." },
+    { target: ["#ad-pass"], title: "Password", body: "Your administrator password." },
+    { target: ['button[aria-label="Show password"]', 'button[aria-label="Hide password"]'], title: "Show or hide", body: "Tap to see what you typed." },
+    { target: ['[data-tour="forgot"]'], title: "Forgot password?", body: "We email a reset link to your administrator email." },
+    { target: ['form button[type="submit"]'], title: "Sign In", body: "Opens the administrator dashboard. Only accounts that are set up as administrators can get in." },
+  ],
+  "signin:forgot": [
+    { target: ["#ad-email"], title: "Administrator email", body: "Enter the email of your administrator account. The answer is always the same, so nobody can use this to find out which emails are administrators." },
+    { target: ['form button[type="submit"]'], title: "Send reset link", body: "Check your inbox and spam folder. You can ask for another link after a minute." },
+  ],
+  emailsetup: [
+    { target: ["#ad-setup-email"], title: "Your email", body: "The email you will sign in with. Password reset links are sent to it too, so use one you can open." },
+    { target: ["#ad-setup-confirm"], title: "Confirm email", body: "Type it again so a typo can't lock you out." },
+    { target: ['form button[type="submit"]'], title: "Save email", body: "If your sign-in email changes, you are signed out and sign in again with the new one." },
+  ],
+};
+
+const AUTO_TOUR_KEYS = ["departments", "coordinators", "accountprofile"];
+const openHelp = (key) => { if (TOURS[key]) requestAnimationFrame(() => runTour(TOURS[key])); };
+
+const AUTO_TOUR_DELAY_MS = 450;     // same pause the Student dashboard waits before its auto-tour
+const AUTO_TOUR_MAX_WAIT_MS = 2000; // …then up to this long for lists to fill in from Firestore
+
+const tourSeenKey = (uid) => `ojtern_admin_tour_seen_${uid}`;
+const readTourSeen = (uid) => { try { return JSON.parse(localStorage.getItem(tourSeenKey(uid)) || "{}") || {}; } catch { return {}; } };
+const writeTourSeen = (uid, v) => { try { localStorage.setItem(tourSeenKey(uid), JSON.stringify(v)); } catch { /* storage blocked: the tour may show again next visit */ } };
+
+const findTourTarget = (selectors) => {
+  for (const sel of selectors || []) {
+    let list;
+    try { list = document.querySelectorAll(sel); } catch { continue; }
+    for (const el of list) if (el.getClientRects().length > 0) return el;
+  }
+  return null;
+};
+
+// Scrolls each scrollable ancestor of `el` just enough that it is fully visible inside it
+// (driver.js only knows about the window's scroll, not the scroll boxes inside this layout).
+const scrollIntoScrollParents = (el) => {
+  const PAD = 12;
+  let moved = false;
+  for (let p = el.parentElement; p && p !== document.body; p = p.parentElement) {
+    if (p.scrollHeight <= p.clientHeight + 1) continue;
+    if (!/(auto|scroll|hidden|overlay)/.test(getComputedStyle(p).overflowY)) continue;
+    const pr = p.getBoundingClientRect();
+    const er = el.getBoundingClientRect();
+    let delta = 0;
+    if (er.height > pr.height - PAD * 2 || er.top < pr.top + PAD) delta = er.top - (pr.top + PAD);
+    else if (er.bottom > pr.bottom - PAD) delta = er.bottom - (pr.bottom - PAD);
+    if (Math.abs(delta) > 1) {
+      const before = p.scrollTop;
+      p.scrollTop = before + delta;
+      if (p.scrollTop !== before) moved = true;
+    }
+  }
+  return moved;
+};
+
+let activeTourDriver = null;
+const stopTour = () => { try { activeTourDriver?.destroy(); } catch { /* already gone */ } activeTourDriver = null; };
+
+// Same setup as the Student dashboard's runTour: while a tour runs the page can't be scrolled or clicked
+// (only the popover's own buttons respond), and the tour ends only with ✕ or "Done".
+const runTour = (rawSteps) => {
+  if (activeTourDriver) return;
+
+  // Steps whose target isn't on screen right now are dropped.
+  const steps = (rawSteps || [])
+    .map((s) => {
+      const popover = { title: s.title, description: s.body };
+      if (!s.target) return { popover };
+      const element = findTourTarget(s.target);
+      return element ? { element, popover } : null;
+    })
+    .filter(Boolean);
+
+  // Lock EVERY element that is currently scrollable, then restore them all on close.
+  const scrollLockTargets = [...document.querySelectorAll("body *")].filter((el) => {
+    if (el.scrollHeight <= el.clientHeight + 1) return false;
+    const oy = getComputedStyle(el).overflowY;
+    return oy === "auto" || oy === "scroll" || oy === "overlay";
+  });
+  const initialScrollTop = scrollLockTargets.map((el) => el.scrollTop);
+  const prevOverflowY = scrollLockTargets.map((el) => el.style.overflowY || "");
+  const lockedScrollTop = scrollLockTargets.map((el) => el.scrollTop);
+  let allowTourScroll = false;   // driver's own scroll to the next step is let through; user / momentum scroll snaps back
+  const snapBack = () => {
+    if (allowTourScroll) return;
+    scrollLockTargets.forEach((el, i) => { el.scrollTop = lockedScrollTop[i]; });
+  };
+  scrollLockTargets.forEach((el) => { el.style.overflowY = "hidden"; el.addEventListener("scroll", snapBack); });
+  const restoreScroll = () => {
+    scrollLockTargets.forEach((el, i) => {
+      el.removeEventListener("scroll", snapBack);
+      el.style.overflowY = prevOverflowY[i];
+      if (el.isConnected) el.scrollTop = initialScrollTop[i];
+    });
+  };
+
+  // Block clicks outside the popover (capture phase, before React), and swallow Esc so only ✕ / Done end the tour.
+  const blockOutsidePopover = (e) => {
+    if (e.target?.closest?.(".driver-popover")) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+  };
+  const BLOCKED_EVENTS = ["click", "dblclick", "auxclick", "contextmenu"];
+  BLOCKED_EVENTS.forEach((ev) => window.addEventListener(ev, blockOutsidePopover, true));
+  const blockEscape = (e) => { if (e.key === "Escape" || e.key === "Esc") { e.preventDefault(); e.stopImmediatePropagation(); } };
+  ["keydown", "keyup"].forEach((ev) => window.addEventListener(ev, blockEscape, true));
+  const unblockClicks = () => {
+    BLOCKED_EVENTS.forEach((ev) => window.removeEventListener(ev, blockOutsidePopover, true));
+    ["keydown", "keyup"].forEach((ev) => window.removeEventListener(ev, blockEscape, true));
+  };
+
+  let resizeObserver = null;
+  const tourDriver = driver({
+    showProgress: steps.length > 1,
+    allowClose: true,
+    showButtons: ["next", "previous", "close"],
+    onDestroyed: () => { restoreScroll(); unblockClicks(); resizeObserver?.disconnect(); if (activeTourDriver === tourDriver) activeTourDriver = null; },
+    onHighlighted: (element) => {
+      // Keep the highlight glued to the target if its size changes while it's showing (a list filling in, etc.).
+      resizeObserver?.disconnect();
+      if (element && typeof ResizeObserver !== "undefined") {
+        resizeObserver = new ResizeObserver(() => tourDriver?.refresh?.());
+        resizeObserver.observe(element);
+      }
+      setTimeout(() => {
+        scrollLockTargets.forEach((el, i) => { lockedScrollTop[i] = el.scrollTop; });
+        allowTourScroll = false;
+      }, 60);
+    },
+    onHighlightStarted: (element) => {
+      allowTourScroll = true;
+      resizeObserver?.disconnect();
+      resizeObserver = null;
+      if (element && scrollIntoScrollParents(element)) requestAnimationFrame(() => tourDriver?.refresh?.());
+    },
+    steps: steps.length > 0
+      ? steps
+      : [{ popover: { title: "Help", description: "There's no guided tour for this page yet." } }],
+  });
+  activeTourDriver = tourDriver;
+  tourDriver.drive();
+};
+
+// Floating "?" help button: same look and behaviour as the Student dashboard's.
+//  • Mouse: hover it for 1 second (a ring fades in around it) and it follows the cursor; click
+//    anywhere to drop it there, Esc to drop it. A normal click before the 1s is up opens the guide.
+//  • Touch / pen: hold and move to drag straight away; a plain tap opens the guide.
+//  • After a drag it glides to the nearer side; the spot is remembered on this device.
+//  • Untouched for 10 seconds: fades to low opacity (and the pulse ring stops).
+const HELP_FAB_SIZE         = 56;
+const HELP_FAB_EDGE         = 12;      // min gap kept from every screen edge
+const HELP_FAB_HOVER_FOLLOW = 1000;    // mouse: hover this long → it follows the cursor
+const HELP_FAB_DRAG_START   = 6;       // touch: px of finger movement that starts a drag
+const HELP_FAB_POS_KEY      = "ojtern.adminHelpFabPos";
+const HELP_FAB_SNAP_GAP     = 24;      // space kept from the side it snaps to
+const HELP_FAB_TOP_MIN      = 86;      // stay below the 70px top bar (+ gap)
+const HELP_FAB_IDLE_MS      = 10000;   // fade after 10s untouched
+
+const clampHelpFabPos = ({ x, y }) => ({
+  x: Math.min(Math.max(HELP_FAB_EDGE, x), Math.max(HELP_FAB_EDGE, window.innerWidth  - HELP_FAB_SIZE - HELP_FAB_EDGE)),
+  y: Math.min(Math.max(HELP_FAB_EDGE, y), Math.max(HELP_FAB_EDGE, window.innerHeight - HELP_FAB_SIZE - HELP_FAB_EDGE)),
+});
+
+// Where it settles after being let go: the nearer LEFT or RIGHT side, with a gap, keeping the height
+// it was dropped at but never under the top bar or off the bottom.
+const snapHelpFabPos = ({ x, y }) => {
+  const w = window.innerWidth, h = window.innerHeight;
+  const toLeft = x + HELP_FAB_SIZE / 2 < w / 2;
+  const maxY = Math.max(HELP_FAB_TOP_MIN, h - HELP_FAB_SIZE - HELP_FAB_SNAP_GAP);
+  return {
+    x: toLeft ? HELP_FAB_SNAP_GAP : Math.max(HELP_FAB_SNAP_GAP, w - HELP_FAB_SIZE - HELP_FAB_SNAP_GAP),
+    y: Math.min(Math.max(HELP_FAB_TOP_MIN, y), maxY),
+  };
+};
+
+const HelpFab = ({ onOpen }) => {
+  const [pos, setPos] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(HELP_FAB_POS_KEY) || "null");
+      if (saved && Number.isFinite(saved.x) && Number.isFinite(saved.y)) return snapHelpFabPos(saved);
+    } catch { /* storage unavailable: use the default corner */ }
+    return null;   // null = default bottom-right corner
+  });
+  const [dragging, setDragging] = useState(false);
+  const [snapping, setSnapping] = useState(false);
+  const [idle, setIdle]         = useState(false);
+  const [arming, setArming]     = useState(false);   // mouse hover countdown running
+
+  const idleTimer     = useRef(null);
+  const snapTimer     = useRef(null);
+  const hoverTimer    = useRef(null);
+  const followCleanup = useRef(null);
+  const hovering      = useRef(false);
+  const following     = useRef(false);
+  const dragActive    = useRef(false);
+  const suppressClick = useRef(false);   // swallow the click that ends a drag
+  const posRef        = useRef(pos);
+  const pressStart    = useRef(null);    // { x, y } where a touch press began
+  const grabOffset    = useRef({ x: 0, y: 0 });
+  const lastMouse     = useRef({ x: 0, y: 0 });
+
+  useEffect(() => { posRef.current = pos; }, [pos]);
+
+  // Any interaction wakes it to full opacity and restarts the 10s countdown (paused while hovered or dragged).
+  const scheduleIdle = () => {
+    clearTimeout(idleTimer.current);
+    idleTimer.current = setTimeout(() => {
+      if (!hovering.current && !dragActive.current) setIdle(true);
+    }, HELP_FAB_IDLE_MS);
+  };
+  const wake = () => { setIdle(false); scheduleIdle(); };
+
+  useEffect(() => {
+    const onResize = () => setPos((p) => (p ? snapHelpFabPos(p) : p));
+    window.addEventListener("resize", onResize);
+    scheduleIdle();   // first 10s countdown starts on mount
+    return () => {
+      window.removeEventListener("resize", onResize);
+      clearTimeout(idleTimer.current);
+      clearTimeout(snapTimer.current);
+      clearTimeout(hoverTimer.current);
+      followCleanup.current?.();
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Glide to the nearer side (with a gap), then remember that spot.
+  const settle = () => {
+    if (!posRef.current) return;
+    const snapped = snapHelpFabPos(posRef.current);
+    setSnapping(true);
+    setPos(snapped);
+    clearTimeout(snapTimer.current);
+    snapTimer.current = setTimeout(() => setSnapping(false), 360);
+    try { localStorage.setItem(HELP_FAB_POS_KEY, JSON.stringify(snapped)); } catch { /* ignore */ }
+  };
+
+  // ── Mouse: hover 1s → follow the cursor, click anywhere to drop ──
+  const stopFollowing = () => {
+    if (!following.current) return;
+    following.current = false;
+    dragActive.current = false;
+    followCleanup.current?.();
+    followCleanup.current = null;
+    setDragging(false);
+    settle();
+    scheduleIdle();
+  };
+
+  const startFollowing = () => {
+    following.current = true;
+    dragActive.current = true;
+    setArming(false);
+    setDragging(true);
+    const half = HELP_FAB_SIZE / 2;
+    const place = (x, y) => setPos(clampHelpFabPos({ x: x - half, y: y - half }));
+    place(lastMouse.current.x, lastMouse.current.y);
+    const onMove = (ev) => place(ev.clientX, ev.clientY);
+    // The click that drops it must not ALSO press whatever is underneath (or open the guide): swallow exactly that click.
+    const swallowClick = (ev) => {
+      ev.preventDefault();
+      ev.stopImmediatePropagation();
+      window.removeEventListener("click", swallowClick, true);
+    };
+    const onDown = (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      window.addEventListener("click", swallowClick, true);
+      setTimeout(() => window.removeEventListener("click", swallowClick, true), 600);
+      stopFollowing();
+    };
+    const onKey = (ev) => { if (ev.key === "Escape") stopFollowing(); };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerdown", onDown, true);
+    window.addEventListener("keydown", onKey);
+    followCleanup.current = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerdown", onDown, true);
+      window.removeEventListener("keydown", onKey);
+    };
+  };
+
+  const onPointerEnter = (e) => {
+    hovering.current = true;
+    setIdle(false);
+    clearTimeout(idleTimer.current);
+    if (e.pointerType !== "mouse" || following.current) return;
+    lastMouse.current = { x: e.clientX, y: e.clientY };
+    setArming(true);
+    clearTimeout(hoverTimer.current);
+    hoverTimer.current = setTimeout(startFollowing, HELP_FAB_HOVER_FOLLOW);
+  };
+
+  const onPointerLeave = (e) => {
+    hovering.current = false;
+    if (e.pointerType === "mouse" && !following.current) {
+      clearTimeout(hoverTimer.current);
+      setArming(false);
+    }
+    scheduleIdle();
+  };
+
+  // ── Touch / pen: hold and move to drag straight away ──
+  const endPress = (e) => {
+    if (e?.pointerType === "mouse") return;
+    pressStart.current = null;
+    try { e?.currentTarget?.releasePointerCapture?.(e.pointerId); } catch { /* not captured */ }
+    if (dragActive.current && !following.current) {
+      dragActive.current = false;
+      suppressClick.current = true;   // the lift after a drag isn't a tap
+      setDragging(false);
+      settle();
+    }
+    hovering.current = false;
+    scheduleIdle();
+  };
+
+  const onPointerDown = (e) => {
+    wake();
+    if (e.pointerType === "mouse") {
+      // A real click before the 1s hover finished: it's a click, not a move.
+      clearTimeout(hoverTimer.current);
+      setArming(false);
+      return;
+    }
+    setSnapping(false);
+    suppressClick.current = false;
+    const rect = e.currentTarget.getBoundingClientRect();
+    pressStart.current = { x: e.clientX, y: e.clientY };
+    grabOffset.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+  };
+
+  const onPointerMove = (e) => {
+    if (e.pointerType === "mouse") { lastMouse.current = { x: e.clientX, y: e.clientY }; return; }
+    if (!pressStart.current) return;
+    if (!dragActive.current) {
+      const dx = e.clientX - pressStart.current.x, dy = e.clientY - pressStart.current.y;
+      if (Math.hypot(dx, dy) < HELP_FAB_DRAG_START) return;   // still just a tap
+      dragActive.current = true;
+      setDragging(true);
+      navigator.vibrate?.(10);
+    }
+    e.preventDefault();
+    setPos(clampHelpFabPos({ x: e.clientX - grabOffset.current.x, y: e.clientY - grabOffset.current.y }));
+  };
+
+  const handleClick = () => {
+    wake();
+    if (suppressClick.current) { suppressClick.current = false; return; }   // was a drag, not a tap
+    onOpen();
+  };
+
+  return (
+    <button
+      onClick={handleClick}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={endPress}
+      onPointerCancel={endPress}
+      onPointerEnter={onPointerEnter}
+      onPointerLeave={onPointerLeave}
+      onFocus={wake}
+      onContextMenu={(e) => e.preventDefault()}   // no long-press menu on touch screens
+      aria-label="Help"
+      title="Need Help? - hover it 1 second and drag it (just drag it on mobile devices)"
+      className={`adm-help-fab${dragging ? " adm-help-fab-dragging" : ""}${arming && !dragging ? " adm-help-fab-arming" : ""}${snapping ? " adm-help-fab-snapping" : ""}${idle && !dragging ? " adm-help-fab-idle" : ""}`}
+      style={{
+        position: "fixed",
+        ...(pos
+          ? { left: `${pos.x}px`, top: `${pos.y}px`, right: "auto", bottom: "auto" }
+          : { bottom: "24px", right: "24px" }),
+        touchAction: "none",   // so holding and dragging on a touch screen moves the button, not the page
+        userSelect: "none", WebkitUserSelect: "none", WebkitTouchCallout: "none",
+        width: `${HELP_FAB_SIZE}px`, height: `${HELP_FAB_SIZE}px`, borderRadius: "50%",
+        background: paper, border: `1px solid ${hairline}`,
+        display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer",
+        zIndex: 3000,   // above the in-screen pop-ups (1000), below the app-wide 9999 gates (logout confirm)
+      }}
+    >
+      <svg className="adm-help-fab-icon" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke={ink} strokeWidth="2"
+        strokeLinecap="round" strokeLinejoin="round" style={{ transition: `stroke 0.18s ${ease}` }}>
+        <circle cx="12" cy="12" r="10" />
+        <path d="M9.1 9a2.9 2.9 0 0 1 5.66.9c0 1.9-2.66 2.4-2.66 4.1" />
+        <circle className="adm-help-fab-icon-dot" cx="12" cy="17.15" r="1.05" fill={ink} stroke="none" />
+      </svg>
+    </button>
+  );
+};
+
 const AdminStyles = () => (
   <style>{`
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Monomaniac+One&display=swap');
@@ -192,13 +747,6 @@ const AdminStyles = () => (
     .dp-search input { border: none !important; background: transparent; outline: none; box-shadow: none; width: 200px; color: ${inkText}; font-family: ${uiFont}; font-size: 0.85rem; padding: 0; }
     .dp-search input:focus { border: none !important; }
     @media (max-width: 560px) { .dp-bar { padding: 14px; gap: 10px; } .dp-search input { width: 110px; } }
-    .dp-row {
-      display: flex; align-items: center; gap: 14px; background: ${paper}; border: 1px solid ${hairline}; border-radius: 16px;
-      padding: 14px 20px; cursor: pointer; min-width: 0; box-shadow: 0 2px 10px rgba(20,20,20,0.04);
-      transition: border-color 200ms ease, box-shadow 200ms ease;
-    }
-    .dp-row:hover { border-color: #BDBDBD; box-shadow: 0 6px 20px rgba(10,10,10,0.08); }
-    @media (max-width: 560px) { .dp-row { padding: 12px 14px; gap: 10px; } .dp-row-view { display: none; } }
     .dp-modal { background: ${paper}; border: 1px solid ${hairline}; border-radius: 24px; width: 660px; max-width: calc(100vw - 32px); height: min(460px, 80vh); overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 8px 32px rgba(0,0,0,0.18); }
     .dp-modal-header { flex: 0 0 auto; padding: 22px 28px 14px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid ${hairline}; }
     .dp-modal-body { overflow-y: auto; overflow-x: hidden; padding: 6px 28px 22px; flex: 1 1 auto; min-height: 0; }
@@ -283,6 +831,57 @@ const AdminStyles = () => (
     .mc-card { background: ${paper}; border: 1px solid ${hairline}; border-radius: 18px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
     .mc-card-label { font-family: ${uiFont}; font-size: 0.66rem; color: ${inkMuted}; margin: 0 0 3px 0; }
     @media (max-width: 780px) { .mc-wrap { display: none; } .mc-cards { display: flex; } }
+
+    /* Floating "?" help button: same as the Student dashboard's. Idle pulse ring to catch the eye,
+       lifts on hover/press, ring fades in while the 1s hover-to-drag countdown runs. */
+    @keyframes adm-help-btn-pulse {
+      0%   { box-shadow: 0 6px 20px color-mix(in srgb, ${ink} 25%, transparent), 0 0 0 0 color-mix(in srgb, ${ink} 16%, transparent); }
+      70%  { box-shadow: 0 6px 20px color-mix(in srgb, ${ink} 25%, transparent), 0 0 0 10px color-mix(in srgb, ${ink} 0%, transparent); }
+      100% { box-shadow: 0 6px 20px color-mix(in srgb, ${ink} 25%, transparent), 0 0 0 0 color-mix(in srgb, ${ink} 0%, transparent); }
+    }
+    .adm-help-fab {
+      animation: adm-help-btn-pulse 2.6s ease-out infinite;
+      transition: transform 0.18s ${ease}, background 0.18s ${ease}, opacity 0.45s ${ease};
+    }
+    /* After a drag is released it glides to the nearest side instead of jumping there. */
+    .adm-help-fab.adm-help-fab-snapping {
+      transition: left 0.32s cubic-bezier(0.22, 1, 0.36, 1), top 0.32s cubic-bezier(0.22, 1, 0.36, 1),
+                  transform 0.18s ${ease}, background 0.18s ${ease}, opacity 0.45s ${ease};
+    }
+    /* Idle (untouched for 10s): faded, and the pulse ring stops. Back to full on hover/press/focus. */
+    .adm-help-fab.adm-help-fab-idle { opacity: 0.4; animation: none; }
+    .adm-help-fab:hover {
+      transform: translateY(-3px) scale(1.06);
+      background: ${ink} !important;
+      animation-play-state: paused;
+    }
+    .adm-help-fab:hover .adm-help-fab-icon { stroke: ${paper} !important; }
+    .adm-help-fab:hover .adm-help-fab-icon-dot { fill: ${paper} !important; }
+    .adm-help-fab:active { transform: translateY(-1px) scale(0.98); }
+    /* Being dragged: lift it, drop the pulse/hover effects, grabbing cursor. */
+    .adm-help-fab.adm-help-fab-dragging,
+    .adm-help-fab.adm-help-fab-dragging:hover {
+      animation: none !important;
+      transform: scale(1.1) !important;
+      box-shadow: 0 10px 28px rgba(0,0,0,0.28) !important;
+      cursor: grabbing !important;
+      background: ${paper} !important;
+    }
+    .adm-help-fab.adm-help-fab-dragging .adm-help-fab-icon { stroke: ${ink} !important; }
+    .adm-help-fab.adm-help-fab-dragging .adm-help-fab-icon-dot { fill: ${ink} !important; }
+    /* Mouse hovering, counting down to "follow the cursor": a ring fades in around the button over that 1 second. */
+    .adm-help-fab.adm-help-fab-arming::after {
+      content: ""; position: absolute; inset: -6px; border-radius: 50%;
+      border: 2px solid ${ink}; opacity: 0; pointer-events: none;
+      animation: adm-help-fab-arm 1s linear forwards;
+    }
+    @keyframes adm-help-fab-arm {
+      0%   { opacity: 0;    transform: scale(0.8); }
+      100% { opacity: 0.55; transform: scale(1); }
+    }
+    .adm-help-fab:focus-visible { outline: 2px solid ${ink}; outline-offset: 3px; }
+    /* Hide the "?" button while a tour is running (driver.js adds .driver-active to <body>). */
+    body.driver-active .adm-help-fab { visibility: hidden; animation: none; }
   `}</style>
 );
 
@@ -477,6 +1076,7 @@ const AdminSignIn = ({ onExit }) => {
             Administrator
           </div>
 
+          <HelpFab onOpen={() => openHelp(mode === "signin" ? "signin" : "signin:forgot")} />
           {mode === "signin" ? (
             <form onSubmit={submit} noValidate style={{ ...S.card, padding: "26px", textAlign: "left", marginBottom: 0, borderRadius: "24px", boxShadow: "0 8px 32px rgba(0,0,0,0.08)" }}>
               <h1 style={{ fontSize: "1.5rem", fontWeight: 600, letterSpacing: "-0.02em", margin: "0 0 4px" }}>Sign In</h1>
@@ -495,7 +1095,7 @@ const AdminSignIn = ({ onExit }) => {
                 </button>
               </div>
               <div style={{ textAlign: "right", marginTop: "10px" }}>
-                <button type="button" style={linkBtn} onClick={() => switchMode("forgot")}>Forgot password?</button>
+                <button type="button" data-tour="forgot" style={linkBtn} onClick={() => switchMode("forgot")}>Forgot password?</button>
               </div>
 
               {error && <div role="alert" style={S.err}>{error}</div>}
@@ -744,7 +1344,8 @@ const RenameInline = ({ value, onSave, label, children }) => {
 };
 
 // Pop-up shell for the Departments tab (same look as the New Student modal in Student Accounts).
-const DeptModal = ({ title, onClose, children, footer }) => {
+const DeptModal = ({ title, onClose, children, footer, help }) => {
+  useHelpTopic(help, !!help);
   useEffect(() => {
     const onKey = (e) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", onKey);
@@ -779,7 +1380,7 @@ const CascadeFilter = ({ depts, filters, programOptions, majorOptions, onPick, o
   const label = { fontFamily: uiFont, fontSize: "0.8rem", fontWeight: 700, color: inkText, margin: "0 0 8px" };
   const rule = <hr style={{ border: "none", borderTop: `1px solid ${hairline}`, margin: "0 0 12px" }} />;
   return (
-    <div ref={ref} style={{ position: "relative" }}>
+    <div ref={ref} data-tour="filter" style={{ position: "relative" }}>
       <button type="button" title="Filters" aria-label="Filters" aria-expanded={open} onClick={() => setOpen((v) => !v)}
         style={{ width: "40px", height: "40px", borderRadius: "999px", border: hasFilter ? `2px solid ${paperCard}` : "none", background: hasFilter ? paperCard : paper, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", padding: 0 }}>
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={hasFilter ? ink : inkMuted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" /></svg>
@@ -1004,14 +1605,12 @@ const DepartmentsTab = ({ depts, loaded, flash }) => {
   const pageRows = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
   const showingFrom = filtered.length ? (safePage - 1) * PAGE_SIZE + 1 : 0;
   const showingTo = Math.min(safePage * PAGE_SIZE, filtered.length);
-  const pageItems = (() => {
-    // Up to 7 pages: show all. More: 1 2 3 4 5 … last near the start, 1 … last-4 … last near the end, 1 … p-1 p p+1 … last in the middle.
-    const range = (a, b) => Array.from({ length: b - a + 1 }, (_, i) => a + i);
-    if (totalPages <= 7) return range(1, totalPages);
-    if (safePage <= 4) return [...range(1, 5), "gap-end", totalPages];
-    if (safePage >= totalPages - 3) return [1, "gap-start", ...range(totalPages - 4, totalPages)];
-    return [1, "gap-start", safePage - 1, safePage, safePage + 1, "gap-end", totalPages];
-  })();
+  // "College of Business and Accountancy (CBA)": the name, with the abbreviation in grey.
+  const deptLabel = (d) => (
+    <span style={{ fontWeight: 600, fontSize: "0.95rem", color: inkText, overflowWrap: "anywhere" }}>
+      {d.name}{d.abbr && <span style={{ color: inkMuted, fontWeight: 600 }}> ({d.abbr})</span>}
+    </span>
+  );
   const managing = managingId ? depts.find((d) => d.id === managingId) : null;
   const modalOpen = showAdd || !!managing;
 
@@ -1024,11 +1623,6 @@ const DepartmentsTab = ({ depts, loaded, flash }) => {
   };
 
   const errorBox = error ? <div role="alert" style={S.err}>{error}</div> : null;
-  const pageBtn = (on, disabled) => ({
-    minWidth: "36px", height: "36px", padding: "0 10px", borderRadius: "10px",
-    border: `1.5px solid ${on ? ink : hairline}`, background: on ? ink : paper, color: on ? paper : inkText,
-    fontFamily: uiFont, fontSize: "0.82rem", fontWeight: 600, cursor: disabled ? "default" : "pointer", opacity: disabled ? 0.45 : 1,
-  });
 
   return (
     <div ref={screenRef} style={{ display: "flex", flexDirection: "column", height: fitH ? `${fitH}px` : undefined }}>
@@ -1043,7 +1637,7 @@ const DepartmentsTab = ({ depts, loaded, flash }) => {
             The app is currently showing its built-in default list. Seed that list into Firestore first — if you add
             a new department before seeding, the default ones would disappear from every dropdown.
           </p>
-          <button type="button" style={S.btn} onClick={seed}>Seed default departments</button>
+          <button type="button" data-tour="seed" style={S.btn} onClick={seed}>Seed default departments</button>
         </div>
       )}
 
@@ -1084,60 +1678,55 @@ const DepartmentsTab = ({ depts, loaded, flash }) => {
               </>
             )}
           </div>
-          <button type="button" className="adm-btn-dark" style={S.btn} onClick={openAdd}>Add a department</button>
+          <button type="button" data-tour="add-dept" className="adm-btn-dark" style={S.btn} onClick={openAdd}>Add a department</button>
         </div>
       )}
 
       </div>
 
       <div ref={scrollRef} style={tabScrollStyle}>
-      {/* Department list: full-width rows */}
+      {/* Department list: table in the Manage Coordinators style (Department | Action); cards on narrow screens */}
       {pageRows.length > 0 ? (
         <>
-          <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-            {pageRows.map((d) => {
-              const progs = programsOf(d);
-              const majorCount = progs.reduce((n, p) => n + p.specializations.length, 0);
-              const meta = `${progs.length} program${progs.length !== 1 ? "s" : ""} · ${majorCount} major${majorCount !== 1 ? "s" : ""}`;
-              return (
-                <div key={d.id} className="dp-row" role="button" tabIndex={0} onClick={() => { setError(""); setManagingId(d.id); }}
-                  onKeyDown={(e) => { if (e.key === "Enter") { setError(""); setManagingId(d.id); } }}>
-                  <div style={{ width: "45px", height: "45px", borderRadius: "50%", background: paperCard, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={inkText} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M3 21h18" /><path d="M5 21V7l7-4 7 4v14" /><path d="M9 21v-6h6v6" />
-                    </svg>
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <h3 style={{ fontFamily: uiFont, fontSize: "1rem", fontWeight: 600, letterSpacing: "-0.01em", color: inkText, margin: 0, lineHeight: 1.35, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {d.name}{d.abbr && <span style={{ color: inkMuted, fontWeight: 600 }}> ({d.abbr})</span>}
-                    </h3>
-                    <p style={{ fontFamily: uiFont, fontSize: "0.8rem", color: inkMuted, margin: "2px 0 0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{meta}</p>
-                  </div>
-                  <button type="button" className="dp-row-view adm-btn-light" style={S.btn2} onClick={(e) => { e.stopPropagation(); setError(""); setManagingId(d.id); }}>Manage</button>
-                </div>
-              );
-            })}
+          {/* Desktop: table */}
+          <div className="mc-wrap">
+            <table className="mc-table" style={{ minWidth: "420px" }}>
+              <thead>
+                <tr>
+                  <th className="mc-th">Department</th>
+                  <th className="mc-th" style={{ width: "140px" }}>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pageRows.map((d) => (
+                  <tr key={d.id}>
+                    <td className="mc-td">{deptLabel(d)}</td>
+                    <td className="mc-td"><button type="button" className="adm-btn-light" style={S.btn2} onClick={() => { setError(""); setManagingId(d.id); }}>Manage</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
 
-          {/* Pagination */}
-          <div style={{ display: "flex", flexWrap: "wrap-reverse", alignItems: "center", justifyContent: "space-between", gap: "12px", padding: "20px 0 4px" }}>
-            <span style={{ fontFamily: uiFont, fontSize: "0.8rem", color: inkMuted }}>Showing {showingFrom}–{showingTo} of {filtered.length}</span>
-            {/* Pill bar: current page badge + « ‹ 1 2 3 4 5 … 10 › » (always shown, buttons disable at the ends) */}
-            <nav aria-label="Pagination" style={{ marginLeft: "auto", display: "inline-flex", alignItems: "stretch", maxWidth: "100%", background: paper, border: `1px solid ${hairline}`, borderRadius: "16px", boxShadow: "0 4px 16px rgba(20,20,20,0.06)", overflow: "hidden" }}>
-              <div title="Current page" style={{ display: "flex", alignItems: "center", justifyContent: "center", minWidth: "52px", padding: "0 14px", background: paperCard, borderRight: `1px solid ${hairline}`, fontFamily: uiFont, fontSize: "0.9rem", fontWeight: 700, color: inkText }}>
-                {String(safePage).padStart(2, "0")}
+          {/* Mobile: cards */}
+          <div className="mc-cards">
+            {pageRows.map((d) => (
+              <div key={d.id} className="mc-card">
+                <div>
+                  <p className="mc-card-label">Department</p>
+                  {deptLabel(d)}
+                </div>
+                <div style={{ display: "flex", justifyContent: "flex-end", paddingTop: "8px", borderTop: `1px solid ${hairline}` }}>
+                  <button type="button" className="adm-btn-light" style={S.btn2} onClick={() => { setError(""); setManagingId(d.id); }}>Manage</button>
+                </div>
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: "6px", padding: "10px 12px", flexWrap: "wrap", justifyContent: "center" }}>
-                <button type="button" aria-label="First page" title="First page" style={pageBtn(false, safePage === 1)} disabled={safePage === 1} onClick={() => goToPage(1)}>«</button>
-                <button type="button" aria-label="Previous page" title="Previous page" style={pageBtn(false, safePage === 1)} disabled={safePage === 1} onClick={() => goToPage(safePage - 1)}>‹</button>
-                {pageItems.map((it) => (typeof it === "number"
-                  ? <button key={it} type="button" style={pageBtn(it === safePage, false)} aria-current={it === safePage ? "page" : undefined} onClick={() => goToPage(it)}>{it}</button>
-                  : <span key={it} style={{ color: inkMuted, padding: "0 4px" }}>…</span>))}
-                <button type="button" aria-label="Next page" title="Next page" style={pageBtn(false, safePage === totalPages)} disabled={safePage === totalPages} onClick={() => goToPage(safePage + 1)}>›</button>
-                <button type="button" aria-label="Last page" title="Last page" style={pageBtn(false, safePage === totalPages)} disabled={safePage === totalPages} onClick={() => goToPage(totalPages)}>»</button>
-              </div>
-            </nav>
+            ))}
           </div>
+
+          {/* Pagination: only shown when there are more than 10 rows */}
+          {filtered.length > PAGE_SIZE && (
+            <PaginationBar page={safePage} totalPages={totalPages} onPage={goToPage} from={showingFrom} to={showingTo} total={filtered.length} />
+          )}
         </>
       ) : (
         !notSeeded && (
@@ -1153,7 +1742,7 @@ const DepartmentsTab = ({ depts, loaded, flash }) => {
 
       {/* ── Add a department (pop-up form) ── */}
       {showAdd && (
-        <DeptModal title="Add a department" onClose={closeAdd}
+        <DeptModal title="Add a department" onClose={closeAdd} help="departments:add"
           footer={(
             <>
               <button type="button" style={S.btn2} disabled={busy} onClick={closeAdd}>Cancel</button>
@@ -1162,19 +1751,19 @@ const DepartmentsTab = ({ depts, loaded, flash }) => {
           )}>
           <p style={S.help}>The name and abbreviation can both be edited later. You can add more programs and majors later; a major is always added to a specific program.</p>
           <div style={{ display: "flex", flexWrap: "wrap", gap: "10px" }}>
-            <div style={{ flex: "2 1 260px" }}>
+            <div data-tour="dept-name" style={{ flex: "2 1 260px" }}>
               <label style={S.label}>Department name<Req /></label>
               <input style={S.input} value={form.name} placeholder="College of Nursing" onChange={(e) => setForm({ ...form, name: e.target.value })} />
             </div>
-            <div style={{ flex: "1 1 110px" }}>
+            <div data-tour="dept-abbr" style={{ flex: "1 1 110px" }}>
               <label style={S.label}>Abbreviation<Req /></label>
               <input style={S.input} value={form.abbr} placeholder="CON" maxLength={10} onChange={(e) => setForm({ ...form, abbr: e.target.value.toUpperCase() })} />
             </div>
-            <div style={{ flex: "1 1 100%" }}>
+            <div data-tour="dept-program" style={{ flex: "1 1 100%" }}>
               <label style={S.label}>First program<Req /></label>
               <input style={S.input} value={form.program} placeholder="Bachelor of Science in Nursing" onChange={(e) => setForm({ ...form, program: e.target.value })} />
             </div>
-            <div style={{ flex: "1 1 100%" }}>
+            <div data-tour="dept-majors" style={{ flex: "1 1 100%" }}>
               <label style={S.label}>Majors of that program (optional)</label>
               <input style={S.input} value={form.majors} placeholder="e.g. English, Mathematics — separate with commas; leave blank if it has none" onChange={(e) => setForm({ ...form, majors: e.target.value })} />
               <p style={{ ...S.help, margin: "6px 0 0" }}>Don’t put the major in the program name — write “Bachelor of Secondary Education” here and “English” above.</p>
@@ -1186,9 +1775,9 @@ const DepartmentsTab = ({ depts, loaded, flash }) => {
 
       {/* ── Programs & majors of one department (pop-up) ── */}
       {managing && (
-        <DeptModal title={`${managing.name}${managing.abbr ? ` (${managing.abbr})` : ""}`} onClose={() => { setManagingId(null); setError(""); }}
+        <DeptModal title={`${managing.name}${managing.abbr ? ` (${managing.abbr})` : ""}`} onClose={() => { setManagingId(null); setError(""); }} help="departments:manage"
           footer={<button type="button" style={S.btn} onClick={() => { setManagingId(null); setError(""); }}>Done</button>}>
-          <div style={{ paddingBottom: "10px" }}>
+          <div data-tour="dept-names" style={{ paddingBottom: "10px" }}>
             <div style={{ fontSize: "0.78rem", color: C.muted, marginBottom: "4px" }}>Department name</div>
             <RenameInline value={managing.name} label="Department name" onSave={(nv) => rename("department", managing, "", managing.name, nv)}>
               {(edit) => (
@@ -1209,7 +1798,7 @@ const DepartmentsTab = ({ depts, loaded, flash }) => {
             </RenameInline>
           </div>
           {programsOf(managing).map((p) => (
-            <div key={p.name} style={{ borderTop: `1px solid ${C.line}`, padding: "10px 0" }}>
+            <div key={p.name} data-tour="program-block" style={{ borderTop: `1px solid ${C.line}`, padding: "10px 0" }}>
               <RenameInline value={p.name} label="Program name" onSave={(nv) => rename("program", managing, "", p.name, nv)}>
                 {(edit) => (
                   <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
@@ -1235,7 +1824,7 @@ const DepartmentsTab = ({ depts, loaded, flash }) => {
               <AddInline placeholder="Add a major to this program" onAdd={(v) => addMajor(managing, p.name, v)} />
             </div>
           ))}
-          <div style={{ borderTop: `1px solid ${C.line}`, paddingTop: "10px" }}>
+          <div data-tour="add-program" style={{ borderTop: `1px solid ${C.line}`, paddingTop: "10px" }}>
             <div style={{ fontSize: "0.8rem", fontWeight: 600 }}>Add a program to {managing.abbr || managing.name}</div>
             <AddInline placeholder="Program name" onAdd={(v) => addProgram(managing, v)} />
           </div>
@@ -1478,12 +2067,15 @@ const CoordinatorsTab = ({ admin, depts, flash }) => {
 
   const errorBox = error ? <div role="alert" style={S.err}>{error}</div> : null;
   const nameOf = (r) => r.name || (r.kind === "invite" ? "Awaiting sign-up" : "(name not set yet)");
+  // Department column: the department names only (programs and majors are left out).
+  // Several selections of the same department count once; "+N more" and the tooltip list the other departments.
   const deptCell = (r) => {
-    if (r.sels.length === 0) return <span style={{ fontSize: "0.82rem", color: C.danger }}>No department assigned</span>;
-    const more = r.sels.length - 1;
+    const names = [...new Set(r.sels.map((x) => normSel(x).department).filter(Boolean))];
+    if (names.length === 0) return <span style={{ fontSize: "0.82rem", color: C.danger }}>No department assigned</span>;
+    const more = names.length - 1;
     return (
-      <span title={r.sels.map(describeSel).join("\n")} style={{ fontSize: "0.88rem" }}>
-        {describeSel(r.sels[0])}{more > 0 && <span style={{ color: inkMuted, fontWeight: 600 }}> +{more} more</span>}
+      <span title={names.join("\n")} style={{ fontSize: "0.88rem" }}>
+        {names[0]}{more > 0 && <span style={{ color: inkMuted, fontWeight: 600 }}> +{more} more</span>}
       </span>
     );
   };
@@ -1513,7 +2105,7 @@ const CoordinatorsTab = ({ admin, depts, flash }) => {
             <input value={search} name="mc-search" autoComplete="off" spellCheck={false} onChange={(e) => { setSearch(e.target.value); setPage(1); }} placeholder="Search coordinator name" />
             {search && <button type="button" aria-label="Clear search" onClick={() => { setSearch(""); setPage(1); }} style={{ background: "none", border: "none", color: inkMuted, cursor: "pointer", fontSize: "0.9rem", padding: 0, lineHeight: 1 }}>✕</button>}
           </div>
-          <div ref={filterRef} style={{ position: "relative" }}>
+          <div ref={filterRef} data-tour="filter" style={{ position: "relative" }}>
             <button type="button" title="Filters" aria-label="Filters" aria-expanded={showFilter} onClick={() => setShowFilter((v) => !v)}
               style={{ width: "40px", height: "40px", borderRadius: "999px", border: hasFilter ? `2px solid ${paperCard}` : "none", background: hasFilter ? paperCard : paper, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", padding: 0 }}>
               <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={hasFilter ? ink : inkMuted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" /></svg>
@@ -1585,7 +2177,7 @@ const CoordinatorsTab = ({ admin, depts, flash }) => {
             </>
           )}
         </div>
-        <button type="button" className="adm-btn-dark" style={S.btn} onClick={openInvite}>Invite a coordinator</button>
+        <button type="button" data-tour="invite" className="adm-btn-dark" style={S.btn} onClick={openInvite}>Invite a coordinator</button>
       </div>
 
       </div>
@@ -1630,7 +2222,10 @@ const CoordinatorsTab = ({ admin, depts, flash }) => {
             ))}
           </div>
 
-          <PaginationBar page={safePage} totalPages={totalPages} onPage={goToPage} from={showingFrom} to={showingTo} total={filtered.length} />
+          {/* Pagination: only shown when there are more than 10 rows */}
+          {filtered.length > PAGE_SIZE && (
+            <PaginationBar page={safePage} totalPages={totalPages} onPage={goToPage} from={showingFrom} to={showingTo} total={filtered.length} />
+          )}
         </>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", padding: "72px 24px", gap: "4px", background: paper, border: `1px dashed ${hairline}`, borderRadius: "20px" }}>
@@ -1644,7 +2239,7 @@ const CoordinatorsTab = ({ admin, depts, flash }) => {
 
       {/* ── Invite a coordinator (pop-up form) ── */}
       {showInvite && (
-        <DeptModal title="Invite a coordinator" onClose={closeInvite}
+        <DeptModal title="Invite a coordinator" onClose={closeInvite} help="coordinators:invite"
           footer={(
             <>
               <button type="button" style={S.btn2} disabled={busy} onClick={closeInvite}>Cancel</button>
@@ -1657,7 +2252,7 @@ const CoordinatorsTab = ({ admin, depts, flash }) => {
           </p>
           <label style={S.label}>Email address<Req /></label>
           <input style={S.input} type="email" name="invite-email" autoComplete="off" value={email} placeholder="name@school.edu.ph" onChange={(e) => setEmail(e.target.value)} />
-          <div style={{ marginTop: "6px" }}><DeptSelectionsEditor depts={depts} value={sel} onChange={setSel} /></div>
+          <div data-tour="invite-depts" style={{ marginTop: "6px" }}><DeptSelectionsEditor depts={depts} value={sel} onChange={setSel} /></div>
           {errorBox}
         </DeptModal>
       )}
@@ -1665,6 +2260,7 @@ const CoordinatorsTab = ({ admin, depts, flash }) => {
       {/* ── Manage: summary + departments (pop-up) ── */}
       {managing && (
         <DeptModal title={managing.kind === "invite" ? "Pending invitation" : "Coordinator"} onClose={closeManage}
+          help={managing.kind === "invite" ? "coordinators:manage-invite" : "coordinators:manage-coordinator"}
           footer={managing.kind === "coord" ? (
             <>
               <button type="button" style={S.btn2} disabled={busy} onClick={closeManage}>Cancel</button>
@@ -1695,7 +2291,7 @@ const CoordinatorsTab = ({ admin, depts, flash }) => {
           ) : (
             <div style={{ borderTop: `1px solid ${hairline}`, paddingTop: "12px" }}>
               <span style={{ fontFamily: FONT, fontSize: "0.82rem", fontWeight: 600, color: inkMuted }}>Departments</span>
-              <div style={{ marginTop: "6px" }}><DeptSelectionsEditor depts={depts} value={editSel} onChange={setEditSel} /></div>
+              <div data-tour="manage-depts" style={{ marginTop: "6px" }}><DeptSelectionsEditor depts={depts} value={editSel} onChange={setEditSel} /></div>
             </div>
           )}
           {errorBox}
@@ -1918,7 +2514,8 @@ const emailChangeMessage = (err) => {
 // Server side: functions/adminFunctions.js (adminAddAdmin, adminTransferAdmin, adminCancelTransfer,
 // adminCompleteTransfer).
 // Pop-up shell + inputs for the Account Profile forms.
-const ApModal = ({ title, sub, onClose, footer, children }) => {
+const ApModal = ({ title, sub, onClose, footer, children, help }) => {
+  useHelpTopic(help, !!help);
   useEffect(() => {
     const onKey = (e) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", onKey);
@@ -2052,7 +2649,7 @@ const AdminAccountModal = ({ mode, pending, onChanged, flash, confirm, onClose }
   const transferPending = mode === "transfer" && !!pending;
   const showForm = !info && !transferPending;
   return (
-    <ApModal title={mode === "add" ? "Add administrator account" : "Transfer administrator account"} onClose={close}
+    <ApModal title={mode === "add" ? "Add administrator account" : "Transfer administrator account"} onClose={close} help={mode === "add" ? "profile:add" : "profile:transfer"}
       sub={mode === "add"
         ? "They get an email with an Accept Invitation button, then enter their own name and password. Nothing is shared."
         : "They get an email with an Accept Invitation button, then enter their own name and password. You keep access until they sign in once. After that your account is switched off and you are signed out."}
@@ -2088,11 +2685,11 @@ const AdminAccountModal = ({ mode, pending, onChanged, flash, confirm, onClose }
       {info && <div role="status" style={{ ...S.okMsg, margin: "16px 0 14px" }}>{info}</div>}
       {showForm && (
         <div>
-          <ApInput label="Email" type="email" autoComplete="off" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
-          <ApPassword label="Your current password" autoComplete="current-password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
+          <ApInput data-tour="acct-email" label="Email" type="email" autoComplete="off" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+          <ApPassword data-tour="acct-pass" label="Your current password" autoComplete="current-password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
           {mode === "transfer" && (
             <label style={{ display: "flex", gap: "8px", alignItems: "flex-start", marginTop: "18px", fontFamily: FONT, fontSize: "0.85rem" }}>
-              <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} style={{ marginTop: "3px" }} />
+              <input data-tour="acct-ack" type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} style={{ marginTop: "3px" }} />
               <span>I understand my administrator access will end once they sign in.</span>
             </label>
           )}
@@ -2156,7 +2753,8 @@ const buildLegalSections = (raw) => {
   return { meta, sections };
 };
 
-const ApLegalPanel = ({ title, raw, onBack }) => {
+const ApLegalPanel = ({ title, raw, onBack, help }) => {
+  useHelpTopic(help, !!help);
   const rootRef = useRef(null);
   const scrollRef = useRef(null);
   const tocRef = useRef(null);
@@ -2340,6 +2938,7 @@ const AccountProfile = ({ admin, flash }) => {
   const [pending, setPending] = useState(null);   // { email } while a transfer of this account is pending
   const [confirm, confirmDialog] = useConfirm();
   const [view, setView] = useState("main");   // main | personal | terms | privacy
+  useHelpTopic("profile:personal", view === "personal");   // Help: the Personal Information sub-screen has its own tour
   const screenRef = useRef(null);
   const fitH = useFillHeight(screenRef, view);
   const [modal, setModal] = useState(null);      // null | email | password | add | transfer
@@ -2476,8 +3075,8 @@ const AccountProfile = ({ admin, flash }) => {
   );
 
   // Terms and Privacy open as their own screens, with the text from legalContent.js.
-  if (view === "terms")   return <ApLegalPanel title="Terms and conditions" raw={TERMS_TEXT} onBack={() => setView("main")} />;
-  if (view === "privacy") return <ApLegalPanel title="Privacy policy" raw={PRIVACY_TEXT} onBack={() => setView("main")} />;
+  if (view === "terms")   return <ApLegalPanel title="Terms and conditions" raw={TERMS_TEXT} onBack={() => setView("main")} help="profile:terms" />;
+  if (view === "privacy") return <ApLegalPanel title="Privacy policy" raw={PRIVACY_TEXT} onBack={() => setView("main")} help="profile:privacy" />;
 
   // Personal Information opens as its own screen; everything else is a pop-up form on top of the menu.
   if (view === "personal") {
@@ -2501,7 +3100,7 @@ const AccountProfile = ({ admin, flash }) => {
           )}
           {loadError && <div role="alert" style={S.err}>{loadError}</div>}
 
-          <div className="ap-info-card">
+          <div className="ap-info-card" data-tour="info-name">
             <p className="ap-info-label">Name{editingName && <Req />}</p>
             {!editingName ? (
               <p className="ap-info-value">{name || "—"}</p>
@@ -2512,11 +3111,11 @@ const AccountProfile = ({ admin, flash }) => {
               </>
             )}
           </div>
-          <div className="ap-info-card">
+          <div className="ap-info-card" data-tour="info-email">
             <p className="ap-info-label">Email address</p>
             <p className="ap-info-value">{admin.email || "—"}</p>
           </div>
-          <div className="ap-info-card">
+          <div className="ap-info-card" data-tour="info-role">
             <p className="ap-info-label">Role</p>
             <p className="ap-info-value">Administrator</p>
           </div>
@@ -2560,7 +3159,7 @@ const AccountProfile = ({ admin, flash }) => {
         </div>
         <div className="ap-group">
           <p className="ap-group-title">Security:</p>
-          <MenuRow icon="mail" label="Sign-in Email" onClick={openEmail} />
+          <MenuRow icon="mail" label="Change Email" onClick={openEmail} />
           <MenuRow icon="key" label="Change Password" onClick={openPassword} />
         </div>
         <div className="ap-group">
@@ -2577,7 +3176,7 @@ const AccountProfile = ({ admin, flash }) => {
 
       {/* ── Pop-up forms ── */}
       {modal === "email" && (
-        <ApModal title="Sign-in email" onClose={closeModal}
+        <ApModal title="Sign-in email" onClose={closeModal} help={emailStep === "code" ? "profile:email-code" : "profile:email"}
           sub="This is the email you sign in with, and where password reset links are sent. We’ll send a 6-digit code to the new address to confirm it’s yours."
           footer={
             <>
@@ -2589,11 +3188,11 @@ const AccountProfile = ({ admin, flash }) => {
           }>
           {emailStep === "form" ? (
             <>
-              <ApInput label="New email" type="email" autoComplete="off" value={emailForm.email} onChange={(e) => setEmailForm({ ...emailForm, email: e.target.value })} />
-              <ApPassword label="Current password" autoComplete="current-password" value={emailForm.password} onChange={(e) => setEmailForm({ ...emailForm, password: e.target.value })} />
+              <ApInput data-tour="email-new" label="New email" type="email" autoComplete="off" value={emailForm.email} onChange={(e) => setEmailForm({ ...emailForm, email: e.target.value })} />
+              <ApPassword data-tour="email-pass" label="Current password" autoComplete="current-password" value={emailForm.password} onChange={(e) => setEmailForm({ ...emailForm, password: e.target.value })} />
             </>
           ) : (
-            <ApInput label="6-digit code" type="text" inputMode="numeric" maxLength={6} autoComplete="one-time-code" value={emailCode} onChange={(e) => setEmailCode(e.target.value.replace(/\D/g, ""))} />
+            <ApInput data-tour="email-code" label="6-digit code" type="text" inputMode="numeric" maxLength={6} autoComplete="one-time-code" value={emailCode} onChange={(e) => setEmailCode(e.target.value.replace(/\D/g, ""))} />
           )}
           {emailError && <div role="alert" style={S.err}>{emailError}</div>}
           {emailInfo && <div role="status" style={{ ...S.okMsg, margin: "16px 0 0" }}>{emailInfo}</div>}
@@ -2601,18 +3200,18 @@ const AccountProfile = ({ admin, flash }) => {
       )}
 
       {modal === "password" && (
-        <ApModal title="Change password" sub="Enter your current password, then choose a new one." onClose={closeModal}
+        <ApModal title="Change password" sub="Enter your current password, then choose a new one." onClose={closeModal} help="profile:password"
           footer={(
             <>
               <button type="button" className="ap-fbtn ghost" disabled={pwBusy} onClick={closeModal}>Cancel</button>
               <button type="button" className="ap-fbtn solid" disabled={pwBusy} onClick={submitPassword}>{pwBusy ? "Saving…" : "Change password"}</button>
             </>
           )}>
-          <ApPassword label="Current password" autoComplete="current-password" value={pw.current} onChange={(e) => setPw({ ...pw, current: e.target.value })} />
+          <ApPassword data-tour="pw-current" label="Current password" autoComplete="current-password" value={pw.current} onChange={(e) => setPw({ ...pw, current: e.target.value })} />
           <hr className="ap-hr" />
-          <ApPassword label="New password" autoComplete="new-password" value={pw.next} onChange={(e) => setPw({ ...pw, next: e.target.value })} />
+          <ApPassword data-tour="pw-new" label="New password" autoComplete="new-password" value={pw.next} onChange={(e) => setPw({ ...pw, next: e.target.value })} />
           <PasswordChecklist password={pw.next} />
-          <ApPassword label="Confirm new password" autoComplete="new-password" value={pw.confirm} onChange={(e) => setPw({ ...pw, confirm: e.target.value })} />
+          <ApPassword data-tour="pw-confirm" label="Confirm new password" autoComplete="new-password" value={pw.confirm} onChange={(e) => setPw({ ...pw, confirm: e.target.value })} />
           {pwError && <div role="alert" style={S.err}>{pwError}</div>}
         </ApModal>
       )}
@@ -2655,10 +3254,10 @@ const AdminNameGate = ({ onSaved }) => {
     }
   };
   return (
-    <ApModal title="Welcome to OJTern" onClose={() => {}}
+    <ApModal title="Welcome to OJTern" onClose={() => {}} help="profile:name-gate"
       sub="Enter your name to finish setting up your administrator account."
       footer={<button type="button" className="ap-fbtn solid" disabled={busy} onClick={save}>{busy ? "Saving…" : "Continue"}</button>}>
-      <ApInput label="Your name" maxLength={60} autoFocus autoComplete="name" value={name}
+      <ApInput data-tour="gate-name" label="Your name" maxLength={60} autoFocus autoComplete="name" value={name}
         onChange={(e) => setName(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") save(); }} />
       {error && <div role="alert" style={S.err}>{error}</div>}
     </ApModal>
@@ -2681,6 +3280,29 @@ const AdminDashboard = ({ admin: adminProp }) => {
   const [activityOpen, setActivityOpen] = useState(false);
   const [activity, setActivity] = useState([]);
   const [actorNames, setActorNames] = useState({});
+
+  // Help: the "?" button explains what is on screen (the newest open pop-up / sub-screen, else the current
+  // module). The three main modules also start their tour by themselves the first time this admin opens them.
+  const [seen, setSeen] = useState(() => readTourSeen(adminProp.uid));
+  const tourTimer = useRef(null);
+  const startTour = (key, auto) => {
+    const moduleSteps = TOURS[key];
+    if (!moduleSteps) return;
+    if (AUTO_TOUR_KEYS.includes(key)) setSeen((s) => { const n = { ...s, [key]: true }; writeTourSeen(adminProp.uid, n); return n; });
+    // Close any open top-bar dropdown / drawer first, then start on the next frame once React has removed it.
+    setNotifOpen(false); setActivityOpen(false); setDrawerOpen(false);
+    window.clearTimeout(tourTimer.current);
+    if (!auto) { requestAnimationFrame(() => runTour(moduleSteps)); return; }
+    // Auto-start: a short pause, then wait (a little) for lists to fill in so their steps aren't skipped.
+    const t0 = Date.now();
+    const tick = () => {
+      const ready = moduleSteps.every((st) => !st.target || findTourTarget(st.target));
+      if (ready || Date.now() - t0 > AUTO_TOUR_MAX_WAIT_MS) runTour(moduleSteps);
+      else tourTimer.current = window.setTimeout(tick, 150);
+    };
+    tourTimer.current = window.setTimeout(tick, AUTO_TOUR_DELAY_MS);
+  };
+  useEffect(() => () => { window.clearTimeout(tourTimer.current); stopTour(); }, []);
 
   // Activity Log: the shared log, newest first (same query the coordinators use).
   useEffect(() => onSnapshot(
@@ -2733,6 +3355,14 @@ const AdminDashboard = ({ admin: adminProp }) => {
 
   useEffect(() => { if (isDesktop) setDrawerOpen(false); }, [isDesktop]);
 
+  // First time this admin opens a main module, its guide starts by itself (after the name has been entered,
+  // and for Departments once its list has loaded).
+  useEffect(() => {
+    if (!norm(savedName) || !AUTO_TOUR_KEYS.includes(activeNav) || seen[activeNav]) return;
+    if (activeNav === "departments" && !loaded) return;
+    startTour(activeNav, true);
+  }, [activeNav, savedName, loaded, seen]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const flashTimer = useRef(null);
   const flash = (m) => {
     setNotice(m);
@@ -2740,7 +3370,7 @@ const AdminDashboard = ({ admin: adminProp }) => {
     flashTimer.current = window.setTimeout(() => setNotice(""), 6000);
   };
 
-  const navigate = (key) => { setActiveNav(key); setDrawerOpen(false); setNotice(""); setNotifOpen(false); setActivityOpen(false); };
+  const navigate = (key) => { setActiveNav(key); setDrawerOpen(false); setNotice(""); setNotifOpen(false); setActivityOpen(false); window.clearTimeout(tourTimer.current); stopTour(); };
   const askLogout = () => { setDrawerOpen(false); setShowLogout(true); };
   const confirmLogout = async () => {
     setShowLogout(false);
@@ -2759,6 +3389,7 @@ const AdminDashboard = ({ admin: adminProp }) => {
       <AdminStyles />
       {!norm(savedName) && <AdminNameGate onSaved={setSavedName} />}
       {showLogout && <LogoutConfirmModal onConfirm={confirmLogout} onCancel={() => setShowLogout(false)} />}
+      <HelpFab onOpen={() => startTour(currentHelpTopic(activeNav), false)} />
       <div style={{ width: "100vw", height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden", fontFamily: uiFont }}>
 
         {/* ── Top Navbar ── */}
@@ -2909,6 +3540,7 @@ const AdminEmailSetup = ({ admin, onDone }) => {
           <img src={logo} alt="OJTern" style={{ display: "block", margin: "0 auto", width: "110px", height: "110px", objectFit: "contain" }} />
           <div style={{ fontFamily: logoFont, fontSize: "2.1rem", color: ink, letterSpacing: "0.03em", lineHeight: 1.1, marginBottom: "18px" }}>OJTern</div>
 
+          <HelpFab onOpen={() => openHelp("emailsetup")} />
           {done ? (
             <div style={card}>
               <h1 style={{ fontSize: "1.4rem", fontWeight: 600, letterSpacing: "-0.02em", margin: "0 0 8px" }}>Email saved</h1>

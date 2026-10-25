@@ -1967,7 +1967,7 @@ const CoordinatorAccountProfileScreen = ({ user, onLogout, viewIcon: themedViewI
           </MenuGroup>
 
           <MenuGroup title="Security:" id="accprofile-security">
-            <MenuRow icon="key" label="Reset Password" onClick={() => setShowReset(true)} viewIcon={themedViewIcon} />
+            <MenuRow icon="key" label="Change Password" onClick={() => setShowReset(true)} viewIcon={themedViewIcon} />
           </MenuGroup>
 
           <MenuGroup title="Legal:" id="accprofile-legal">

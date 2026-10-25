@@ -879,7 +879,8 @@ const ChatListView = ({ contacts, messages, onOpen, myUid, userIcon: themedUserI
             })}
           </div>
         )}
-        {filtered.length > 0 && (
+        {/* Pagination: only shown when there are more than 10 chats */}
+        {filtered.length > PAGE_SIZE && (
           <PaginationBar page={safePage} totalPages={totalPages} onPage={goToPage} from={showingFrom} to={showingTo} total={filtered.length} />
         )}
         </div>

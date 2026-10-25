@@ -2786,7 +2786,10 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
                 />
               </section>
             ))}
-            <PaginationBar page={safePage} totalPages={totalPages} onPage={goToPage} from={showingFrom} to={showingTo} total={filtered.length} />
+            {/* Pagination: only shown when there are more than 10 students */}
+            {filtered.length > PAGE_SIZE && (
+              <PaginationBar page={safePage} totalPages={totalPages} onPage={goToPage} from={showingFrom} to={showingTo} total={filtered.length} />
+            )}
             <p style={{ textAlign: "center", fontFamily: font.ui, ...type.helper, color: inkFaint, padding: "20px 0 4px" }}>
               Showing {filtered.length} of {pool.length} {viewTab === "archived" ? "archived" : "active"} student{pool.length !== 1 ? "s" : ""}
             </p>

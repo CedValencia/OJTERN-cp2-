@@ -1738,7 +1738,7 @@ const StudentAccountProfileScreen = ({ user, onLogout, viewIcon: themedViewIcon 
           </MenuGroup>
 
           <MenuGroup id="sacc-security" title="Security:">
-            <MenuRow icon="key" label="Reset Password" onClick={() => setShowReset(true)} viewIcon={themedViewIcon} />
+            <MenuRow icon="key" label="Change Password" onClick={() => setShowReset(true)} viewIcon={themedViewIcon} />
           </MenuGroup>
 
           <MenuGroup id="sacc-legal" title="Legal:">

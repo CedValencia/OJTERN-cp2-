@@ -899,7 +899,8 @@ const StudentCoordinatorsScreen = ({ embedded, user, onNavigateToMessages, onVie
           </section>
         ))}
 
-        {!listLoading && totalEntries > 0 && (
+        {/* Pagination: only shown when there are more than 10 coordinators */}
+        {!listLoading && totalEntries > PAGE_SIZE && (
           <PaginationBar page={safePage} totalPages={totalPages} onPage={goToPage} from={showingFrom} to={showingTo} total={totalEntries} />
         )}
       </main>

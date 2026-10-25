@@ -3840,7 +3840,10 @@ const scrollListToTop = (scroller) => { if (scroller) scroller.scrollTo({ top: 0
                     <CompanyCard key={c.id} company={c} isReview={false} onViewProfile={(company) => { setSelectedCompany(company); setView("profile"); setCameFromDashboard(false); }} />
                   ))}
                 </div>
-                <PaginationBar page={regP.safePage} totalPages={regP.totalPages} onPage={pageTo(setRegPage)} from={regP.from} to={regP.to} total={filteredRegistered.length} />
+                {/* Pagination: only shown when there are more than 10 companies */}
+                {filteredRegistered.length > PAGE_SIZE && (
+                  <PaginationBar page={regP.safePage} totalPages={regP.totalPages} onPage={pageTo(setRegPage)} from={regP.from} to={regP.to} total={filteredRegistered.length} />
+                )}
                 </>
               ) : (
                 <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#aaa", padding: "20px 0" }}>No registered companies match your filters.</p>
@@ -3859,7 +3862,10 @@ const scrollListToTop = (scroller) => { if (scroller) scroller.scrollTo({ top: 0
                     <CompanyCard key={c.id} company={c} isReview={true} onViewProfile={(company) => { setSelectedCompany(company); setView("profile"); setCameFromDashboard(false); }} />
                   ))}
                 </div>
-                <PaginationBar page={revP.safePage} totalPages={revP.totalPages} onPage={pageTo(setRevPage)} from={revP.from} to={revP.to} total={filteredReview.length} />
+                {/* Pagination: only shown when there are more than 10 companies */}
+                {filteredReview.length > PAGE_SIZE && (
+                  <PaginationBar page={revP.safePage} totalPages={revP.totalPages} onPage={pageTo(setRevPage)} from={revP.from} to={revP.to} total={filteredReview.length} />
+                )}
                 </>
               ) : (
                 <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#aaa", padding: "20px 0" }}>No companies in review match your filters.</p>
@@ -3900,7 +3906,10 @@ const scrollListToTop = (scroller) => { if (scroller) scroller.scrollTo({ top: 0
                           </div>
                         ))}
                       </div>
-                      <PaginationBar page={wdP.safePage} totalPages={wdP.totalPages} onPage={pageTo(setWdPage)} from={wdP.from} to={wdP.to} total={filteredWithdrawn.length} />
+                      {/* Pagination: only shown when there are more than 10 companies */}
+                      {filteredWithdrawn.length > PAGE_SIZE && (
+                        <PaginationBar page={wdP.safePage} totalPages={wdP.totalPages} onPage={pageTo(setWdPage)} from={wdP.from} to={wdP.to} total={filteredWithdrawn.length} />
+                      )}
                       </>
                     ) : (
                       <p style={{ fontFamily: "'Kufam', sans-serif", fontSize: "0.85rem", color: "#aaa", padding: "20px 0" }}>No withdrawn companies match your filters.</p>

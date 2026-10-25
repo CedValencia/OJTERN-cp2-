@@ -1727,7 +1727,10 @@ const CoordinatorStudentListScreen = ({ coordinatorColleges, onNavigateToCompany
               </section>
             ))}
           </div>
-          <PaginationBar page={safePage} totalPages={totalPages} onPage={goToPage} from={showingFrom} to={showingTo} total={filtered.length} />
+          {/* Pagination: only shown when there are more than 10 students */}
+          {filtered.length > PAGE_SIZE && (
+            <PaginationBar page={safePage} totalPages={totalPages} onPage={goToPage} from={showingFrom} to={showingTo} total={filtered.length} />
+          )}
           </>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", padding: "72px 24px", gap: space.xs, background: surface, border: `1px dashed ${color.wine400}`, borderRadius: radius.panel }}>
