@@ -7,6 +7,7 @@
 // and it is changed from Account Profile with Firebase's verify-before-update email flow.
 //
 // Modules (same set as the other dashboards, except Messages, which needs the chat layer):
+//   Activity Log    clock icon in the top bar: the shared activity_logs feed (coordinators' actions + the admins' own)
 //   Notifications   bell in the top bar (e.g. "<coordinator> accepted your invitation")
 //   Account Profile name, sign-in email, change password, and Add / Transfer an administrator account
 //                   (server side: functions/adminFunctions.js)
@@ -20,17 +21,19 @@
 //                  email + accept flow is reused, so no password is ever shared),
 //                  change a coordinator's department/program, cancel pending invites.
 //
-// On purpose there is NO rename or delete for departments/programs/majors, and
-// the abbreviation is fixed once created: student, company and coordinator docs
-// store these names as plain text, so changing one would orphan their records.
+// There is no DELETE for departments/programs/majors, and the abbreviation can be edited later (it is not copied to other records).
+// RENAMING a department, program or major is allowed (Edit in the department's pop-up), but student,
+// company and coordinator docs store these names as plain text, so the rename goes through the
+// adminRenameDepartmentItem Cloud Function (functions/adminRenameFunctions.js), which updates the
+// catalog AND every record that carries the old name. Never rename by editing departments/{id} directly.
 
-import React, { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   onAuthStateChanged, signInWithEmailAndPassword, signOut,
   EmailAuthProvider, reauthenticateWithCredential, updatePassword,
 } from "firebase/auth";
 import {
-  collection, doc, getDoc, onSnapshot, query, setDoc, updateDoc, where, serverTimestamp,
+  addDoc, collection, doc, getDoc, getDocs, limit, onSnapshot, orderBy, query, setDoc, updateDoc, where, serverTimestamp,
 } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { auth, db, functions } from "./firebase";
@@ -41,8 +44,6 @@ import { TERMS_TEXT, PRIVACY_TEXT, parseLegalDoc } from "./legalContent";
 import logo from "../icons/admin_ojtern_logo.png";               // sign-in screen (and anything else that shares it)
 import topbarLogo from "../icons/admin_topbar_logo.png";         // top-left logo beside the OJTern text: top bar + mobile menu
 import AboutUsScreen from "./AboutUsScreen";
-import { driver } from "driver.js";
-import "driver.js/dist/driver.css";
 
 // ── Design tokens: the same ones the Student / Coordinator / Company dashboards use (theme.js) ──
 const ink       = color.blush50;    // #000000  top bar, active nav, primary buttons
@@ -282,57 +283,6 @@ const AdminStyles = () => (
     .mc-card { background: ${paper}; border: 1px solid ${hairline}; border-radius: 18px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
     .mc-card-label { font-family: ${uiFont}; font-size: 0.66rem; color: ${inkMuted}; margin: 0 0 3px 0; }
     @media (max-width: 780px) { .mc-wrap { display: none; } .mc-cards { display: flex; } }
-
-    /* Floating "?" help button: same as the Student dashboard's. Idle pulse ring to catch the eye,
-       lifts on hover/press, ring fades in while the 1s hover-to-drag countdown runs. */
-    @keyframes adm-help-btn-pulse {
-      0%   { box-shadow: 0 6px 20px color-mix(in srgb, ${ink} 25%, transparent), 0 0 0 0 color-mix(in srgb, ${ink} 16%, transparent); }
-      70%  { box-shadow: 0 6px 20px color-mix(in srgb, ${ink} 25%, transparent), 0 0 0 10px color-mix(in srgb, ${ink} 0%, transparent); }
-      100% { box-shadow: 0 6px 20px color-mix(in srgb, ${ink} 25%, transparent), 0 0 0 0 color-mix(in srgb, ${ink} 0%, transparent); }
-    }
-    .adm-help-fab {
-      animation: adm-help-btn-pulse 2.6s ease-out infinite;
-      transition: transform 0.18s ${ease}, background 0.18s ${ease}, opacity 0.45s ${ease};
-    }
-    /* After a drag is released it glides to the nearest side instead of jumping there. */
-    .adm-help-fab.adm-help-fab-snapping {
-      transition: left 0.32s cubic-bezier(0.22, 1, 0.36, 1), top 0.32s cubic-bezier(0.22, 1, 0.36, 1),
-                  transform 0.18s ${ease}, background 0.18s ${ease}, opacity 0.45s ${ease};
-    }
-    /* Idle (untouched for 10s): faded, and the pulse ring stops. Back to full on hover/press/focus. */
-    .adm-help-fab.adm-help-fab-idle { opacity: 0.4; animation: none; }
-    .adm-help-fab:hover {
-      transform: translateY(-3px) scale(1.06);
-      background: ${ink} !important;
-      animation-play-state: paused;
-    }
-    .adm-help-fab:hover .adm-help-fab-icon { stroke: ${paper} !important; }
-    .adm-help-fab:hover .adm-help-fab-icon-dot { fill: ${paper} !important; }
-    .adm-help-fab:active { transform: translateY(-1px) scale(0.98); }
-    /* Being dragged: lift it, drop the pulse/hover effects, grabbing cursor. */
-    .adm-help-fab.adm-help-fab-dragging,
-    .adm-help-fab.adm-help-fab-dragging:hover {
-      animation: none !important;
-      transform: scale(1.1) !important;
-      box-shadow: 0 10px 28px rgba(0,0,0,0.28) !important;
-      cursor: grabbing !important;
-      background: ${paper} !important;
-    }
-    .adm-help-fab.adm-help-fab-dragging .adm-help-fab-icon { stroke: ${ink} !important; }
-    .adm-help-fab.adm-help-fab-dragging .adm-help-fab-icon-dot { fill: ${ink} !important; }
-    /* Mouse hovering, counting down to "follow the cursor": a ring fades in around the button over that 1 second. */
-    .adm-help-fab.adm-help-fab-arming::after {
-      content: ""; position: absolute; inset: -6px; border-radius: 50%;
-      border: 2px solid ${ink}; opacity: 0; pointer-events: none;
-      animation: adm-help-fab-arm 1s linear forwards;
-    }
-    @keyframes adm-help-fab-arm {
-      0%   { opacity: 0;    transform: scale(0.8); }
-      100% { opacity: 0.55; transform: scale(1); }
-    }
-    .adm-help-fab:focus-visible { outline: 2px solid ${ink}; outline-offset: 3px; }
-    /* Hide the "?" button while a tour is running (driver.js adds .driver-active to <body>). */
-    body.driver-active .adm-help-fab { visibility: hidden; animation: none; }
   `}</style>
 );
 
@@ -362,18 +312,6 @@ const NAV = [
     ),
   },
 ];
-
-// ═══════════════════════════ Context-aware help ═══════════════════════════
-// Every pop-up and sub-screen registers itself as the "help topic" while it is open (useHelpTopic / <HelpTopic>).
-// The floating "?" button then opens the guide of the TOP-MOST topic, so inside a pop-up, Personal Information,
-// Terms & Conditions, Privacy Policy or About it explains that very screen. With nothing open it falls back
-// to the current module's guide.
-const HelpTopicContext = React.createContext(null);
-const useHelpTopic = (key) => {
-  const register = useContext(HelpTopicContext);
-  useEffect(() => (key && register ? register(key) : undefined), [key, register]);
-};
-const HelpTopic = ({ id }) => { useHelpTopic(id); return null; };
 
 const SidebarNav = ({ activeNav, onNavigate, onLogout }) => (
   <>
@@ -407,8 +345,7 @@ const SidebarNav = ({ activeNav, onNavigate, onLogout }) => (
 
 const LogoutConfirmModal = ({ onConfirm, onCancel }) => (
   <div style={{ position: "fixed", inset: 0, zIndex: 9999, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: "16px" }}>
-    <HelpTopic id="logout" />
-    <div data-tour="confirm-card" style={{ background: paper, borderRadius: "20px", padding: "36px 32px", width: "clamp(280px, 85vw, 380px)", display: "flex", flexDirection: "column", alignItems: "center", gap: "12px", boxShadow: "0 8px 32px rgba(0,0,0,0.18)" }}>
+    <div style={{ background: paper, borderRadius: "20px", padding: "36px 32px", width: "clamp(280px, 85vw, 380px)", display: "flex", flexDirection: "column", alignItems: "center", gap: "12px", boxShadow: "0 8px 32px rgba(0,0,0,0.18)" }}>
       <div style={{ width: "64px", height: "64px", borderRadius: "50%", background: paperCard, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: "4px" }}>
         <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke={ink} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" />
@@ -417,8 +354,8 @@ const LogoutConfirmModal = ({ onConfirm, onCancel }) => (
       <p style={{ fontFamily: uiFont, fontWeight: 600, fontSize: "1.15rem", color: inkText, margin: 0, textAlign: "center" }}>Log Out</p>
       <p style={{ fontFamily: uiFont, fontSize: "0.9rem", color: inkMuted, margin: 0, textAlign: "center", lineHeight: 1.5 }}>Are you sure you want to log out of your account?</p>
       <div style={{ display: "flex", gap: "12px", width: "100%", marginTop: "8px" }}>
-        <button data-tour="confirm-cancel" onClick={onCancel} style={{ flex: 1, padding: "12px", borderRadius: "30px", border: `1.5px solid ${hairline}`, background: paper, fontFamily: uiFont, fontWeight: 600, fontSize: "0.95rem", cursor: "pointer", color: inkMuted, boxShadow: "0 3px 10px rgba(0,0,0,0.3)" }}>Cancel</button>
-        <button data-tour="confirm-ok" onClick={onConfirm} style={{ flex: 1, padding: "12px", borderRadius: "30px", border: "none", background: ink, fontFamily: uiFont, fontWeight: 700, fontSize: "0.95rem", cursor: "pointer", color: paper, boxShadow: "0 3px 10px rgba(0,0,0,0.5)" }}>Log Out</button>
+        <button onClick={onCancel} style={{ flex: 1, padding: "12px", borderRadius: "30px", border: `1.5px solid ${hairline}`, background: paper, fontFamily: uiFont, fontWeight: 600, fontSize: "0.95rem", cursor: "pointer", color: inkMuted, boxShadow: "0 3px 10px rgba(0,0,0,0.3)" }}>Cancel</button>
+        <button onClick={onConfirm} style={{ flex: 1, padding: "12px", borderRadius: "30px", border: "none", background: ink, fontFamily: uiFont, fontWeight: 700, fontSize: "0.95rem", cursor: "pointer", color: paper, boxShadow: "0 3px 10px rgba(0,0,0,0.5)" }}>Log Out</button>
       </div>
     </div>
   </div>
@@ -437,8 +374,7 @@ const ConfirmModal = ({ title, body, confirmLabel = "Confirm", cancelLabel = "Ca
   const accent = tone === "danger" ? C.danger : ink;
   return (
     <div role="dialog" aria-modal="true" aria-label={title} style={{ position: "fixed", inset: 0, zIndex: 9999, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: "16px" }}>
-      <HelpTopic id="confirm" />
-      <div data-tour="confirm-card" style={{ background: paper, borderRadius: "20px", padding: "32px 28px", width: "clamp(280px, 85vw, 400px)", display: "flex", flexDirection: "column", alignItems: "center", gap: "12px", boxShadow: "0 8px 32px rgba(0,0,0,0.18)" }}>
+      <div style={{ background: paper, borderRadius: "20px", padding: "32px 28px", width: "clamp(280px, 85vw, 400px)", display: "flex", flexDirection: "column", alignItems: "center", gap: "12px", boxShadow: "0 8px 32px rgba(0,0,0,0.18)" }}>
         <div style={{ width: "56px", height: "56px", borderRadius: "50%", background: paperCard, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: "2px" }}>
           <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke={accent} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="12" cy="12" r="10" /><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3" /><line x1="12" y1="17" x2="12.01" y2="17" />
@@ -447,8 +383,8 @@ const ConfirmModal = ({ title, body, confirmLabel = "Confirm", cancelLabel = "Ca
         <p style={{ fontFamily: uiFont, fontWeight: 600, fontSize: "1.1rem", color: inkText, margin: 0, textAlign: "center" }}>{title}</p>
         <p style={{ fontFamily: uiFont, fontSize: "0.9rem", color: inkMuted, margin: 0, textAlign: "center", lineHeight: 1.5, overflowWrap: "anywhere" }}>{body}</p>
         <div style={{ display: "flex", gap: "12px", width: "100%", marginTop: "8px" }}>
-          <button type="button" data-tour="confirm-cancel" onClick={onCancel} style={{ flex: 1, padding: "12px", borderRadius: "30px", border: `1.5px solid ${hairline}`, background: paper, fontFamily: uiFont, fontWeight: 600, fontSize: "0.95rem", cursor: "pointer", color: inkMuted, boxShadow: "0 3px 10px rgba(0,0,0,0.3)" }}>{cancelLabel}</button>
-          <button type="button" data-tour="confirm-ok" autoFocus onClick={onConfirm} style={{ flex: 1, padding: "12px", borderRadius: "30px", border: "none", background: accent, fontFamily: uiFont, fontWeight: 700, fontSize: "0.95rem", cursor: "pointer", color: paper, boxShadow: "0 3px 10px rgba(0,0,0,0.5)" }}>{confirmLabel}</button>
+          <button type="button" onClick={onCancel} style={{ flex: 1, padding: "12px", borderRadius: "30px", border: `1.5px solid ${hairline}`, background: paper, fontFamily: uiFont, fontWeight: 600, fontSize: "0.95rem", cursor: "pointer", color: inkMuted, boxShadow: "0 3px 10px rgba(0,0,0,0.3)" }}>{cancelLabel}</button>
+          <button type="button" autoFocus onClick={onConfirm} style={{ flex: 1, padding: "12px", borderRadius: "30px", border: "none", background: accent, fontFamily: uiFont, fontWeight: 700, fontSize: "0.95rem", cursor: "pointer", color: paper, boxShadow: "0 3px 10px rgba(0,0,0,0.5)" }}>{confirmLabel}</button>
         </div>
       </div>
     </div>
@@ -779,9 +715,36 @@ const AddInline = ({ placeholder, onAdd }) => {
   );
 };
 
+// Shows `children(startEdit)` until Edit is pressed, then an input with Save / Cancel. onSave(newName)
+// resolves true when the rename went through (the row then closes by itself).
+const editLinkStyle = { background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: uiFont, fontSize: "0.76rem", color: inkMuted, textDecoration: "underline" };
+const RenameInline = ({ value, onSave, label, children }) => {
+  const [editing, setEditing] = useState(false);
+  const [v, setV] = useState(value);
+  const [busy, setBusy] = useState(false);
+  const start = () => { setV(value); setEditing(true); };
+  const save = async () => {
+    const nv = norm(v);
+    if (!nv || nv === value) { setEditing(false); return; }
+    setBusy(true);
+    const ok = await onSave(nv);
+    setBusy(false);
+    if (ok) setEditing(false);
+  };
+  if (!editing) return children(start);
+  return (
+    <div style={{ display: "flex", gap: "6px", margin: "4px 0 8px", flexWrap: "wrap" }}>
+      <input autoFocus value={v} aria-label={label} onChange={(e) => setV(e.target.value)} disabled={busy}
+        onKeyDown={(e) => { if (e.key === "Enter") save(); if (e.key === "Escape") { e.stopPropagation(); setEditing(false); } }}
+        style={{ ...S.input, flex: "1 1 220px", padding: "6px 10px", fontSize: "0.82rem" }} />
+      <button type="button" style={S.btn2} disabled={busy || !norm(v) || norm(v) === value} onClick={save}>{busy ? "Saving…" : "Save"}</button>
+      <button type="button" style={S.btn2} disabled={busy} onClick={() => setEditing(false)}>Cancel</button>
+    </div>
+  );
+};
+
 // Pop-up shell for the Departments tab (same look as the New Student modal in Student Accounts).
-const DeptModal = ({ title, onClose, children, footer, help }) => {
-  useHelpTopic(help);
+const DeptModal = ({ title, onClose, children, footer }) => {
   useEffect(() => {
     const onKey = (e) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", onKey);
@@ -816,7 +779,7 @@ const CascadeFilter = ({ depts, filters, programOptions, majorOptions, onPick, o
   const label = { fontFamily: uiFont, fontSize: "0.8rem", fontWeight: 700, color: inkText, margin: "0 0 8px" };
   const rule = <hr style={{ border: "none", borderTop: `1px solid ${hairline}`, margin: "0 0 12px" }} />;
   return (
-    <div ref={ref} data-tour="filter" style={{ position: "relative" }}>
+    <div ref={ref} style={{ position: "relative" }}>
       <button type="button" title="Filters" aria-label="Filters" aria-expanded={open} onClick={() => setOpen((v) => !v)}
         style={{ width: "40px", height: "40px", borderRadius: "999px", border: hasFilter ? `2px solid ${paperCard}` : "none", background: hasFilter ? paperCard : paper, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", padding: 0 }}>
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={hasFilter ? ink : inkMuted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" /></svg>
@@ -913,7 +876,7 @@ const DepartmentsTab = ({ depts, loaded, flash }) => {
     const majorsText = specializations.length ? ` with the major${specializations.length > 1 ? "s" : ""} ${specializations.join(", ")}` : "";
     if (!(await confirm({
       title: "Add department",
-      body: `Are you sure you want to add ${name} (${abbr}) with the program ${program}${majorsText}? The name and abbreviation can't be changed afterwards.`,
+      body: `Are you sure you want to add ${name} (${abbr}) with the program ${program}${majorsText}? The name and the abbreviation can both be edited later.`,
       confirmLabel: "Add department",
     }))) return;
     setBusy(true);
@@ -922,13 +885,16 @@ const DepartmentsTab = ({ depts, loaded, flash }) => {
       `${name} added.`
     );
     setBusy(false);
+    if (ok) logAdminActivity(`Added the department ${name} (${abbr}) with the program ${program}.`);
     if (ok) { setForm({ name: "", abbr: "", program: "", majors: "" }); setShowAdd(false); }
   };
 
   const addProgram = async (d, name) => {
     if (programsOf(d).some((p) => same(p.name, name))) { setError(`"${name}" already exists in ${d.name}.`); return false; }
     if (!(await confirm({ title: "Add program", body: `Are you sure you want to add the program "${name}" to ${d.name}?`, confirmLabel: "Add program" }))) return false;
-    return run(() => updateDoc(doc(db, "departments", d.id), { programs: [...programsOf(d), { name, specializations: [] }] }), `Program added to ${d.name}.`);
+    const ok = await run(() => updateDoc(doc(db, "departments", d.id), { programs: [...programsOf(d), { name, specializations: [] }] }), `Program added to ${d.name}.`);
+    if (ok) logAdminActivity(`Added the program ${name} to ${d.name}.`);
+    return ok;
   };
 
   const addMajor = async (d, programName, major) => {
@@ -936,7 +902,68 @@ const DepartmentsTab = ({ depts, loaded, flash }) => {
     if (prog?.specializations.some((m) => same(m, major))) { setError(`"${major}" already exists in ${programName}.`); return false; }
     if (!(await confirm({ title: "Add major", body: `Are you sure you want to add the major "${major}" to ${programName}?`, confirmLabel: "Add major" }))) return false;
     const programs = programsOf(d).map((p) => (p.name === programName ? { ...p, specializations: [...p.specializations, major] } : p));
-    return run(() => updateDoc(doc(db, "departments", d.id), { programs }), `Major added to ${programName}.`);
+    const ok = await run(() => updateDoc(doc(db, "departments", d.id), { programs }), `Major added to ${programName}.`);
+    if (ok) logAdminActivity(`Added the major ${major} to ${programName} (${d.name}).`);
+    return ok;
+  };
+
+  // Rename a department / program / major. The server renames the catalog entry and every record that
+  // uses the old name (students, coordinators, pending invites, companies, notices); Sign Up and Student
+  // Accounts read the catalog live, so they show the new name by themselves.
+  //   department: rename("department", d, "", d.name, newName)
+  //   program:    rename("program", d, "", oldProgramName, newName)
+  //   major:      rename("major", d, programName, oldMajorName, newName)
+  const rename = async (level, d, programName, oldName, newName) => {
+    const nn = norm(newName);
+    if (!nn || nn === oldName) return false;
+    const label = level === "department" ? "department" : level === "program" ? "program" : "major";
+    const clash = level === "department"
+      ? depts.some((x) => x.id !== d.id && same(x.name, nn))
+      : level === "program"
+        ? programsOf(d).some((p) => p.name !== oldName && same(p.name, nn))
+        : (programsOf(d).find((p) => p.name === programName)?.specializations || []).some((m) => m !== oldName && same(m, nn));
+    if (clash) { setError(`"${nn}" already exists${level === "department" ? "" : level === "program" ? ` in ${d.name}` : ` in ${programName}`}.`); return false; }
+    if (!(await confirm({
+      title: `Rename ${label}`,
+      body: `Are you sure you want to rename the ${label} "${oldName}" to "${nn}"? Student accounts, coordinator assignments and company registrations that use the old name will be updated to the new one, and the Sign-Up and Student Accounts lists will show it right away. This can take a few seconds.`,
+      confirmLabel: "Rename",
+    }))) return false;
+    setError("");
+    try {
+      const res = await httpsCallable(functions, "adminRenameDepartmentItem")({ level, departmentId: d.id, program: programName, oldName, newName: nn });
+      const c = res.data || {};
+      logAdminActivity(`Renamed the ${label} "${oldName}" to "${nn}".`);
+      flash(`Renamed to ${nn}. Updated ${c.students || 0} student${c.students === 1 ? "" : "s"}, ${c.coordinators || 0} coordinator${c.coordinators === 1 ? "" : "s"} and ${c.companies || 0} compan${c.companies === 1 ? "y" : "ies"}.`);
+      return true;
+    } catch (e) {
+      console.error(e);
+      setError(e?.message || "Could not rename. Please try again.");
+      return false;
+    }
+  };
+
+  // Change a department's abbreviation (e.g. CBA -> CAB after a rename). Catalog only; no other record keeps it.
+  const renameAbbr = async (d, newAbbr) => {
+    const na = norm(newAbbr).toUpperCase();
+    if (!na || na === (d.abbr || "").toUpperCase()) return false;
+    if (!/^[A-Z0-9]{2,10}$/.test(na)) { setError("Abbreviation must be 2–10 letters or numbers, e.g. CAB."); return false; }
+    if (depts.some((x) => x.id !== d.id && same(x.abbr, na))) { setError("That abbreviation is already used by another department."); return false; }
+    if (!(await confirm({
+      title: "Change abbreviation",
+      body: `Are you sure you want to change the abbreviation of ${d.name} from "${d.abbr || "none"}" to "${na}"?`,
+      confirmLabel: "Change",
+    }))) return false;
+    setError("");
+    try {
+      await httpsCallable(functions, "adminRenameDepartmentItem")({ level: "abbreviation", departmentId: d.id, newName: na });
+      logAdminActivity(`Changed the abbreviation of ${d.name} from "${d.abbr || "none"}" to "${na}".`);
+      flash(`Abbreviation changed to ${na}.`);
+      return true;
+    } catch (e) {
+      console.error(e);
+      setError(e?.message || "Could not change the abbreviation. Please try again.");
+      return false;
+    }
   };
 
   // ── List: search + pagination (10 per page), same idea as the Student Accounts list ──
@@ -1057,7 +1084,7 @@ const DepartmentsTab = ({ depts, loaded, flash }) => {
               </>
             )}
           </div>
-          <button type="button" data-tour="add-dept" className="adm-btn-dark" style={S.btn} onClick={openAdd}>Add a department</button>
+          <button type="button" className="adm-btn-dark" style={S.btn} onClick={openAdd}>Add a department</button>
         </div>
       )}
 
@@ -1126,30 +1153,30 @@ const DepartmentsTab = ({ depts, loaded, flash }) => {
 
       {/* ── Add a department (pop-up form) ── */}
       {showAdd && (
-        <DeptModal help="dept-add" title="Add a department" onClose={closeAdd}
+        <DeptModal title="Add a department" onClose={closeAdd}
           footer={(
             <>
               <button type="button" style={S.btn2} disabled={busy} onClick={closeAdd}>Cancel</button>
               <button type="button" style={{ ...S.btn, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={addDepartment}>{busy ? "Adding…" : "Add department"}</button>
             </>
           )}>
-          <p style={S.help}>Name and abbreviation can’t be changed after saving, so double-check them. You can add more programs and majors later; a major is always added to a specific program.</p>
+          <p style={S.help}>The name and abbreviation can both be edited later. You can add more programs and majors later; a major is always added to a specific program.</p>
           <div style={{ display: "flex", flexWrap: "wrap", gap: "10px" }}>
             <div style={{ flex: "2 1 260px" }}>
               <label style={S.label}>Department name<Req /></label>
-              <input data-tour="dept-name" style={S.input} value={form.name} placeholder="College of Nursing" onChange={(e) => setForm({ ...form, name: e.target.value })} />
+              <input style={S.input} value={form.name} placeholder="College of Nursing" onChange={(e) => setForm({ ...form, name: e.target.value })} />
             </div>
             <div style={{ flex: "1 1 110px" }}>
               <label style={S.label}>Abbreviation<Req /></label>
-              <input data-tour="dept-abbr" style={S.input} value={form.abbr} placeholder="CON" maxLength={10} onChange={(e) => setForm({ ...form, abbr: e.target.value.toUpperCase() })} />
+              <input style={S.input} value={form.abbr} placeholder="CON" maxLength={10} onChange={(e) => setForm({ ...form, abbr: e.target.value.toUpperCase() })} />
             </div>
             <div style={{ flex: "1 1 100%" }}>
               <label style={S.label}>First program<Req /></label>
-              <input data-tour="dept-program" style={S.input} value={form.program} placeholder="Bachelor of Science in Nursing" onChange={(e) => setForm({ ...form, program: e.target.value })} />
+              <input style={S.input} value={form.program} placeholder="Bachelor of Science in Nursing" onChange={(e) => setForm({ ...form, program: e.target.value })} />
             </div>
             <div style={{ flex: "1 1 100%" }}>
               <label style={S.label}>Majors of that program (optional)</label>
-              <input data-tour="dept-majors" style={S.input} value={form.majors} placeholder="e.g. English, Mathematics — separate with commas; leave blank if it has none" onChange={(e) => setForm({ ...form, majors: e.target.value })} />
+              <input style={S.input} value={form.majors} placeholder="e.g. English, Mathematics — separate with commas; leave blank if it has none" onChange={(e) => setForm({ ...form, majors: e.target.value })} />
               <p style={{ ...S.help, margin: "6px 0 0" }}>Don’t put the major in the program name — write “Bachelor of Secondary Education” here and “English” above.</p>
             </div>
           </div>
@@ -1159,20 +1186,56 @@ const DepartmentsTab = ({ depts, loaded, flash }) => {
 
       {/* ── Programs & majors of one department (pop-up) ── */}
       {managing && (
-        <DeptModal help="dept-manage" title={`${managing.name}${managing.abbr ? ` (${managing.abbr})` : ""}`} onClose={() => { setManagingId(null); setError(""); }}
+        <DeptModal title={`${managing.name}${managing.abbr ? ` (${managing.abbr})` : ""}`} onClose={() => { setManagingId(null); setError(""); }}
           footer={<button type="button" style={S.btn} onClick={() => { setManagingId(null); setError(""); }}>Done</button>}>
+          <div style={{ paddingBottom: "10px" }}>
+            <div style={{ fontSize: "0.78rem", color: C.muted, marginBottom: "4px" }}>Department name</div>
+            <RenameInline value={managing.name} label="Department name" onSave={(nv) => rename("department", managing, "", managing.name, nv)}>
+              {(edit) => (
+                <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+                  <span style={{ fontWeight: 600, fontSize: "0.9rem", overflowWrap: "anywhere" }}>{managing.name}</span>
+                  <button type="button" style={editLinkStyle} onClick={edit}>Edit</button>
+                </div>
+              )}
+            </RenameInline>
+            <div style={{ fontSize: "0.78rem", color: C.muted, margin: "10px 0 4px" }}>Abbreviation</div>
+            <RenameInline value={managing.abbr || ""} label="Abbreviation" onSave={(nv) => renameAbbr(managing, nv)}>
+              {(edit) => (
+                <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+                  <span style={{ fontWeight: 600, fontSize: "0.9rem" }}>{managing.abbr || "—"}</span>
+                  <button type="button" style={editLinkStyle} onClick={edit}>Edit</button>
+                </div>
+              )}
+            </RenameInline>
+          </div>
           {programsOf(managing).map((p) => (
             <div key={p.name} style={{ borderTop: `1px solid ${C.line}`, padding: "10px 0" }}>
-              <div style={{ fontWeight: 600, fontSize: "0.88rem" }}>{p.name}</div>
+              <RenameInline value={p.name} label="Program name" onSave={(nv) => rename("program", managing, "", p.name, nv)}>
+                {(edit) => (
+                  <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+                    <span style={{ fontWeight: 600, fontSize: "0.88rem", overflowWrap: "anywhere" }}>{p.name}</span>
+                    <button type="button" style={editLinkStyle} onClick={edit}>Edit</button>
+                  </div>
+                )}
+              </RenameInline>
               <div style={{ marginTop: "6px" }}>
                 {p.specializations.length === 0
                   ? <span style={{ fontSize: "0.78rem", color: C.muted }}>No majors</span>
-                  : p.specializations.map((m) => <span key={m} style={S.chip}>{m}</span>)}
+                  : p.specializations.map((m) => (
+                    <RenameInline key={m} value={m} label="Major name" onSave={(nv) => rename("major", managing, p.name, m, nv)}>
+                      {(edit) => (
+                        <span style={S.chip}>
+                          {m}
+                          <button type="button" onClick={edit} title="Edit major name" aria-label={`Edit major ${m}`} style={{ ...editLinkStyle, marginLeft: "8px", textDecoration: "none" }}>✎</button>
+                        </span>
+                      )}
+                    </RenameInline>
+                  ))}
               </div>
               <AddInline placeholder="Add a major to this program" onAdd={(v) => addMajor(managing, p.name, v)} />
             </div>
           ))}
-          <div data-tour="add-program" style={{ borderTop: `1px solid ${C.line}`, paddingTop: "10px" }}>
+          <div style={{ borderTop: `1px solid ${C.line}`, paddingTop: "10px" }}>
             <div style={{ fontSize: "0.8rem", fontWeight: 600 }}>Add a program to {managing.abbr || managing.name}</div>
             <AddInline placeholder="Program name" onAdd={(v) => addProgram(managing, v)} />
           </div>
@@ -1301,7 +1364,7 @@ const CoordinatorsTab = ({ admin, depts, flash }) => {
     setBusy(true);
     const res = await call("adminInviteCoordinator", { email: to, deptSelections: sel });
     setBusy(false);
-    if (res) { flash(`Invitation sent to ${to}. They set their own name and password from the email link.`); setEmail(""); setSel(emptySel()); setShowInvite(false); }
+    if (res) { logAdminActivity(`Invited ${to} as a coordinator.`); flash(`Invitation sent to ${to}. They set their own name and password from the email link.`); setEmail(""); setSel(emptySel()); setShowInvite(false); }
   };
 
   const saveDepts = async (uid) => {
@@ -1315,7 +1378,7 @@ const CoordinatorsTab = ({ admin, depts, flash }) => {
     setBusy(true);
     const res = await call("adminSetCoordinatorDepartments", { uid, deptSelections: editSel });
     setBusy(false);
-    if (res) { flash("Coordinator department updated."); setManagingKey(null); }
+    if (res) { logAdminActivity(`Updated the department of coordinator ${who?.name || who?.email || ""}.`.replace(" .", ".")); flash("Coordinator department updated."); setManagingKey(null); }
   };
 
   // Gives this coordinator admin access with the SAME login. They keep their coordinator account and can
@@ -1331,8 +1394,13 @@ const CoordinatorsTab = ({ admin, depts, flash }) => {
     const res = await call("adminPromoteCoordinator", { uid: c.uid });
     setBusy(false);
     if (res) {
+      logAdminActivity(`Gave admin access to ${who}.`);
       setAdminUids((prev) => new Set(prev).add(c.uid));
-      flash(res.data?.alreadyAdmin ? `${who} is already an admin.` : `${who} is now an admin. They can switch dashboards from the top bar.`);
+      flash(res.data?.alreadyAdmin
+        ? `${who} is already an admin.`
+        : res.data?.mailed === false
+          ? `${who} is now an admin, but the notification email could not be sent. Please tell them yourself.`
+          : `${who} is now an admin. We emailed them to let them know.`);
     }
   };
 
@@ -1352,7 +1420,7 @@ const CoordinatorsTab = ({ admin, depts, flash }) => {
       confirmLabel: "Cancel invitation", cancelLabel: "Keep it", tone: "danger",
     }))) return;
     setError("");
-    try { await updateDoc(doc(db, "coordinatorInvites", id), { status: "cancelled" }); flash("Invitation cancelled."); setManagingKey(null); }
+    try { await updateDoc(doc(db, "coordinatorInvites", id), { status: "cancelled" }); logAdminActivity(`Cancelled the coordinator invitation sent to ${inv?.toEmail || "an email"}.`); flash("Invitation cancelled."); setManagingKey(null); }
     catch (e) { console.error(e); setError("Could not cancel the invitation."); }
   };
 
@@ -1445,7 +1513,7 @@ const CoordinatorsTab = ({ admin, depts, flash }) => {
             <input value={search} name="mc-search" autoComplete="off" spellCheck={false} onChange={(e) => { setSearch(e.target.value); setPage(1); }} placeholder="Search coordinator name" />
             {search && <button type="button" aria-label="Clear search" onClick={() => { setSearch(""); setPage(1); }} style={{ background: "none", border: "none", color: inkMuted, cursor: "pointer", fontSize: "0.9rem", padding: 0, lineHeight: 1 }}>✕</button>}
           </div>
-          <div ref={filterRef} data-tour="filter" style={{ position: "relative" }}>
+          <div ref={filterRef} style={{ position: "relative" }}>
             <button type="button" title="Filters" aria-label="Filters" aria-expanded={showFilter} onClick={() => setShowFilter((v) => !v)}
               style={{ width: "40px", height: "40px", borderRadius: "999px", border: hasFilter ? `2px solid ${paperCard}` : "none", background: hasFilter ? paperCard : paper, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", padding: 0 }}>
               <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={hasFilter ? ink : inkMuted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" /></svg>
@@ -1517,7 +1585,7 @@ const CoordinatorsTab = ({ admin, depts, flash }) => {
             </>
           )}
         </div>
-        <button type="button" data-tour="invite" className="adm-btn-dark" style={S.btn} onClick={openInvite}>Invite a coordinator</button>
+        <button type="button" className="adm-btn-dark" style={S.btn} onClick={openInvite}>Invite a coordinator</button>
       </div>
 
       </div>
@@ -1576,7 +1644,7 @@ const CoordinatorsTab = ({ admin, depts, flash }) => {
 
       {/* ── Invite a coordinator (pop-up form) ── */}
       {showInvite && (
-        <DeptModal help="coord-invite" title="Invite a coordinator" onClose={closeInvite}
+        <DeptModal title="Invite a coordinator" onClose={closeInvite}
           footer={(
             <>
               <button type="button" style={S.btn2} disabled={busy} onClick={closeInvite}>Cancel</button>
@@ -1589,14 +1657,14 @@ const CoordinatorsTab = ({ admin, depts, flash }) => {
           </p>
           <label style={S.label}>Email address<Req /></label>
           <input style={S.input} type="email" name="invite-email" autoComplete="off" value={email} placeholder="name@school.edu.ph" onChange={(e) => setEmail(e.target.value)} />
-          <div data-tour="invite-depts" style={{ marginTop: "6px" }}><DeptSelectionsEditor depts={depts} value={sel} onChange={setSel} /></div>
+          <div style={{ marginTop: "6px" }}><DeptSelectionsEditor depts={depts} value={sel} onChange={setSel} /></div>
           {errorBox}
         </DeptModal>
       )}
 
       {/* ── Manage: summary + departments (pop-up) ── */}
       {managing && (
-        <DeptModal help={managing.kind === "invite" ? "coord-invite-pending" : "coord-manage"} title={managing.kind === "invite" ? "Pending invitation" : "Coordinator"} onClose={closeManage}
+        <DeptModal title={managing.kind === "invite" ? "Pending invitation" : "Coordinator"} onClose={closeManage}
           footer={managing.kind === "coord" ? (
             <>
               <button type="button" style={S.btn2} disabled={busy} onClick={closeManage}>Cancel</button>
@@ -1616,7 +1684,7 @@ const CoordinatorsTab = ({ admin, depts, flash }) => {
             <InfoRow label="Admin access">
               {adminUids.has(managing.ref.uid)
                 ? <span style={S.chip}>Admin</span>
-                : <button type="button" data-tour="promote" className="adm-btn-light" style={S.btn2} disabled={busy} onClick={() => promoteToAdmin(managing.ref)}>Promote to Admin</button>}
+                : <button type="button" className="adm-btn-light" style={S.btn2} disabled={busy} onClick={() => promoteToAdmin(managing.ref)}>Promote to Admin</button>}
             </InfoRow>
           )}
           {managing.kind === "invite" && managing.ref.createdAt?.toMillis && <InfoRow label="Invitation sent">{timeAgo(managing.ref.createdAt.toMillis())}</InfoRow>}
@@ -1627,7 +1695,7 @@ const CoordinatorsTab = ({ admin, depts, flash }) => {
           ) : (
             <div style={{ borderTop: `1px solid ${hairline}`, paddingTop: "12px" }}>
               <span style={{ fontFamily: FONT, fontSize: "0.82rem", fontWeight: 600, color: inkMuted }}>Departments</span>
-              <div data-tour="manage-depts" style={{ marginTop: "6px" }}><DeptSelectionsEditor depts={depts} value={editSel} onChange={setEditSel} /></div>
+              <div style={{ marginTop: "6px" }}><DeptSelectionsEditor depts={depts} value={editSel} onChange={setEditSel} /></div>
             </div>
           )}
           {errorBox}
@@ -1701,6 +1769,99 @@ const NotificationBell = ({ items, open, onToggle, onSelect }) => {
   );
 };
 
+// ═══════════════════════════ Activity Log ═══════════════════════════
+// Same log the coordinators have (Firestore "activity_logs", newest first). The admin sees EVERY entry
+// (all departments, no scope filter) plus their own actions, which are written by logAdminActivity.
+//   coordinator entries: { description, coordinatorUid, createdAt }   (written by the coordinator screens)
+//   admin entries:       { description, actorRole: "admin", adminUid, createdAt }
+// Needs firestore.rules to let admins read activity_logs and create entries with actorRole "admin".
+// The "new" badge counts entries from other people since the log was last opened; that timestamp is
+// kept in this browser (localStorage), so no extra Firestore write or rule is needed.
+const logAdminActivity = (description) => {
+  const u = auth.currentUser;
+  if (!u) return;
+  addDoc(collection(db, "activity_logs"), {
+    description, actorRole: "admin", adminUid: u.uid, createdAt: serverTimestamp(),
+  }).catch((e) => console.error("Failed to write activity log:", e));   // never blocks the action itself
+};
+
+const ActivityLogBell = ({ items, names, myUid, open, onToggle }) => {
+  const { isMobile, isTablet } = useBreakpoint();
+  const seenKey = `ojtern_admin_activity_seen_${myUid}`;
+  const [lastSeen, setLastSeen] = useState(() => {
+    try { return Number(window.localStorage.getItem(seenKey)) || 0; } catch { return 0; }
+  });
+  const whoOf = (e) => names[e.adminUid || e.coordinatorUid] || "Unknown";
+  const isMine = (e) => (e.adminUid || e.coordinatorUid) === myUid;
+  const ms = (e) => (e.createdAt?.seconds || 0) * 1000;
+  const unread = items.filter((e) => !isMine(e) && ms(e) > lastSeen).length;
+
+  const toggle = () => {
+    if (!open) {
+      const now = Date.now();
+      setLastSeen(now);
+      try { window.localStorage.setItem(seenKey, String(now)); } catch { /* private mode: badge just resets next visit */ }
+    }
+    onToggle();
+  };
+
+  const th = { textAlign: "left", padding: "8px 12px", fontSize: "0.72rem", color: inkMuted, fontWeight: 600, whiteSpace: "nowrap" };
+  return (
+    <div style={{ position: "relative" }}>
+      <div style={{ cursor: "pointer", padding: "8px", position: "relative" }} onClick={toggle} title="Activity Log" aria-label="Activity Log" role="button">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 3" />
+        </svg>
+        {unread > 0 && (
+          <span style={{ position: "absolute", top: "4px", right: "4px", background: paper, color: ink, borderRadius: "50%", minWidth: "16px", height: "16px", fontSize: "0.65rem", fontFamily: uiFont, fontWeight: "bold", display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px", lineHeight: 1 }}>
+            {unread > 9 ? "9+" : unread}
+          </span>
+        )}
+      </div>
+      {open && (
+        <>
+          <div onClick={onToggle} style={{ position: "fixed", inset: 0, zIndex: 998 }} />
+          <div style={(isMobile || isTablet) ? {
+            position: "fixed", top: "76px", right: "12px", width: "min(320px, 88vw)", maxHeight: "min(45vh, 340px)", overflowY: "auto", overflowX: "hidden",
+            background: paper, border: `1px solid ${hairline}`, borderRadius: "16px", boxShadow: "0 8px 24px rgba(0,0,0,0.18)", zIndex: 999,
+          } : {
+            position: "absolute", top: "50px", right: 0, width: "min(560px, 90vw)", maxHeight: "320px", overflowY: "auto",
+            background: paper, border: `1px solid ${hairline}`, borderRadius: "16px", boxShadow: "0 8px 24px rgba(0,0,0,0.18)", zIndex: 999,
+          }}>
+            <div style={{ padding: "12px 14px", borderBottom: `1px solid ${hairline}`, fontFamily: uiFont, fontWeight: 600, fontSize: "1rem", color: inkText, position: "sticky", top: 0, background: paper }}>
+              Activity Log
+            </div>
+            {items.length === 0 ? (
+              <div style={{ padding: "24px 14px", textAlign: "center", fontFamily: uiFont, fontSize: "0.82rem", color: inkMuted }}>No recent activity yet.</div>
+            ) : (
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: uiFont }}>
+                  <thead>
+                    <tr style={{ background: paperCard }}>
+                      <th style={th}>Activity</th><th style={th}>Date</th><th style={th}>By</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {items.map((e) => (
+                      <tr key={e.id} style={{ borderTop: `1px solid ${hairline}` }}>
+                        <td style={{ padding: "9px 12px", fontSize: "0.8rem", color: inkText }}>{e.description}</td>
+                        <td style={{ padding: "9px 12px", fontSize: "0.74rem", color: inkMuted, whiteSpace: "nowrap" }}>{ms(e) ? timeAgo(ms(e)) : ""}</td>
+                        <td style={{ padding: "9px 12px", fontSize: "0.78rem", color: inkMuted, whiteSpace: "nowrap" }}>
+                          {isMine(e) ? "You" : whoOf(e)}{e.actorRole === "admin" && !isMine(e) ? " (admin)" : ""}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+};
+
 // ═══════════════════════════ Account Profile ═══════════════════════════
 const PasswordChecklist = ({ password }) => {
   if (!password) return null;
@@ -1757,8 +1918,7 @@ const emailChangeMessage = (err) => {
 // Server side: functions/adminFunctions.js (adminAddAdmin, adminTransferAdmin, adminCancelTransfer,
 // adminCompleteTransfer).
 // Pop-up shell + inputs for the Account Profile forms.
-const ApModal = ({ title, sub, onClose, footer, children, help }) => {
-  useHelpTopic(help);
+const ApModal = ({ title, sub, onClose, footer, children }) => {
   useEffect(() => {
     const onKey = (e) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", onKey);
@@ -1892,7 +2052,7 @@ const AdminAccountModal = ({ mode, pending, onChanged, flash, confirm, onClose }
   const transferPending = mode === "transfer" && !!pending;
   const showForm = !info && !transferPending;
   return (
-    <ApModal help={mode === "add" ? "profile-admin-add" : "profile-admin-transfer"} title={mode === "add" ? "Add administrator account" : "Transfer administrator account"} onClose={close}
+    <ApModal title={mode === "add" ? "Add administrator account" : "Transfer administrator account"} onClose={close}
       sub={mode === "add"
         ? "They get an email with an Accept Invitation button, then enter their own name and password. Nothing is shared."
         : "They get an email with an Accept Invitation button, then enter their own name and password. You keep access until they sign in once. After that your account is switched off and you are signed out."}
@@ -2183,7 +2343,6 @@ const AccountProfile = ({ admin, flash }) => {
   const screenRef = useRef(null);
   const fitH = useFillHeight(screenRef, view);
   const [modal, setModal] = useState(null);      // null | email | password | add | transfer
-  useHelpTopic(view === "main" ? null : `profile-${view}`);   // personal | terms | privacy get their own guide
 
   const loadName = async () => {
     try {
@@ -2334,7 +2493,7 @@ const AccountProfile = ({ admin, flash }) => {
         <div className="ap-sub-body">
           {!editingName && (
             <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "16px" }}>
-              <button type="button" data-tour="pi-edit" className="ap-edit-btn" onClick={() => { setNameDraft(name); setNameError(""); setEditingName(true); }}>
+              <button type="button" className="ap-edit-btn" onClick={() => { setNameDraft(name); setNameError(""); setEditingName(true); }}>
                 <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>
                 Edit
               </button>
@@ -2342,7 +2501,7 @@ const AccountProfile = ({ admin, flash }) => {
           )}
           {loadError && <div role="alert" style={S.err}>{loadError}</div>}
 
-          <div className="ap-info-card" data-tour="pi-name">
+          <div className="ap-info-card">
             <p className="ap-info-label">Name{editingName && <Req />}</p>
             {!editingName ? (
               <p className="ap-info-value">{name || "—"}</p>
@@ -2353,17 +2512,17 @@ const AccountProfile = ({ admin, flash }) => {
               </>
             )}
           </div>
-          <div className="ap-info-card" data-tour="pi-email">
+          <div className="ap-info-card">
             <p className="ap-info-label">Email address</p>
             <p className="ap-info-value">{admin.email || "—"}</p>
           </div>
-          <div className="ap-info-card" data-tour="pi-role">
+          <div className="ap-info-card">
             <p className="ap-info-label">Role</p>
             <p className="ap-info-value">Administrator</p>
           </div>
 
           {editingName && (
-            <div data-tour="pi-save" style={{ display: "flex", justifyContent: "flex-end", gap: "8px", marginTop: "4px" }}>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px", marginTop: "4px" }}>
               <button type="button" style={S.btn2} disabled={savingName} onClick={async () => {
                 if (norm(nameDraft) !== norm(name)
                   && !(await confirm({ title: "Cancel changes", body: "Are you sure you want to cancel? Your changes will be discarded.", confirmLabel: "Discard changes", cancelLabel: "Keep editing", tone: "danger" }))) return;
@@ -2401,7 +2560,7 @@ const AccountProfile = ({ admin, flash }) => {
         </div>
         <div className="ap-group">
           <p className="ap-group-title">Security:</p>
-          <MenuRow icon="mail" label="Change Email" onClick={openEmail} />
+          <MenuRow icon="mail" label="Sign-in Email" onClick={openEmail} />
           <MenuRow icon="key" label="Change Password" onClick={openPassword} />
         </div>
         <div className="ap-group">
@@ -2418,7 +2577,7 @@ const AccountProfile = ({ admin, flash }) => {
 
       {/* ── Pop-up forms ── */}
       {modal === "email" && (
-        <ApModal help={emailStep === "form" ? "profile-email" : "profile-email-code"} title="Sign-in email" onClose={closeModal}
+        <ApModal title="Sign-in email" onClose={closeModal}
           sub="This is the email you sign in with, and where password reset links are sent. We’ll send a 6-digit code to the new address to confirm it’s yours."
           footer={
             <>
@@ -2442,7 +2601,7 @@ const AccountProfile = ({ admin, flash }) => {
       )}
 
       {modal === "password" && (
-        <ApModal help="profile-password" title="Change password" sub="Enter your current password, then choose a new one." onClose={closeModal}
+        <ApModal title="Change password" sub="Enter your current password, then choose a new one." onClose={closeModal}
           footer={(
             <>
               <button type="button" className="ap-fbtn ghost" disabled={pwBusy} onClick={closeModal}>Cancel</button>
@@ -2452,7 +2611,7 @@ const AccountProfile = ({ admin, flash }) => {
           <ApPassword label="Current password" autoComplete="current-password" value={pw.current} onChange={(e) => setPw({ ...pw, current: e.target.value })} />
           <hr className="ap-hr" />
           <ApPassword label="New password" autoComplete="new-password" value={pw.next} onChange={(e) => setPw({ ...pw, next: e.target.value })} />
-          <div data-tour="pw-checklist"><PasswordChecklist password={pw.next} /></div>
+          <PasswordChecklist password={pw.next} />
           <ApPassword label="Confirm new password" autoComplete="new-password" value={pw.confirm} onChange={(e) => setPw({ ...pw, confirm: e.target.value })} />
           {pwError && <div role="alert" style={S.err}>{pwError}</div>}
         </ApModal>
@@ -2462,526 +2621,6 @@ const AccountProfile = ({ admin, flash }) => {
         <AdminAccountModal mode={modal} pending={pending} onChanged={loadName} flash={flash} confirm={confirm} onClose={() => setModal(null)} />
       )}
     </div>
-  );
-};
-
-// ═══════════════════════════ Help: guided tour + floating "?" button ═══════════════════════════
-// Same way of guiding as the Student dashboard: driver.js (dimmed page, highlighted element, a small
-// popover with "1 of N", Previous / Next and ✕). Every module has its own tour. It starts by itself the
-// first time this admin opens that module (remembered per admin, in this browser), and the floating "?"
-// button replays it at any time. No welcome screen: it goes straight to pointing things out.
-//
-// A step points at an element with a list of CSS selectors; the first match that is actually visible wins,
-// so one step can cover both the desktop and the mobile layout. A step whose target is not on screen
-// (no rows yet, a sub-page) is left out, so the tour never points at nothing.
-const TOUR_TOPBAR = [
-  { target: ['[aria-label="Notifications"]'], title: "Notifications", body: "Updates land here, for example when a coordinator accepts an invitation, finishes setting up, or hasn't accepted after 7 days. Tap one to jump straight to it." },
-  { target: ['[aria-label="About"]'], title: "About OJTern", body: "Learn more about OJTern and the team behind it." },
-];
-
-const TOUR_PAGINATION = { target: ['nav[aria-label="Pagination"]'], title: "Pages", body: "Lists show 10 entries per page. Use the arrows or the page numbers to move through them." };
-
-const TOURS = {
-  departments: [
-    { target: [".dp-search"], title: "Search", body: "Type a department or program name to narrow the list." },
-    { target: ['[data-tour="filter"]'], title: "Filter", body: "Pick a department first, then its programs and majors appear. Active filters show as chips under the header, with a Clear option." },
-    { target: ['[data-tour="add-dept"]'], title: "Add a department", body: "Create a department together with its first program (majors are optional). The name and abbreviation can't be changed after saving, so double-check them." },
-    { target: [".dp-row"], title: "Department list", body: "Each row is a department with its program and major counts. Tap a row, or Manage, to add programs to it or majors to a program. Nothing can be renamed or deleted, because student, company and coordinator records store these names." },
-    TOUR_PAGINATION,
-    ...TOUR_TOPBAR,
-  ],
-  coordinators: [
-    { target: [".dp-search"], title: "Search", body: "Search for a coordinator by name." },
-    { target: ['[data-tour="filter"]'], title: "Filter", body: "Show only the coordinators and pending invitations of one department, program or major." },
-    { target: ['[data-tour="invite"]'], title: "Invite a coordinator", body: "Enter their email and choose the department (and optionally the program or major) they will handle. They receive an email link and set their own name and password, so no password is ever shared." },
-    { target: [".mc-table tbody tr:first-child", ".mc-cards .mc-card:first-child"], title: "Coordinators & invitations", body: "Each entry is either a coordinator or a pending invitation, shown with its department and status." },
-    { target: [".mc-table tbody .adm-btn-light", ".mc-cards .mc-card .adm-btn-light"], title: "Manage", body: "Change the departments a coordinator handles or promote them to Admin. For a pending invitation you can resend or cancel it." },
-    TOUR_PAGINATION,
-  ],
-  accountprofile: [
-    { target: [".ap-header-card"], title: "Your profile", body: "The administrator account you are signed in with." },
-    { target: [".ap-body .ap-group:nth-child(1)"], title: "Personal Information", body: "View your details and edit your name." },
-    { target: [".ap-body .ap-group:nth-child(2)"], title: "Security", body: "Change your sign-in email (we send a 6-digit code to the new address to confirm it) or your password." },
-    { target: [".ap-body .ap-group:nth-child(3)"], title: "Administrator accounts", body: "Add Account invites another administrator. Transfer Account hands your administrator role to someone else; your access ends once they accept the invitation and sign in for the first time." },
-    { target: [".ap-body .ap-group:nth-child(4)"], title: "Legal", body: "Read the Terms & Conditions and the Privacy Policy." },
-  ],
-  // ── About ──
-  about: [
-    { target: [".adm-main"], title: "About OJTern", body: "Learn what OJTern is for and the team behind it. Scroll down to read the whole page." },
-    { title: "Leaving this page", body: "Use the page's back button, or pick Departments, Coordinators or Account Profile in the sidebar." },
-  ],
-
-  // ── Account Profile: full screens ──
-  "profile-personal": [
-    { target: [".ap-sub-header .ap-back"], title: "Back", body: "Return to Account Profile." },
-    { target: ['[data-tour="pi-edit"]'], title: "Edit", body: "Tap Edit to change your name. Your email and role can't be edited here." },
-    { target: ['[data-tour="pi-name"]'], title: "Name", body: "The name shown across OJTern for your administrator account." },
-    { target: ['[data-tour="pi-email"]'], title: "Email address", body: "The email you sign in with. To change it, go back and use Change Email under Security." },
-    { target: ['[data-tour="pi-role"]'], title: "Role", body: "Your role in OJTern. This account is an Administrator." },
-    { target: [".ap-name-input"], title: "Your name", body: "Type your new name (up to 60 characters)." },
-    { target: ['[data-tour="pi-save"]'], title: "Save or cancel", body: "Save asks you to confirm before your name is updated. Cancel discards what you typed." },
-  ],
-  "profile-terms": [
-    { target: [".ap-legal .ap-back"], title: "Back", body: "Return to Account Profile." },
-    { target: [".ap-legal-progress"], title: "Reading progress", body: "This thin line fills up as you scroll through the Terms and Conditions." },
-    { target: [".ap-legal-toc"], title: "On this page", body: "Jump straight to any section. The one you're reading is highlighted." },
-    { target: [".ap-legal-scroll"], title: "Terms and Conditions", body: "The rules for using OJTern. Scroll to read them; email addresses in the text are tappable." },
-  ],
-  "profile-privacy": [
-    { target: [".ap-legal .ap-back"], title: "Back", body: "Return to Account Profile." },
-    { target: [".ap-legal-progress"], title: "Reading progress", body: "This thin line fills up as you scroll through the Privacy Policy." },
-    { target: [".ap-legal-toc"], title: "On this page", body: "Jump straight to any section. The one you're reading is highlighted." },
-    { target: [".ap-legal-scroll"], title: "Privacy Policy", body: "How OJTern collects, uses and protects personal data. Scroll to read it; email addresses in the text are tappable." },
-  ],
-
-  // ── Account Profile: pop-ups ──
-  "profile-email": [
-    { target: [".ap-modal-sub"], title: "Sign-in email", body: "This is the email you sign in with, and where password reset links are sent." },
-    { target: [".ap-modal-body .ap-input"], title: "New email", body: "Type the address you want to use from now on, then your current password to confirm it's you." },
-    { target: [".ap-modal-footer"], title: "Send code", body: "We email a 6-digit code to the new address. Cancel closes this pop-up without changing anything." },
-  ],
-  "profile-email-code": [
-    { target: [".ap-modal-body .ap-input"], title: "6-digit code", body: "Enter the code we sent to your new email. It expires in 10 minutes." },
-    { target: [".ap-modal-footer"], title: "Confirm", body: "Confirm switches your sign-in email. You'll then be signed out and must sign in again with the new email." },
-  ],
-  "profile-password": [
-    { target: [".ap-modal-sub"], title: "Change password", body: "Enter your current password first, then choose a new one." },
-    { target: ['[data-tour="pw-checklist"]'], title: "Password rules", body: "Your new password has to meet every requirement in this list. Each one ticks off as you type." },
-    { target: [".ap-modal-footer"], title: "Save or cancel", body: "Change password asks you to confirm first. Cancel closes this pop-up (you're asked before anything you typed is discarded)." },
-  ],
-  "profile-admin-add": [
-    { target: [".ap-modal-sub"], title: "Add administrator account", body: "The new administrator gets an email with an Accept Invitation button and then sets their own name and password. Nothing is shared." },
-    { target: [".ap-modal-body .ap-input"], title: "Their email", body: "Type the new administrator's email, then your current password to confirm." },
-    { target: [".ap-modal-footer"], title: "Send invitation", body: "Sends the invitation email. Invitations still waiting to be accepted are listed here, where you can cancel them." },
-  ],
-  "profile-admin-transfer": [
-    { target: [".ap-modal-sub"], title: "Transfer administrator account", body: "Hands your administrator role to someone else. You keep access until they accept the invitation and sign in once; after that your account is switched off." },
-    { target: [".ap-modal-body .ap-input"], title: "New administrator's email", body: "Type the email of the person taking over, then your current password to confirm." },
-    { target: [".ap-modal-body input[type=\"checkbox\"]"], title: "Acknowledge", body: "Tick the box to confirm you understand your administrator access will end." },
-    { target: [".ap-modal-footer"], title: "Start transfer", body: "Starts the transfer. If one is already pending you can cancel it from this pop-up." },
-  ],
-  namegate: [
-    { target: [".ap-modal-body .ap-input"], title: "Your name", body: "Type your name (up to 60 characters). It's shown across OJTern. This step can't be skipped." },
-    { target: [".ap-modal-footer"], title: "Continue", body: "Saves your name and opens the dashboard, where a short guide shows you around." },
-  ],
-
-  // ── Departments & Coordinators: pop-ups ──
-  "dept-add": [
-    { target: ['[data-tour="dept-name"]'], title: "Department name", body: "The full name, for example College of Nursing. It can't be changed after saving." },
-    { target: ['[data-tour="dept-abbr"]'], title: "Abbreviation", body: "A short code of up to 10 characters, like CON. It can't be changed later either." },
-    { target: ['[data-tour="dept-program"]'], title: "First program", body: "Every department starts with one program, such as Bachelor of Science in Nursing. You can add more later." },
-    { target: ['[data-tour="dept-majors"]'], title: "Majors (optional)", body: "Majors of that program, separated by commas. Leave it blank if it has none, and don't put the major in the program name." },
-    { target: [".dp-modal-footer"], title: "Save or cancel", body: "Add department saves it. Cancel closes this pop-up without saving." },
-    { target: ['.dp-modal [aria-label="Close"]'], title: "Close", body: "The ✕ closes the pop-up, same as Cancel." },
-  ],
-  "dept-manage": [
-    { target: [".dp-modal-body > div"], title: "Programs and majors", body: "Each block is a program with its majors. Type in the box to add a major to that program; it's saved right away." },
-    { target: ['[data-tour="add-program"]'], title: "Add a program", body: "Add another program to this department. Majors are always added to a specific program." },
-    { target: [".dp-modal-footer"], title: "Done", body: "Closes this pop-up. Nothing can be renamed or deleted, because student, company and coordinator records store these names." },
-    { target: ['.dp-modal [aria-label="Close"]'], title: "Close", body: "The ✕ does the same as Done." },
-  ],
-  "coord-invite": [
-    { target: ['input[name="invite-email"]'], title: "Email address", body: "Where the invitation link is sent. They set their own name and password, so no password is ever shared." },
-    { target: ['[data-tour="invite-depts"]'], title: "Department they handle", body: "Choose a department, and optionally a program or major. Use + Add another department if they handle more than one." },
-    { target: [".dp-modal-footer"], title: "Send or cancel", body: "Send invitation emails the link. Cancel closes this pop-up without sending." },
-    { target: ['.dp-modal [aria-label="Close"]'], title: "Close", body: "The ✕ closes the pop-up, same as Cancel." },
-  ],
-  "coord-manage": [
-    { target: [".dp-modal-body"], title: "Coordinator details", body: "Name, email and status of this coordinator." },
-    { target: ['[data-tour="promote"]'], title: "Promote to Admin", body: "Gives this person administrator access." },
-    { target: ['[data-tour="manage-depts"]'], title: "Departments", body: "Change which departments, programs or majors this coordinator handles." },
-    { target: [".dp-modal-footer"], title: "Save or cancel", body: "Save changes becomes available once you change something. Cancel closes this pop-up without saving." },
-  ],
-  "coord-invite-pending": [
-    { target: [".dp-modal-body"], title: "Invitation details", body: "Who was invited, when it was sent, its status and the department they will handle." },
-    { target: [".dp-modal-footer"], title: "What you can do", body: "Resend sends the email again. Cancel invitation withdraws it. Close just closes this pop-up." },
-    { target: ['.dp-modal [aria-label="Close"]'], title: "Close", body: "The ✕ does the same as Close." },
-  ],
-
-  // ── Confirmation dialogs ──
-  confirm: [
-    { target: ['[data-tour="confirm-card"]'], title: "Are you sure?", body: "OJTern asks before it adds, saves, cancels or sends anything. Read the message to make sure it's what you meant." },
-    { target: ['[data-tour="confirm-ok"]'], title: "Confirm", body: "Goes ahead with the action." },
-    { target: ['[data-tour="confirm-cancel"]'], title: "Cancel", body: "Goes back without doing anything." },
-  ],
-  logout: [
-    { target: ['[data-tour="confirm-card"]'], title: "Log Out", body: "Signing out ends your administrator session on this device." },
-    { target: ['[data-tour="confirm-ok"]'], title: "Log Out", body: "Signs you out and takes you to the sign-in page." },
-    { target: ['[data-tour="confirm-cancel"]'], title: "Cancel", body: "Stay signed in and go back." },
-  ],
-};
-
-const AUTO_TOUR_KEYS = new Set(["departments", "coordinators", "accountprofile"]);   // guides that start by themselves the first time
-
-const AUTO_TOUR_DELAY_MS = 450;     // same pause the Student dashboard waits before its auto-tour
-const AUTO_TOUR_MAX_WAIT_MS = 2000; // …then up to this long for lists to fill in from Firestore
-
-const tourSeenKey = (uid) => `ojtern_admin_tour_seen_${uid}`;
-const readTourSeen = (uid) => { try { return JSON.parse(localStorage.getItem(tourSeenKey(uid)) || "{}") || {}; } catch { return {}; } };
-const writeTourSeen = (uid, v) => { try { localStorage.setItem(tourSeenKey(uid), JSON.stringify(v)); } catch { /* storage blocked: the tour may show again next visit */ } };
-
-const findTourTarget = (selectors) => {
-  for (const sel of selectors || []) {
-    let list;
-    try { list = document.querySelectorAll(sel); } catch { continue; }
-    for (const el of list) if (el.getClientRects().length > 0) return el;
-  }
-  return null;
-};
-
-// Scrolls each scrollable ancestor of `el` just enough that it is fully visible inside it
-// (driver.js only knows about the window's scroll, not the scroll boxes inside this layout).
-const scrollIntoScrollParents = (el) => {
-  const PAD = 12;
-  let moved = false;
-  for (let p = el.parentElement; p && p !== document.body; p = p.parentElement) {
-    if (p.scrollHeight <= p.clientHeight + 1) continue;
-    if (!/(auto|scroll|hidden|overlay)/.test(getComputedStyle(p).overflowY)) continue;
-    const pr = p.getBoundingClientRect();
-    const er = el.getBoundingClientRect();
-    let delta = 0;
-    if (er.height > pr.height - PAD * 2 || er.top < pr.top + PAD) delta = er.top - (pr.top + PAD);
-    else if (er.bottom > pr.bottom - PAD) delta = er.bottom - (pr.bottom - PAD);
-    if (Math.abs(delta) > 1) {
-      const before = p.scrollTop;
-      p.scrollTop = before + delta;
-      if (p.scrollTop !== before) moved = true;
-    }
-  }
-  return moved;
-};
-
-let activeTourDriver = null;
-const stopTour = () => { try { activeTourDriver?.destroy(); } catch { /* already gone */ } activeTourDriver = null; };
-
-// Same setup as the Student dashboard's runTour: while a tour runs the page can't be scrolled or clicked
-// (only the popover's own buttons respond), and the tour ends only with ✕ or "Done".
-const runTour = (rawSteps) => {
-  if (activeTourDriver) return;
-
-  // Steps whose target isn't on screen right now are dropped.
-  const steps = (rawSteps || [])
-    .map((s) => {
-      const popover = { title: s.title, description: s.body };
-      if (!s.target) return { popover };
-      const element = findTourTarget(s.target);
-      return element ? { element, popover } : null;
-    })
-    .filter(Boolean);
-
-  // Lock EVERY element that is currently scrollable, then restore them all on close.
-  const scrollLockTargets = [...document.querySelectorAll("body *")].filter((el) => {
-    if (el.scrollHeight <= el.clientHeight + 1) return false;
-    const oy = getComputedStyle(el).overflowY;
-    return oy === "auto" || oy === "scroll" || oy === "overlay";
-  });
-  const initialScrollTop = scrollLockTargets.map((el) => el.scrollTop);
-  const prevOverflowY = scrollLockTargets.map((el) => el.style.overflowY || "");
-  const lockedScrollTop = scrollLockTargets.map((el) => el.scrollTop);
-  let allowTourScroll = false;   // driver's own scroll to the next step is let through; user / momentum scroll snaps back
-  const snapBack = () => {
-    if (allowTourScroll) return;
-    scrollLockTargets.forEach((el, i) => { el.scrollTop = lockedScrollTop[i]; });
-  };
-  scrollLockTargets.forEach((el) => { el.style.overflowY = "hidden"; el.addEventListener("scroll", snapBack); });
-  const restoreScroll = () => {
-    scrollLockTargets.forEach((el, i) => {
-      el.removeEventListener("scroll", snapBack);
-      el.style.overflowY = prevOverflowY[i];
-      if (el.isConnected) el.scrollTop = initialScrollTop[i];
-    });
-  };
-
-  // Block clicks outside the popover (capture phase, before React), and swallow Esc so only ✕ / Done end the tour.
-  const blockOutsidePopover = (e) => {
-    if (e.target?.closest?.(".driver-popover")) return;
-    e.preventDefault();
-    e.stopImmediatePropagation();
-  };
-  const BLOCKED_EVENTS = ["click", "dblclick", "auxclick", "contextmenu"];
-  BLOCKED_EVENTS.forEach((ev) => window.addEventListener(ev, blockOutsidePopover, true));
-  const blockEscape = (e) => { if (e.key === "Escape" || e.key === "Esc") { e.preventDefault(); e.stopImmediatePropagation(); } };
-  ["keydown", "keyup"].forEach((ev) => window.addEventListener(ev, blockEscape, true));
-  const unblockClicks = () => {
-    BLOCKED_EVENTS.forEach((ev) => window.removeEventListener(ev, blockOutsidePopover, true));
-    ["keydown", "keyup"].forEach((ev) => window.removeEventListener(ev, blockEscape, true));
-  };
-
-  let resizeObserver = null;
-  const tourDriver = driver({
-    showProgress: steps.length > 1,
-    allowClose: true,
-    showButtons: ["next", "previous", "close"],
-    onDestroyed: () => { restoreScroll(); unblockClicks(); resizeObserver?.disconnect(); if (activeTourDriver === tourDriver) activeTourDriver = null; },
-    onHighlighted: (element) => {
-      // Keep the highlight glued to the target if its size changes while it's showing (a list filling in, etc.).
-      resizeObserver?.disconnect();
-      if (element && typeof ResizeObserver !== "undefined") {
-        resizeObserver = new ResizeObserver(() => tourDriver?.refresh?.());
-        resizeObserver.observe(element);
-      }
-      setTimeout(() => {
-        scrollLockTargets.forEach((el, i) => { lockedScrollTop[i] = el.scrollTop; });
-        allowTourScroll = false;
-      }, 60);
-    },
-    onHighlightStarted: (element) => {
-      allowTourScroll = true;
-      resizeObserver?.disconnect();
-      resizeObserver = null;
-      if (element && scrollIntoScrollParents(element)) requestAnimationFrame(() => tourDriver?.refresh?.());
-    },
-    steps: steps.length > 0
-      ? steps
-      : [{ popover: { title: "Help", description: "There's no guided tour for this page yet." } }],
-  });
-  activeTourDriver = tourDriver;
-  tourDriver.drive();
-};
-
-// Floating "?" help button: same look and behaviour as the Student dashboard's.
-//  • Mouse: hover it for 1 second (a ring fades in around it) and it follows the cursor; click
-//    anywhere to drop it there, Esc to drop it. A normal click before the 1s is up opens the guide.
-//  • Touch / pen: hold and move to drag straight away; a plain tap opens the guide.
-//  • After a drag it glides to the nearer side; the spot is remembered on this device.
-//  • Untouched for 10 seconds: fades to low opacity (and the pulse ring stops).
-const HELP_FAB_SIZE         = 56;
-const HELP_FAB_EDGE         = 12;      // min gap kept from every screen edge
-const HELP_FAB_HOVER_FOLLOW = 1000;    // mouse: hover this long → it follows the cursor
-const HELP_FAB_DRAG_START   = 6;       // touch: px of finger movement that starts a drag
-const HELP_FAB_POS_KEY      = "ojtern.adminHelpFabPos";
-const HELP_FAB_SNAP_GAP     = 24;      // space kept from the side it snaps to
-const HELP_FAB_TOP_MIN      = 86;      // stay below the 70px top bar (+ gap)
-const HELP_FAB_IDLE_MS      = 10000;   // fade after 10s untouched
-
-const clampHelpFabPos = ({ x, y }) => ({
-  x: Math.min(Math.max(HELP_FAB_EDGE, x), Math.max(HELP_FAB_EDGE, window.innerWidth  - HELP_FAB_SIZE - HELP_FAB_EDGE)),
-  y: Math.min(Math.max(HELP_FAB_EDGE, y), Math.max(HELP_FAB_EDGE, window.innerHeight - HELP_FAB_SIZE - HELP_FAB_EDGE)),
-});
-
-// Where it settles after being let go: the nearer LEFT or RIGHT side, with a gap, keeping the height
-// it was dropped at but never under the top bar or off the bottom.
-const snapHelpFabPos = ({ x, y }) => {
-  const w = window.innerWidth, h = window.innerHeight;
-  const toLeft = x + HELP_FAB_SIZE / 2 < w / 2;
-  const maxY = Math.max(HELP_FAB_TOP_MIN, h - HELP_FAB_SIZE - HELP_FAB_SNAP_GAP);
-  return {
-    x: toLeft ? HELP_FAB_SNAP_GAP : Math.max(HELP_FAB_SNAP_GAP, w - HELP_FAB_SIZE - HELP_FAB_SNAP_GAP),
-    y: Math.min(Math.max(HELP_FAB_TOP_MIN, y), maxY),
-  };
-};
-
-const HelpFab = ({ onOpen }) => {
-  const [pos, setPos] = useState(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem(HELP_FAB_POS_KEY) || "null");
-      if (saved && Number.isFinite(saved.x) && Number.isFinite(saved.y)) return snapHelpFabPos(saved);
-    } catch { /* storage unavailable: use the default corner */ }
-    return null;   // null = default bottom-right corner
-  });
-  const [dragging, setDragging] = useState(false);
-  const [snapping, setSnapping] = useState(false);
-  const [idle, setIdle]         = useState(false);
-  const [arming, setArming]     = useState(false);   // mouse hover countdown running
-
-  const idleTimer     = useRef(null);
-  const snapTimer     = useRef(null);
-  const hoverTimer    = useRef(null);
-  const followCleanup = useRef(null);
-  const hovering      = useRef(false);
-  const following     = useRef(false);
-  const dragActive    = useRef(false);
-  const suppressClick = useRef(false);   // swallow the click that ends a drag
-  const posRef        = useRef(pos);
-  const pressStart    = useRef(null);    // { x, y } where a touch press began
-  const grabOffset    = useRef({ x: 0, y: 0 });
-  const lastMouse     = useRef({ x: 0, y: 0 });
-
-  useEffect(() => { posRef.current = pos; }, [pos]);
-
-  // Any interaction wakes it to full opacity and restarts the 10s countdown (paused while hovered or dragged).
-  const scheduleIdle = () => {
-    clearTimeout(idleTimer.current);
-    idleTimer.current = setTimeout(() => {
-      if (!hovering.current && !dragActive.current) setIdle(true);
-    }, HELP_FAB_IDLE_MS);
-  };
-  const wake = () => { setIdle(false); scheduleIdle(); };
-
-  useEffect(() => {
-    const onResize = () => setPos((p) => (p ? snapHelpFabPos(p) : p));
-    window.addEventListener("resize", onResize);
-    scheduleIdle();   // first 10s countdown starts on mount
-    return () => {
-      window.removeEventListener("resize", onResize);
-      clearTimeout(idleTimer.current);
-      clearTimeout(snapTimer.current);
-      clearTimeout(hoverTimer.current);
-      followCleanup.current?.();
-    };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Glide to the nearer side (with a gap), then remember that spot.
-  const settle = () => {
-    if (!posRef.current) return;
-    const snapped = snapHelpFabPos(posRef.current);
-    setSnapping(true);
-    setPos(snapped);
-    clearTimeout(snapTimer.current);
-    snapTimer.current = setTimeout(() => setSnapping(false), 360);
-    try { localStorage.setItem(HELP_FAB_POS_KEY, JSON.stringify(snapped)); } catch { /* ignore */ }
-  };
-
-  // ── Mouse: hover 1s → follow the cursor, click anywhere to drop ──
-  const stopFollowing = () => {
-    if (!following.current) return;
-    following.current = false;
-    dragActive.current = false;
-    followCleanup.current?.();
-    followCleanup.current = null;
-    setDragging(false);
-    settle();
-    scheduleIdle();
-  };
-
-  const startFollowing = () => {
-    following.current = true;
-    dragActive.current = true;
-    setArming(false);
-    setDragging(true);
-    const half = HELP_FAB_SIZE / 2;
-    const place = (x, y) => setPos(clampHelpFabPos({ x: x - half, y: y - half }));
-    place(lastMouse.current.x, lastMouse.current.y);
-    const onMove = (ev) => place(ev.clientX, ev.clientY);
-    // The click that drops it must not ALSO press whatever is underneath (or open the guide): swallow exactly that click.
-    const swallowClick = (ev) => {
-      ev.preventDefault();
-      ev.stopImmediatePropagation();
-      window.removeEventListener("click", swallowClick, true);
-    };
-    const onDown = (ev) => {
-      ev.preventDefault();
-      ev.stopPropagation();
-      window.addEventListener("click", swallowClick, true);
-      setTimeout(() => window.removeEventListener("click", swallowClick, true), 600);
-      stopFollowing();
-    };
-    const onKey = (ev) => { if (ev.key === "Escape") stopFollowing(); };
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerdown", onDown, true);
-    window.addEventListener("keydown", onKey);
-    followCleanup.current = () => {
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerdown", onDown, true);
-      window.removeEventListener("keydown", onKey);
-    };
-  };
-
-  const onPointerEnter = (e) => {
-    hovering.current = true;
-    setIdle(false);
-    clearTimeout(idleTimer.current);
-    if (e.pointerType !== "mouse" || following.current) return;
-    lastMouse.current = { x: e.clientX, y: e.clientY };
-    setArming(true);
-    clearTimeout(hoverTimer.current);
-    hoverTimer.current = setTimeout(startFollowing, HELP_FAB_HOVER_FOLLOW);
-  };
-
-  const onPointerLeave = (e) => {
-    hovering.current = false;
-    if (e.pointerType === "mouse" && !following.current) {
-      clearTimeout(hoverTimer.current);
-      setArming(false);
-    }
-    scheduleIdle();
-  };
-
-  // ── Touch / pen: hold and move to drag straight away ──
-  const endPress = (e) => {
-    if (e?.pointerType === "mouse") return;
-    pressStart.current = null;
-    try { e?.currentTarget?.releasePointerCapture?.(e.pointerId); } catch { /* not captured */ }
-    if (dragActive.current && !following.current) {
-      dragActive.current = false;
-      suppressClick.current = true;   // the lift after a drag isn't a tap
-      setDragging(false);
-      settle();
-    }
-    hovering.current = false;
-    scheduleIdle();
-  };
-
-  const onPointerDown = (e) => {
-    wake();
-    if (e.pointerType === "mouse") {
-      // A real click before the 1s hover finished: it's a click, not a move.
-      clearTimeout(hoverTimer.current);
-      setArming(false);
-      return;
-    }
-    setSnapping(false);
-    suppressClick.current = false;
-    const rect = e.currentTarget.getBoundingClientRect();
-    pressStart.current = { x: e.clientX, y: e.clientY };
-    grabOffset.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
-    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* ignore */ }
-  };
-
-  const onPointerMove = (e) => {
-    if (e.pointerType === "mouse") { lastMouse.current = { x: e.clientX, y: e.clientY }; return; }
-    if (!pressStart.current) return;
-    if (!dragActive.current) {
-      const dx = e.clientX - pressStart.current.x, dy = e.clientY - pressStart.current.y;
-      if (Math.hypot(dx, dy) < HELP_FAB_DRAG_START) return;   // still just a tap
-      dragActive.current = true;
-      setDragging(true);
-      navigator.vibrate?.(10);
-    }
-    e.preventDefault();
-    setPos(clampHelpFabPos({ x: e.clientX - grabOffset.current.x, y: e.clientY - grabOffset.current.y }));
-  };
-
-  const handleClick = () => {
-    wake();
-    if (suppressClick.current) { suppressClick.current = false; return; }   // was a drag, not a tap
-    onOpen();
-  };
-
-  return (
-    <button
-      onClick={handleClick}
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={endPress}
-      onPointerCancel={endPress}
-      onPointerEnter={onPointerEnter}
-      onPointerLeave={onPointerLeave}
-      onFocus={wake}
-      onContextMenu={(e) => e.preventDefault()}   // no long-press menu on touch screens
-      aria-label="Help"
-      title="Need Help? - hover it 1 second and drag it (just drag it on mobile devices)"
-      className={`adm-help-fab${dragging ? " adm-help-fab-dragging" : ""}${arming && !dragging ? " adm-help-fab-arming" : ""}${snapping ? " adm-help-fab-snapping" : ""}${idle && !dragging ? " adm-help-fab-idle" : ""}`}
-      style={{
-        position: "fixed",
-        ...(pos
-          ? { left: `${pos.x}px`, top: `${pos.y}px`, right: "auto", bottom: "auto" }
-          : { bottom: "24px", right: "24px" }),
-        touchAction: "none",   // so holding and dragging on a touch screen moves the button, not the page
-        userSelect: "none", WebkitUserSelect: "none", WebkitTouchCallout: "none",
-        width: `${HELP_FAB_SIZE}px`, height: `${HELP_FAB_SIZE}px`, borderRadius: "50%",
-        background: paper, border: `1px solid ${hairline}`,
-        display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer",
-        zIndex: 10000,  // above every pop-up, including the 9999 confirm / logout dialogs (it hides itself while a guide runs)
-      }}
-    >
-      <svg className="adm-help-fab-icon" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke={ink} strokeWidth="2"
-        strokeLinecap="round" strokeLinejoin="round" style={{ transition: `stroke 0.18s ${ease}` }}>
-        <circle cx="12" cy="12" r="10" />
-        <path d="M9.1 9a2.9 2.9 0 0 1 5.66.9c0 1.9-2.66 2.4-2.66 4.1" />
-        <circle className="adm-help-fab-icon-dot" cx="12" cy="17.15" r="1.05" fill={ink} stroke="none" />
-      </svg>
-    </button>
   );
 };
 
@@ -3016,7 +2655,7 @@ const AdminNameGate = ({ onSaved }) => {
     }
   };
   return (
-    <ApModal help="namegate" title="Welcome to OJTern" onClose={() => {}}
+    <ApModal title="Welcome to OJTern" onClose={() => {}}
       sub="Enter your name to finish setting up your administrator account."
       footer={<button type="button" className="ap-fbtn solid" disabled={busy} onClick={save}>{busy ? "Saving…" : "Continue"}</button>}>
       <ApInput label="Your name" maxLength={60} autoFocus autoComplete="name" value={name}
@@ -3039,37 +2678,24 @@ const AdminDashboard = ({ admin: adminProp }) => {
   const [notice, setNotice] = useState("");
   const [rawNotifs, setRawNotifs] = useState([]);
   const [notifOpen, setNotifOpen] = useState(false);
+  const [activityOpen, setActivityOpen] = useState(false);
+  const [activity, setActivity] = useState([]);
+  const [actorNames, setActorNames] = useState({});
 
-  // Help: guided tour per module (driver.js, like the Student dashboard). `seen` remembers which ones this
-  // admin has already been shown; the floating "?" button replays the current module's tour any time.
-  const [seen, setSeen] = useState(() => readTourSeen(adminProp.uid));
-  const tourTimer = useRef(null);
-  // Pop-ups / sub-screens that are open register here; the "?" button opens the guide of the top-most one.
-  const [helpStack, setHelpStack] = useState([]);
-  const registerHelp = useCallback((key) => {
-    const id = {};
-    setHelpStack((s) => [...s, { id, key }]);
-    return () => setHelpStack((s) => s.filter((e) => e.id !== id));
+  // Activity Log: the shared log, newest first (same query the coordinators use).
+  useEffect(() => onSnapshot(
+    query(collection(db, "activity_logs"), orderBy("createdAt", "desc"), limit(30)),
+    (snap) => setActivity(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+    (e) => console.error("Failed to load activity log:", e)), []);
+
+  // Names for the "By" column: every coordinator and admin, looked up once.
+  useEffect(() => {
+    Promise.all([getDocs(collection(db, "coordinators")), getDocs(collection(db, "admins"))]).then(([c, a]) => {
+      const map = {};
+      [...c.docs, ...a.docs].forEach((d) => { map[d.id] = d.get("name") || d.get("email") || "Unknown"; });
+      setActorNames(map);
+    }).catch((e) => console.error("Failed to load activity log names:", e));
   }, []);
-  const helpKey = helpStack.length ? helpStack[helpStack.length - 1].key : activeNav;
-  const startTour = (key, auto) => {
-    const moduleSteps = TOURS[key];
-    if (!moduleSteps) return;
-    if (AUTO_TOUR_KEYS.has(key)) setSeen((s) => { const n = { ...s, [key]: true }; writeTourSeen(adminProp.uid, n); return n; });
-    // Close any open top-bar dropdown / drawer first, then start on the next frame once React has removed it.
-    setNotifOpen(false); setDrawerOpen(false);
-    window.clearTimeout(tourTimer.current);
-    if (!auto) { requestAnimationFrame(() => runTour(moduleSteps)); return; }
-    // Auto-start: a short pause, then wait (a little) for lists to fill in so their steps aren't skipped.
-    const t0 = Date.now();
-    const tick = () => {
-      const ready = moduleSteps.every((st) => !st.target || findTourTarget(st.target));
-      if (ready || Date.now() - t0 > AUTO_TOUR_MAX_WAIT_MS) runTour(moduleSteps);
-      else tourTimer.current = window.setTimeout(tick, 150);
-    };
-    tourTimer.current = window.setTimeout(tick, AUTO_TOUR_DELAY_MS);
-  };
-  useEffect(() => () => { window.clearTimeout(tourTimer.current); stopTour(); }, []);
 
   // Notifications addressed to this admin (no orderBy, so no composite index is needed; sorted below).
   useEffect(() => onSnapshot(
@@ -3083,6 +2709,7 @@ const AdminDashboard = ({ admin: adminProp }) => {
 
   // Opening the bell shows what's new; closing it marks everything as read.
   const toggleNotif = () => {
+    setActivityOpen(false);
     if (notifOpen) {
       notifications.filter((n) => n.unread).forEach((n) =>
         updateDoc(doc(db, "notifications", n.id), { read: true })
@@ -3106,14 +2733,6 @@ const AdminDashboard = ({ admin: adminProp }) => {
 
   useEffect(() => { if (isDesktop) setDrawerOpen(false); }, [isDesktop]);
 
-  // First time this admin opens a module, its guide starts by itself (after the name has been entered,
-  // and for Departments once its list has loaded).
-  useEffect(() => {
-    if (!norm(savedName) || !AUTO_TOUR_KEYS.has(activeNav) || seen[activeNav]) return;
-    if (activeNav === "departments" && !loaded) return;
-    startTour(activeNav, true);
-  }, [activeNav, savedName, loaded, seen]); // eslint-disable-line react-hooks/exhaustive-deps
-
   const flashTimer = useRef(null);
   const flash = (m) => {
     setNotice(m);
@@ -3121,7 +2740,7 @@ const AdminDashboard = ({ admin: adminProp }) => {
     flashTimer.current = window.setTimeout(() => setNotice(""), 6000);
   };
 
-  const navigate = (key) => { setActiveNav(key); setDrawerOpen(false); setNotice(""); setNotifOpen(false); window.clearTimeout(tourTimer.current); stopTour(); };
+  const navigate = (key) => { setActiveNav(key); setDrawerOpen(false); setNotice(""); setNotifOpen(false); setActivityOpen(false); };
   const askLogout = () => { setDrawerOpen(false); setShowLogout(true); };
   const confirmLogout = async () => {
     setShowLogout(false);
@@ -3136,11 +2755,10 @@ const AdminDashboard = ({ admin: adminProp }) => {
   const page = PAGE_TITLES[activeNav] || PAGE_TITLES.departments;
 
   return (
-    <HelpTopicContext.Provider value={registerHelp}>
+    <>
       <AdminStyles />
       {!norm(savedName) && <AdminNameGate onSaved={setSavedName} />}
       {showLogout && <LogoutConfirmModal onConfirm={confirmLogout} onCancel={() => setShowLogout(false)} />}
-      {(norm(savedName) || helpKey === "namegate") && TOURS[helpKey] && <HelpFab onOpen={() => startTour(helpKey, false)} />}
       <div style={{ width: "100vw", height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden", fontFamily: uiFont }}>
 
         {/* ── Top Navbar ── */}
@@ -3166,6 +2784,7 @@ const AdminDashboard = ({ admin: adminProp }) => {
             {!isMobile && (
               <span style={{ fontFamily: uiFont, fontSize: "0.82rem", color: "rgba(255,255,255,0.8)", marginRight: "8px" }}>{admin.name || admin.email}</span>
             )}
+            <ActivityLogBell items={activity} names={actorNames} myUid={admin.uid} open={activityOpen} onToggle={() => { setNotifOpen(false); setActivityOpen((o) => !o); }} />
             <NotificationBell items={notifications} open={notifOpen} onToggle={toggleNotif} onSelect={selectNotif} />
             <div style={{ cursor: "pointer", padding: "8px" }} onClick={() => navigate("about")} title="About" role="button" aria-label="About">
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -3226,7 +2845,7 @@ const AdminDashboard = ({ admin: adminProp }) => {
           </div>
         </div>
       </div>
-    </HelpTopicContext.Provider>
+    </>
   );
 };
 
@@ -3238,6 +2857,94 @@ const isStandalone = () =>
   ((window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) || window.navigator.standalone === true);
 
 // Usage (see ADMIN_SETUP.md):  <AdminScreen onExit={() => { window.location.href = "/"; }} />
+// ── First-login email (every administrator) ─────────────────────────────────────────────────
+// Every administrator must set their own email on first login: the very first admin (created by hand in the
+// Firebase Console, whose sign-in email may be a placeholder nobody reads) and admins from Add / Transfer account.
+// Until they do, the dashboard stays closed. They just type the email (twice, to catch typos): it becomes both
+// the sign-in email and the place password reset links go to (server: adminSetFirstEmail, no code). The gate
+// lifts once admins/{uid}.recoveryEmail is set. It is a convenience, not security: access itself is
+// enforced by firestore.rules and requireAdmin.
+const AdminEmailSetup = ({ admin, onDone }) => {
+  const [email, setEmail]     = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [focused, setFocused] = useState("");
+  const [busy, setBusy]       = useState(false);
+  const [error, setError]     = useState("");
+  const [done, setDone]       = useState("");
+
+  const field = (name) => ({
+    width: "100%", boxSizing: "border-box", height: "52px", padding: "0 16px", background: paperTint,
+    border: `1.5px solid ${focused === name ? ink : hairline}`, borderRadius: "16px", color: inkText,
+    fontFamily: uiFont, fontSize: "0.9375rem", outline: "none", transition: "border-color 160ms ease",
+  });
+  const card = { ...S.card, padding: "26px", textAlign: "left", marginBottom: 0, borderRadius: "24px", boxShadow: "0 8px 32px rgba(0,0,0,0.08)" };
+
+  const submit = async (e) => {
+    e.preventDefault();
+    const next = norm(email).toLowerCase();
+    if (!EMAIL_RE.test(next)) { setError("Enter a valid email address."); return; }
+    if (next !== norm(confirm).toLowerCase()) { setError("The two emails don't match."); return; }
+    setBusy(true); setError("");
+    try {
+      const res = await httpsCallable(functions, "adminSetFirstEmail")({ email: next });
+      if (res?.data?.signInEmailChanged) {
+        // The server revoked the old sessions: sign out so they log in again with the new email.
+        setDone(`Your email is now ${res.data.email}. Please sign in again with it.`);
+        setTimeout(() => { signOut(auth).catch(() => {}).finally(() => window.location.replace("/signin")); }, 1800);
+      } else {
+        onDone();   // same email as the account already had: open the dashboard
+      }
+    } catch (err) {
+      setError(err?.message || "Could not save your email. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <AdminStyles />
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: "24px 16px", background: `linear-gradient(180deg, ${paper} 0%, ${paperCard} 100%)`, fontFamily: uiFont, color: inkText }}>
+        <div style={{ width: "100%", maxWidth: "400px", textAlign: "center" }}>
+          <img src={logo} alt="OJTern" style={{ display: "block", margin: "0 auto", width: "110px", height: "110px", objectFit: "contain" }} />
+          <div style={{ fontFamily: logoFont, fontSize: "2.1rem", color: ink, letterSpacing: "0.03em", lineHeight: 1.1, marginBottom: "18px" }}>OJTern</div>
+
+          {done ? (
+            <div style={card}>
+              <h1 style={{ fontSize: "1.4rem", fontWeight: 600, letterSpacing: "-0.02em", margin: "0 0 8px" }}>Email saved</h1>
+              <div role="status" style={{ ...S.okMsg, margin: 0 }}>{done}</div>
+            </div>
+          ) : (
+            <form onSubmit={submit} noValidate style={card}>
+              <h1 style={{ fontSize: "1.4rem", fontWeight: 600, letterSpacing: "-0.02em", margin: "0 0 4px" }}>Set your email</h1>
+              <p style={{ ...S.help, margin: "0 0 16px" }}>
+                Welcome{admin.name ? `, ${admin.name}` : ""}. Enter the email you will use to sign in. Password reset links
+                will also be sent to it, so use an email you can open.
+              </p>
+              <label style={{ ...S.label, marginTop: 0 }} htmlFor="ad-setup-email">Email<Req /></label>
+              <input id="ad-setup-email" type="email" autoComplete="email" autoCapitalize="none" autoCorrect="off" spellCheck={false} autoFocus
+                value={email} onChange={(e) => setEmail(e.target.value)}
+                onFocus={() => setFocused("email")} onBlur={() => setFocused("")} style={field("email")} />
+              <label style={{ ...S.label, marginTop: "14px" }} htmlFor="ad-setup-confirm">Confirm email<Req /></label>
+              <input id="ad-setup-confirm" type="email" autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false}
+                value={confirm} onChange={(e) => setConfirm(e.target.value)}
+                onFocus={() => setFocused("confirm")} onBlur={() => setFocused("")} style={field("confirm")} />
+              {error && <div role="alert" style={S.err}>{error}</div>}
+              <button type="submit" disabled={busy} style={{ ...S.btn, width: "100%", height: "52px", marginTop: "16px", fontSize: "0.95rem", opacity: busy ? 0.6 : 1 }}>
+                {busy ? "Saving…" : "Save email"}
+              </button>
+            </form>
+          )}
+
+          {!done && (
+            <button type="button" onClick={() => { signOut(auth).catch(() => {}); }} style={{ ...S.btn2, marginTop: "14px" }}>Sign out</button>
+          )}
+        </div>
+      </div>
+    </>
+  );
+};
+
 const AdminScreen = ({ onExit }) => {
   const [admin, setAdmin] = useState(null);
   const [checking, setChecking] = useState(true);
@@ -3257,7 +2964,9 @@ const AdminScreen = ({ onExit }) => {
       const snap = await getDoc(doc(db, "admins", u.uid));
       const ok = snap.exists() && snap.get("role") === "admin" && snap.get("status") === "active";
       wasAdmin.current = !!ok;
-      setAdmin(ok ? { uid: u.uid, name: snap.get("name") || "", email: u.email || "" } : null);
+      // Every admin without an email set yet (first login) must set a real one before the dashboard opens.
+      const needsEmail = ok && !snap.get("recoveryEmail");
+      setAdmin(ok ? { uid: u.uid, name: snap.get("name") || "", email: u.email || "", needsEmail } : null);
       // The new administrator of a pending transfer: signing in proves they own the email, so this is
       // the moment the previous administrator's account is switched off (server-side, and a no-op unless
       // a transfer to this account really is pending).
@@ -3281,6 +2990,7 @@ const AdminScreen = ({ onExit }) => {
   }, [admin]);
 
   if (checking) return <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", background: paperTint, color: inkMuted, fontFamily: uiFont }}>Loading…</div>;
+  if (admin?.needsEmail) return <AdminEmailSetup admin={admin} onDone={() => setAdmin((a) => ({ ...a, needsEmail: false }))} />;
   return admin ? <AdminDashboard admin={admin} /> : <AdminSignIn onExit={isStandalone() ? undefined : onExit} />;
 };
 

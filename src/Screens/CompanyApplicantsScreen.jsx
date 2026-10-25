@@ -17,6 +17,7 @@ import pdfIcon            from "../icons/pdf.png";
 import imgIcon            from "../icons/img.png";
 import reportIcon         from "../icons/report.png";
 import { standingOf, STANDING_TONE } from "./accountStanding";
+import { useDepartmentsPrograms } from "./departmentsPrograms";
 
 // ── Design tokens, aliased for this screen ────────────────────────────────────
 // Same aliases as CoordinatorStudentListScreen so the two screens stay in sync.
@@ -61,41 +62,17 @@ const isReportableApplicant = (person) => {
 };
 
 // ── College → Program → Specialization data ────────────────────────────────
-const COLLEGE_DATA = {
-  "College of Computer Studies": {
-    programs: {
-      "Bachelor of Science in Information Technology": { specializations: [] },
-    },
-  },
-  "College of Business and Accountancy": {
-    programs: {
-      "BS Business Administration — Major in Marketing Management": { specializations: [] },
-      "Bachelor of Science in Accountancy": { specializations: [] },
-    },
-  },
-  "College of Criminal Justice Education": {
-    programs: {
-      "Bachelor of Science in Criminology": { specializations: [] },
-    },
-  },
-  "College of Liberal Arts": {
-    programs: {
-      "Bachelor of Arts in Political Science": { specializations: [] },
-    },
-  },
-  "College of Education": {
-    programs: {
-      "Bachelor of Elementary Education": { specializations: [] },
-      "BS Education — Major in English": { specializations: [] },
-      "BS Education — Major in Mathematics": { specializations: [] },
-    },
-  },
-  "College of Hospitality and Tourism Management": {
-    programs: {
-      "Bachelor of Science in Tourism Management": { specializations: [] },
-      "Bachelor of Science in Hospitality Management": { specializations: [] },
-    },
-  },
+// Comes live from the Firestore "departments" catalog (useDepartmentsPrograms), the same list Sign Up
+// and Student Accounts use, so a department / program / major the admin renames shows up here too.
+// (This used to be a hardcoded copy that went stale.) Shape: { [college]: { programs: { [program]: { specializations } } } }
+const toCollegeData = (departments) => {
+  const out = {};
+  Object.entries(departments || {}).forEach(([college, d]) => {
+    const programs = {};
+    (d?.programs || []).forEach(p => { programs[p.name] = { specializations: p.specializations || [] }; });
+    out[college] = { programs };
+  });
+  return out;
 };
 
 // ── Status options & colors (kept in sync with CoordinatorStudentListScreen) ──
@@ -1175,6 +1152,8 @@ const FilterPanel = ({
 }) => {
   const sexOptions = ["Male", "Female"];
 
+  const { departments } = useDepartmentsPrograms();
+  const COLLEGE_DATA = toCollegeData(departments);
   const colleges = Object.keys(COLLEGE_DATA);
 
   const programs = filters.college

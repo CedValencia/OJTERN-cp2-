@@ -9,10 +9,11 @@
 // Account Profile with Firebase's verify-before-update flow, so there is nothing to keep in sync here.
 //
 // FIRST-LOGIN EMAIL: on first login every admin must set their own email (the screen blocks the dashboard
-// until then). That address becomes BOTH their sign-in email (Firebase Auth email) and their recovery email
-// ("Forgot password" sends the reset link there). It is proven with a 6-digit code (adminSendRecoveryCode /
-// adminConfirmRecoveryCode) so a typo can never lock someone out. Typing the same email the account was
-// created with is allowed: it just gets verified. The pending code lives in adminRecoveryCodes/{uid}, which the client must
+// until then). There is NO code: they just type the address (twice, so a typo is caught) and adminSetFirstEmail
+// makes it BOTH their sign-in email (Firebase Auth email) and their recovery email ("Forgot password" sends the
+// reset link there). It only works while admins/{uid}.recoveryEmail is still empty.
+// LATER CHANGES (Account Profile) are still proven with a 6-digit code (adminSendRecoveryCode /
+// adminConfirmRecoveryCode). That pending code lives in adminRecoveryCodes/{uid}, which the client must
 // NOT be able to read (keep it out of firestore.rules; no rule = denied).
 //
 // admins/{uid} fields:
@@ -24,11 +25,19 @@
 // on the Accept Invitation page. For a transfer, the old admin keeps access until the new one's first sign-in.
 // Written by Add / Transfer account (all optional, none of them needed by the screen to work):
 //   email, createdBy, createdAt                      who invited this admin
-//   recoveryEmail, recoveryEmailVerifiedAt           personal email for password reset links (set on first login)
+//   recoveryEmail, recoveryEmailSetAt                personal email for password reset links (set on first login)
+//   recoveryEmailVerifiedAt                          only when it was later changed with a 6-digit code (Account Profile)
 //   transferFrom                                     on the NEW admin until their first sign-in completes the transfer
 //   transferPendingInvite / transferPendingEmail     on the CURRENT admin while the transfer invitation is not accepted yet
 //   transferPendingTo (+ transferPendingEmail)       on the CURRENT admin once it was accepted (until the new admin's first sign-in)
 //   status: "transferred" | "cancelled"              an old admin after a completed transfer / an unused account after a cancel (only if it could not be deleted)
+//
+// RENAME (Departments & Programs > Edit): adminRenameDepartmentItem renames a department / program / major AND
+// every record that stores the old name as plain text (students, applications, reports, coordinators, pending
+// invites, companies, ojt_posts, notifications). The catalog doc (departments/{id}) is updated LAST, so a failed
+// run can simply be repeated. The doc id never changes; the abbreviation can be edited (level "abbreviation":
+// catalog only, no other record stores it). Sign Up and Student Accounts read the
+// catalog live, so they show the new name by themselves.
 //
 // Loaded from the bottom of index.js, which hands over its shared mail helper:
 //   Object.assign(exports, require("./adminFunctions")({ sendMail, resendApiKey }));
@@ -294,6 +303,128 @@ OJTern Team`;
   }
 };
 
+// ── Rename helpers (adminRenameDepartmentItem) ────────────────────────────────
+const RENAME_MAX_NAME = 120;
+const RENAME_BATCH = 400;
+const squash = (v) => clean(v).replace(/\s+/g, " ");
+const sameName = (a, b) => squash(a).toLowerCase() === squash(b).toLowerCase();
+
+// Pure mappers (exported at the bottom for tests). ctx = { level, deptName, program, oldName, newName }:
+//   level "department": oldName is a department name
+//   level "program":    oldName is a program name inside deptName
+//   level "major":      oldName is a major of `program` inside deptName
+// Old records may still hold a combined program ("BS Education — Major in English"); the screens read that as
+// program + major (splitLegacyProgram), so these mappers do too, and migrate such a record to the new name.
+const makeRenameMappers = (ctx) => {
+  const { level, deptName, program, oldName, newName } = ctx;
+  const progOf = (raw) => splitLegacyProgram(raw);
+
+  // One { department | college, program, specialization } entry -> changed copy, or null.
+  const mapEntry = (e) => {
+    if (!e || typeof e !== "object") return null;
+    const out = { ...e };
+    let changed = false;
+    if (level === "department") {
+      for (const k of ["department", "college"]) {
+        if (k in e && sameName(e[k], oldName)) { out[k] = newName; changed = true; }
+      }
+      return changed ? out : null;
+    }
+    if (!sameName(e.department ?? e.college, deptName)) return null;
+    const sp = progOf(e.program);
+    if (level === "program" && sameName(sp.program, oldName)) {
+      out.program = newName;
+      if (!clean(e.specialization) && sp.specialization) out.specialization = sp.specialization;   // legacy "— Major in X"
+      return out;
+    }
+    if (level === "major" && sameName(sp.program, program) && sameName(clean(e.specialization) || sp.specialization, oldName)) {
+      out.program = program;
+      out.specialization = newName;
+      return out;
+    }
+    return null;
+  };
+  const mapEntries = (arr) => {
+    if (!Array.isArray(arr)) return null;
+    let any = false;
+    const out = arr.map((e) => { const m = mapEntry(e); if (m) { any = true; return m; } return e; });
+    return any ? out : null;
+  };
+  // Flat arrays of department names (companies.departments, ojt_posts.departments): department level only.
+  const mapNames = (arr) => {
+    if (level !== "department" || !Array.isArray(arr)) return null;
+    let any = false;
+    const out = arr.map((n) => { if (typeof n === "string" && sameName(n, oldName)) { any = true; return newName; } return n; });
+    return any ? out : null;
+  };
+  // students / applications / reports: { college, program, specialization, major } -> partial update, or null.
+  const mapStudent = (s) => {
+    const up = {};
+    if (level === "department") {
+      if (sameName(s.college, oldName)) up.college = newName;
+    } else if (sameName(s.college, deptName)) {
+      const sp = progOf(s.program);
+      if (level === "program" && sameName(sp.program, oldName)) {
+        up.program = newName;
+        if (!clean(s.specialization) && !clean(s.major) && sp.specialization) up.specialization = sp.specialization;
+      }
+      if (level === "major" && sameName(sp.program, program)) {
+        if (sameName(s.specialization, oldName)) up.specialization = newName;
+        if (sameName(s.major, oldName)) up.major = newName;           // older docs used `major`
+        if (!clean(s.specialization) && !clean(s.major) && sameName(sp.specialization, oldName)) {
+          up.program = program;                                        // legacy combined program name
+          up.specialization = newName;
+        }
+      }
+    }
+    return Object.keys(up).length ? up : null;
+  };
+  // coordinators / companies / ojt_posts.
+  const mapOrg = (d) => {
+    const up = {};
+    const sel = mapEntries(d.deptSelections);
+    if (sel) up.deptSelections = sel;
+    const names = mapNames(d.departments);
+    if (names) up.departments = names;
+    const cp = mapEntries(d.collegePrograms);
+    if (cp) up.collegePrograms = cp;
+    const cs = mapEntries(d.courseSelections);          // ojt_posts (and companies that keep one)
+    if (cs) up.courseSelections = cs;
+    return Object.keys(up).length ? up : null;
+  };
+  // Coordinator-scoped notifications carry department / program (/ specialization).
+  const mapNotice = (n) => {
+    const up = {};
+    if (level === "department") {
+      if (sameName(n.department, oldName)) up.department = newName;
+    } else if (sameName(n.department, deptName)) {
+      const sp = progOf(n.program);
+      if (level === "program" && sameName(sp.program, oldName)) up.program = newName;
+      if (level === "major" && sameName(sp.program, program) && sameName(clean(n.specialization) || sp.specialization, oldName)) {
+        up.program = program;
+        up.specialization = newName;
+      }
+    }
+    return Object.keys(up).length ? up : null;
+  };
+  return { mapEntry, mapEntries, mapNames, mapStudent, mapOrg, mapNotice };
+};
+
+// Commits [ref, data] pairs in batches (Firestore allows 500 writes per batch).
+const commitAll = async (db, pairs) => {
+  for (let i = 0; i < pairs.length; i += RENAME_BATCH) {
+    const batch = db.batch();
+    pairs.slice(i, i + RENAME_BATCH).forEach(([ref, data]) => batch.update(ref, data));
+    await batch.commit();
+  }
+  return pairs.length;
+};
+const collectUpdates = (snap, mapper) => {
+  const pairs = [];
+  snap.docs.forEach((d) => { const up = mapper(d.data()); if (up) pairs.push([d.ref, up]); });
+  return pairs;
+};
+
 module.exports = ({ sendMail, resendApiKey }) => {
   const fns = {};
 
@@ -364,8 +495,9 @@ module.exports = ({ sendMail, resendApiKey }) => {
   // Gives an existing coordinator ADMIN access with the SAME Firebase Auth login (same UID, same email and
   // password): it only writes admins/{uid}. coordinators/{uid} is left untouched, so the person keeps their
   // Coordinator dashboard and can switch between the two from the top bar.
-  // Idempotent: promoting someone who is already an active admin changes nothing.
-  fns.adminPromoteCoordinator = onCall({ region: REGION }, async (request) => {
+  // Idempotent: promoting someone who is already an active admin changes nothing (and sends no email).
+  // A newly promoted coordinator is emailed (sendAdminPromotedEmail) that they now also have admin access.
+  fns.adminPromoteCoordinator = onCall({ region: REGION, secrets: [resendApiKey] }, async (request) => {
     const caller = await requireAdmin(request);
     const db = getFirestore();
 
@@ -373,7 +505,19 @@ module.exports = ({ sendMail, resendApiKey }) => {
     if (!uid) throw new HttpsError("invalid-argument", "Missing coordinator.");
 
     const alreadyAdmin = await promoteCoordinatorToAdmin(db, caller.uid, uid);
-    return { ok: true, alreadyAdmin };
+    let mailed = false;
+    if (!alreadyAdmin) {
+      // The promotion is already saved; a mail problem must not undo it (mailed:false tells the screen).
+      try {
+        const [authUser, coord] = await Promise.all([getAuth().getUser(uid), db.collection("coordinators").doc(uid).get()]);
+        const email = clean(authUser.email || coord.get("email")).toLowerCase();
+        const name = clean(coord.get("name")) || clean(authUser.displayName);
+        if (email) mailed = await sendAdminPromotedEmail(sendMail, { email, name, invitedBy: caller.name });
+      } catch (e) {
+        console.error("adminPromoteCoordinator: could not send the promoted email:", e);
+      }
+    }
+    return { ok: true, alreadyAdmin, mailed };
   });
 
   // ADMIN FORGOT PASSWORD: no sign-in needed (they can't sign in). Takes the admin's SIGN-IN email, and if it
@@ -575,6 +719,41 @@ OJTern Team`;
     }
     if (changed) await getAuth().revokeRefreshTokens(caller.uid).catch((e) => console.error("Recovery email: could not revoke sessions:", e));
     await ref.delete().catch(() => {});
+    return { ok: true, email, signInEmailChanged: changed };
+  });
+
+  // FIRST-LOGIN EMAIL, no code: the admin types the address they will sign in with and use for "Forgot password".
+  // Allowed ONLY while no recovery email is set yet (the first login), so it can't be used to swap the email of an
+  // account that already has one (that goes through Account Profile and its code). The address must not belong to
+  // another login. If it differs from the current sign-in email, the Auth email is switched and the old sessions
+  // are revoked (signInEmailChanged: true), so the screen signs them out to log in again with the new email.
+  fns.adminSetFirstEmail = onCall({ region: REGION }, async (request) => {
+    const caller = await requireAdmin(request);
+    const email = clean(request.data?.email).toLowerCase();
+    if (!EMAIL_RE.test(email) || email.length > 254) throw new HttpsError("invalid-argument", "Enter a valid email address.");
+
+    const db = getFirestore();
+    const adminRef = db.collection("admins").doc(caller.uid);
+    const snap = await adminRef.get();
+    if (clean(snap.get("recoveryEmail"))) {
+      throw new HttpsError("failed-precondition", "Your email is already set. You can change it from Account Profile.");
+    }
+
+    const changed = !sameText(email, caller.email);
+    if (changed) {
+      let taken = null;
+      try { taken = await getAuth().getUserByEmail(email); }
+      catch (e) { if (e?.code !== "auth/user-not-found") throw e; }
+      if (taken && taken.uid !== caller.uid) throw new HttpsError("already-exists", "That email is already used by another OJTern account.");
+      await getAuth().updateUser(caller.uid, { email, emailVerified: false });
+    }
+    try {
+      await adminRef.update({ email, recoveryEmail: email, recoveryEmailSetAt: FieldValue.serverTimestamp() });
+    } catch (e) {
+      if (changed) await getAuth().updateUser(caller.uid, { email: caller.email }).catch(() => {});   // keep Auth and Firestore in step
+      throw e;
+    }
+    if (changed) await getAuth().revokeRefreshTokens(caller.uid).catch((e) => console.error("First email: could not revoke sessions:", e));
     return { ok: true, email, signInEmailChanged: changed };
   });
 
@@ -868,5 +1047,135 @@ OJTern Team`;
     }
   );
 
+  // ADMIN > Departments & Programs > Edit. data: { level: "department" | "program" | "major", departmentId, program?, oldName, newName }
+  //   department: oldName = the department's current name
+  //   program:    oldName = the program's current name
+  //   major:      program = the program the major belongs to, oldName = the major's current name
+  // Order: every record that carries the old name first, the departments/{id} doc LAST. If something fails half-way
+  // the catalog still has the old name, so the admin can press Edit again (already-updated records no longer match).
+  fns.adminRenameDepartmentItem = onCall(
+    { region: REGION, timeoutSeconds: 300, memory: "512MiB" },
+    async (request) => {
+      await requireAdmin(request);
+      const db = getFirestore();
+
+      const level = clean(request.data?.level);
+      if (!["department", "program", "major", "abbreviation"].includes(level)) throw new HttpsError("invalid-argument", "Unknown item type.");
+      const departmentId = clean(request.data?.departmentId);
+
+      // Abbreviation (e.g. CBA -> CAB after the department was renamed). It is stored only on the catalog doc, so
+      // nothing else needs updating. The doc id stays as it is.
+      if (level === "abbreviation") {
+        if (!departmentId) throw new HttpsError("invalid-argument", "Missing department.");
+        const newAbbr = clean(request.data?.newName).toUpperCase();
+        if (!/^[A-Z0-9]{2,10}$/.test(newAbbr)) throw new HttpsError("invalid-argument", "Abbreviation must be 2–10 letters or numbers, e.g. CAB.");
+        const ref = db.collection("departments").doc(departmentId);
+        const snap = await ref.get();
+        if (!snap.exists) throw new HttpsError("not-found", "That department no longer exists.");
+        const oldAbbr = clean(snap.get("abbr"));
+        if (oldAbbr.toUpperCase() === newAbbr) throw new HttpsError("invalid-argument", "That is already the current abbreviation.");
+        const all = await db.collection("departments").get();
+        if (all.docs.some((d) => d.id !== departmentId && clean(d.get("abbr")).toUpperCase() === newAbbr)) {
+          throw new HttpsError("already-exists", "That abbreviation is already used by another department.");
+        }
+        await ref.update({ abbr: newAbbr, updatedAt: FieldValue.serverTimestamp() });
+        return { ok: true, level, oldName: oldAbbr, newName: newAbbr };
+      }
+      const oldName = squash(request.data?.oldName);
+      const newName = squash(request.data?.newName);
+      const program = squash(request.data?.program);
+      if (!departmentId || !oldName) throw new HttpsError("invalid-argument", "Missing department or name.");
+      if (!newName) throw new HttpsError("invalid-argument", "Enter the new name.");
+      if (newName.length > RENAME_MAX_NAME) throw new HttpsError("invalid-argument", `Keep the name under ${RENAME_MAX_NAME} characters.`);
+      if (newName === oldName) throw new HttpsError("invalid-argument", "That is already the current name.");
+      if (level === "major" && !program) throw new HttpsError("invalid-argument", "Missing program.");
+      // The screens split "<program> — Major in <major>" and rename "BS Education"; such a name would not stay as typed.
+      if (level === "program" && (LEGACY_MAJOR.test(newName) || PROGRAM_RENAMES[newName.toLowerCase()])) {
+        throw new HttpsError("invalid-argument", "Use the full program name, and add the major separately (not “— Major in …”).");
+      }
+
+      const deptRef = db.collection("departments").doc(departmentId);
+      const deptSnap = await deptRef.get();
+      if (!deptSnap.exists) throw new HttpsError("not-found", "That department no longer exists.");
+      const deptName = squash(deptSnap.get("name") || deptSnap.id);
+      // Same cleaned form the screens show (old combined names split into program + major).
+      const programs = normalizePrograms(deptSnap.get("programs"));
+
+      let newPrograms = null;
+      let newDeptName = null;
+      if (level === "department") {
+        if (!sameName(deptName, oldName)) throw new HttpsError("failed-precondition", "The department name changed in the meantime. Reload and try again.");
+        const all = await db.collection("departments").get();
+        if (all.docs.some((d) => d.id !== departmentId && sameName(d.get("name") || d.id, newName))) {
+          throw new HttpsError("already-exists", "A department with that name already exists.");
+        }
+        newDeptName = newName;
+      } else if (level === "program") {
+        if (!programs.some((p) => sameName(p.name, oldName))) throw new HttpsError("not-found", "That program no longer exists.");
+        if (programs.some((p) => !sameName(p.name, oldName) && sameName(p.name, newName))) {
+          throw new HttpsError("already-exists", `"${newName}" already exists in ${deptName}.`);
+        }
+        newPrograms = programs.map((p) => (sameName(p.name, oldName) ? { ...p, name: newName } : p));
+      } else {
+        const prog = programs.find((p) => sameName(p.name, program));
+        if (!prog) throw new HttpsError("not-found", "That program no longer exists.");
+        if (!prog.specializations.some((m) => sameName(m, oldName))) throw new HttpsError("not-found", "That major no longer exists.");
+        if (prog.specializations.some((m) => !sameName(m, oldName) && sameName(m, newName))) {
+          throw new HttpsError("already-exists", `"${newName}" already exists in ${prog.name}.`);
+        }
+        newPrograms = programs.map((p) => (p === prog
+          ? { ...p, specializations: p.specializations.map((m) => (sameName(m, oldName) ? newName : m)) }
+          : p));
+      }
+
+      // `program` below is the catalog's own spelling (so legacy records migrate to it).
+      const canonProgramName = level === "major" ? programs.find((p) => sameName(p.name, program)).name : "";
+      const m = makeRenameMappers({ level, deptName, program: canonProgramName, oldName, newName });
+      const counts = { students: 0, applications: 0, reports: 0, coordinators: 0, invites: 0, companies: 0, posts: 0, notifications: 0 };
+
+      const students = await db.collection("students").select("college", "program", "specialization", "major").get();
+      counts.students = await commitAll(db, collectUpdates(students, m.mapStudent));
+
+      // Applications keep a copy of the student's college / program / major from the day they applied.
+      const applications = await db.collection("applications").select("college", "program", "specialization", "major").get();
+      counts.applications = await commitAll(db, collectUpdates(applications, m.mapStudent));
+
+      // Reports about a student keep their college / program so coordinators can scope them.
+      const reports = await db.collection("reports").select("college", "program").get();
+      counts.reports = await commitAll(db, collectUpdates(reports, m.mapStudent));
+
+      const coordinators = await db.collection("coordinators").select("deptSelections", "departments", "collegePrograms").get();
+      counts.coordinators = await commitAll(db, collectUpdates(coordinators, m.mapOrg));
+
+      const invites = await db.collection("coordinatorInvites").where("status", "==", "pending").select("deptSelections").get();
+      counts.invites = await commitAll(db, collectUpdates(invites, (d) => {
+        const sel = m.mapEntries(d.deptSelections);
+        return sel ? { deptSelections: sel } : null;
+      }));
+
+      const companies = await db.collection("companies").select("deptSelections", "courseSelections", "departments", "collegePrograms").get();
+      counts.companies = await commitAll(db, collectUpdates(companies, m.mapOrg));
+
+      const posts = await db.collection("ojt_posts").select("courseSelections", "departments").get();
+      counts.posts = await commitAll(db, collectUpdates(posts, m.mapOrg));
+
+      // Notifications: exact match on the department the notice was written with (a full scan would be too big).
+      const noticeDept = level === "department" ? oldName : deptName;
+      const notices = await db.collection("notifications").where("department", "==", noticeDept).get();
+      counts.notifications = await commitAll(db, collectUpdates(notices, m.mapNotice));
+
+      // The catalog itself, last.
+      const catalogUpdate = { updatedAt: FieldValue.serverTimestamp() };
+      if (newDeptName) catalogUpdate.name = newDeptName;
+      if (newPrograms) catalogUpdate.programs = newPrograms;
+      await deptRef.update(catalogUpdate);
+
+      console.log(`adminRenameDepartmentItem ${level} "${oldName}" -> "${newName}" (${deptName}):`, counts);
+      return { ok: true, level, oldName, newName, ...counts };
+    }
+  );
+
   return fns;
 };
+
+module.exports._renameTest = { makeRenameMappers, sameName };
