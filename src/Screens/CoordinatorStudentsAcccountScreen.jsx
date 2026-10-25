@@ -80,12 +80,38 @@ const LEGACY_PROGRAM_CODE_MAP = {
   "BSHM":                                  "Bachelor of Science in Hospitality Management",
 };
 
-// Year & Section options — adjust to match your school's actual sections
-// Sections run A–Z (26), so a department with many sections never runs out.
-const SECTION_LETTERS = Array.from({ length: 26 }, (_, i) => String.fromCharCode(65 + i));
-const YEAR_SECTIONS = SECTION_LETTERS.map(l => `4-${l}`);
-// "4-A" → "A". Used by the Section filter so it matches what is really saved.
-const sectionLetterOf = (s) => String(s?.yearSection || "").split("-").pop().trim().toUpperCase();
+// ── Sections (per department) ────────────────────────────────────────────────
+// There is no fixed list any more. The Section dropdown of a department shows only the sections that
+// already exist there (a student is in them), plus "+ Add new section". A department with no
+// students yet starts by adding its first section. Nothing is stored apart from each student's
+// own yearSection, so a section appears when its first student is saved and disappears with its last.
+const sectionKey  = (v) => String(v || "").trim().replace(/\s+/g, " ").toLowerCase();
+const collegeKey  = sectionKey;
+// A section is identified by its department AND its label: CCS's "4-A" and CBA's "4-A" are two
+// different sections, and so are "4-A" and "5-A". Used by the Section filter. "" = no section.
+const sectionIdOf = (s) => (sectionKey(s?.yearSection) ? `${collegeKey(s?.college)}|${sectionKey(s.yearSection)}` : "");
+// What a coordinator typed -> the label that gets saved, or "" when unusable.
+// "a", "4a", "4-a", "4 - A" → "4-A" (4th year is the default year); anything else ("4-Gold", "4-1")
+// is kept as typed with its spaces squashed.
+const formatSection = (value) => {
+  const raw = String(value || "").trim().replace(/\s+/g, " ");
+  if (!raw) return "";
+  const m = /^(?:(\d)\s*-?\s*)?([A-Za-z])$/.exec(raw);
+  if (m) return `${m[1] || "4"}-${m[2].toUpperCase()}`;
+  return /^[A-Za-z0-9][A-Za-z0-9 .\-]{0,19}$/.test(raw) ? raw : "";
+};
+const uniqueSections = (list) => {
+  const seen = new Map();
+  list.forEach((x) => { const k = sectionKey(x); if (k && !seen.has(k)) seen.set(k, String(x).trim()); });
+  return [...seen.values()].sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }));
+};
+// { [collegeKey]: ["4-A", "4-B"] } -> the sections of one department.
+const sectionsOfCollege = (byCollege, college) => (byCollege && byCollege[collegeKey(college)]) || [];
+// Short name of a department for labels ("CCS"), falling back to its full name.
+const deptAbbrOf = (departments, college) => {
+  const name = Object.keys(departments || {}).find(n => collegeKey(n) === collegeKey(college));
+  return (name && departments[name]?.abbr) || college || "";
+};
 
 const SEX_OPTIONS = ["Male", "Female"];
 
@@ -204,20 +230,9 @@ const toMiddleInitial = (middleName) => {
   return first ? `${first.toUpperCase()}.` : "";
 };
 
-// Accepts "4-A", "4A", "4 - A", or a bare "A" (the only year is 4th year) and
-// returns the canonical "4-A" form used everywhere else, or "" if it doesn't
-// match a known section.
-const normalizeSection = (value) => {
-  const raw = String(value || "").trim().toUpperCase().replace(/\s+/g, "");
-  if (!raw) return "";
-  const direct = raw.includes("-") ? raw : (/^\d[A-Z]$/.test(raw) ? `${raw[0]}-${raw[1]}` : raw);
-  if (YEAR_SECTIONS.includes(direct)) return direct;
-  if (/^[A-Z]$/.test(raw)) {
-    const match = YEAR_SECTIONS.find(sec => sec.split("-")[1] === raw);
-    if (match) return match;
-  }
-  return "";
-};
+// Accepts "4-A", "4A", "4 - A", or a bare "A" (the only year is 4th year) and returns the
+// canonical "4-A" form, or any other well-formed label as typed. "" if it isn't usable.
+const normalizeSection = formatSection;
 
 // ── Birthdate / age ──────────────────────────────────────────────────────────
 // The student enters a birthdate on first login (StudentAccountProfileScreen) and
@@ -1071,6 +1086,61 @@ const FieldError = ({ msg }) => msg ? (
   <p style={{ fontFamily: font.ui, ...type.helper, color: danger, marginTop: "4px", paddingLeft: "14px" }}>{msg}</p>
 ) : null;
 
+// ── Section picker ────────────────────────────────────────────────────────────
+// Lists ONLY the sections that already exist in `college` (the `existing` list), plus
+// "+ Add new section". A section added here is kept in this form's list straight away; it becomes
+// a real, shared section once the student is saved. Needs a department first, because sections
+// belong to a department.
+const ADD_SECTION = "__add_section__";
+const SectionSelect = ({ value, onChange, college, existing = [], disabled, hasError }) => {
+  const [added, setAdded]     = useState({});      // { [collegeKey]: [sections added in this form] }
+  const [adding, setAdding]   = useState(false);
+  const [text, setText]       = useState("");
+  const [problem, setProblem] = useState("");
+  const ck = collegeKey(college);
+  useEffect(() => { setAdding(false); setText(""); setProblem(""); }, [ck]);
+
+  if (!college && !value) {
+    return <StyledSelect value="" onChange={() => {}} options={[]} placeholder="Select a department first" disabled />;
+  }
+  const options = uniqueSections([...existing, ...(added[ck] || []), value]);
+
+  const confirmAdd = () => {
+    const label = formatSection(text);
+    if (!label) { setProblem("Use a section like 4-A (letters, numbers, spaces or dashes, up to 20 characters)."); return; }
+    const duplicate = options.find(o => sectionKey(o) === sectionKey(label));
+    const finalLabel = duplicate || label;
+    if (!duplicate) setAdded(a => ({ ...a, [ck]: [...(a[ck] || []), finalLabel] }));
+    onChange(finalLabel);
+    setAdding(false); setText(""); setProblem("");
+  };
+
+  if (adding) {
+    return (
+      <div onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); confirmAdd(); } if (e.key === "Escape") { e.stopPropagation(); setAdding(false); } }}>
+        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+          <div style={{ flex: "1 1 130px", minWidth: 0 }}>
+            <StyledInput value={text} onChange={(v) => { setText(v.slice(0, 20)); setProblem(""); }} placeholder="e.g. 4-A" hasError={!!problem} />
+          </div>
+          <button type="button" onClick={confirmAdd} style={{ ...primaryBtn, padding: "9px 16px" }}>Add</button>
+          <button type="button" onClick={() => { setAdding(false); setText(""); setProblem(""); }} style={{ ...ghostBtn, padding: "9px 16px" }}>Cancel</button>
+        </div>
+        <FieldError msg={problem} />
+      </div>
+    );
+  }
+  return (
+    <StyledSelect
+      value={value}
+      onChange={(v) => (v === ADD_SECTION ? setAdding(true) : onChange(v))}
+      options={[...options.map(sec => ({ value: sec, label: sec })), { value: ADD_SECTION, label: "+ Add new section" }]}
+      placeholder={options.length ? "Select section" : "No sections yet — add one"}
+      disabled={disabled}
+      hasError={hasError}
+    />
+  );
+};
+
 const useField = (initial = "", validatorKey) => {
   const [value, setValue] = useState(initial);
   const [touched, setTouched] = useState(false);
@@ -1126,7 +1196,7 @@ const SmallLabel = ({ children }) => (
 );
 
 // ── Student Form ───────────────────────────────────────────────────────────────
-const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submitLabel = "Create account", coordinatorColleges = [], departments = {}, archived = false, onArchive, onRestore, onDelete }) => {
+const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submitLabel = "Create account", coordinatorColleges = [], departments = {}, sectionsByCollege = {}, archived = false, onArchive, onRestore, onDelete }) => {
   const studentId     = useField(initial.studentId || "", "studentId");
   const lastName      = useField(initial.lastName || "", "lastName");
   const middleInitial = useField(initial.middleInitial || "", "middleInitial");
@@ -1167,7 +1237,9 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
   const collegeError = collegeTouched && !college ? "Required" : "";
   const programError = programTouched && !program ? "Required" : "";
 
-  const handleCollegeChange = (val) => { setCollege(val); setProgram(""); setMajor(""); setCollegeTouched(true); };
+  // Sections belong to a department, so a different department starts with no section chosen.
+  const handleCollegeChange = (val) => { setCollege(val); setProgram(""); setMajor(""); setCollegeTouched(true); yearSection.reset(""); };
+  const sectionList = sectionsOfCollege(sectionsByCollege, college);
   const handleProgramChange = (val) => { setProgram(val); setMajor(""); setProgramTouched(true); };
   const programObjs = programsOf(departments, college);
   const pm = programMajorState(programObjs, program);
@@ -1369,17 +1441,6 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
               </div>
 
               <div className="sa-college-grid">
-                <div>
-                  <FieldLabel>Section {reqStar}</FieldLabel>
-                  <StyledSelect value={yearSection.value} onChange={(v) => yearSection.onChange(v)} options={YEAR_SECTIONS} placeholder="Select section" hasError={!!yearSection.error} />
-                  <FieldError msg={yearSection.error} />
-                </div>
-                <div>
-                  <FieldLabel>Batch {reqStar}</FieldLabel>
-                  <StyledInput value={batch.value} onChange={(v) => batch.onChange(v.replace(/[^\d-]/g, "").slice(0, 9))} placeholder="2026-2027" hasError={!!batch.error} />
-                  <FieldError msg={batch.error} />
-                  {!batch.error && batchHint(batch.value) && <p style={{ fontFamily: font.ui, ...type.helper, color: success, marginTop: "4px", paddingLeft: "14px" }}>{batchHint(batch.value)}</p>}
-                </div>
                 {/* Only a coordinator with more than one department picks one.
                     Everyone else's students simply get their own department. */}
                 {coordinatorColleges.length > 1 && (
@@ -1395,6 +1456,17 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
                     <FieldError msg={collegeError} />
                   </div>
                 )}
+                <div>
+                  <FieldLabel>Section {reqStar}</FieldLabel>
+                  <SectionSelect value={yearSection.value} onChange={(v) => yearSection.onChange(v)} college={college} existing={sectionList} hasError={!!yearSection.error} />
+                  <FieldError msg={yearSection.error} />
+                </div>
+                <div>
+                  <FieldLabel>Batch {reqStar}</FieldLabel>
+                  <StyledInput value={batch.value} onChange={(v) => batch.onChange(v.replace(/[^\d-]/g, "").slice(0, 9))} placeholder="2026-2027" hasError={!!batch.error} />
+                  <FieldError msg={batch.error} />
+                  {!batch.error && batchHint(batch.value) && <p style={{ fontFamily: font.ui, ...type.helper, color: success, marginTop: "4px", paddingLeft: "14px" }}>{batchHint(batch.value)}</p>}
+                </div>
                 <ProgramMajorFields programs={programObjs} program={program} major={major} onProgram={(v) => { handleProgramChange(v); setMajorTouched(false); }} onMajor={(v) => { setMajor(v); setMajorTouched(true); }} programError={createProgramError} majorError={createMajorError} />
               </div>
 
@@ -1485,7 +1557,7 @@ const StudentForm = ({ initial = {}, readOnly = false, onClose, onSubmit, submit
           <div id="sa-modal-info" className="sa-info-grid">
             <div>
               <FieldLabel>Year & section {reqStar}</FieldLabel>
-              <StyledSelect value={yearSection.value} onChange={(v) => yearSection.onChange(v)} options={YEAR_SECTIONS} placeholder="Select section" disabled={locked} hasError={!!yearSection.error} />
+              <SectionSelect value={yearSection.value} onChange={(v) => yearSection.onChange(v)} college={college} existing={sectionList} disabled={locked} hasError={!!yearSection.error} />
               <FieldError msg={yearSection.error} />
             </div>
             <div>
@@ -1630,7 +1702,7 @@ const validateRow = (row, rowIndex, seenIds = new Map(), existingIds = new Set()
 };
 
 // ── Import Modal ───────────────────────────────────────────────────────────────
-const ImportModal = ({ onClose, onImport, coordinatorColleges = [], departments = {}, existingIds = [] }) => {
+const ImportModal = ({ onClose, onImport, coordinatorColleges = [], departments = {}, sectionsByCollege = {}, existingIds = [] }) => {
   const [dragging, setDragging] = useState(false);
   // Section and batch are typed once here and stamped on every row, instead of
   // being repeated down two template columns where one row could disagree with
@@ -1784,9 +1856,20 @@ const ImportModal = ({ onClose, onImport, coordinatorColleges = [], departments 
 
           {/* One section, batch (and department / program / major) for the whole file. */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: space.sm, marginTop: space.md }}>
+            {coordinatorColleges.length > 1 && (
+              <div style={{ gridColumn: "1 / -1" }}>
+                <SmallLabel>Department <span style={{ color: danger }}>*</span></SmallLabel>
+                <StyledSelect
+                  value={department}
+                  onChange={(v) => { setDepartment(v); setProgram(""); setMajor(""); setSection(""); }}
+                  options={coordinatorColleges.map(name => ({ value: name, label: name }))}
+                  placeholder="Select department"
+                />
+              </div>
+            )}
             <div>
               <SmallLabel>Section <span style={{ color: danger }}>*</span></SmallLabel>
-              <StyledSelect value={section} onChange={setSection} options={YEAR_SECTIONS} placeholder="Select section" />
+              <SectionSelect value={section} onChange={setSection} college={department} existing={sectionsOfCollege(sectionsByCollege, department)} />
             </div>
             <div>
               <SmallLabel>Batch <span style={{ color: danger }}>*</span></SmallLabel>
@@ -1799,17 +1882,6 @@ const ImportModal = ({ onClose, onImport, coordinatorColleges = [], departments 
               {batchError && <p role="alert" style={{ fontFamily: font.ui, ...type.helper, color: danger, margin: "4px 0 0 14px" }}>{batchError}</p>}
               {!batchError && batchTouched && batchHint(batch) && <p style={{ fontFamily: font.ui, ...type.helper, color: success, margin: "4px 0 0 14px" }}>{batchHint(batch)}</p>}
             </div>
-            {coordinatorColleges.length > 1 && (
-              <div style={{ gridColumn: "1 / -1" }}>
-                <SmallLabel>Department <span style={{ color: danger }}>*</span></SmallLabel>
-                <StyledSelect
-                  value={department}
-                  onChange={(v) => { setDepartment(v); setProgram(""); setMajor(""); }}
-                  options={coordinatorColleges.map(name => ({ value: name, label: name }))}
-                  placeholder="Select department"
-                />
-              </div>
-            )}
             <ProgramMajorFields programs={programObjs} program={program} major={major} onProgram={(v) => { setProgram(v); setMajor(""); }} onMajor={setMajor} Label={SmallLabel} />
           </div>
 
@@ -1874,7 +1946,7 @@ const EMPTY_FILTERS = { program: "", specialization: "", sex: "", section: "", b
 // students the OTHER filters still allow (e.g. sections inside the chosen batch).
 const matchesPanelFilters = (s, f, skip = "") =>
   (skip === "sex"            || !f.sex            || s.sex === f.sex) &&
-  (skip === "section"        || !f.section        || sectionLetterOf(s) === f.section) &&
+  (skip === "section"        || !f.section        || sectionIdOf(s) === f.section) &&
   (skip === "batch"          || !f.batch          || batchKeyOf(s) === f.batch) &&
   (skip === "program"        || !f.program        || s.program === f.program) &&
   (skip === "specialization" || !f.specialization || (s.specialization || s.major) === f.specialization);
@@ -1977,7 +2049,7 @@ const FilterPanel = ({ filters, setFilters, filterRef, coordinatorColleges = [],
 
       <hr style={{ border: "none", borderTop: `1px solid ${lineSoft}`, margin: "10px 0" }} />
 
-      {/* Section — only sections that have registered students (A–Z possible). */}
+      {/* Section — only sections that have registered students, per department. */}
       <div style={{ padding: "0 14px 12px" }}>
         <p style={{ ...groupLabel, marginBottom: space.sm }}>Section</p>
         <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
@@ -2357,6 +2429,19 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
   const archivedStudents = students.filter(s => isArchivedStudent(s));
   const pool = viewTab === "archived" ? archivedStudents : activeStudents;
 
+  // Sections that already exist, per department (active students only). Feeds every Section dropdown.
+  const sectionsByCollege = React.useMemo(() => {
+    const map = {};
+    students.filter(st => !isArchivedStudent(st)).forEach((st) => {
+      const k = collegeKey(st.college);
+      if (!k || !String(st.yearSection || "").trim()) return;
+      if (!map[k]) map[k] = [];
+      map[k].push(st.yearSection);
+    });
+    Object.keys(map).forEach((k) => { map[k] = uniqueSections(map[k]); });
+    return map;
+  }, [students]);
+
   // Option lists come from the students actually in this tab AND allowed by the
   // other filters, so the panel never offers a batch or section that returns nobody.
   // A currently-selected value stays listed (even at 0) so it can be switched off.
@@ -2365,10 +2450,28 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
   const batchOptions = sortBatchKeys([...batchCounts.keys()]).map(k => ({
     key: k, label: k === BATCH_NONE ? "No batch" : k, count: batchCounts.get(k),
   }));
-  const sectionCounts = countBy(pool.filter(s => matchesPanelFilters(s, filters, "section")), sectionLetterOf);
+  // Sections are per department: one chip per (department, section). With one department the chip
+  // is just "4-A"; a coordinator with several sees "4-A · CCS" and "4-A · CBA" as separate chips.
+  const sectionInfo = new Map();   // id -> { section, college }, from every student so a chip is always labelled
+  students.forEach(st => {
+    const id = sectionIdOf(st);
+    if (id && !sectionInfo.has(id)) sectionInfo.set(id, { section: String(st.yearSection).trim(), college: st.college });
+  });
+  const multiDept = normalizedCoordinatorColleges.length > 1;
+  const sectionLabelOf = (id) => {
+    const info = sectionInfo.get(id);
+    if (!info) return id.split("|")[1] || id;
+    return multiDept ? `${info.section} · ${deptAbbrOf(departments, info.college)}` : info.section;
+  };
+  const sectionCounts = countBy(pool.filter(s => matchesPanelFilters(s, filters, "section")), sectionIdOf);
   sectionCounts.delete("");
   if (filters.section && !sectionCounts.has(filters.section)) sectionCounts.set(filters.section, 0);
-  const sectionOptions = [...sectionCounts.keys()].sort().map(k => ({ key: k, label: k, count: sectionCounts.get(k) }));
+  const sectionOptions = [...sectionCounts.keys()]
+    .sort((a, b) => {
+      const [ca, sa] = a.split("|"); const [cb, sb] = b.split("|");
+      return ca.localeCompare(cb) || sa.localeCompare(sb, undefined, { numeric: true, sensitivity: "base" });
+    })
+    .map(k => ({ key: k, label: sectionLabelOf(k), count: sectionCounts.get(k) }));
 
   const filtered = pool.filter(s => matchesStudentSearch(s, search) && matchesPanelFilters(s, filters));
 
@@ -2732,7 +2835,7 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
           <div style={{ display: "flex", alignItems: "center", gap: space.sm, marginBottom: space.md, flexWrap: "wrap" }}>
             {[
               filters.sex            && { label: filters.sex,                   clear: () => setFilters(prev => ({ ...prev, sex: "" })) },
-              filters.section        && { label: `Section ${filters.section}`, clear: () => setFilters(prev => ({ ...prev, section: "" })) },
+              filters.section        && { label: `Section ${sectionLabelOf(filters.section)}`, clear: () => setFilters(prev => ({ ...prev, section: "" })) },
               filters.program        && { label: filters.program,               clear: () => setFilters(prev => ({ ...prev, program: "", specialization: "" })) },
               filters.specialization && { label: filters.specialization,        clear: () => setFilters(prev => ({ ...prev, specialization: "" })) },
               filters.batch          && { label: batchLabelOf(filters.batch),   clear: () => setFilters(prev => ({ ...prev, batch: "" })) },
@@ -2827,13 +2930,14 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
         </div>
       </div>
 
-      {showNewModal    && <StudentForm coordinatorColleges={normalizedCoordinatorColleges} departments={departments} onClose={() => setShowNewModal(false)} onSubmit={handleCreate} submitLabel="Create account" />}
+      {showNewModal    && <StudentForm coordinatorColleges={normalizedCoordinatorColleges} departments={departments} sectionsByCollege={sectionsByCollege} onClose={() => setShowNewModal(false)} onSubmit={handleCreate} submitLabel="Create account" />}
       {viewingStudent  && (
         <StudentForm
           initial={viewingStudent}
           readOnly
           coordinatorColleges={normalizedCoordinatorColleges}
           departments={departments}
+          sectionsByCollege={sectionsByCollege}
           onClose={() => setViewingStudent(null)}
           onSubmit={handleSave}
           archived={isArchivedStudent(viewingStudent)}
@@ -2843,7 +2947,7 @@ const CoordinatorStudentsAcccountScreen = ({ coordinatorUid, coordinatorColleges
           onDelete={() => { const id = viewingStudent.id; setViewingStudent(null); handleDelete(id); }}
         />
       )}
-      {showImportModal && <ImportModal existingIds={students.map(s => s.studentId)} coordinatorColleges={normalizedCoordinatorColleges} departments={departments} onClose={() => setShowImportModal(false)} onImport={handleImport} />}
+      {showImportModal && <ImportModal existingIds={students.map(s => s.studentId)} coordinatorColleges={normalizedCoordinatorColleges} departments={departments} sectionsByCollege={sectionsByCollege} onClose={() => setShowImportModal(false)} onImport={handleImport} />}
 
       {/* ── Default password was reset by an edit ── */}
       {credentialResetInfo && (
