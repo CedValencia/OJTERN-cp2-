@@ -222,10 +222,10 @@ const TOURS = {
 
   // ── Sub-screens of Account Profile ──
   "profile:personal": [
-    { target: [".ap-edit-btn"], title: "Edit", body: "Change your name. Your email and role are shown here but are changed elsewhere (Sign-in Email) or fixed." },
+    { target: [".ap-edit-btn"], title: "Edit", body: "Change your name. Your email and role are shown here but are changed elsewhere (Change Email) or fixed." },
     { target: ['[data-tour="info-name"]'], title: "Name", body: "The name other people see, for example in the Activity Log." },
     { target: [".ap-name-input"], title: "Your new name", body: "Type it here (up to 60 characters), then press Save. Cancel keeps the old one." },
-    { target: ['[data-tour="info-email"]'], title: "Email address", body: "The email you sign in with. To change it, go back and open Sign-in Email." },
+    { target: ['[data-tour="info-email"]'], title: "Email address", body: "The email you sign in with. To change it, go back and open Change Email." },
     { target: ['[data-tour="info-role"]'], title: "Role", body: "Your account type." },
     { target: [".ap-sub-header .ap-back"], title: "Back", body: "Return to the Account Profile menu." },
   ],
@@ -3176,11 +3176,7 @@ const AccountProfile = ({ admin, flash }) => {
 
       {/* ── Pop-up forms ── */}
       {modal === "email" && (
-<<<<<<< HEAD
-        <ApModal title="Sign-in email" onClose={closeModal} help={emailStep === "code" ? "profile:email-code" : "profile:email"}
-=======
-        <ApModal title="Change email" onClose={closeModal}
->>>>>>> a72a81eca4eaa174564372c511cda9ba20e4ab57
+        <ApModal title="Change email" onClose={closeModal} help={emailStep === "code" ? "profile:email-code" : "profile:email"}
           sub="This is the email you sign in with, and where password reset links are sent. We’ll send a 6-digit code to the new address to confirm it’s yours."
           footer={
             <>
