@@ -445,7 +445,7 @@ export const logOut = () => signOut(auth);
  * This project's Firebase Auth project has a custom Action URL configured
  * (same reason the password-reset flow above was rewritten to skip Firebase's
  * email links entirely — see resetPasswordInApp's docstring) — so clicking a
- * Firebase action link lands DIRECTLY on our own continueUrl (ojtern.com/signin)
+ * Firebase action link lands DIRECTLY on our own continueUrl (ojtern.query-quest.site/signin)
  * with `?mode=verifyEmail&oobCode=...` in the query string, and Firebase's own
  * hosted confirmation page — which would otherwise call applyActionCode
  * automatically — never runs. Without this function, the link "worked" in the
@@ -648,7 +648,7 @@ export const resetPassword = async (email) => {
       // Firebase's own hosted page handles the reset itself (mode=resetPassword).
       // This "url" is just the "Continue" destination shown after that's done —
       // send the user straight to sign-in, no custom in-app reset screen involved.
-      url: "https://ojtern.web.app/signin",
+      url: "https://ojtern.query-quest.site/signin",
     });
   } catch (err) {
     if (err.code === "auth/too-many-requests") {

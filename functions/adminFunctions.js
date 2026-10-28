@@ -208,7 +208,7 @@ const sendStaleInviteReminders = async (db, now = Date.now()) => {
 
 // Admins sign in on the normal sign-in page: signInAuto() recognises an administrator and opens the admin
 // dashboard, so no emailed link needs to point at the separate /admin form any more.
-const ADMIN_PAGE_URL = "https://ojtern.web.app/signin";
+const ADMIN_PAGE_URL = "https://ojtern.query-quest.site/signin";
 const RECENT_SIGN_IN_SECONDS = 5 * 60;
 const esc = (v) => clean(v).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
@@ -564,7 +564,7 @@ module.exports = ({ sendMail, resendApiKey }) => {
       if (Date.now() - lastSent < ADMIN_RESET_COOLDOWN_MS) { console.log(`Admin reset skipped for ${user.uid}: within cooldown.`); return genericOk; }
 
       let resetUrl;
-      try { resetUrl = await getAuth().generatePasswordResetLink(email, { url: "https://ojtern.web.app/signin" }); }
+      try { resetUrl = await getAuth().generatePasswordResetLink(email, { url: "https://ojtern.query-quest.site/signin" }); }
       catch (error) { console.error(`Admin reset: link generation failed for ${user.uid}:`, error); return genericOk; }
 
       const name = adminSnap.get("name") || "there";

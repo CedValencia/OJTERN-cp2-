@@ -45,7 +45,7 @@ const EMAIL_REPLY_TO  = process.env.EMAIL_REPLY_TO || "support@ojtern.com";
 // To change it: upload the new file (Cloudinary, Firebase Storage, or any
 // public host), paste its URL here, and redeploy the functions.
 const EMAIL_LOGO_URL = process.env.EMAIL_LOGO_URL
-  || "https://ojtern.com/email-logo-512.png";
+  || "https://ojtern.query-quest.site/email-logo-512.png";
 
 // studentPersonalEmails/{email} → { uid }: written by the app when a student
 // saves a personal (recovery) email. See requestStudentPasswordReset below.
@@ -149,7 +149,7 @@ exports.sendApprovalEmail = onDocumentUpdated(
       // `auth.currentUser.emailVerified` after sign-in on the client.
       // Generating the link can fail (no Auth user for this email, Admin SDK
       // permissions, transient outage). It previously fell back to a bare
-      // https://ojtern.com/signin — which produced the worst possible failure
+      // https://ojtern.query-quest.site/signin — which produced the worst possible failure
       // mode: a perfectly normal-looking approval email whose Activate button
       // carried no oobCode at all, so clicking it did nothing and the company
       // was told to "activate your account first" forever, with no way out.
@@ -160,7 +160,7 @@ exports.sendApprovalEmail = onDocumentUpdated(
       let verifyUrl = null;
       try {
         verifyUrl = await getAuth().generateEmailVerificationLink(newData.email, {
-          url: "https://ojtern.com/signin",
+          url: "https://ojtern.query-quest.site/signin",
         });
       } catch (error) {
         console.error(
@@ -181,13 +181,13 @@ exports.sendApprovalEmail = onDocumentUpdated(
           </tr>
         </table>`
         : `
-        <p>To finish setting up, go to <a href="https://ojtern.com/signin">ojtern.com/signin</a>,
+        <p>To finish setting up, go to <a href="https://ojtern.query-quest.site/signin">ojtern.query-quest.site/signin</a>,
         enter your email, and click <strong>Resend activation link</strong> — we'll email you a
         fresh activation link right away.</p>`;
 
       const ctaText = verifyUrl
         ? `Activate your account and sign in: ${verifyUrl}`
-        : `To finish setting up, go to https://ojtern.com/signin, enter your email, and click "Resend activation link".`;
+        : `To finish setting up, go to https://ojtern.query-quest.site/signin, enter your email, and click "Resend activation link".`;
 
       const html = `
         <h2>Welcome to OJTern!</h2>
@@ -335,7 +335,7 @@ exports.sendAccountStandingEmail = onDocumentUpdated(
     const reasonText = reason ? `Reason: ${reason}\n\n` : "";
 
     const currentYear = new Date().getFullYear();
-    const loginUrl = "https://ojtern.com/signin";
+    const loginUrl = "https://ojtern.query-quest.site/signin";
     const logoUrl = EMAIL_LOGO_URL;
     const badgeLabel = newStatus === "suspended" ? "Suspended" : newStatus === "blocked" ? "Blocked" : "Active";
 
@@ -573,7 +573,7 @@ exports.sendApplicationStatusEmail = onDocumentUpdated(
     const subject = isWithdrawn ? "Application Withdrawn — OJTern" : "Application Status Update — OJTern";
 
     const currentYear = new Date().getFullYear();
-    const loginUrl = "https://ojtern.com/signin";
+    const loginUrl = "https://ojtern.query-quest.site/signin";
     const logoUrl = EMAIL_LOGO_URL;
 
     const html = `
@@ -763,7 +763,7 @@ exports.sendApplicationSubmittedEmail = onDocumentCreated(
     }
 
     const currentYear = new Date().getFullYear();
-    const loginUrl = "https://ojtern.com/signin";
+    const loginUrl = "https://ojtern.query-quest.site/signin";
     const logoUrl = EMAIL_LOGO_URL;
     const positionLineHtml = positionTitle
       ? `<p style="margin:0 0 20px; font-size:15px; color:#333; line-height:1.6;">Position: <strong>${positionTitle}</strong></p>`
@@ -1005,7 +1005,7 @@ exports.sendCoordinatorInviteEmail = onDocumentCreated(
     const copy = invite.type === "admin" && invite.transfer === true
       ? INVITE_COPY.admin_transfer
       : (INVITE_COPY[invite.type] || INVITE_COPY.add);
-    const acceptUrl = `https://ojtern.web.app/accept-invite?id=${inviteId}&token=${invite.token}`;
+    const acceptUrl = `https://ojtern.query-quest.site/accept-invite?id=${inviteId}&token=${invite.token}`;
     const fromWho = invite.fromName || invite.fromEmail;
 
     const html = `
@@ -1125,7 +1125,7 @@ exports.resendCompanyActivation = onCall(
       let verifyUrl;
       try {
         verifyUrl = await getAuth().generateEmailVerificationLink(email, {
-          url: "https://ojtern.com/signin",
+          url: "https://ojtern.query-quest.site/signin",
         });
       } catch (error) {
         console.error(`Activation resend: link generation failed for ${email}:`, error);
@@ -1269,7 +1269,7 @@ exports.requestStudentPasswordReset = onCall(
       let resetUrl;
       try {
         resetUrl = await getAuth().generatePasswordResetLink(loginEmail, {
-          url: "https://ojtern.com/signin",
+          url: "https://ojtern.query-quest.site/signin",
         });
       } catch (error) {
         console.error(`Student reset: link generation failed for ${uid}:`, error);
@@ -1898,7 +1898,7 @@ exports.deleteUnsentAttachments = onDocumentUpdated(
 // ADMIN ACCOUNT (separate from coordinators). Defined in adminFunctions.js; it is
 // loaded here, at the end, because it reuses sendMail and resendApiKey from above.
 // ═══════════════════════════════════════════════════════════════════════════
-Object.assign(exports, require("./adminFunctions")({ sendMail, resendApiKey }));
+Object.assign(exports, require("adminFunctions")({ sendMail, resendApiKey }));
 
 // ── checkEmailAvailable ──────────────────────────────────────────────────────
 // Used BEFORE a signed-in coordinator / company asks Firebase to email a "confirm your new
